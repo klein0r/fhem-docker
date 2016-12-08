@@ -1,0 +1,18 @@
+version: '2'
+
+services:
+    fhem:
+        expose:
+            - "8083"
+        ports:
+            - "8083:8083"
+        build: fhem
+#        volumes:
+#            - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+#            - ./es_data:/usr/share/elasticsearch/data
+        networks:
+            - code-network
+
+networks:
+    code-network:
+        driver: bridge
