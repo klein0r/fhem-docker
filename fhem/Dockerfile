@@ -6,8 +6,8 @@ ENV DEBIAN_FRONTEND noninteractive
 ENV TERM xterm
 
 # Install dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends apt-utils
-RUN apt-get -y --force-yes install perl wget git nano make gcc g++ apt-transport-https libavahi-compat-libdnssd-dev sudo nodejs etherwake
+RUN apt-get update && apt-get upgrade -y --force-yes && apt-get install -y --force-yes --no-install-recommends apt-utils
+RUN apt-get -y --force-yes install perl wget git apt-transport-https libavahi-compat-libdnssd-dev sudo nodejs etherwake
 
 # Install perl packages
 RUN apt-get -y --force-yes install libalgorithm-merge-perl \
@@ -35,7 +35,12 @@ libxml-simple-perl
 RUN wget -qO - https://debian.fhem.de/archive.key | apt-key add -
 RUN echo "deb https://debian.fhem.de/stable ./" | tee -a /etc/apt/sources.list.d/fhem.list
 RUN apt-get update
-RUN apt-get -y --force-yes install supervisor fhem telnet
-RUN mkdir -p /var/log/supervisor
+RUN apt-get -y --force-yes install fhem telnet
 
 RUN echo Europe/Berlin > /etc/timezone && dpkg-reconfigure tzdata
+
+RUN chown fhem /opt/fhem/fhem.cfg
+
+VOLUME ["/opt/fhem"]
+
+EXPOSE 8083

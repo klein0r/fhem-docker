@@ -7,9 +7,34 @@ services:
         ports:
             - "8083:8083"
         build: fhem
+        privileged: true
+        devices:
+          - "/dev/ttyUSB0:/dev/ttyUSB0"
 #        volumes:
 #            - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
 #            - ./es_data:/usr/share/elasticsearch/data
+        networks:
+            - code-network
+
+    homebridge:
+        expose:
+            - "51826"
+        ports:
+            - "51826:51826"
+        build: homebridge
+        networks:
+            - code-network
+
+    mysql:
+        expose:
+            - "3306"
+            - "33060"
+        ports:
+            - "3306:3306"
+            - "33060:33060"
+        image: mysql/mysql-server:5.7
+        environment:
+            - MYSQL_ROOT_PASSWORD=fhemlog
         networks:
             - code-network
 
