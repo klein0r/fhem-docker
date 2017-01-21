@@ -7,12 +7,17 @@ ENV TERM xterm
 
 # Install dependencies
 RUN apt-get update && apt-get upgrade -y --force-yes && apt-get install -y --force-yes --no-install-recommends apt-utils
-RUN apt-get -y --force-yes install perl wget git apt-transport-https libavahi-compat-libdnssd-dev sudo nodejs etherwake
+RUN apt-get -y --force-yes install perl wget git apt-transport-https sudo etherwake dfu-programmer build-essential snmpd snmp vim
 
 # Install perl packages
-RUN apt-get -y --force-yes install libalgorithm-merge-perl \
+RUN apt-get -y --force-yes install \
+libavahi-compat-libdnssd-dev \
+libalgorithm-merge-perl \
+libclass-dbi-mysql-perl \
 libclass-isa-perl \
 libcommon-sense-perl \
+libdatetime-format-strptime-perl \
+libdbi-perl \
 libdevice-serialport-perl \
 libdpkg-perl \
 liberror-perl \
@@ -39,8 +44,12 @@ RUN apt-get -y --force-yes install fhem telnet
 
 RUN echo Europe/Berlin > /etc/timezone && dpkg-reconfigure tzdata
 
-RUN chown fhem /opt/fhem/fhem.cfg
+RUN cd /opt/fhem/www/ && git clone https://github.com/klein0r/fhem-style-haus-automatisierung.git hausautomatisierung-com && chown -R fhem:dialout /opt/fhem/www/hausautomatisierung-com
 
-VOLUME ["/opt/fhem"]
+WORKDIR "/opt/fhem"
 
-EXPOSE 8083
+COPY start.sh ./
+
+EXPOSE 8083 7072
+
+CMD bash /opt/fhem/start.sh

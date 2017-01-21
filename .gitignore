@@ -2,3 +2,4 @@
 .idea
 !.gitkeep
 /fhem/log/*
+/mysql/data/*

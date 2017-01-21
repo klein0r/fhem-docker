@@ -4,27 +4,31 @@ services:
     fhem:
         expose:
             - "8083"
+            - "7072"
         ports:
             - "8083:8083"
+            - "7072:7072"
         build: fhem
         privileged: true
         devices:
           - "/dev/ttyUSB0:/dev/ttyUSB0"
-#        volumes:
-#            - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
-#            - ./es_data:/usr/share/elasticsearch/data
+        volumes:
+            - ./fhem/log/:/opt/fhem/log
+            - ./fhem/fhem.cfg:/opt/fhem/fhem.cfg
+            - ./fhem/FHEM/99_myUtils.pm:/opt/fhem/FHEM/99_myUtils.pm
+            - ./fhem/contrib/dblog/db.conf:/opt/fhem/contrib/dblog/db.conf
         networks:
             - code-network
 
-    homebridge:
-        expose:
-            - "51826"
-        ports:
-            - "51826:51826"
-        build: homebridge
-        networks:
-            - code-network
-
+#    homebridge:
+#        expose:
+#            - "51826"
+#        ports:
+#            - "51826:51826"
+#        build: homebridge
+#        networks:
+#            - code-network
+#
     mysql:
         expose:
             - "3306"
@@ -33,8 +37,11 @@ services:
             - "3306:3306"
             - "33060:33060"
         image: mysql/mysql-server:5.7
+        volumes:
+            - ./mysql/init.sql:/docker-entrypoint-initdb.d/fhem-init.sql
+            - ./mysql/data:/var/lib/mysql
         environment:
-            - MYSQL_ROOT_PASSWORD=fhemlog
+            - MYSQL_ROOT_PASSWORD=adgbciBOZjwYXeATg
         networks:
             - code-network
 

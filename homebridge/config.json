@@ -1,20 +1,18 @@
 {
-    "bridge": {
-        "name": "Homebridge FHEM",
-        "username": "CC:22:3D:E3:CE:29",
-        "port": 51826,
-        "pin": "012-34-567"
-    },
-
-    "platforms": [
-        {
-            "platform": "FHEM",
-            "name": "FHEM",
-            "server": "fhem",
-            "port": "8083",
-            "filter": "room=Homekit"
-        }
-     ],
-
-    "accessories": []
+  "bridge": {
+    "name": "Homebridge FHEM",
+    "username": "CC:22:3D:E3:CE:29",
+    "port": 51826,
+    "pin": "012-34-567"
+  },
+  "platforms": [
+    {
+      "platform": "FHEM",
+      "name": "FHEM",
+      "server": "fhem",
+      "port": "8083",
+      "filter": "room=Homekit"
+    }
+  ],
+  "accessories": []
 }
