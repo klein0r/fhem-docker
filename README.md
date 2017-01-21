@@ -26,3 +26,7 @@ docker-compose up
 - mySQL-Root-Password: adgbciBOZjwYXeATg
 - mySQL-User: fhemuser
 - mySQL-Password: 2jRHnEi3WuNSQAcX7
+
+## Updating FHEM
+
+Since all data in the container is static, you have to delete the container and recreate it to update fhem.

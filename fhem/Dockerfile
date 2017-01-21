@@ -40,7 +40,7 @@ libxml-simple-perl
 RUN wget -qO - https://debian.fhem.de/archive.key | apt-key add -
 RUN echo "deb https://debian.fhem.de/stable ./" | tee -a /etc/apt/sources.list.d/fhem.list
 RUN apt-get update
-RUN apt-get -y --force-yes install fhem telnet
+RUN apt-get -y --force-yes install fhem telnet usbutils
 
 RUN echo Europe/Berlin > /etc/timezone && dpkg-reconfigure tzdata
 
