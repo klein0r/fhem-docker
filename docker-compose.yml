@@ -19,16 +19,24 @@ services:
             - ./fhem/contrib/dblog/db.conf:/opt/fhem/contrib/dblog/db.conf
         networks:
             - code-network
+        depends_on:
+            - "mysql"
 
-#    homebridge:
-#        expose:
-#            - "51826"
-#        ports:
-#            - "51826:51826"
-#        build: homebridge
-#        networks:
-#            - code-network
-#
+    homebridge:
+        expose:
+            - "51826"
+            - "8282"
+        ports:
+            - "51826:51826"
+            - "8282:8282"
+        build: homebridge
+        volumes:
+            - ./homebridge/config.json:/root/.homebridge/config.json
+        networks:
+            - code-network
+        depends_on:
+            - "fhem"
+
     mysql:
         expose:
             - "3306"
