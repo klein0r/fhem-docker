@@ -13,10 +13,12 @@ services:
         devices:
           - "/dev/ttyUSB0:/dev/ttyUSB0"
         volumes:
+            - ./fhem/start.sh:/opt/fhem/start.sh
             - ./fhem/log/:/opt/fhem/log
-            - ./fhem/fhem.cfg:/opt/fhem/fhem.cfg
-            - ./fhem/FHEM/99_myUtils.pm:/opt/fhem/FHEM/99_myUtils.pm
-            - ./fhem/contrib/dblog/db.conf:/opt/fhem/contrib/dblog/db.conf
+            - ./fhem/data/fhem.cfg:/opt/fhem/fhem.cfg
+            - ./fhem/data/controls.txt:/opt/fhem/controls.txt
+            - ./fhem/data/FHEM/99_myUtils.pm:/opt/fhem/FHEM/99_myUtils.pm
+            - ./fhem/data/contrib/dblog/db.conf:/opt/fhem/contrib/dblog/db.conf
         networks:
             - code-network
         depends_on:
@@ -31,6 +33,7 @@ services:
             - "8282:8282"
         build: homebridge
         volumes:
+            - ./homebridge/start.sh:/root/start.sh
             - ./homebridge/config.json:/root/.homebridge/config.json
         networks:
             - code-network
@@ -49,7 +52,7 @@ services:
             - ./mysql/init.sql:/docker-entrypoint-initdb.d/fhem-init.sql
             - ./mysql/data:/var/lib/mysql
         environment:
-            - MYSQL_ROOT_PASSWORD=adgbciBOZjwYXeATg
+            - MYSQL_RANDOM_ROOT_PASSWORD=yes
         networks:
             - code-network
 
