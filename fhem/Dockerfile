@@ -43,6 +43,7 @@ RUN echo Europe/Berlin > /etc/timezone && dpkg-reconfigure tzdata
 
 RUN wget https://debian.fhem.de/fhem.deb && dpkg -i fhem.deb
 RUN cd /opt/fhem/www/ && git clone https://github.com/klein0r/fhem-style-haus-automatisierung.git hausautomatisierung-com && chown -R fhem:dialout /opt/fhem/www/hausautomatisierung-com
+RUN userdel fhem
 
 WORKDIR "/opt/fhem"
 
