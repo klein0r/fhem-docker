@@ -47,7 +47,7 @@ RUN userdel fhem
 
 WORKDIR "/opt/fhem"
 
-
+COPY data/fhem.cfg.example ./fhem.cfg
 COPY start.sh ./
 
 EXPOSE 8083 7072

@@ -17,7 +17,7 @@ services:
             - ./fhem/log/:/opt/fhem/log
             - ./fhem/backup/:/opt/fhem/backup
             - ./fhem/data/fhem.cfg:/opt/fhem/fhem.cfg
-            - ./fhem/data/controls.txt:/opt/fhem/controls.txt
+            - ./fhem/data/FHEM/controls.txt:/opt/fhem/FHEM/controls.txt
             - ./fhem/data/FHEM/99_myUtils.pm:/opt/fhem/FHEM/99_myUtils.pm
             - ./fhem/data/contrib/dblog/db.conf:/opt/fhem/contrib/dblog/db.conf
         networks:

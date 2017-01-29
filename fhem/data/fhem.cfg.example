@@ -1,7 +1,7 @@
 attr global userattr DbLogExclude DbLogInclude cmdIcon devStateIcon devStateStyle genericDeviceType:security,ignore,switch,outlet,light,blind,thermometer,thermostat,contact,garage,window,lock homebridgeMapping:textField-long icon sortby webCmd widgetOverride
 attr global autoload_undefined_devices 1
 attr global icon it_network
-attr global logfile ./log/fhem-%Y-%m.log
+attr global logfile -
 attr global modpath .
 attr global motd none
 attr global room System
