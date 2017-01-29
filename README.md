@@ -3,20 +3,20 @@
 ## Contains
 
 - FHEM + haus-automatisierung.com FHEM frontend style + Tablet UI + ABFALL Module
-- Apache 2 as a reverse proxy to FHEM
 - Homebridge + FHEM Homebridge
 - mySQL-Logging
-- alexa-FHEM
 
 ## Requirements
 
 - Docker
+- Docker-Compose
 
 ## Install
 
 ```
 git clone https://github.com/klein0r/fhem-docker.git fhem-docker
 cd fhem-docker
+cp ./fhem/data/fhem.cfg.example ./fhem/data/fhem.cfg
 docker-compose up
 ```
 
