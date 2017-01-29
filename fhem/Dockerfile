@@ -7,7 +7,7 @@ ENV TERM xterm
 
 # Install dependencies
 RUN apt-get update && apt-get upgrade -y --force-yes && apt-get install -y --force-yes --no-install-recommends apt-utils
-RUN apt-get -y --force-yes install perl wget git apt-transport-https sudo etherwake dfu-programmer build-essential snmpd snmp vim
+RUN apt-get -y --force-yes install perl wget git apt-transport-https sudo etherwake dfu-programmer build-essential snmpd snmp vim telnet usbutils
 
 # Install perl packages
 RUN apt-get -y --force-yes install \
@@ -37,16 +37,15 @@ libwww-perl \
 libxml-simple-perl
 
 # Install fhem
-RUN wget -qO - https://debian.fhem.de/archive.key | apt-key add -
-RUN echo "deb https://debian.fhem.de/stable ./" | tee -a /etc/apt/sources.list.d/fhem.list
-RUN apt-get update
-RUN apt-get -y --force-yes install fhem telnet usbutils
+
 
 RUN echo Europe/Berlin > /etc/timezone && dpkg-reconfigure tzdata
 
+RUN wget https://debian.fhem.de/fhem.deb && dpkg -i fhem.deb
 RUN cd /opt/fhem/www/ && git clone https://github.com/klein0r/fhem-style-haus-automatisierung.git hausautomatisierung-com && chown -R fhem:dialout /opt/fhem/www/hausautomatisierung-com
 
 WORKDIR "/opt/fhem"
+
 
 COPY start.sh ./
 
