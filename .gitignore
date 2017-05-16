@@ -1,6 +1,6 @@
 .DS_Store
 .idea
 !.gitkeep
-/fhem/fhem.cfg
+/fhem/data/fhem.cfg
 /fhem/log/*
 /mysql/data/*
