@@ -16,7 +16,6 @@ define telnetPort telnet 7072 global
 attr telnetPort room System
 
 define WEB FHEMWEB 8083 global
-attr WEB CssFiles hausautomatisierung-com/styles.css
 attr WEB JavaScripts codemirror/fhem_codemirror.js
 attr WEB editConfig 1
 attr WEB icon it_i-net
