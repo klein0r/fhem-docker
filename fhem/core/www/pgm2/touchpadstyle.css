@@ -1,0 +1,17 @@
+@import url("defaultCommon.css");
+
+body     { font-size:18px; }
+textarea { font-size:18px; }
+input    { font-size:18px; }
+select   { font-size:18px; }
+textarea { font-family:Arial, sans-serif; font-size:16px;}
+
+#logo    { position:absolute; top:10px; left:10px;
+           width:120px;  height:132px;
+           background-image:url(../images/default/fhemicon.png); }
+#menu    { position:absolute; top:152px;left:10px; width:140px; }
+#hdr     { position:absolute; top:10px; left:160px; }
+#content { position:absolute; top:50px; left:160px; bottom:20px; right:10px; }
+
+.col1, .col2, .col3  { padding: 8px; }
+.dname, .dval { padding: 8px; }

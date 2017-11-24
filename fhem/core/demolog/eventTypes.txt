@@ -1,0 +1,109 @@
+425 Alarm off
+376 Alarm on
+55 Alarm on-for-timer .*
+819 AllLights LastDevice: Alarm
+26 AllLights LastDevice: Livingroom
+26 AllLights LastDevice: Office
+20 AllLights LastDevice: Outdoor
+819 AllLights LastDevice_Abs: Alarm
+26 AllLights LastDevice_Abs: Livingroom
+26 AllLights LastDevice_Abs: Office
+20 AllLights LastDevice_Abs: Outdoor
+426 AllLights off
+33 AllLights on
+477 AllLights undefined
+406 CUL_0 TRANSMIT LIMIT EXCEEDED
+11 CeilingLight dim0%
+19 CeilingLight dim37%
+33 CeilingLight off
+1 Lamp1 on
+6 Livingroom dim0%
+1 Livingroom dim06%
+12 Livingroom dim100%
+1 Livingroom dim18%
+1 Livingroom dim37%
+3 Livingroom dim50%
+1 Livingroom dim62%
+1 Livingroom dim68%
+3 Livingroom dim75%
+2 Livingroom dim87%
+20 Livingroom off
+22 Livingroom on
+1 Office dim100%
+1 Office dim50%
+1 Office dim75%
+1 Office dim93%
+31 Office off
+35 Office on
+28 Outdoor off
+29 Outdoor on
+5 Outdoor on-for-timer .*
+29 Projector off
+17 Projector on
+7 ReadingLight dim0%
+13 ReadingLight dim12%
+19 ReadingLight dim37%
+24 ReadingLight off
+1 SVG_01_Garden copyGplotFile
+1 SVG_02_Cellar copyGplotFile
+1 SVG_03_Dewpoint copyGplotFile
+1 SVG_Log.Cellar_1 copyGplotFile
+2 SVG_Log.Dewpoint_1 copyGplotFile
+1 SVG_Log.Garden_1 copyGplotFile
+17 Screen down
+30 Screen up
+1 Sens.Out T: .*  H: .*  W: .*  R: .*  IR: no
+31 TV off
+14 TV on
+15 lcCinema scene AllOff
+19 lcCinema scene Break
+16 lcCinema scene Cinema
+13 lcCinema scene WatchTV
+740 minuteTimer 
+1 rgr_Children home
+1 rgr_Children lastActivity: home
+1 rgr_Children lastActivityBy: Baby
+1 rgr_Children lastAwake: .*.*.* .*:.*:.*
+1 rgr_Children lastDurSleep: .*:.*:.*
+1 rgr_Children lastState: asleep
+2 rgr_Children register rr_Baby
+2 rgr_Children register rr_Daughter
+2 rgr_Children register rr_Son
+1 rgr_Children residentsAsleep: .*
+1 rgr_Children residentsHome: .*
+2 rgr_Guests register rg_Guest1
+2 rgr_Guests register rg_Guest2
+1 rgr_Parents lastActivity: absent
+1 rgr_Parents lastActivityBy: Father
+2 rgr_Parents register rr_Father
+2 rgr_Parents register rr_Mother
+1 rgr_Parents residentsAbsent: .*
+1 rgr_Parents residentsGone: .*
+1 rgr_Residents lastActivity: absent
+1 rgr_Residents lastActivity: home
+1 rgr_Residents lastActivityBy: Baby
+1 rgr_Residents lastActivityBy: Father
+2 rgr_Residents register rg_Guest1
+2 rgr_Residents register rg_Guest2
+2 rgr_Residents register rr_Baby
+2 rgr_Residents register rr_Daughter
+2 rgr_Residents register rr_Father
+2 rgr_Residents register rr_Mother
+2 rgr_Residents register rr_Son
+1 rgr_Residents residentsAbsent: .*
+1 rgr_Residents residentsAsleep: .*
+1 rgr_Residents residentsGone: .*
+1 rgr_Residents residentsHome: .*
+1 rr_Baby durTimerPresence: .*
+2 rr_Baby durTimerSleep: .*
+1 rr_Baby home
+1 rr_Baby lastAwake: .*.*.* .*:.*:.*
+1 rr_Baby lastDurSleep: .*:.*:.*
+1 rr_Baby lastState: asleep
+1 rr_Baby mood: calm
+2 rr_Daughter durTimerAbsence: .*
+1 rr_Father absent
+2 rr_Father durTimerAbsence: .*
+1 rr_Father lastState: gone
+2 rr_Mother durTimerPresence: .*
+2 rr_Son durTimerAbsence: .*

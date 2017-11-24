@@ -1,0 +1,75 @@
+@import url("defaultCommon.css");
+
+#console { height:auto; }
+textarea { font-family:Arial, sans-serif; font-size:16px;}
+#back    { position:absolute; top: 2px; left:18px; }
+#logo    { position:absolute; top: 2px; left: 2px; 
+           width:64px;  height:67px;
+           background-image:url(../images/default/fhemicon_smallscreen.png); }
+#menu    { position:absolute; top: 2px; left:65px; }
+#hdr     { position:absolute; top:40px; left:65px; }
+#content { position:absolute; top:85px; left: 0px; right: 0px;}
+#right   { position:absolute; top:30px; left: 0px; right: 0px; }
+#errmsg  { left:0px; }
+
+.devType { font-size:12px;}
+
+div.col1 { width: 188px; height: 30px; white-space: nowrap; }
+div.col2 { width: 142px; height: 30px; 
+  -webkit-box-pack: center; -moz-box-pack: center; box-pack: center;
+  white-space: wrap;
+  font-size:16px;
+}
+
+div.col1, div.col2, div.col3 {
+  overflow: hidden; text-overflow: ellipsis;
+
+  padding-top: 10px; padding-bottom: 10px;
+  padding-left: 5px; padding-right: 5px;
+  display: -webkit-box; -webkit-box-align: center;
+  display: -moz-box; -moz-box-align: center;
+
+  background-image:-webkit-gradient(linear, right top, right bottom,
+                   color-stop(0%,#fffff7), color-stop(100%,#ffffb7));
+  background-image:-moz-linear-gradient(top, #fffff7, #ffffb7);
+  background-image:-o-linear-gradient(top, #fffff7, #ffffb7);
+}
+
+div.dname, div.dval  {
+  width: 152px; 
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size:16px;
+}
+div.tiny { font-size:10px; }
+
+table.block { width: 320px; border-spacing:0px; border:0; } 
+table.block tr { border:1px solid gray; border-spacing:0px; }
+table.block td { width: 150px; }
+
+#menu #block { visibility: hidden; }
+button.dist { margin:5px; }
+
+.slider { float:right; width:320px; height:26px; }
+.set .slider,.get slider,.attr .slider { background:#F0F0D8; }
+
+#cloudfree { display:none; }
+
+/* Portrait mode */
+@media all and (orientation:portrait) {
+  table.block select, table.block input { width: 0px; display: none; }
+  table.block tr td:nth-child(n+3) { width: 0px; display: none; }
+}
+
+/* Landscape mode */
+@media all and (orientation:landscape) {
+  div.col1 { width:282px; }
+  div.col2 { width:108px; }
+  div.col3 { width:100%; min-width:108px; height:30px; }
+
+  table.block input { text-align: center; }
+  table.block tr td:nth-child(3) { text-align: center; }
+
+  table.block div.slider { min-width: 108px; text-align: center; }
+  table.block slider { float: none; }
+  table.block select { text-align: center; }
+}

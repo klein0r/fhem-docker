@@ -1,0 +1,33 @@
+##############################################
+# $Id: EnO_voltage4current4.gplot 9622 2015-10-24 06:34:52Z klaus-schauer $
+# Display the battery voltage und current
+# FileLog definition: 
+# define FileLog_device FileLog ./log/device-%Y.log device
+#
+# Logfile record example:
+# 2015-10-17_08:38:08 device voltage: 1.4
+# 2015-10-17_08:38:08 device current: 100
+
+# Attribute 'small' is useful for gnuplot/-scroll only,
+# if plotsize is less than 800,400
+#set terminal png transparent small size <SIZE> crop
+
+set terminal png transparent size <SIZE> crop
+
+set output '<OUT>.png'
+set xdata time
+set timefmt "%Y-%m-%d_%H:%M:%S"
+set title '<TL>'
+set xlabel " "
+set ylabel "U/V"
+set y2label "I/uA"
+set ytics
+set yrange [0:7]
+set grid xtics ytics
+
+#FileLog 4:voltage:0:
+#FileLog 4:current:0:
+
+plot \
+  "<IN>" using 1:2 ls l0 axes x1y1 title 'Voltage' with lines,\
+  "<IN>" using 1:2 ls l1 axes x1y2 title 'Current' with lines

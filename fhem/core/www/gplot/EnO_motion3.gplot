@@ -1,0 +1,27 @@
+##############################################
+# $Id: EnO_motion3.gplot 9508 2015-10-18 08:33:29Z klaus-schauer $
+# Display a motion log
+# FileLog definition: 
+# define FileLog_device FileLog ./log/device-%Y.log device
+#
+# Logfile record example:
+# 2015-10-17_08:38:08 device motion: on|off
+
+set terminal png transparent size <SIZE> crop
+set output '<OUT>.png'
+set xdata time
+set timefmt "%Y-%m-%d_%H:%M:%S"
+set xlabel " "
+set ylabel "Motion"
+set title '<TL>'
+set ytics ("on" 1, "off" 0.0)
+set y2tics ("on" 1, "off" 0.0)
+set yrange [-0.1:1.1]
+set y2range [-0.1:1.1]
+
+#FileLog "1.0":motion..on:1.0:
+#FileLog "0.0":motion..off:0.0:
+
+plot\
+  "< awk '/motion:.on/ {print $1, 1.0; }' <IN>" using 1:2 notitle with points,\
+  "< awk '/motion:.off/{print $1, 0.0; }' <IN>" using 1:2 notitle with points

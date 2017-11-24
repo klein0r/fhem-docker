@@ -1,0 +1,37 @@
+@import url("dashboard_ios7.css");
+
+/* jQuery-UI mods */
+div.ui-dialog { border:3px solid #e5e5e5; padding: 0.2em; }
+div.ui-dialog div.ui-dialog-titlebar { display:none; }
+div.ui-widget-content { font-family:Helvetica; background:white; color:#151515;}
+div.ui-widget-content a { color: #147bff!important; text-decoration:none!important; cursor: pointer!important;}
+
+.colorpicker_ct .slider { background: url(../jscolor/ct_background.svg); }
+.colorpicker_ct_mired .slider { background: url(../jscolor/ct_mired_background.svg); }
+.colorpicker_hue .slider { background: url(../jscolor/hue_background.svg); }
+.get,.set,.attr { margin-bottom:5px; float:left; }
+select.svgSrc     { width:100px; }
+select.svgColumn  { width:50px;  }
+select.svgRegexp  { width:120px; }
+
+/* jQuery-UI mods */
+#fwmenu {
+  position: absolute; z-index:1005;
+  text-align:left; max-width:600px;
+  font-weight: normal; font-size: 100%; 
+  background:#e5e5e5;
+}
+#fwmenu li a { color:black; }
+
+div#svgmarker {
+  position: absolute; z-index:1005; padding: 6px 10px;
+  text-align:left; max-width:600px;
+  color:black; background:#e5e5e5;
+}
+
+svg.zw_nr .zwBox { stroke:#c0c0c0; stroke-width:2px; fill:#f7f7f7; }
+svg.zw_nr .zwDongle { stroke:red; stroke-width:2px; fill:#f7f7f7; }
+svg.zw_nr .zwMargin { stroke:#c0c0c0; stroke-width:1px; fill:none; }
+svg.zw_nr .zwLine { stroke:#c0c0c0; stroke-width:1px; }
+svg.zw_nr .zwArrowHead { fill:#147bff; stroke-width:1px; }
+svg.zw_nr { height:auto; width:auto; margin:0; }

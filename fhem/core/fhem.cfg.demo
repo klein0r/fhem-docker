@@ -1,0 +1,343 @@
+attr global userattr devStateIcon devStateStyle icon lightSceneParamsToSave lightSceneRestoreOnlyIfChanged:1,0 sortby structexclude webCmd widgetOverride
+attr global autoload_undefined_devices 1
+attr global backup_before_update 0
+attr global logfile -
+attr global modpath .
+attr global motd FHEM demo version
+attr global room System
+attr global sendStatistics never
+attr global statefile ./demolog/fhem.save
+attr global updateInBackground 1
+attr global verbose 3
+attr global mseclog
+
+define telnetPort telnet 7072 global
+attr telnetPort room System
+
+define WEB FHEMWEB 8083 global
+attr WEB JavaScripts codemirror/fhem_codemirror.js
+attr WEB defaultRoom Light
+attr WEB hiddenroom DashboardRoom
+attr WEB iconPath openautomation:fhemSVG:default
+attr WEB room System
+attr WEB sortRooms Light Cinema Residents Sensors System
+
+define WEBphone FHEMWEB 8084 global
+attr WEBphone hiddenroom DashboardRoom
+attr WEBphone iconPath openautomation:fhemSVG:default
+attr WEBphone room System
+attr WEBphone sortRooms Light Cinema Residents Sensors System
+attr WEBphone stylesheetPrefix smallscreen
+
+define WEBtablet FHEMWEB 8085 global
+attr WEBtablet hiddenroom DashboardRoom
+attr WEBtablet iconPath openautomation:fhemSVG:default
+attr WEBtablet room System
+attr WEBtablet sortRooms Light Cinema Residents Sensors System
+attr WEBtablet stylesheetPrefix ios7touchpad
+
+# Fake FileLog entry, to access the fhem log from FHEMWEB 
+define Logfile FileLog ./log/fhem-%Y-%m.log fakelog
+attr Logfile room System
+
+define autocreate autocreate
+attr autocreate room System
+define eventTypes eventTypes demolog/eventTypes.txt
+attr eventTypes room System
+
+define CUL_0 CUL none 0000
+attr CUL_0 dummy 1
+attr CUL_0 room System
+define Outdoor FS20 1234 11
+attr Outdoor userattr Light Light_map structexclude
+attr Outdoor IODev CUL_0
+attr Outdoor Light AllLights
+attr Outdoor group Single Lights
+attr Outdoor icon light_outdoor
+attr Outdoor room Light
+define Office FS20 1234 12
+attr Office userattr Light Light_map structexclude
+attr Office IODev CUL_0
+attr Office Light AllLights
+attr Office group Single Lights
+attr Office icon light_office
+attr Office model fs20st
+attr Office room Light
+define Livingroom FS20 1234 13
+attr Livingroom userattr Light Light_map structexclude
+attr Livingroom IODev CUL_0
+attr Livingroom Light AllLights
+attr Livingroom eventMap off:dim0% on:dim100%
+attr Livingroom group Single Lights
+attr Livingroom icon light_pendant_light
+attr Livingroom model fs20di
+attr Livingroom room Light
+attr Livingroom webCmd dim
+define AllLights structure Light Alarm Livingroom Office Outdoor CT RGB
+attr AllLights devStateIcon undefined:light_question
+attr AllLights group Structure
+attr AllLights icon light_light
+attr AllLights room Light
+define Alarm FS20 1234 14
+attr Alarm userattr Light Light_map structexclude
+attr Alarm IODev CUL_0
+attr Alarm Light AllLights
+attr Alarm follow-on-for-timer 1
+attr Alarm group Single Lights
+attr Alarm icon light_wall_2
+attr Alarm room Light
+attr Alarm webCmd blink 5 1
+define Garden KS300 1234
+attr Garden IODev CUL_0
+attr Garden group Sensors
+attr Garden room Sensors
+define Log.Garden FileLog demolog/garden.log Sens.Out:T:.*
+attr Log.Garden room Sensors
+define Log.Predicted FileLog demolog/predicted.log predicted:T:.*
+attr Log.Predicted room Sensors
+define Cellar CUL_WS 1 -1 -3.5
+attr Cellar group Sensors
+attr Cellar room Sensors
+define SVG_01_Garden SVG Log.Garden:SVG_01_Garden:CURRENT
+attr SVG_01_Garden label "Temp: Min $data{min1}, Max $data{max1}, Last $data{currval1}"
+attr SVG_01_Garden room Sensors
+attr SVG_01_Garden startDate 2013-08-13
+define Log.Cellar FileLog demolog/cellar.log Cellar:T:.*
+attr Log.Cellar room Sensors
+define SVG_02_Cellar SVG Log.Cellar:SVG_02_Cellar:CURRENT
+attr SVG_02_Cellar label "Temp: Min $data{min1}, Max $data{max1}, Last $data{currval1}"
+attr SVG_02_Cellar room Sensors
+attr SVG_02_Cellar startDate 2013-08-13
+define Log.Dewpoint FileLog demolog/dewpoint.log .*dewpoint.*
+attr Log.Dewpoint room Sensors
+define dew_all dewpoint dewpoint .*
+attr dew_all group Helper
+attr dew_all room Sensors
+define SVG_03_Dewpoint SVG Log.Dewpoint:SVG_03_Dewpoint:CURRENT
+attr SVG_03_Dewpoint room Sensors
+attr SVG_03_Dewpoint startDate 2013-08-13
+define logProxy logProxy
+attr logProxy room System
+define SVG_04_Sun SVG logProxy:SVG_04_Sun:CURRENT
+attr SVG_04_Sun room Sensors
+attr SVG_04_Sun fixedrange year
+attr SVG_04_Sun title {"".logProxy_dec2hms($data{min1})." - ".logProxy_dec2hms($data{max1})." - ".logProxy_dec2hms($data{min2})." - ".logProxy_dec2hms($data{max2})}
+define SVG_05_Polar SVG logProxy:SVG_05_Polar:CURRENT
+attr SVG_05_Polar room Sensors
+attr SVG_05_Polar plotsize 340,300
+
+define sunRise at *{sunrise()} set Office on
+attr sunRise group Timer
+attr sunRise icon weather_sunrise
+attr sunRise room Light
+define sunSet at *{sunset()} set Office off
+attr sunSet group Timer
+attr sunSet icon weather_sunset
+attr sunSet room Light
+define outdoorNotifier notify Outdoor:.* set Office $EVENT
+attr outdoorNotifier group Notify
+attr outdoorNotifier icon light_ceiling_light
+attr outdoorNotifier room Light
+
+define Projector dummy
+attr Projector userattr lightSceneParamsToSave lightSceneRestoreOnlyIfChanged:1,0
+attr Projector devStateIcon on:control_on_off:off off:control_home:on
+attr Projector group AV
+attr Projector room Cinema
+attr Projector setList on:noArg off:noArg
+attr Projector webCmd on:off
+define TV dummy
+attr TV userattr lightSceneParamsToSave lightSceneRestoreOnlyIfChanged:1,0
+attr TV devStateIcon on:control_on_off:off off:control_home:on
+attr TV group AV
+attr TV room Cinema
+attr TV setList on:noArg off:noArg
+attr TV webCmd on:off
+define Screen dummy
+attr Screen userattr lightSceneParamsToSave lightSceneRestoreOnlyIfChanged:1,0
+attr Screen devStateIcon down:fts_garage_door_100:up up:fts_garage_door_10:down
+attr Screen group AV
+attr Screen room Cinema
+attr Screen setList up:noArg down:noArg
+attr Screen webCmd down:up
+define CeilingLight FS20 0001 01
+attr CeilingLight userattr lightSceneParamsToSave lightSceneRestoreOnlyIfChanged:1,0
+attr CeilingLight IODev CUL_0
+attr CeilingLight eventMap off:dim0% on:dim100%
+attr CeilingLight group Light
+attr CeilingLight icon light_ceiling_light
+attr CeilingLight model dummyDimmer
+attr CeilingLight room Cinema
+attr CeilingLight webCmd on:off:dim
+define ReadingLight FS20 0001 02
+attr ReadingLight userattr lightSceneParamsToSave lightSceneRestoreOnlyIfChanged:1,0
+attr ReadingLight IODev CUL_0
+attr ReadingLight eventMap off:dim0% on:dim100%
+attr ReadingLight group Light
+attr ReadingLight icon light_floor_lamp
+attr ReadingLight room Cinema
+attr ReadingLight webCmd on:off:dim:dim 50
+define wlCinema weblink htmlCode {LightScene_2html("lcCinema")}
+attr wlCinema room Cinema
+define lcCinema LightScene Projector Screen TV CeilingLight ReadingLight
+attr lcCinema alias Scenes
+attr lcCinema devStateIcon AllOff:control_home Break:rc_PAUSE Cinema:scene_cinema WatchTV:it_television
+attr lcCinema group Control
+attr lcCinema icon scene_scene
+attr lcCinema room Cinema
+attr lcCinema webCmd scene
+
+define anyViews Dashboard
+attr anyViews userattr dashboard_tab2backgroundimage dashboard_tab2colcount dashboard_tab2devices dashboard_tab2groups dashboard_tab2icon dashboard_tab2name dashboard_tab2rowcentercolwidth dashboard_tab2sorting
+attr anyViews dashboard_colcount 2
+attr anyViews dashboard_row center
+attr anyViews dashboard_rowcentercolwidth 50%
+attr anyViews dashboard_tab1groups Home State,Light,AV,Single Lights,Color Lights
+attr anyViews dashboard_tab1name Dashboard Demo
+attr anyViews dashboard_tab1sorting t0c0,Single Lights,true,400,209,0,0:t0c0,AV,true,400,170,0,209:t0c1,Light,true,444,129,h84,0:t0c1,Home State,true,444,204,384,129:
+attr anyViews room hidden
+attr anyViews alias Dashboard Demo
+
+define anyViews_weblink weblink htmlCode {DashboardAsHtml("anyViews")}
+attr anyViews_weblink room DashboardRoom
+
+define rgr_Residents RESIDENTS
+attr rgr_Residents alias Residents
+attr rgr_Residents devStateIcon .*home:status_available:absent .*absent:status_away_1:home .*gone:status_standby:home .*none:control_building_empty .*gotosleep:status_night:asleep .*asleep:status_night:awoken .*awoken:status_available:home
+attr rgr_Residents group Home State
+attr rgr_Residents icon control_building_filled
+attr rgr_Residents room Residents
+attr rgr_Residents sortby 2
+attr rgr_Residents webCmd state
+define rgr_Parents RESIDENTS
+attr rgr_Parents alias Parents
+attr rgr_Parents devStateIcon .*home:status_available:absent .*absent:status_away_1:home .*gone:status_standby:home .*none:control_building_empty .*gotosleep:status_night:asleep .*asleep:status_night:awoken .*awoken:status_available:home
+attr rgr_Parents group Home State
+attr rgr_Parents icon control_building_filled
+attr rgr_Parents room Residents
+attr rgr_Parents sortby 2
+attr rgr_Parents webCmd state
+define rgr_Children RESIDENTS
+attr rgr_Children alias Children
+attr rgr_Children devStateIcon .*home:status_available:absent .*absent:status_away_1:home .*gone:status_standby:home .*none:control_building_empty .*gotosleep:status_night:asleep .*asleep:status_night:awoken .*awoken:status_available:home
+attr rgr_Children group Home State
+attr rgr_Children icon control_building_filled
+attr rgr_Children room Residents
+attr rgr_Children sortby 3
+attr rgr_Children webCmd state
+define rgr_Guests RESIDENTS
+attr rgr_Guests alias Guests
+attr rgr_Guests devStateIcon .*home:status_available:absent .*absent:status_away_1:home .*gone:status_standby:home .*none:control_building_empty .*gotosleep:status_night:asleep .*asleep:status_night:awoken .*awoken:status_available:home
+attr rgr_Guests group Home State
+attr rgr_Guests icon control_building_filled
+attr rgr_Guests room Residents
+attr rgr_Guests sortby 4
+attr rgr_Guests webCmd state
+define rg_Guest1 GUEST rgr_Residents,rgr_Guests
+attr rg_Guest1 alias Guest1
+attr rg_Guest1 devStateIcon .*home:user_available:absent .*absent:user_away:home .*none:control_building_empty:home .*gotosleep:scene_toilet:asleep .*asleep:scene_sleeping:awoken .*awoken:scene_sleeping_alternat:home .*:user_unknown
+attr rg_Guest1 group Guests
+attr rg_Guest1 icon scene_visit_guests
+attr rg_Guest1 rg_autoGoneAfter 0.01
+attr rg_Guest1 rg_realname alias
+attr rg_Guest1 room Residents
+attr rg_Guest1 sortby 1
+attr rg_Guest1 webCmd state
+define rg_Guest2 GUEST rgr_Residents,rgr_Guests
+attr rg_Guest2 alias Guest2
+attr rg_Guest2 devStateIcon .*home:user_available:absent .*absent:user_away:home .*none:control_building_empty:home .*gotosleep:scene_toilet:asleep .*asleep:scene_sleeping:awoken .*awoken:scene_sleeping_alternat:home .*:user_unknown
+attr rg_Guest2 group Guests
+attr rg_Guest2 icon scene_visit_guests
+attr rg_Guest2 rg_autoGoneAfter 0.01
+attr rg_Guest2 rg_realname alias
+attr rg_Guest2 room Residents
+attr rg_Guest2 sortby 1
+attr rg_Guest2 webCmd state
+define rr_Father ROOMMATE rgr_Residents,rgr_Parents
+attr rr_Father alias Status
+attr rr_Father devStateIcon .*home:user_available:absent .*absent:user_away:home .*gone:user_ext_away:home .*gotosleep:scene_toilet:asleep .*asleep:scene_sleeping:awoken .*awoken:scene_sleeping_alternat:home .*:user_unknown
+attr rr_Father group Father
+attr rr_Father icon status_available
+attr rr_Father room Residents
+attr rr_Father rr_autoGoneAfter 0.1
+attr rr_Father sortby 0
+attr rr_Father webCmd state
+define rr_Mother ROOMMATE rgr_Residents,rgr_Parents
+attr rr_Mother alias Status
+attr rr_Mother devStateIcon .*home:user_available:absent .*absent:user_away:home .*gone:user_ext_away:home .*gotosleep:scene_toilet:asleep .*asleep:scene_sleeping:awoken .*awoken:scene_sleeping_alternat:home .*:user_unknown
+attr rr_Mother group Mother
+attr rr_Mother icon status_available
+attr rr_Mother room Residents
+attr rr_Mother rr_autoGoneAfter 0.1
+attr rr_Mother rr_passPresenceTo rr_Baby
+attr rr_Mother sortby 0
+attr rr_Mother webCmd state
+define rr_Daughter ROOMMATE rgr_Residents,rgr_Children
+attr rr_Daughter alias Status
+attr rr_Daughter devStateIcon .*home:user_available:absent .*absent:user_away:home .*gone:user_ext_away:home .*gotosleep:scene_toilet:asleep .*asleep:scene_sleeping:awoken .*awoken:scene_sleeping_alternat:home .*:user_unknown
+attr rr_Daughter group Daughter
+attr rr_Daughter icon status_available
+attr rr_Daughter room Residents
+attr rr_Daughter sortby 0
+attr rr_Daughter webCmd state
+define rr_Son ROOMMATE rgr_Residents,rgr_Children
+attr rr_Son alias Status
+attr rr_Son devStateIcon .*home:user_available:absent .*absent:user_away:home .*gone:user_ext_away:home .*gotosleep:scene_toilet:asleep .*asleep:scene_sleeping:awoken .*awoken:scene_sleeping_alternat:home .*:user_unknown
+attr rr_Son group Son
+attr rr_Son icon status_available
+attr rr_Son room Residents
+attr rr_Son sortby 0
+attr rr_Son webCmd state
+define AllResidentsAway notify rgr_Residents:(absent|gone) set AllLights off;;set lcCinema scene AllOff
+attr AllResidentsAway room Residents
+define ResidentsComeHome notify rgr_Residents:home set Outdoor on
+attr ResidentsComeHome room Residents
+define rr_Baby ROOMMATE rgr_Residents,rgr_Children
+attr rr_Baby alias Status
+attr rr_Baby devStateIcon .*home:user_available:absent .*absent:user_away:home .*gone:user_ext_away:home .*gotosleep:scene_toilet:asleep .*asleep:scene_sleeping:awoken .*awoken:scene_sleeping_alternat:home .*:user_unknown
+attr rr_Baby group Baby
+attr rr_Baby icon status_available
+attr rr_Baby room Residents
+attr rr_Baby sortby 0
+attr rr_Baby webCmd state
+define RGB readingsProxy RGB
+attr RGB userattr Light Light_map structexclude
+attr RGB Light AllLights
+attr RGB alias RGB Light
+attr RGB comment light with the ability to change RGB color
+attr RGB devStateIcon {Color::devStateIcon("RGB","rgb","rgb","state")}
+attr RGB group Color Lights
+attr RGB room Light
+attr RGB setFn {if( $CMD =~ m/on|off/ ) { $ARGS=$CMD;;$CMD = "state" } else {fhem ("setreading $DEVICE state on");;} if( $CMD =~ m/hue/ ) {my ($r,$g,$b) = Color::hsv2rgb($ARGS/360,1,1);; my $rgb = Color::rgb2hex( $r*255, $g*255, $b*255 );; fhem ("setreading $DEVICE rgb $rgb");;} if( $CMD =~ m/rgb/ && $ARGS =~ m/^(..)(..)(..)/ ) {my( $r, $g, $b ) = (hex($1)/255.0, hex($2)/255.0, hex($3)/255.0);; my ($h,$s,$v) = Color::rgb2hsv($r,$g,$b);; my $hue = int($h*359);;  fhem ("setreading $DEVICE hue $hue");;} fhem ("setreading $DEVICE $CMD $ARGS");;return undef;;}
+attr RGB setList on:noArg off:noArg rgb:colorpicker,RGB hue:colorpicker,HUE,0,1,359
+attr RGB webCmd hue:rgb:rgb ff0000:rgb 00ff00:rgb 0000ff:rgb ffffff:on:off
+define colorInit notify global:INITIALIZED {use Color;;Color_Initialize()}
+attr colorInit room hidden
+define CT readingsProxy CT
+attr CT userattr Light Light_map structexclude
+attr CT Light AllLights
+attr CT alias CT Light
+attr CT comment light with the ability to change the color temperature
+attr CT devStateIcon {Color::devStateIcon("CT","rgb","rgb","state")}
+attr CT getFn { my ($r,$g,$b) = Color::ct2rgb( ReadingsVal($DEVICE,"ct",333) );; return (Color::rgb2hex($r,$g,$b), 1);; }
+attr CT getList rgb:noArg
+attr CT group Color Lights
+attr CT room Light
+attr CT setFn {if( $CMD =~ m/on|off/ ) { $ARGS=$CMD;;$CMD = "state" } else {fhem ("setreading $DEVICE state on");;}  fhem ("setreading $DEVICE $CMD $ARGS");;return undef;;}
+attr CT setList on:noArg off:noArg ct:colorpicker,CT,2000,1,6500
+attr CT webCmd ct::ct 2040:ct 2630:ct 3703:ct 6250:on:off
+
+define -ignoreErr Weather Weather 673513 1800 de
+attr Weather group Weather
+attr Weather room Weather
+
+define Weather.weblink weblink htmlCode { WeatherAsHtmlH("Weather") }
+attr Weather.weblink alias Weather Forecast
+attr Weather.weblink room Weather
+
+define -ignoreErr Display RSS jpg localhost ./demolog/layout
+attr Display room System
+attr Display size 800x600
+attr Display bg ./demolog/pictures
+attr Display tmin 15
+attr Display refresh 5

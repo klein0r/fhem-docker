@@ -1,0 +1,24 @@
+##############################################
+# $Id: EnO_windowHandle.gplot 9554 2015-10-19 20:16:35Z klaus-schauer $
+# Display a window log
+# FileLog definition: 
+# define FileLog_device FileLog ./log/device-%Y.log device
+#
+# Logfile record example:
+# 2015-10-17_08:38:08 device closed|open|tilted|open_from_tilted
+
+set terminal png transparent size <SIZE> crop
+set output '<OUT>.png'
+set xdata time
+set timefmt "%Y-%m-%d_%H:%M:%S"
+set xlabel " "
+set ylabel "Window"
+set title '<TL>'
+set ytics ("open" 1, "tilted" 0.5, "closed" 0)
+set y2tics ("open" 1, "tilted" 0.5, "closed" 0)
+set yrange [-0.1:1.1]
+set y2range [-0.1:1.1]
+
+#FileLog 3:.*:0:$fld[2]=~m/open|open_from_tilted/?1:($fld[2]=~m/tilted/?0.5:0)
+
+plot "<IN>" using 1:2 axes x1y1 notitle ls l0 lw 1 with steps

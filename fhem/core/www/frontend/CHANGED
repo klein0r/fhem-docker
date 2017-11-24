@@ -1,0 +1,88 @@
+Update vom 7.7.2013
+  * siehe Forumseintrag
+Update vom 30.6.2013
+  * Charts nun im Tree
+  * Tree sortierbar
+  * Kontextmenü im Tree
+  * Iframe für FHEM Frontend
+  * Rest siehe Thread im Forum
+Update vom 27.6.2013
+  * "Database Tables" können jetzt über Zeit und Parameter konkretisiert werden
+  * Bug aus Zeitsprüngen entfernt, damit zwischen Monatswechsel Datum korrekt angezeigt wird
+Update vom 01.5.2013
+  * Performance Verbesserungen der Charts
+  * Statistikberechnungen nach ZoomIn hinzugefügt
+  * Highcharts entfernt
+  * Schatten in Charts entfernt
+  * Achsenkonfiguration manuell möglich (min/max)
+  * Achsenbeschriftung verbessert
+Update vom 27.4.2013
+  * Performance Verbesserungen der Charts
+  * Achsenkonfiguration aufgeräumt
+  * Achsenbeschriftung verbessert / erweitert
+Update vom 26.4.2013
+  * Testintegration von Highcharts
+  * Neue abhängige Bibliotheken Highcharts und JQuery hinzugefügt
+Update vom 20.4.2013
+  * Über dem CHart wird nun eine interaktive Tabelle mit den zugehörigen Daten angezeigt
+  * Chartrendering effizienter
+Update vom 14.4.2013
+  * Multiple Y-Skalen hinzugefügt (linke + rechte Achse)
+  * Bug in Stepansicht behoben
+Update vom 09.4.2013
+  * Step Funktion für Charts hinzugefügt
+  * X-Achsenauswahl entfernt, da nur Timestmap Sinn macht
+Update vom 03.4.2013
+  * Bugfix in der Verarbeitung der Userconfig für nicht numerische Werte
+  * Icons hinzugefügt
+Update vom 01.4.2013
+  * Zoomen in Charts nun möglich mit aufziehbarer Box
+  * Erweiterung der Anzahl der möglichen Y-Achsen von 3 auf 10
+  * Jede Achse kann nun mit Statistikfunktionen einzeln versehen werden
+  * Bibliotheksupdate auf ExtJS 4.2.0
+  * Kleine Verbesserungen in der Unterstützung mobiler Geräte
+  * Bugfixes
+Update vom 23.3.2013
+  * Integration von Buttons und Dropdownlisten, um einzelene Geräte steuern zu können
+  * Aktualisierung aller Geräteinformationen über kontinuierliche AJAX Requests
+  * Korrektur der Statistikfunktion im DbLog Modul, Cast auf Floats hinzugefügt
+  * viele Bugfixes
+
+Update vom 18.3.2013
+  * Implementation einer Statistikfunktion für Charts, die für ein beliebiges Reading
+    * Summen
+    * Mittelwerte
+    * Maximalwerte
+    * Minimalwerte
+    * Insgesamte Anzahl
+  über einen definierbaren Zeitraum abfragt und darstellt
+  * Erweiterung in 93_DbLog.pm für die o.g. Statistikfunktionen für PostgreSQL, MYSQL und SQLITE
+Update vom 16.3.2013
+  * Implementation einer clientseitigen Generalisierung
+  * Implementation eines Trees im linken Bereich des Frontends, über den Geräte gesichtet und gewählt werden können
+  * Bugfix beim Speichern von Charts mit dynamischer Zeit
+Update vom 8.3.2013
+  * Erweiterung der Charts - Anzeige und Speicherung von dynamischen Zeiträumen (Woche, Tag,...)
+  * Bugfixes in der Darstellung der gespeicherten Farben eines Charts
+  * Implementation eine Konfigurationsdatei für den Benutzer
+  * Steuerung über diese Datei ermöglicht z.B. die Konversion in Charts von "on" zu 1, "closed" zu 0 usw.
+Update vom 7.3.2013
+  * Bugfixes für Chart speichern
+Update vom 6.3.2013
+  * Name des Charts beim Speichern escaped
+  * Bessere Fehlermeldung bei Device Selektion
+  * Merge von 93_DbLog auf den SVN Stand
+  * Versionsnummer hinzugefügt
+Update vom 2.3.2013
+  * Auslesen der verfügbaren Geräte / FHEM-Komponenten und Darstellung im Menü
+  * Kommandozeile hinzugefügt, inkl Speichern in der fhem.cfg
+  * Shutdown und Restart Button für FHEM hinzugefügt
+  * Icons  
+Update vom 1.3.2013
+  * Charts unterstützen jetzt mehrere Y Achsen. Diese können nach Klick auf den Button "Add another Y Axis" hinzugefügt werden
+  * Legenden enthalten die zusätzlichen Achsen
+  * Charts unterstützen jetzt Soll-Linien. Diese können nach Klick auf den Button "Add Baseline" hinzugefügt werden, Start und Endwert frei wählbar.
+  * Achsen und Soll-Linien können eingefärbt werden und, bei Bedarf, eine Füllung erhalten
+  * Das Errorhandling wurde verbessert, es sollten jetzt aussagekräftigere Meldungen kommen, wenn etwas schief läuft
+Wichtig:
+Es müssen leider, hoffentlich zum letzten Mal, die bestehenden Charts gelöscht werden, da diese unbrauchbar werden mit dem Update.

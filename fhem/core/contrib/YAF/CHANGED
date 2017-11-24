@@ -1,0 +1,15 @@
+0.45:
+- Added some Logs for debug (mangei.markus)
+
+older version 0.45:
+- Added JSON librabry as alternative for JSON::XS (mangei.markus)
+- Added webcam widget (marcproe)
+- path to background image is now configurable via the YAF interface (marcproe)
+- Added regex capability for generic widget onclick function (marcproe)
+- Added foundation for modify dialog and modify dialog for generic widget (marcproe)
+- Added Conig Save button (marcproe)
+- Added widget generic (marcproe)
+- Removed XML::LibXML configuration and implemented persistent configuration in FHEM config (marcproe)
+- Added widget fhttk (marcproe)
+- Added widget fht80 (marcproe)
+- Added control_yaf.txt to support update
