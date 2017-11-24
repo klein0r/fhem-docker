@@ -19,8 +19,8 @@ cd fhem-docker
 docker-compose up -d
 ```
 
-FHEM: http://<ip>:8083/fhem
-Node-Red: http://<ip>:1880/
+- FHEM: http://[ip]:8083/fhem
+- Node-Red: http://[ip]:1880/
 
 ## Defaults
 
