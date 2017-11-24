@@ -2,19 +2,21 @@
 #
 #  HMCCUConf.pm
 #
-#  $Id: HMCCUConf.pm 13300 2017-02-01 17:45:04Z zap $
+#  $Id: HMCCUConf.pm 15429 2017-11-13 15:36:46Z zap $
 #
-#  Version 3.9
+#  Version 4.1.002
 #
-#  Configuration parameters for Homematic devices.
+#  Configuration parameters for HomeMatic devices.
 #
-#  (c) 2016 zap (zap01 <at> t-online <dot> de)
+#  (c) 2017 by zap (zap01 <at> t-online <dot> de)
 #
-#  Datapoints LOWBAT, LOW_BAT, UNREACH, ERROR*, SABOTAGE and FAULT* must
-#  not be specified in ccureadingfilter. They are always stored as readings.
+#  Datapoints LOWBAT, LOW_BAT, UNREACH, ERROR.*, SABOTAGE and FAULT.*
+#  must not be specified in attribute ccureadingfilter. They are always
+#  stored as readings.
 #  Datapoints LOWBAT, LOW_BAT and UNREACH must not be specified in
-#  substitute because they are substituted by default.
-#  See attributes ccudef-readingname and ccudef-substitute in module HMCCU.
+#  attribute substitute because they are substituted by default.
+#  See also documentation of attributes ccudef-readingname and
+#  ccudef-substitute in module HMCCU.
 #
 #########################################################################
 
@@ -25,11 +27,12 @@ use warnings;
 
 use vars qw(%HMCCU_CHN_DEFAULTS);
 use vars qw(%HMCCU_DEV_DEFAULTS);
+use vars qw(%HMCCU_SCRIPTS);
 
-# 
-#
+######################################################################
 # Default attributes for Homematic devices of type HMCCUCHN
-#
+######################################################################
+
 %HMCCU_CHN_DEFAULTS = (
 	"HM-Sec-SCo|HM-Sec-SC|HM-Sec-SC-2|HMIP-SWDO" => {
 	_description     => "Tuer/Fensterkontakt optisch und magnetisch",
@@ -56,6 +59,17 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	statedatapoint   => "STATE",
    statevals        => "lock:false,unlock:true",
    substitute       => "STATE!(0|false):locked,(1|true):unlocked,2:open;INHIBIT!(0|false):no,(1|true):yes;STATE_UNCERTAIN!(1|true):manual;DIRECTION!0:none,1:up,2:down,3:undefined;ERROR!0:no,1:clutch_failure,2:motor_aborted"
+	},
+	"HM-LC-Sw1-Pl-CT-R1" => {
+	_description     => "Schaltaktor mit Klemmanschluss",
+	_channels        => "1",
+	ccureadingfilter => "(STATE|WORKING)",
+	cmdIcon          => "press:general_an",
+	eventMap         => "/on-for-timer 1:press/",
+	statedatapoint   => "STATE",
+	statevals        => "on:true,off:false",
+	substitute       => "STATE!(0|false):off,(1|true):on;WORKING!(0|false):no,(1|true):yes",
+	webCmd           => "press"
 	},
 	"HM-LC-Sw1-Pl-2|HMIP-PS" => {
 	_description     => "Steckdose",
@@ -99,7 +113,8 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	substitute       => "ERROR_REDUCED,ERROR_OVERHEAT!(0|false):no,(1|true):yes;LEVEL!#0-0:off,#1-100:on;DIRECTION!0:none,1:up,2:down,3:undefined",
 	webCmd           => "control:on:off",
 	widgetOverride   => "control:slider,0,10,100"	
-	},	"HM-LC-Dim1T-Pl|HM-LC-Dim1T-CV|HM-LC-Dim1T-FM|HM-LC-Dim1T-CV-2|HM-LC-Dim2T-SM|HM-LC-Dim2T-SM-2|HM-LC-Dim1T-DR|HM-LC-Dim1T-FM-LF|HM-LC-Dim1T-FM-2|HM-LC-Dim1T-Pl-3|HM-LC-Dim1TPBU-FM|HM-LC-Dim1TPBU-FM-2" => {
+	},
+	"HM-LC-Dim1T-Pl|HM-LC-Dim1T-CV|HM-LC-Dim1T-FM|HM-LC-Dim1T-CV-2|HM-LC-Dim2T-SM|HM-LC-Dim2T-SM-2|HM-LC-Dim1T-DR|HM-LC-Dim1T-FM-LF|HM-LC-Dim1T-FM-2|HM-LC-Dim1T-Pl-3|HM-LC-Dim1TPBU-FM|HM-LC-Dim1TPBU-FM-2" => {
 	_description     => "Funk-Abschnitt-Dimmaktor",
 	_channels        => "1",
 	ccureadingfilter => "(^LEVEL\$|DIRECTION)",
@@ -123,6 +138,30 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	statevals        => "press:true",
 	substitute       => "PRESS_SHORT,PRESS_LONG,PRESS_CONT!(1|true):pressed,(0|false):released;PRESS_LONG_RELEASE!(0|false):no,(1|true):yes"
 	},
+	"HM-SwI-3-FM" => {
+	_description     => "Funk-Schalterschnittstelle",
+	_channels        => "1,2,3",
+	ccureadingfilter => "PRESS",
+	statedatapoint   => "PRESS",
+	statevals        => "press:true",
+	substitute       => "PRESS!(1|true):pressed,(0|false):released"
+	},
+	"HM-PBI-4-FM" => {
+	_description     => "Funk-Tasterschnittstelle",
+	_channels        => "1,2,3,4",
+	ccureadingfilter => "PRESS",
+	statedatapoint   => "PRESS_SHORT",
+	statevals        => "press:true",
+	substitute       => "PRESS_SHORT,PRESS_LONG,PRESS_CONT!(1|true):pressed,(0|false):released;PRESS_LONG_RELEASE!(0|false):no,(1|true):yes"
+	},
+	"HM-RC-Key4-2|HM-RC-Key4-3|HM-RC-Sec4-2|HM-RC-Sec4-3" => {
+	_description     => "Funk-Handsender",
+	_channels        => "1,2,3,4",
+	ccureadingfilter => "PRESS",
+	"event-on-update-reading" => ".*",
+	statedatapoint   => "PRESS_SHORT",
+	substitute       => "PRESS_SHORT,PRESS_LONG!(1|true):pressed"
+	},
 	"HM-LC-Sw1PBU-FM" => {
 	_description     => "Unterputz Schaltaktor für Markenschalter",
 	_channels        => "1",
@@ -141,6 +180,14 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	statedatapoint   => "STATE",
 	statevals        => "on:true,off:false",
 	substitute       => "STATE!(1|true):on,(0|false):off"
+	},
+	"HM-MOD-Re-8" => {
+	_description     => "8 Kanal Empfangsmodul",
+	_channels        => "1,2,3,4,5,6,7,8",
+	ccureadingfilter => "(STATE|WORKING)",
+	statedatapoint   => "STATE",
+	statevals        => "on:true,off:false",
+	substitute       => "STATE!(1|true):on,(0|false):off;WORKING!(1|true):yes,(0|false):no"	
 	},
 	"HM-LC-Sw1-Pl|HM-LC-Sw1-Pl-2|HM-LC-Sw1-SM|HM-LC-Sw1-FM|HM-LC-Sw1-PB-FM" => {
 	_description     => "1 Kanal Funk-Schaltaktor",
@@ -188,6 +235,14 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	statedatapoint   => "TEMPERATURE",
 	stripnumber      => 1
 	},
+	"HM-WDS100-C6-O-2" => {
+	_description     => "Funk-Kombisensor",
+	_channels        => "1",
+	ccureadingfilter => "(HUMIDITY|TEMPERATURE|WIND|RAIN|SUNSHINE|BRIGHTNESS)",
+	statedatapoint   => "TEMPERATURE",
+	stripnumber      => 1,
+	substitute       => "RAINING!(1|true):yes,(0|false):no"
+	},
 	"HM-Sec-MD|HM-Sec-MDIR|HM-Sec-MDIR-2|HM-Sec-MDIR-3" => {
 	_description     => "Bewegungsmelder",
 	_channels        => "1",
@@ -200,8 +255,22 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	_description     => "Bewegungsmelder",
 	_channels        => "1",
 	ccureadingfilter => "(ILLUMINATION|MOTION)",
+	eventMap         => "/datapoint MOTION_DETECTION_ACTIVE 1:detection-on/datapoint MOTION_DETECTION_ACTIVE 0:detection-off/",
 	statedatapoint   => "MOTION",
 	substitute       => "MOTION!(0|false):no,(1|true):yes"
+	},
+	"HmIP-SPI" => {
+	_description     => "Anwesenheitssensor",
+	_channels        => "1",
+	ccureadingfilter => "(ILLUMINATION|PRESENCE)",
+	controldatapoint => "PRESENCE_DETECTION_ACTIVE",
+	eventMap         => "/datapoint RESET_PRESENCE 1:reset/datapoint PRESENCE_DETECTION_ACTIVE 1:detection-on/datapoint PRESENCE_DETECTION_ACTIVE 0:detection-off/",
+	hmstatevals      => "SABOTAGE!(1|true):sabotage",
+	statedatapoint   => "PRESENCE_DETECTION_STATE",
+	stripnumber      => 1,
+	substitute       => "PRESENCE_DETECTION_STATE!(0|false):no,(1|true):yes;PRESENCE_DETECTION_ACTIVE!(0|false):off,(1|true):on",
+	webCmd           => "control",
+	widgetOverride   => "control:uzsuToggle,off,on"
 	},
 	"HM-Sen-LI-O" => {
 	_description     => "Lichtsensor",
@@ -264,9 +333,10 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	}
 );
 
-#
+######################################################################
 # Default attributes for Homematic devices of type HMCCUDEV
-#
+######################################################################
+
 %HMCCU_DEV_DEFAULTS = (
    "CCU2" => {
    _description     => "HomeMatic CCU2",
@@ -307,6 +377,16 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	statevals        => "open:100,close:0",
 	stripnumber      => 1,
    substitute       => "LEVEL!-0.005:locked,#0-0:closed,#100-100:open;INHIBIT!(0|false):no,(1|true):yes;ERROR!0:no,1:motor_turn,2:motor_tilt;STATUS!0:trickle_charge,1:charge,2:discharge,3:unknown"
+	},
+	"HM-LC-Sw1-Pl-CT-R1" => {
+	_description     => "Schaltaktor mit Klemmanschluss",
+	ccureadingfilter => "(STATE|WORKING)",
+	cmdIcon          => "press:general_an",
+	eventMap         => "/on-for-timer 1:press/",
+	statedatapoint   => "1.STATE",
+	statevals        => "on:true,off:false",
+	substitute       => "STATE!(0|false):off,(1|true):on;WORKING!(0|false):no,(1|true):yes",
+	webCmd           => "press"
 	},
 	"HM-LC-Sw1-Pl-2" => {
 	_description     => "Steckdose",
@@ -378,7 +458,8 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	substitute       => "ERROR_REDUCED,ERROR_OVERHEAT!(0|false):no,(1|true):yes;LEVEL!#0-0:off,#1-100:on;DIRECTION!0:none,1:up,2:down,3:undefined",
 	webCmd           => "control:on:off",
 	widgetOverride   => "control:slider,0,10,100"	
-	},	"HM-LC-Dim1T-Pl|HM-LC-Dim1T-CV|HM-LC-Dim1T-FM|HM-LC-Dim1T-CV-2|HM-LC-Dim2T-SM|HM-LC-Dim2T-SM-2|HM-LC-Dim1T-DR|HM-LC-Dim1T-FM-LF|HM-LC-Dim1T-FM-2|HM-LC-Dim1T-Pl-3|HM-LC-Dim1TPBU-FM|HM-LC-Dim1TPBU-FM-2" => {
+	},
+	"HM-LC-Dim1T-Pl|HM-LC-Dim1T-CV|HM-LC-Dim1T-FM|HM-LC-Dim1T-CV-2|HM-LC-Dim2T-SM|HM-LC-Dim2T-SM-2|HM-LC-Dim1T-DR|HM-LC-Dim1T-FM-LF|HM-LC-Dim1T-FM-2|HM-LC-Dim1T-Pl-3|HM-LC-Dim1TPBU-FM|HM-LC-Dim1TPBU-FM-2" => {
 	_description     => "Funk-Abschnitt-Dimmaktor",
 	ccureadingfilter => "(^LEVEL\$|DIRECTION)",
 	ccuscaleval      => "LEVEL:0:1:0:100",
@@ -398,6 +479,23 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	ccureadingfilter => "PRESS",
 	substitute       => "PRESS_SHORT,PRESS_LONG,PRESS_CONT!(1|true):pressed,(0|false):released;PRESS_LONG_RELEASE!(0|false):no,(1|true):yes"
 	},
+	"HM-SwI-3-FM" => {
+	_description     => "Funk-Schalterschnittstelle",
+	ccureadingfilter => "PRESS",
+	statevals        => "press:true",
+	substitute       => "PRESS!(1|true):pressed,(0|false):released"
+	},
+	"HM-PBI-4-FM" => {
+	_description     => "Funk-Tasterschnittstelle",
+	ccureadingfilter => "PRESS",
+	substitute       => "PRESS_SHORT,PRESS_LONG,PRESS_CONT!(1|true):pressed,(0|false):released;PRESS_LONG_RELEASE!(0|false):no,(1|true):yes"
+	},
+	"HM-RC-Key4-2|HM-RC-Key4-3|HM-RC-Sec4-2|HM-RC-Sec4-3" => {
+	_description     => "Funk-Handsender",
+	ccureadingfilter => "PRESS",
+	"event-on-update-reading" => ".*",
+	substitute       => "PRESS_SHORT,PRESS_LONG!(1|true):pressed"
+	},
 	"HM-LC-Sw1PBU-FM" => {
 	_description     => "Unterputz Schaltaktor für Markenschalter",
 	ccureadingfilter => "STATE",
@@ -413,6 +511,12 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	ccureadingfilter => "STATE",
 	statevals        => "on:true,off:false",
 	substitute       => "STATE!(1|true):on,(0|false):off"
+	},
+	"HM-MOD-Re-8" => {
+	_description     => "8 Kanal Empfangsmodul",
+	ccureadingfilter => "(STATE|WORKING)",
+	statevals        => "on:true,off:false",
+	substitute       => "STATE!(1|true):on,(0|false):off;WORKING!(1|true):yes,(0|false):no"	
 	},
 	"HM-LC-Bl1PBU-FM|HM-LC-Bl1-FM|HM-LC-Bl1-SM|HM-LC-BlX|HM-LC-Bl1-SM-2|HM-LC-Bl1-FM-2" => {
 	_description     => "Jalousienaktor",
@@ -434,6 +538,7 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	cmdIcon          => "Auto:sani_heating_automatic Manu:sani_heating_manual Boost:sani_heating_boost on:general_an off:general_aus",
 	controldatapoint => "2.SET_TEMPERATURE",
 	eventMap         => "/datapoint 2.MANU_MODE 20.0:Manu/datapoint 2.AUTO_MODE 1:Auto/datapoint 2.BOOST_MODE 1:Boost/datapoint 2.MANU_MODE 4.5:off/datapoint 2.MANU_MODE 30.5:on/",
+	genericDeviceType => "thermostat",
 	statedatapoint   => "2.SET_TEMPERATURE",
 	stripnumber      => 1,
 	substexcl        => "control",
@@ -447,6 +552,7 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	cmdIcon          => "Auto:sani_heating_automatic Manu:sani_heating_manual Boost:sani_heating_boost on:general_an off:general_aus",
 	controldatapoint => "4.SET_TEMPERATURE",
 	eventMap         => "/datapoint 4.MANU_MODE 20.0:Manu/datapoint 4.AUTO_MODE 1:Auto/datapoint 4.BOOST_MODE 1:Boost/datapoint 4.MANU_MODE 4.5:off/datapoint 4.MANU_MODE 30.5:on/",
+	genericDeviceType => "thermostat",
 	hmstatevals      => "FAULT_REPORTING!1:valve_tight,2:range_too_large,3:range_too_small,4:communication_error,5:other_error,6:battery_low,7:valve_error_pos",
 	statedatapoint   => "4.SET_TEMPERATURE",
 	stripnumber      => 1,
@@ -455,12 +561,14 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	webCmd           => "control:Auto:Manu:Boost:on:off",
 	widgetOverride   => "control:slider,4.5,0.5,30.5,1"
 	},
-	"HMIP-eTRV" => {
+	"HmIP-eTRV|HmIP-eTRV-2" => {
 	_description     => "Heizkoerperthermostat HM-IP",
+	ccureadingfilter => "^ACTUAL_TEMPERATURE|^BOOST_MODE|^SET_POINT_MODE|^SET_POINT_TEMPERATURE|^LEVEL|^WINDOW_STATE",
 	ccureadingname   => "1.LEVEL:valve_position",
 	ccuscaleval      => "LEVEL:0:1:0:100",
 	controldatapoint => "1.SET_POINT_TEMPERATURE",
 	eventMap         => "/datapoint 1.BOOST_MODE true:Boost/datapoint 1.CONTROL_MODE 0:Auto/datapoint 1.CONTROL_MODE 1:Manual/datapoint 1.CONTROL_MODE 2:Holiday/datapoint 1.SET_POINT_TEMPERATURE 4.5:off/datapoint 1.SET_POINT_TEMPERATURE 30.5:on/",
+	genericDeviceType => "thermostat",
 	statedatapoint   => "1.SET_POINT_TEMPERATURE",
 	stripnumber      => 1,
 	substexcl        => "control",
@@ -472,6 +580,7 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	_description     => "Wandthermostat HM-IP",
 	controldatapoint => "1.SET_POINT_TEMPERATURE",
 	eventMap         => "/datapoint 1.BOOST_MODE true:Boost/datapoint 1.CONTROL_MODE 0:Auto/datapoint 1.CONTROL_MODE 1:Manual/datapoint 1.CONTROL_MODE 2:Holiday/datapoint 1.SET_POINT_TEMPERATURE 4.5:off/datapoint 1.SET_POINT_TEMPERATURE 30.5:on/",
+	genericDeviceType => "thermostat",
 	statedatapoint   => "1.SET_POINT_TEMPERATURE",
 	stripnumber      => 1,
 	substexcl        => "control",
@@ -484,6 +593,23 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	ccureadingfilter => "(^HUMIDITY|^TEMPERATURE)",
 	statedatapoint   => "1.TEMPERATURE",
 	stripnumber      => 1
+	},
+	"HM-Sen-RD-O" => {
+	_description     => "Regensensor",
+	ccureadingfilter => "(STATE|WORKING)",
+	controldatapoint => "2.STATE",
+	eventMap         => "/datapoint 2.STATE 1:on/datapoint 2.STATE 0:off/",
+	statedatapoint   => "1.STATE",
+	substitute       => "1.STATE!(0|false):dry,(1|true):rain;2.STATE!(0|false):off,(1|true):on",
+	webCmd           => "control",
+	widgetOverride   => "control:uzsuToggle,off,on"
+	},
+	"HM-WDS100-C6-O-2" => {
+	_description     => "Funk-Kombisensor",
+	ccureadingfilter => "(HUMIDITY|TEMPERATURE|WIND|RAIN|SUNSHINE|BRIGHTNESS)",
+	statedatapoint   => "1.TEMPERATURE",
+	stripnumber      => 1,
+	substitute       => "RAINING!(1|true):yes,(0|false):no"
 	},
 	"HM-ES-TX-WM" => {
 	_description     => "Energiezaehler Sensor",
@@ -512,8 +638,21 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	"HmIP-SMI" => {
 	_description     => "Bewegungsmelder",
 	ccureadingfilter => "(ILLUMINATION|MOTION)",
+	eventMap         => "/datapoint 1.MOTION_DETECTION_ACTIVE 1:detection-on/datapoint 1.MOTION_DETECTION_ACTIVE 0:detection-off/",
 	statedatapoint   => "1.MOTION",
 	substitute       => "MOTION!(0|false):no,(1|true):yes"
+	},
+	"HmIP-SPI" => {
+	_description     => "Anwesenheitssensor",
+	ccureadingfilter => "(ILLUMINATION|PRESENCE)",
+	controldatapoint => "1.PRESENCE_DETECTION_ACTIVE",
+	eventMap         => "/datapoint 1.RESET_PRESENCE 1:reset/datapoint 1.PRESENCE_DETECTION_ACTIVE 1:detection-on/datapoint 1.PRESENCE_DETECTION_ACTIVE 0:detection-off/",
+	hmstatevals      => "SABOTAGE!(1|true):sabotage",
+	statedatapoint   => "1.PRESENCE_DETECTION_STATE",
+	stripnumber      => 1,
+	substitute       => "PRESENCE_DETECTION_STATE!(0|false):no,(1|true):yes;PRESENCE_DETECTION_ACTIVE!(0|false):off,(1|true):on",
+	webCmd           => "control",
+	widgetOverride   => "control:uzsuToggle,off,on"
 	},
 	"HM-Sen-LI-O" => {
 	_description     => "Lichtsensor",
@@ -608,7 +747,323 @@ use vars qw(%HMCCU_DEV_DEFAULTS);
 	eventMap         => "/datapoint 3.SUBMIT:display/",
 	substitute       => "PRESS_LONG,PRESS_SHORT,PRESS_CONT!(1|true):pressed,(0|false):notPressed;PRESS_LONG_RELEASE!(1|true):release",
 	widgetOverride   => "display:textField"
+	},
+	"CUX-HM-TC-IT-WM-W-EU" => {
+	_description     => "CUxD Wandthermostat",
+	ccureadingfilter => "(TEMP|HUM|DEW)",
+	stripnumber      => 1
+	}
+);
 
+######################################################################
+# Homematic scripts.
+# Scripts can be executed via HMCCU set command 'hmscript'. Script
+# name must be preceeded by a '!'.
+# Example:
+#  set mydev hmscript !CreateStringVariable MyVar test "Test variable"
+######################################################################
+
+%HMCCU_SCRIPTS = (
+	"ActivateProgram" => {
+		description => "Activate or deactivate a CCU program",
+		syntax      => "name, mode",
+		parameters  => 2,
+		code        => qq(
+object oPR = dom.GetObject("\$name");
+if (oPR) {
+  oPR.Active(\$mode);
+}
+		)
+	},
+	"CreateStringVariable" => {
+		description => "Create CCU system variable of type STRING",
+		syntax      => "name, unit, init, desc",
+		parameters  => 4,
+		code        => qq(
+object oSV = dom.GetObject("\$name");
+if (!oSV){
+  object oSysVars = dom.GetObject(ID_SYSTEM_VARIABLES);
+  oSV = dom.CreateObject(OT_VARDP);
+  oSysVars.Add(oSV.ID());
+  oSV.Name("\$name");
+  oSV.ValueType(ivtString);
+  oSV.ValueSubType(istChar8859);
+  oSV.DPInfo("\$desc");
+  oSV.ValueUnit("\$unit");
+  oSV.State("\$init");
+  oSV.Internal(false);
+  oSV.Visible(true);
+  dom.RTUpdate(false);
+}
+else {
+  oSV.State("\$init");
+}
+		)
+	},
+	"CreateNumericVariable" => {
+		description => "Create CCU system variable of type FLOAT",
+		syntax      => "name, unit, init, desc, min, max",
+		parameters  => 6,
+		code        => qq(
+object oSV = dom.GetObject("\$name");
+if (!oSV){   
+  object oSysVars = dom.GetObject(ID_SYSTEM_VARIABLES);
+  oSV = dom.CreateObject(OT_VARDP);
+  oSysVars.Add(oSV.ID());
+  oSV.Name("\$name");
+  oSV.ValueType(ivtFloat);
+  oSV.ValueSubType(istGeneric);
+  oSV.ValueMin(\$min);
+  oSV.ValueMax(\$max);
+  oSV.DPInfo("\$desc");
+  oSV.ValueUnit("\$unit");
+  oSV.State("\$init");
+  oSV.Internal(false);
+  oSV.Visible(true);
+  dom.RTUpdate(false);
+}
+else {
+  oSV.State("\$init");
+}
+		)
+	},
+	"CreateBoolVariable" => {
+		description => "Create CCU system variable of type BOOL",
+		syntax      => "name, unit, init, desc, valtrue, valfalse",
+		parameters  => 6,
+		code        => qq(
+object oSV = dom.GetObject("\$name");
+if (!oSV){   
+  object oSysVars = dom.GetObject(ID_SYSTEM_VARIABLES);
+  oSV = dom.CreateObject(OT_VARDP);
+  oSysVars.Add(oSV.ID());
+  oSV.Name("\$name");
+  oSV.ValueType(ivtBinary);
+  oSV.ValueSubType(istBool);
+  oSV.ValueName0("\$value1");
+  oSV.ValueName1("\$value2");    
+  oSV.DPInfo("\$desc");
+  oSV.ValueUnit("\$unit");
+  oSV.State("\$init");
+  dom.RTUpdate(false);
+}
+else {
+  oSV.State("\$init");
+}
+		)
+	},
+	"CreateListVariable" => {
+		description => "Create CCU system variable of type LIST",
+		syntax      => "name, unit, init, desc, list",
+		parameters  => 5,
+		code        => qq(
+object oSV = dom.GetObject("\$name");
+if (!oSV){   
+  object oSysVars = dom.GetObject(ID_SYSTEM_VARIABLES);
+  oSV = dom.CreateObject(OT_VARDP);
+  oSysVars.Add(oSV.ID());
+  oSV.Name("\$name");
+  oSV.ValueType(ivtInteger);
+  oSV.ValueSubType(istEnum);
+  oSV.ValueList("\$list");
+  oSV.DPInfo("\$desc");
+  oSV.ValueUnit("\$unit");
+  oSV.State("\$init");
+  dom.RTUpdate(false);
+}
+else {
+  oSV.State("\$init");
+}
+		)
+	},
+	"DeleteObject" => {
+		description => "Delete CCU object",
+		syntax      => "name, type",
+		parameters  => 2,
+		code        => qq(
+object oSV = dom.GetObject("\$name");
+if (oSV) {
+  if (oSV.IsTypeOf(\$type)) {
+    dom.DeleteObject(oSV.ID());
+  }
+}
+		)
+	},
+	"GetVariables" => {
+		description => "Query system variables",
+		syntax      => "",
+		parameters  => 0,
+		code        => qq(
+object osysvar;
+string ssysvarid;
+foreach (ssysvarid, dom.GetObject(ID_SYSTEM_VARIABLES).EnumUsedIDs())
+{
+   osysvar = dom.GetObject(ssysvarid);
+   WriteLine (osysvar.Name() # "=" # osysvar.Variable() # "=" # osysvar.Value());
+}
+		)
+	},
+	"GetDeviceInfo" => {
+		description => "Query device info",
+		syntax      => "devname, ccuget",
+		parameters  => 2,
+		code        => qq(
+string chnid;
+string sDPId;
+object odev = dom.GetObject ("\$devname");
+if (odev) {
+  foreach (chnid, odev.Channels()) {
+    object ochn = dom.GetObject(chnid);
+    if (ochn) {
+      foreach(sDPId, ochn.DPs()) {
+        object oDP = dom.GetObject(sDPId);
+        if (oDP) {
+          integer op = oDP.Operations();
+          string flags = "";
+          if (OPERATION_READ & op) { flags = flags # "R"; }
+          if (OPERATION_WRITE & op) { flags = flags # "W"; }
+          if (OPERATION_EVENT & op) { flags = flags # "E"; }
+          WriteLine ("C;" # ochn.Address() # ";" # ochn.Name() # ";" # oDP.Name() # ";" # oDP.ValueType() # ";" # oDP.\$ccuget() # ";" # flags);
+        }
+      }
+    }
+  }
+}
+else {
+  WriteLine ("ERROR: Device not found");
+}
+		)
+	},
+	"GetDeviceList" => {
+		description => "Query CCU devices and channels",
+		syntax      => "",
+		parameters  => 0,
+		code        => qq(
+string devid;
+string chnid;
+foreach(devid, root.Devices().EnumUsedIDs()) {
+   object odev=dom.GetObject(devid);
+   string intid=odev.Interface();
+   string intna=dom.GetObject(intid).Name();
+   integer cc=0;
+   foreach (chnid, odev.Channels()) {
+      object ochn=dom.GetObject(chnid);
+      WriteLine("C;" # ochn.Address() # ";" # ochn.Name() # ";" # ochn.ChnDirection());
+      cc=cc+1;
+   }
+   WriteLine("D;" # intna # ";" # odev.Address() # ";" # odev.Name() # ";" # odev.HssType() # ";" # cc);
+}
+		)
+	},
+	"GetDatapointsByChannel" => {
+		description => "Query datapoints of channel list",
+		syntax      => "list, ccuget",
+		parameters  => 2,
+		code        => qq(
+string sDPId;
+string sChnName;
+string sChnList = "\$list";
+integer c = 0;
+foreach (sChnName, sChnList.Split(",")) {
+  object oChannel = dom.GetObject (sChnName);
+  if (oChannel) {
+    foreach(sDPId, oChannel.DPs()) {
+      object oDP = dom.GetObject(sDPId);
+      if (oDP) {
+        if (OPERATION_READ & oDP.Operations()) {
+          WriteLine (sChnName # "=" # oDP.Name() # "=" # oDP.\$ccuget());
+          c = c+1;
+        }
+      }
+    }
+  }
+}
+WriteLine (c);
+		)
+	},
+	"GetDatapointsByDevice" => {
+		description => "Query datapoints of device list",
+		syntax      => "list, ccuget",
+		parameters  => 2,
+		code        => qq(
+string chnid;
+string sDPId;
+string sDevName;
+string sDevList = "\$list";
+integer c = 0;
+foreach (sDevName, sDevList.Split(",")) {
+  object odev = dom.GetObject (sDevName);
+  if (odev) {
+    foreach (chnid, odev.Channels()) {
+	   object ochn = dom.GetObject(chnid);
+      if (ochn) {
+		  foreach(sDPId, ochn.DPs()) {
+		    object oDP = dom.GetObject(sDPId);
+          if (oDP) {
+            if (OPERATION_READ & oDP.Operations()) {
+              WriteLine (ochn.Name() # "=" # oDP.Name() # "=" # oDP.\$ccuget());
+              c = c+1;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+WriteLine (c);
+		)
+	},
+	"GetDatapointList" => {
+		description => "Query datapoint information of device list",
+		syntax      => "list",
+		parameters  => 1,
+		code        => qq(
+string chnid;
+string sDPId;
+string sDevice;
+string sDevList = "\$list";
+foreach (sDevice, sDevList.Split(",")) {
+  object odev = dom.GetObject (sDevice);
+  if (odev) {
+    string sType = odev.HssType();
+    foreach (chnid, odev.Channels()) {
+      object ochn = dom.GetObject(chnid);
+      if (ochn) {
+        string sAddr = ochn.Address();
+        string sChnNo = sAddr.StrValueByIndex(":",1);
+        foreach(sDPId, ochn.DPs()) {
+          object oDP = dom.GetObject(sDPId);
+          if (oDP) {
+            string sDPName = oDP.Name().StrValueByIndex(".",2);
+            WriteLine (sAddr # ";" # sType # ";" # sChnNo # ";" # sDPName # ";" # oDP.ValueType() # ";" # oDP.Operations());
+          }
+        }
+      }
+    }
+  }
+}
+		)
+	},
+	"GetChannel" => {
+		description => "Get datapoints of channel list",
+		syntax      => "list, ccuget",
+		parameters  => 2,
+		code        => qq(
+string sDPId;
+string sChannel;
+string sChnList = "\$list";
+foreach (sChannel, sChnList.Split(",")) {
+  object oChannel = dom.GetObject (sChannel);
+  if (oChannel) {
+    foreach(sDPId, oChannel.DPs()) {
+      object oDP = dom.GetObject(sDPId);
+      if (oDP) {
+        WriteLine (sChannel # "=" # oDP.Name() # "=" # oDP.\$ccuget());
+      }
+    }
+  }
+}
+		)
 	}
 );
 

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 12_HMS.pm 11984 2016-08-19 12:47:50Z rudolfkoenig $
+# $Id: 12_HMS.pm 15027 2017-09-08 09:11:43Z rudolfkoenig $
 package main;
 
 use strict;
@@ -34,7 +34,7 @@ HMS_Initialize($)
 #                        810e04210218a00186e0000000000000 HMS100CO
 #                        810e0448029ea00132d5000000000000 FI-Trenner
 
-  $hash->{Match}     = "^810e04....(1|5|9).a001";
+  $hash->{Match}     = "^810e04......a001";
   $hash->{DefFn}     = "HMS_Define";
   $hash->{UndefFn}   = "HMS_Undef";
   $hash->{ParseFn}   = "HMS_Parse";

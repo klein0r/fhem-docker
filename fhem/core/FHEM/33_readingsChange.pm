@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 33_readingsChange.pm 13173 2017-01-21 18:59:28Z rudolfkoenig $
+# $Id: 33_readingsChange.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
 package main;
 
 use strict;

@@ -1,9 +1,9 @@
 ############################################## 
-# $Id: 17_EGPM2LAN.pm 12092 2016-08-30 10:39:50Z alexus2033 $
+# $Id: 17_EGPM2LAN.pm 14071 2017-04-22 12:13:43Z alexus $
 #
 #  based / modified Version 98_EGPMS2LAN from ericl
 #
-#  (c) 2013, 2014 Copyright: Alex Storny (moselking at arcor dot de)
+#  (c) 2013 - 2017 Copyright: Alex Storny (moselking at arcor dot de)
 #  All rights reserved
 #
 #  This script free software; you can redistribute it and/or modify
@@ -36,7 +36,7 @@ EGPM2LAN_Initialize($)
   $hash->{GetFn}     = "EGPM2LAN_Get";
   $hash->{SetFn}     = "EGPM2LAN_Set"; 
   $hash->{DefFn}     = "EGPM2LAN_Define"; 
-  $hash->{AttrList}  = "loglevel:0,1,2,3,4,5,6 stateDisplay:sockNumber,sockName autocreate:on,off"; 
+  $hash->{AttrList}  = "stateDisplay:sockNumber,sockName autocreate:on,off"; 
 } 
 
 ###################################
@@ -74,15 +74,15 @@ EGPM2LAN_Set($@)
   my ($hash, @a) = @_; 
 
   return "no set value specified" if(int(@a) < 2); 
-  return "Unknown argument $a[1], choose one of on:1,2,3,4,all off:1,2,3,4,all toggle:1,2,3,4 clearreadings:noArg statusrequest:noArg" if($a[1] eq "?"); 
+  return "Unknown argument $a[1], choose one of on:1,2,3,4,all off:1,2,3,4,all toggle:1,2,3,4 clearreadings:noArg statusrequest:noArg password" if($a[1] eq "?"); 
 
   my $name = shift @a; 
   my $setcommand = shift @a; 
   my $params = join(" ", @a);
-  my $logLevel = GetLogLevel($name,4); 
-  Log $logLevel, "EGPM2LAN set $name (". $hash->{IP}. ") $setcommand $params";
+  
+  Log3 "EGPM2LAN", 4, "set $name (". $hash->{IP}. ") $setcommand $params";
  
-  EGPM2LAN_Login($hash, $logLevel); 
+  EGPM2LAN_Login($hash); 
   
   if($setcommand eq "on" || $setcommand eq "off") 
   { 
@@ -90,18 +90,18 @@ EGPM2LAN_Set($@)
 	  { #switch all Sockets; thanks to eric!
   	  for (my $count = 1; $count <= 4; $count++)
       {
-   	    EGPM2LAN_Switch($hash, $setcommand, $count, $logLevel);
+   	    EGPM2LAN_Switch($hash, $setcommand, $count);
       }
 	  }
 	  else
 	  {  #switch single Socket
-       EGPM2LAN_Switch($hash, $setcommand, $params, $logLevel);
+       EGPM2LAN_Switch($hash, $setcommand, $params);
     }
-    EGPM2LAN_Statusrequest($hash, $logLevel, 1); 
+    EGPM2LAN_Statusrequest($hash, 1); 
   }   
   elsif($setcommand eq "toggle") 
   { 
-    my $currentstate = EGPM2LAN_Statusrequest($hash, $logLevel, 1);
+    my $currentstate = EGPM2LAN_Statusrequest($hash, 1);
     if(defined($currentstate))
     {
     	my @powerstates = split(",", $currentstate);
@@ -110,24 +110,34 @@ EGPM2LAN_Set($@)
     	{
     	   $newcommand="on";
     	}
-      EGPM2LAN_Switch($hash, $newcommand, $params, $logLevel);
-	    EGPM2LAN_Statusrequest($hash, $logLevel, 0); 
+      EGPM2LAN_Switch($hash, $newcommand, $params);
+	    EGPM2LAN_Statusrequest($hash, 0); 
     } 
   } 
   elsif($setcommand eq "statusrequest") 
   { 
-	   EGPM2LAN_Statusrequest($hash, $logLevel, 1); 
+	   EGPM2LAN_Statusrequest($hash, 1); 
+  }
+  elsif($setcommand eq "password")
+  {
+         my $result =  EGPM2LAN_StorePassword($hash, $params);
+         Log3 "EGPM2LAN", 1,$result;
+         if($params eq ""){
+            delete $hash->{PASSWORD} if(defined($hash->{PASSWORD}));
+         } else {
+            $params="***";
+         }
   }
   elsif($setcommand eq "clearreadings") 
   { 
-	   delete $hash->{READINGS};
+         delete $hash->{READINGS};
   } 
   else 
   { 
      return "unknown argument $setcommand, choose one of on, off, toggle, statusrequest, clearreadings"; 
-  } 
+  } 	
   
-  EGPM2LAN_Logoff($hash, $logLevel); 
+  EGPM2LAN_Logoff($hash); 
 
   $hash->{CHANGED}[0] = $setcommand; 
   $hash->{READINGS}{lastcommand}{TIME} = TimeNow(); 
@@ -137,49 +147,127 @@ EGPM2LAN_Set($@)
 } 
 
 ################################
-sub EGPM2LAN_Switch($$$$) { 
-  my ($hash, $state, $port, $logLevel) = @_; 
+sub EGPM2LAN_StorePassword($$)
+{
+    my ($hash, $password) = @_;
+
+    my $index = $hash->{TYPE}."_".$hash->{NAME}."_passwd";
+    my $key = getUniqueId().$index;
+
+    my $enc_pwd = "";
+
+    if(eval "use Digest::MD5;1")
+    {
+        $key = Digest::MD5::md5_hex(unpack "H*", $key);
+        $key .= Digest::MD5::md5_hex($key);
+    }
+
+    for my $char (split //, $password)
+    {
+        my $encode=chop($key);
+        $enc_pwd.=sprintf("%.2x",ord($char)^ord($encode));
+        $key=$encode.$key;
+    }
+
+    Log3 "EGPM2LAN", 4, "write password to file uniqueID";
+    my $err = setKeyValue($index, $enc_pwd);
+    if(defined($err)){
+       #Fallback, if file is not available
+       $hash->{PASSWORD}=$password;
+       return "EGPM2LAN: Write Password failed!";
+    }
+    $hash->{PASSWORD}="***" if($password ne "");
+    return "EGPM2LAN: Password saved.";
+} 
+
+################################
+sub EGPM2LAN_ReadPassword($)
+{
+   my ($hash) = @_;
+
+   #for old installations/fallback to clear-text PWD
+   if(defined($hash->{PASSWORD}) && $hash->{PASSWORD} ne "***"){
+      return $hash->{PASSWORD};
+   }
+
+   my $index = $hash->{TYPE}."_".$hash->{NAME}."_passwd";
+   my $key = getUniqueId().$index;
+   my ($password, $err);
+
+   Log3 "EGPM2LAN", 3, "Read password from file uniqueID";
+   ($err, $password) = getKeyValue($index);
+
+   if ( defined($err) ) {
+      Log3 "EGPM2LAN",0, "unable to read password from file: $err";
+      return undef;
+   }
+
+   if (defined($password) ) {
+      if ( eval "use Digest::MD5;1" ) {
+         $key = Digest::MD5::md5_hex(unpack "H*", $key);
+         $key .= Digest::MD5::md5_hex($key);
+      }
+
+      my $dec_pwd = '';
+
+      for my $char (map { pack('C', hex($_)) } ($password =~ /(..)/g)) {
+         my $decode=chop($key);
+         $dec_pwd.=chr(ord($char)^ord($decode));
+         $key=$decode.$key;
+      }
+
+      $hash->{PASSWORD}="***";
+      return $dec_pwd;
+   }
+   else {
+      Log3 "EGPM2LAN",4 ,"No password in file";
+      return "";
+   }
+}
+
+################################
+sub EGPM2LAN_Switch($$$) { 
+  my ($hash, $state, $port) = @_; 
   $state = ($state eq "on" ? "1" : "0");
   
   my $fritz = 0; #may be important for FritzBox-users
   my $data = "cte1=" . ($port == "1" ? $state : "") . "&cte2=" . ($port == "2" ? $state : "") . "&cte3=" . ($port == "3" ? $state : "") . "&cte4=". ($port == "4" ? $state : ""); 
-  Log $logLevel, "EGPM2LAN $data"; 
+  Log3 "EGPM2LAN",5 , $data; 
   eval {
     # Parameter:    $url, $timeout, $data, $noshutdown, $loglevel
-    GetFileFromURL("http://".$hash->{IP}."/", 5,$data ,$fritz ,$logLevel);
+    GetFileFromURL("http://".$hash->{IP}."/", 5,$data ,$fritz);
   }; 
   if ($@){ 
     ### catch block 
-    Log $logLevel, "EGPM2LAN error: $@"; 
+    Log3 "EGPM2LAN", 1 ,"error: $@"; 
   }; 
 
   return 1; 
 } 
 
 ################################
-sub EGPM2LAN_Login($$) { 
-  my ($hash, $logLevel) = @_; 
+sub EGPM2LAN_Login($) { 
+  my ($hash) = @_; 
+  my $name = $hash->{NAME};
 
-  Log $logLevel,"EGPM2LAN try to Login @".$hash->{IP};
+  my $passwd = EGPM2LAN_ReadPassword($hash);
 
+  Log3 $name,4 , "EGPM2LAN: try to connect ".$hash->{IP};
   eval{
-      GetFileFromURLQuiet("http://".$hash->{IP}."/login.html", 5,"pw=" . (defined($hash->{PASSWORD}) ? $hash->{PASSWORD} : ""),0 ,$logLevel);
+      GetFileFromURLQuiet("http://".$hash->{IP}."/login.html", 5,"pw=" .(defined($passwd) ? $passwd : ""),0 );
   }; 
   if ($@){ 
       ### catch block 
-      Log 1, "EGPM2LAN Login error: $@";
+      Log3 $name, 0, "EGPM2LAN Login error: $@";
       return 0; 
   }; 
 
-  Log $logLevel,"EGPM2LAN Login successful!";
-    
-return 1; 
+  return 1; 
 } 
 
 ################################
 sub EGPM2LAN_GetDeviceInfo($$) { 
   my ($hash, $input) = @_;
-  my $logLevel = GetLogLevel($hash->{NAME},4); 
 
   #try to read Device Name
   my ($devicename) = $input =~ m/<h2>(.+)<\/h2><\/div>/si;
@@ -199,7 +287,7 @@ sub EGPM2LAN_GetDeviceInfo($$) {
   foreach my $entry (@socketlist)
   {
 	next unless $seen{$entry}++;
-        Log $logLevel, "EGPM2LAN Sorry! Can't use devicenames. ".trim($entry)." is duplicated.";
+        Log3 "EGPM2LAN", 1, "Sorry! Can't use devicenames. ".trim($entry)." is duplicated.";
 	@socketlist = qw(Socket_1 Socket_2 Socket_3 Socket_4);
   } 
   if(int(@socketlist) < 4)
@@ -210,16 +298,22 @@ sub EGPM2LAN_GetDeviceInfo($$) {
 }
 
 ################################
-sub EGPM2LAN_Statusrequest($$$) { 
-  my ($hash, $logLevel, $autoCr) = @_;
+sub EGPM2LAN_Statusrequest($$) { 
+  my ($hash, $autoCr) = @_;
   my $name = $hash->{NAME}; 
   
-  my $response = GetFileFromURL("http://".$hash->{IP}."/", 5,"" , 0 ,$logLevel);
-  #Log 1,$response;
-	if(defined($response) && $response =~ /.,.,.,./) 
+  my $response = GetFileFromURL("http://".$hash->{IP}."/", 5,"" , 0);
+  if(not defined($response)){
+     Log3 $name, 0, "EGPM2LAN: Cant connect to ".$hash->{IP};
+     $hash->{STATE} = "Connection failed";
+     return 0
+  }
+  Log3 $name, 5, "EGPM2LAN: $response";
+
+	if($response =~ /.,.,.,./) 
         { 
           my $powerstatestring = $&; 
-          Log $logLevel, "EGPM2LAN Powerstate: " . $powerstatestring; 
+          Log3 $name, 2, "EGPM2LAN Powerstate: " . $powerstatestring; 
           my @powerstates = split(",", $powerstatestring);
 
           if(int(@powerstates) == 4) 
@@ -249,12 +343,12 @@ sub EGPM2LAN_Statusrequest($$$) {
 		{
 		   if(Value("autocreate") eq "active")
 		   {
-		  	Log $logLevel, "EGPM2LAN: Autocreate EGPM for Socket $index";
+		  	Log3 $name, 1, "EGPM2LAN: Autocreate EGPM for Socket $index";
 	                CommandDefine(undef, $name."_".$socketlist[$index-1]." EGPM $name $index");
 		   }
 		   else
 		   {
-			Log 2, "EGPM2LAN: Autocreate disabled in globals section";
+			Log3 $name, 2, "EGPM2LAN: Autocreate disabled in globals section";
                         $attr{$name}{autocreate} = "off"; 
 		   }
 		}
@@ -264,7 +358,7 @@ sub EGPM2LAN_Statusrequest($$$) {
 		{
 		   if (ReadingsVal($defptr->{NAME},"state","") ne ($powerstates[$index-1] ? "on" : "off"))
 		   {  #check for chages and update -> trigger event
-		 		  Log $logLevel, "Update State of ".$defptr->{NAME};
+		      Log3 $name, 3, "EGPM2LAN: Update State of ".$defptr->{NAME};
           readingsSingleUpdate($defptr, "state", ($powerstates[$index-1] ? "on" : "off") ,1);
        }
 		   $defptr->{DEVICENAME} = $hash->{DEVICENAME};
@@ -281,49 +375,46 @@ sub EGPM2LAN_Statusrequest($$$) {
           } 
           else 
           { 
-            Log $logLevel, "EGPM2LAN: Failed to parse powerstate";
+            Log3 $name, 0,"EGPM2LAN: Failed to parse powerstate";
           } 
         }
 	else
 	{
-     $hash->{STATE} = "Login failed";
-	   Log $logLevel, "EGPM2LAN: Login failed";
+           $hash->{STATE} = "Login failed";
+	   Log3 $name, 0,"EGPM2LAN: Login failed";
 	}
    #something went wrong :-( 
    return undef; 
 } 
 
-sub EGPM2LAN_Logoff($$) {
-  my ($hash, $logLevel) = @_; 
+################################
+sub EGPM2LAN_Logoff($) {
+  my ($hash) = @_; 
 
-  GetFileFromURL("http://".$hash->{IP}."/login.html", 5,"" ,0 ,$logLevel);
+  GetFileFromURL("http://".$hash->{IP}."/login.html", 5,"" ,0 ,3);
   return 1; 
 } 
 
-sub 
-EGPM2LAN_Define($$) 
+################################
+sub EGPM2LAN_Define($$) 
 { 
   my ($hash, $def) = @_; 
   my @a = split("[ \t][ \t]*", $def); 
-  
-  my $u = "wrong syntax: define <name> EGPM2LAN IP Password"; 
+  my $u = "wrong syntax: define <name> EGPM2LAN IP [Password]"; 
   return $u if(int(@a) < 2); 
     
   $hash->{IP} = $a[2];
   if(int(@a) == 4) 
   { 
-    $hash->{PASSWORD} = $a[3];  
-    }
-  else 
-  { 
-    $hash->{PASSWORD} = "";
+    EGPM2LAN_StorePassword($hash, $a[3]);
+    $hash->{DEF} = $a[2]; ## remove password
   } 
-  my $result = EGPM2LAN_Login($hash, 3);
+  my $result = EGPM2LAN_Login($hash);
   if($result == 1)
   { 
     $hash->{STATE} = "initialized";
-    EGPM2LAN_Statusrequest($hash, 4, 0);
-    EGPM2LAN_Logoff($hash, 4); 
+    EGPM2LAN_Statusrequest($hash,0);
+    EGPM2LAN_Logoff($hash); 
   }
 
   return undef; 
@@ -333,7 +424,7 @@ EGPM2LAN_Define($$)
 
 =pod
 =item device
-=item summary    controls a LAN-Socket device from Gembird
+=item summary controls a LAN-Socket device from Gembird
 =item summary_DE steuert eine LAN-Steckdosenleiste von Gembird
 =begin html
 
@@ -344,16 +435,21 @@ EGPM2LAN_Define($$)
   <a name="EGPM2LANdefine"></a>
   <b>Define</b>
   <ul>
-    <code>define &lt;name&gt; EGPM2LAN &lt;IP-Address&gt; [&lt;Password&gt;]</code><br>
+    <code>define &lt;name&gt; EGPM2LAN &lt;IP-Address&gt;</code><br>
     <br>
     Creates a Gembird &reg; <a href="http://energenie.com/item.aspx?id=7557" >Energenie EG-PM2-LAN</a> device to switch up to 4 sockets over the network.
     If you have more than one device, it is helpful to connect and set names for your sockets over the web-interface first.
     The name settings will be adopted to FHEM and helps you to identify the sockets. Please make sure that you&acute;re logged off from the Energenie web-interface otherwise you can&acute;t control it with FHEM at the same time.<br>
+    Create a <a href="#EGPM">EGPM-Module</a> to control a single socket with additional features.<br>
     <b>EG-PMS2-LAN with surge protector feature was not tested until now.</b>
 </ul><br>
   <a name="EGPM2LANset"></a>
   <b>Set</b>
   <ul>
+    <code>set &lt;name&gt; password [&lt;one-word&gt;]</code><br>
+    Encrypt and store device-password in FHEM. Leave empty to remove the password.<br>
+    Before 04/2017, the password was stored in clear-text using the DEFINE-Command, but it should not be stored in the config-file.<br>
+    <br>
     <code>set &lt;name&gt; &lt;[on|off|toggle]&gt &lt;socketnr.&gt;</code><br>
     Switch the socket on or off.<br>
     <br>
@@ -369,8 +465,10 @@ EGPM2LAN_Define($$)
   </ul>
   <br>
   <a name="EGPM2LANget"></a>
-  <b>Get</b> <ul>N/A</ul><br>
-
+  <b>Get</b>
+  <ul><code>get &lt;name&gt; state</code><br>
+  Returns a text like this: "1: off 2: on 3: off 4: off" or the last error-message if something went wrong.<br>
+  </ul><br>
   <a name="EGPM2LANattr"></a>
   <b>Attributes</b>
   <ul>
@@ -388,7 +486,8 @@ EGPM2LAN_Define($$)
 
     Example:
     <ul>
-      <code>define mainswitch EGPM2LAN 10.192.192.20 SecretGarden</code><br>
+      <code>define mainswitch EGPM2LAN 10.192.192.20</code><br>
+      <code>set mainswitch password SecretGarden</code><br>
       <code>set mainswitch on 1</code><br>
     </ul>
 </ul>
@@ -403,7 +502,7 @@ EGPM2LAN_Define($$)
   <a name="EGPM2LANdefine"></a>
   <b>Define</b>
   <ul>
-    <code>define &lt;name&gt; EGPM2LAN &lt;IP-Address&gt; [&lt;Password&gt;]</code><br>
+    <code>define &lt;name&gt; EGPM2LAN &lt;IP-Address&gt;</code><br>
     <br>
     Das Modul erstellt eine Verbindung zu einer Gembird &reg; <a href="http://energenie.com/item.aspx?id=7557" >Energenie EG-PM2-LAN</a> Steckdosenleiste und steuert 4 angeschlossene Ger&auml;te..
     Falls mehrere Steckdosenleisten &uuml;ber das Netzwerk gesteuert werden, ist es ratsam, diese zuerst &uuml;ber die Web-Oberfl&auml;che zu konfigurieren und die einzelnen Steckdosen zu benennen. Die Namen werden dann automatisch in die
@@ -418,6 +517,10 @@ EGPM2LAN_Define($$)
     <code>set &lt;name&gt; &lt;[on|off]&gt &lt;all&gt;</code><br>
     Schaltet alle Steckdosen gleichzeitig ein oder aus.<br>
     <br>
+    <code>set &lt;name&gt; password [&lt;mein-passwort&gt;]</code><br>
+    Speichert das Passwort verschl&uuml;sselt in FHEM ab. Zum Entfernen eines vorhandenen Passworts den Befehl ohne Parameter aufrufen.<br>
+    Vor 04/2017 wurde das Passwort im Klartext gespeichert und mit dem DEFINE-Command &uuml;bergeben.<br>
+    <br>
     <code>set &lt;name&gt; &lt;staterequest&gt;</code><br>
     Aktualisiert die Statusinformation der Steckdosenleiste.<br>
     Wenn das globale Attribut <a href="#autocreate">autocreate</a> aktiviert ist, wird f&uuml;r jede Steckdose ein <a href="#EGPM">EGPM</a>-Eintrag erstellt.<br>
@@ -427,7 +530,10 @@ EGPM2LAN_Define($$)
   </ul>
   <br>
   <a name="EGPM2LANget"></a>
-  <b>Get</b> <ul>N/A</ul><br>
+  <b>Get</b>
+  <ul><code>get &lt;name&gt; state</code><br>
+  Gibt einen Text in diesem Format aus: "1: off 2: on 3: off 4: off" oder enth&auml;lt die letzte Fehlermeldung.<br>
+  </ul><br>
 
   <a name="EGPM2LANattr"></a>
   <b>Attribute</b>
@@ -442,10 +548,10 @@ EGPM2LAN_Define($$)
   <br>
 <br>
    <br>
-
     Beispiel:
     <ul>
-      <code>define sleiste EGPM2LAN 10.192.192.20 SecretGarden</code><br>
+      <code>define sleiste EGPM2LAN 10.192.192.20</code><br>
+      <code>set sleiste password SecretGarden</code><br>
       <code>set sleiste on 1</code><br>
     </ul>
 </ul>

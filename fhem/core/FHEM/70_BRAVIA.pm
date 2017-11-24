@@ -1,4 +1,4 @@
-# $Id: 70_BRAVIA.pm 13363 2017-02-08 19:23:00Z vuffiraa $
+# $Id: 70_BRAVIA.pm 15479 2017-11-22 21:18:34Z vuffiraa $
 ##############################################################################
 #
 #     70_BRAVIA.pm
@@ -611,7 +611,7 @@ sub BRAVIA_Define($$) {
     
     $hash->{name} = ReadingsVal($name, "name", "");
 
-    $hash->{modelName} = ReadingsVal($name, "modelName", "");
+    $hash->{model} = ReadingsVal($name, "model", "");
 
     $hash->{generation} = ReadingsVal($name, "generation", "");
 
@@ -1181,7 +1181,7 @@ sub BRAVIA_ProcessCommandData ($$) {
     
       # read system information if not existing
       BRAVIA_SendCommand( $hash, "getSystemInformation" )
-          if ( ReadingsVal($name, "name", "0") eq "0" );
+          if ( ReadingsVal($name, "name", "0") eq "0" || ReadingsVal($name, "model", "0") eq "0" );
     
       # read content information
       if ( ReadingsVal($name, "generation", "1.0") ne "1.0" ) {
@@ -1217,10 +1217,10 @@ sub BRAVIA_ProcessCommandData ($$) {
           readingsBulkUpdate( $hash, "area", $sysInfo->{area} );
           readingsBulkUpdate( $hash, "language", $sysInfo->{language} );
           readingsBulkUpdate( $hash, "country", $sysInfo->{region} );
-          readingsBulkUpdate( $hash, "modelName", $sysInfo->{model} );
+          readingsBulkUpdate( $hash, "model", $sysInfo->{model} );
           readingsBulkUpdate( $hash, "macAddr", $sysInfo->{macAddr} );
           $hash->{name} = $sysInfo->{name};
-          $hash->{modelName} = $sysInfo->{model};
+          $hash->{model} = $sysInfo->{model};
           $hash->{generation} = $sysInfo->{generation};
         } else {
           readingsBulkUpdate( $hash, "name", $return->{name} );
@@ -1228,9 +1228,9 @@ sub BRAVIA_ProcessCommandData ($$) {
           readingsBulkUpdate( $hash, "area", $return->{area} );
           readingsBulkUpdate( $hash, "language", $return->{language} );
           readingsBulkUpdate( $hash, "country", $return->{country} );
-          readingsBulkUpdate( $hash, "modelName", $return->{modelName} );
+          readingsBulkUpdate( $hash, "model", $return->{modelName} );
           $hash->{name} = $return->{name};
-          $hash->{modelName} = $return->{modelName};
+          $hash->{model} = $return->{modelName};
           $hash->{generation} = $return->{generation};
         }
         readingsEndUpdate( $hash, 1 );
@@ -1777,6 +1777,8 @@ sub BRAVIA_GetRemotecontrolCommand($) {
         'SEN'         => "AAAAAgAAABoAAAB9Aw==",
         'SYNCMENU'    => "AAAAAgAAABoAAABYAw==",
         'SCENESELECT' => "AAAAAgAAABoAAAB4Aw==",
+        'NETFLIX'     => "AAAAAgAAABoAAAB8Aw==",
+        'PICTUREMODE' => "AAAAAQAAAAEAAABkAw==",
     };
 
     if ( defined( $commands->{$command} ) ) {
@@ -1786,7 +1788,8 @@ sub BRAVIA_GetRemotecontrolCommand($) {
         return $commands;
     }
     else {
-        return "";
+    		# return command itself if not mapped
+        return $command;
     }
 }
 

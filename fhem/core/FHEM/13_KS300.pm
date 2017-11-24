@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 13_KS300.pm 12699 2016-12-02 12:15:44Z rudolfkoenig $
+# $Id: 13_KS300.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
 #
 # modified: 2014-02-16 - betateilchen
 #           - added new reading for windIndex (bft)

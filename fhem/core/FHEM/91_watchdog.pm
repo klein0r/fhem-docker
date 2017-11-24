@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 91_watchdog.pm 13181 2017-01-22 10:58:59Z rudolfkoenig $
+# $Id: 91_watchdog.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
 package main;
 
 use strict;
@@ -149,7 +149,7 @@ watchdog_Trigger($)
   my ($watchdog) = @_;
   my $name = $watchdog->{NAME};
 
-  if(AttrVal($name, "disable", 0)) {
+  if(IsDisabled($name) || $watchdog->{STATE} eq "inactive") {
     $watchdog->{STATE} = "defined";
     return "";
   }

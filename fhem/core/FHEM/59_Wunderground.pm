@@ -1,30 +1,7 @@
-# $Id: 59_Wunderground.pm 13339 2017-02-05 16:55:54Z loredo $
-##############################################################################
-#
-#     59_Wunderground.pm
-#
-#     Copyright by Julian Pawlowski
-#     e-mail: julian.pawlowski at gmail.com
-#
-#     This file is part of fhem.
-#
-#     Fhem is free software: you can redistribute it and/or modify
-#     it under the terms of the GNU General Public License as published by
-#     the Free Software Foundation, either version 2 of the License, or
-#     (at your option) any later version.
-#
-#     Fhem is distributed in the hope that it will be useful,
-#     but WITHOUT ANY WARRANTY; without even the implied warranty of
-#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#     GNU General Public License for more details.
-#
-#     You should have received a copy of the GNU General Public License
-#     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
-#
-##############################################################################
-
+###############################################################################
+# $Id: 59_Wunderground.pm 15171 2017-10-02 09:52:16Z loredo $
 # http://api.wunderground.com/weather/api
-
+#
 package main;
 
 use strict;
@@ -36,9 +13,7 @@ use Encode qw(encode_utf8 decode_utf8);
 use Unit;
 use Data::Dumper;
 
-sub Wunderground_Hash2Readings($$;$);
-
-###################################
+# initialize ##################################################################
 sub Wunderground_Initialize($) {
     my ($hash) = @_;
 
@@ -47,15 +22,15 @@ sub Wunderground_Initialize($) {
     my $webhookFWinstance =
       join( ",", devspec2array('TYPE=FHEMWEB:FILTER=TEMPORARY!=1') );
 
-    $hash->{SetFn}         = "Wunderground_Set";
     $hash->{DefFn}         = "Wunderground_Define";
-    $hash->{AttrFn}        = "Wunderground_Attr";
     $hash->{UndefFn}       = "Wunderground_Undefine";
+    $hash->{SetFn}         = "Wunderground_Set";
+    $hash->{AttrFn}        = "Wunderground_Attr";
     $hash->{DbLog_splitFn} = "Unit_DbLog_split";
     $hash->{parseParams}   = 1;
 
     $hash->{AttrList} =
-"disable:0,1 timeout:1,2,3,4,5 pollInterval:300,450,600,750,900 wu_lang:en,de,at,ch,nl,fr,pl wu_pws:1,0 wu_bestfct:1,0 stateReadings stateReadingsFormat:0,1 "
+"disable:0,1 disabledForIntervals do_not_notify:1,0 timeout:1,2,3,4,5 pollInterval:300,450,600,750,900 wu_lang:en,de,at,ch,nl,fr,pl wu_pws:1,0 wu_bestfct:1,0 stateReadings stateReadingsFormat:0,1 "
       . "wu_features:multiple-strict,alerts,almanac,astronomy,conditions,currenthurricane,forecast,forecast10day,hourly,hourly10day "
       . $readingFnAttributes;
 
@@ -228,11 +203,116 @@ sub Wunderground_Initialize($) {
         'wind_speed'     => { rtype => 'kmph', formula_symbol => 'Ws' },
         'wind_speed_mph' => { rtype => 'mph', formula_symbol => 'Ws' }
     };
-
-    return;
 }
 
-#####################################
+# regular Fn ##################################################################
+sub Wunderground_Define($$$) {
+    my ( $hash, $a, $h ) = @_;
+    my $name  = $hash->{NAME};
+    my $infix = "Wunderground";
+
+    Log3 $name, 5, "Wunderground $name: called function Wunderground_Define()";
+
+    eval {
+        require JSON;
+        import JSON qw( decode_json );
+    };
+    return "Please install Perl JSON to use module Wunderground"
+      if ($@);
+
+    if ( int(@$a) < 4 ) {
+        my $msg = "Wrong syntax: define <name> Wunderground <api-key> <pws-id>";
+        Log3 $name, 4, $msg;
+        return $msg;
+    }
+
+    $hash->{TYPE} = "Wunderground";
+
+    $hash->{API_KEY} = @$a[2];
+    $hash->{QUERY}   = @$a[3];
+
+    $hash->{QUERY} = "pws:" . $hash->{QUERY}
+      if ( $hash->{QUERY} =~ /^[A-Z]{3,}\d{1,}$/ );
+
+    if ( $init_done && !defined( $hash->{OLDDEF} ) ) {
+        fhem 'attr ' . $name . ' stateReadings temp_c humidity';
+        fhem 'attr ' . $name . ' stateReadingsFormat 1';
+        fhem 'attr ' . $name . ' wu_features astronomy,conditions,forecast';
+    }
+
+    # start the status update timer
+    Wunderground_GetStatus( $hash, 2 );
+
+    return undef;
+}
+
+sub Wunderground_Undefine($$$) {
+    my ( $hash, $a, $h ) = @_;
+    my $name = $hash->{NAME};
+
+    if ( defined( $hash->{fhem}{infix} ) ) {
+        Wunderground_removeExtension( $hash->{fhem}{infix} );
+    }
+
+    Log3 $name, 5,
+      "Wunderground $name: called function Wunderground_Undefine()";
+
+    # Stop the internal GetStatus-Loop and exit
+    RemoveInternalTimer($hash);
+
+    # release reverse pointer
+    delete $modules{Wunderground}{defptr}{$name};
+
+    return undef;
+}
+
+sub Wunderground_Set($$$) {
+    my ( $hash, $a, $h ) = @_;
+    my $name = $hash->{NAME};
+
+    Log3 $name, 5, "Wunderground $name: called function Wunderground_Set()";
+
+    return "Argument is missing" if ( int(@$a) < 1 );
+
+    my $usage = "Unknown argument " . @$a[1] . ", choose one of update:noArg";
+
+    my $cmd = '';
+    my $result;
+
+    # update
+    if ( lc( @$a[1] ) eq "update" ) {
+        Log3 $name, 3, "Wunderground set $name " . @$a[1];
+        Wunderground_GetStatus($hash);
+    }
+
+    # return usage hint
+    else {
+        return $usage;
+    }
+
+    return $result;
+}
+
+sub Wunderground_Attr(@) {
+    my ( $cmd, $name, $attrName, $attrVal ) = @_;
+    my $hash = $defs{$name};
+
+    Log3 $name, 5, "Wunderground $name: called function Wunderground_Attr()";
+
+    return
+"Invalid value for attribute $attrName: minimum value is 1 second, maximum 5 seconds"
+      if ( $attrVal
+        && $attrName eq "timeout"
+        && ( $attrVal < 1 || $attrVal > 5 ) );
+
+    return
+      "Invalid value for attribute $attrName: minimum value is 300 seconds"
+      if ( $attrVal && $attrName eq "pollInterval" && $attrVal < 300 );
+
+    return undef;
+}
+
+# module Fn ####################################################################
 sub Wunderground_GetStatus($;$) {
     my ( $hash, $delay ) = @_;
     my $name = $hash->{NAME};
@@ -279,108 +359,13 @@ sub Wunderground_GetStatus($;$) {
     $features .= "/lang:" . $hash->{LANG};
     $features .= "/pws:$pws" if ( defined($pws) );
     $features .= "/bestfct:$bestfct" if ( defined($bestfct) );
+    $hash->{FEATURES} = $features;
 
     Wunderground_SendCommand( $hash, $features );
 
     return;
 }
 
-###################################
-sub Wunderground_Set($$$) {
-    my ( $hash, $a, $h ) = @_;
-    my $name = $hash->{NAME};
-
-    Log3 $name, 5, "Wunderground $name: called function Wunderground_Set()";
-
-    return "Argument is missing" if ( int(@$a) < 1 );
-
-    my $usage = "Unknown argument " . @$a[1] . ", choose one of update:noArg";
-
-    my $cmd = '';
-    my $result;
-
-    # update
-    if ( lc( @$a[1] ) eq "update" ) {
-        Log3 $name, 3, "Wunderground set $name " . @$a[1];
-        Wunderground_GetStatus($hash);
-    }
-
-    # return usage hint
-    else {
-        return $usage;
-    }
-
-    return $result;
-}
-
-###################################
-sub Wunderground_Define($$$) {
-    my ( $hash, $a, $h ) = @_;
-    my $name  = $hash->{NAME};
-    my $infix = "Wunderground";
-
-    Log3 $name, 5, "Wunderground $name: called function Wunderground_Define()";
-
-    eval {
-        require JSON;
-        import JSON qw( decode_json );
-    };
-    return "Please install Perl JSON to use module Wunderground"
-      if ($@);
-
-    if ( int(@$a) < 2 ) {
-        my $msg = "Wrong syntax: define <name> Wunderground <api-key> <pws-id>";
-        Log3 $name, 4, $msg;
-        return $msg;
-    }
-
-    $hash->{TYPE} = "Wunderground";
-
-    $hash->{API_KEY} = @$a[2];
-    $hash->{QUERY}   = @$a[3];
-
-    $hash->{QUERY} = "pws:" . $hash->{QUERY}
-      if ( $hash->{QUERY} =~ /^[A-Z]{3,}\d{2,}$/ );
-
-    if ( $init_done && !defined( $hash->{OLDDEF} ) ) {
-        fhem 'attr ' . $name . ' stateReadings temp_c humidity';
-        fhem 'attr ' . $name . ' stateReadingsFormat 1';
-        fhem 'attr ' . $name . ' wu_features astronomy,conditions,forecast';
-    }
-
-    # start the status update timer
-    Wunderground_GetStatus( $hash, 2 );
-
-    return;
-}
-
-###################################
-sub Wunderground_Attr(@) {
-    my ( $cmd, $name, $attrName, $attrVal ) = @_;
-    my $hash = $defs{$name};
-
-    Log3 $name, 5, "Wunderground $name: called function Wunderground_Attr()";
-
-    return
-"Invalid value for attribute $attrName: minimum value is 1 second, maximum 5 seconds"
-      if ( $attrVal
-        && $attrName eq "timeout"
-        && ( $attrVal < 1 || $attrVal > 5 ) );
-
-    return
-      "Invalid value for attribute $attrName: minimum value is 300 seconds"
-      if ( $attrVal && $attrName eq "pollInterval" && $attrVal < 300 );
-
-    return undef;
-}
-
-############################################################################################################
-#
-#   Begin of helper functions
-#
-############################################################################################################
-
-###################################
 sub Wunderground_SendCommand($$) {
     my ( $hash, $features ) = @_;
     my $name   = $hash->{NAME};
@@ -400,21 +385,25 @@ sub Wunderground_SendCommand($$) {
 
     HttpUtils_NonblockingGet(
         {
-            url     => $URL,
-            timeout => AttrVal( $name, "timeout", "3" ),
-            hash    => $hash,
-            method  => "GET",
-            header =>
-"agent: FHEM-Wunderground/1.0.0\r\nUser-Agent: FHEM-Wunderground/1.0.0\r\nAccept: application/json",
-            httpversion => "1.1",
+            url         => $URL,
+            timeout     => AttrVal( $name, "timeout", "3" ),
+            hash        => $hash,
+            method      => "GET",
             callback    => \&Wunderground_ReceiveCommand,
+            httpversion => "1.1",
+            loglevel    => AttrVal( $name, "httpLoglevel", 4 ),
+            header      => {
+                Agent            => 'FHEM-Wunderground/1.0.0',
+                'User-Agent'     => 'FHEM-Wunderground/1.0.0',
+                Accept           => 'application/json;charset=UTF-8',
+                'Accept-Charset' => 'UTF-8',
+            },
         }
     );
 
     return;
 }
 
-###################################
 sub Wunderground_ReceiveCommand($$$) {
     my ( $param, $err, $data ) = @_;
     my $hash = $param->{hash};
@@ -457,7 +446,7 @@ sub Wunderground_ReceiveCommand($$$) {
                 return undef;
             }
             else {
-                Log3 $name, 5, "Wunderground $name: RES";
+                Log3 $name, 5, "Wunderground $name: RES\n$data";
             }
         }
 
@@ -489,13 +478,13 @@ sub Wunderground_ReceiveCommand($$$) {
     return;
 }
 
-###################################
+sub Wunderground_Hash2Readings($$;$);
+
 sub Wunderground_Hash2Readings($$;$) {
     my ( $hash, $h, $r ) = @_;
     my $name = $hash->{NAME};
     my $lang = AttrVal( $name, "wu_lang", "en" );
-    my $loop = 0;
-    $loop = 1 if ( defined($r) );
+    my $loop = defined($r) ? 1 : 0;
 
     if ( ref($h) eq "HASH" ) {
         foreach my $k ( keys %{$h} ) {
@@ -540,6 +529,10 @@ sub Wunderground_Hash2Readings($$;$) {
                 || $cr eq "date"
                 || $cr eq "wind_dir" );
             next if ( $r && $r =~ /^display_location.*$/ );
+
+            next
+              if ( $k eq "wind_degrees"
+                && ( !looks_like_number( $h->{$k} ) || $h->{$k} < 0 ) );
 
             # observation_*
             if ( $cr =~ /^observation_.*$/ ) {
@@ -592,6 +585,7 @@ sub Wunderground_Hash2Readings($$;$) {
             {
                 my $period = $r;
                 $period =~ s/[^\d]//g;
+                $period++;
                 $reading = "hfc" . $period . "_";
 
                 readingsBulkUpdate( $hash, $reading . "condition",
@@ -620,12 +614,18 @@ sub Wunderground_Hash2Readings($$;$) {
                     $hash,
                     $reading . "heatindex_c",
                     $h->{heatindex}{metric}
-                );
+                ) if ( $h->{heatindex}{metric} ne "-9999" );
+                readingsBulkUpdateIfChanged( $hash, $reading . "heatindex_c",
+                    "-" )
+                  if ( $h->{heatindex}{metric} eq "-9999" );
                 readingsBulkUpdate(
                     $hash,
                     $reading . "heatindex_f",
                     $h->{heatindex}{english}
-                );
+                ) if ( $h->{heatindex}{english} ne "-9999" );
+                readingsBulkUpdateIfChanged( $hash, $reading . "heatindex_f",
+                    "-" )
+                  if ( $h->{heatindex}{english} eq "-9999" );
                 readingsBulkUpdate( $hash, $reading . "humidity",
                     $h->{humidity} );
                 readingsBulkUpdate( $hash, $reading . "icon", $h->{icon} );
@@ -681,12 +681,18 @@ sub Wunderground_Hash2Readings($$;$) {
                     $hash,
                     $reading . "wind_chill",
                     $h->{windchill}{metric}
-                );
+                ) if ( $h->{windchill}{metric} ne "-9999" );
+                readingsBulkUpdateIfChanged( $hash, $reading . "wind_chill",
+                    "-" )
+                  if ( $h->{windchill}{metric} eq "-9999" );
                 readingsBulkUpdate(
                     $hash,
                     $reading . "wind_chill_f",
                     $h->{windchill}{english}
-                );
+                ) if ( $h->{windchill}{english} ne "-9999" );
+                readingsBulkUpdateIfChanged( $hash, $reading . "wind_chill_f",
+                    "-" )
+                  if ( $h->{windchill}{english} eq "-9999" );
                 readingsBulkUpdate(
                     $hash,
                     $reading . "wind_speed",
@@ -757,6 +763,16 @@ sub Wunderground_Hash2Readings($$;$) {
                 );
                 readingsBulkUpdate(
                     $hash,
+                    $reading . "rain_daytime",
+                    $h->{qpf_day}{mm}
+                );
+                readingsBulkUpdate(
+                    $hash,
+                    $reading . "rain_daytime_in",
+                    $h->{qpf_day}{in}
+                );
+                readingsBulkUpdate(
+                    $hash,
                     $reading . "rain_night",
                     $h->{qpf_night}{mm}
                 );
@@ -774,6 +790,16 @@ sub Wunderground_Hash2Readings($$;$) {
                     $hash,
                     $reading . "snow_day_in",
                     $h->{snow_allday}{in}
+                );
+                readingsBulkUpdate(
+                    $hash,
+                    $reading . "snow_daytime",
+                    $h->{snow_day}{cm}
+                );
+                readingsBulkUpdate(
+                    $hash,
+                    $reading . "snow_daytime_in",
+                    $h->{snow_day}{in}
                 );
                 readingsBulkUpdate(
                     $hash,
@@ -815,6 +841,8 @@ sub Wunderground_Hash2Readings($$;$) {
                     $reading . "wind_speed_max_mph",
                     $h->{maxwind}{mph}
                 );
+
+                last;
             }
 
             # txt_forecast
@@ -842,21 +870,24 @@ sub Wunderground_Hash2Readings($$;$) {
                 }
 
                 $reading = "fc" . $period . "_";
+
                 my $symbol_c =
                   Encode::encode_utf8( chr(0x202F) . chr(0x00B0) . 'C' );
                 my $symbol_f =
                   Encode::encode_utf8( chr(0x202F) . chr(0x00B0) . 'F' );
                 my $symbol_pct = Encode::encode_utf8( chr(0x202F) . '%' );
-                my $symbol_kmh = Encode::encode_utf8( chr(0x00A0) . 'km/h' );
-                my $symbol_mph = Encode::encode_utf8( chr(0x00A0) . 'mph' );
-                $h->{fcttext_metric} =~ s/(\d)C/$1$symbol_c/g;
-                $h->{fcttext} =~ s/(\d)F/$1$symbol_f/g;
-                $h->{fcttext_metric} =~ s/(\d)\s*%/$1$symbol_pct/g;
-                $h->{fcttext} =~ s/(\d)\s*%/$1$symbol_pct/g;
-                $h->{fcttext_metric} =~ s/(\d)\s*km\/h/$1$symbol_kmh/g;
-                $h->{fcttext} =~ s/(\d)\s*km\/h/$1$symbol_kmh/g;
-                $h->{fcttext_metric} =~ s/(\d)\s*mph/$1$symbol_mph/g;
-                $h->{fcttext} =~ s/(\d)\s*mph/$1$symbol_mph/g;
+
+    #                my $symbol_kmh = Encode::encode_utf8(chr(0x00A0) . 'km/h');
+    #                my $symbol_mph = Encode::encode_utf8(chr(0x00A0) . 'mph');
+                $h->{fcttext_metric} =~ s/(\d+)C/$1$symbol_c/g;
+                $h->{fcttext} =~ s/(\d+)F/$1$symbol_f/g;
+                $h->{fcttext_metric} =~ s/(\d+)\s*%/$1$symbol_pct/g;
+                $h->{fcttext} =~ s/(\d+)\s*%/$1$symbol_pct/g;
+
+        #                $h->{fcttext_metric} =~ s/(\d)\s*km\/h/$1$symbol_kmh/g;
+        #                $h->{fcttext} =~ s/(\d+)\s*km\/h/$1$symbol_kmh/g;
+        #                $h->{fcttext_metric} =~ s/(\d)\s*mph/$1$symbol_mph/g;
+        #                $h->{fcttext} =~ s/(\d+)\s*mph/$1$symbol_mph/g;
 
                 readingsBulkUpdate( $hash, $reading . "icon$night",
                     $h->{icon} );
@@ -873,6 +904,8 @@ sub Wunderground_Hash2Readings($$;$) {
                 $hash->{readingDesc}{"title$night"}{lang}  = $lang if ($lang);
                 $hash->{readingDesc}{"text$night"}{lang}   = $lang if ($lang);
                 $hash->{readingDesc}{"text_f$night"}{lang} = $lang if ($lang);
+
+                last;
             }
 
             # almanac/temp_high
@@ -985,27 +1018,6 @@ sub Wunderground_Hash2Readings($$;$) {
     return "ok" if ( !$loop );
 }
 
-###################################
-sub Wunderground_Undefine($$$) {
-    my ( $hash, $a, $h ) = @_;
-    my $name = $hash->{NAME};
-
-    if ( defined( $hash->{fhem}{infix} ) ) {
-        Wunderground_removeExtension( $hash->{fhem}{infix} );
-    }
-
-    Log3 $name, 5,
-      "Wunderground $name: called function Wunderground_Undefine()";
-
-    # Stop the internal GetStatus-Loop and exit
-    RemoveInternalTimer($hash);
-
-    # release reverse pointer
-    delete $modules{Wunderground}{defptr}{$name};
-
-    return;
-}
-
 1;
 
 =pod
@@ -1027,7 +1039,8 @@ sub Wunderground_Undefine($$$) {
     Example:
     <ul><br>
       <code>
-      define WUweather Wunderground d123ab11bb2c3456 IBAYERNM70<br>
+      define WUweather Wunderground d123ab11bb2c3456 EDDF<br>
+      define WUweather Wunderground d123ab11bb2c3456 pws:IBAYERNM70<br>
       define WUweather Wunderground d123ab11bb2c3456 Germany/Berlin<br>
       </code><br>
     </ul>

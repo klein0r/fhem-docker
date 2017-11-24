@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_SVG.pm 13394 2017-02-11 21:29:40Z rudolfkoenig $
+# $Id: 98_SVG.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
 package main;
 
 use strict;
@@ -59,6 +59,7 @@ SVG_Initialize($)
   no warnings 'qw';
   my @attrList = qw(
     captionLeft:1,0"
+    captionPos:right,left,auto
     endPlotNow
     endPlotToday
     fixedoffset
@@ -67,13 +68,16 @@ SVG_Initialize($)
     nrAxis
     plotWeekStartDay:0,1,2,3,4,5,6
     plotfunction
+    plotmode
     plotsize
+    plotReplace:textField-long
     startDate
     title
   );
   use warnings 'qw';
   $hash->{AttrList} = join(" ", @attrList);
   $hash->{SetFn}    = "SVG_Set";
+  $hash->{AttrFn}   = "SVG_AttrFn";
   $hash->{RenameFn} = "SVG_Rename";
   $hash->{FW_summaryFn} = "SVG_FwFn";
   $hash->{FW_detailFn}  = "SVG_FwFn";
@@ -136,6 +140,19 @@ SVG_Set($@)
     addStructChange("modify", $me, "$me $hash->{DEF}")
   }
   return $err;
+}
+
+sub
+SVG_AttrFn(@)
+{
+  my ($cmd,$name,$aName,$aVal) = @_;
+
+  if($aName eq "captionLeft" && $cmd eq "set") {
+    my $dir = (!defined($aVal) || $aVal) ? "left" : "right";
+    AnalyzeCommand(undef, "attr $name captionPos $dir");
+    return "attr $name captionLeft converted to attr $name captionPos $dir";
+  }
+  return undef;
 }
 
 sub
@@ -265,10 +282,10 @@ SVG_FwFn($$$$)
   }
 
   my $arg="$FW_ME/SVG_showLog?dev=$d".
-                "&amp;logdev=$hash->{LOGDEVICE}".
-                "&amp;gplotfile=$hash->{GPLOTFILE}".
-                "&amp;logfile=$hash->{LOGFILE}".
-                "&amp;pos=" . join(";", map {"$_=$FW_pos{$_}"} keys %FW_pos);
+                "&logdev=$hash->{LOGDEVICE}".
+                "&gplotfile=$hash->{GPLOTFILE}".
+                "&logfile=$hash->{LOGFILE}".
+                "&pos=" . join(";", map {"$_=$FW_pos{$_}"} keys %FW_pos);
 
   if($pm eq "SVG") {
     $ret .= "<div class=\"SVGplot SVG_$d\">";
@@ -570,7 +587,7 @@ SVG_zoomLink($$$)
 
   my $val = $FW_pos{$d};
   $cmd = ($FW_detail ? "detail=$FW_detail":
-                        ($prf ? $prf : "room=$FW_room")) . "&amp;pos=";
+                        ($prf ? $prf : "room=$FW_room")) . "&pos=";
   if($d eq "zoom") {
 
     my $n = 0;
@@ -755,8 +772,28 @@ SVG_readgplotfile($$$)
   $srcDesc{all} = "";
   $srcDesc{order} = \@empty;
 
+  my $specval = AttrVal($wl, "plotfunction", undef);
+
+  my $plotReplace = AttrVal($wl, "plotReplace", undef);
+  my $pr;
+  (undef, $pr) = parseParams($plotReplace,"\\s"," ") if($plotReplace);
+  my $prSubst = sub($)
+  {
+    return "%$_[0]%" if(!$pr);
+    my $v = $pr->{$_[0]};
+    return "%$_[0]%" if(!$v);
+    if($v =~ m/^{.*}$/) {
+      $cmdFromAnalyze = $v;
+      return eval $v;
+    } else {
+      return $v;
+    }
+  };
+
   foreach my $l (@svgplotfile) {
     $l = "$l\n" unless $l =~ m/\n$/;
+
+    map { $l =~ s/%($_)%/&$prSubst($1)/ge } keys %$pr if($plotReplace);
     my ($src, $plotfn) = (undef, undef);
     if($l =~ m/^#([^ ]*) (.*)$/) {
       if($1 eq $ldType) {
@@ -773,7 +810,6 @@ SVG_readgplotfile($$$)
     if($plotfn) {
       Log 3, "$wl: space is not allowed in $ldType definition: $plotfn"
         if($plotfn =~ m/\s/);
-      my $specval = AttrVal($wl, "plotfunction", undef);
       if ($specval) {
         my @spec = split(" ",$specval);
         my $spec_count=1;
@@ -818,7 +854,6 @@ SVG_substcfg($$$$$$)
   my $fileesc = $file;
   $fileesc =~ s/\\/\\\\/g;      # For Windows, by MarkusRR
   my $title = AttrVal($wl, "title", "\"$fileesc\"");
-
   $title = AnalyzeCommand(undef, "{ $title }");
   my $label = AttrVal($wl, "label", undef);
   my @g_label;
@@ -845,6 +880,18 @@ SVG_substcfg($$$$$$)
       $gplot_script =~ s/<L$g_count>/$_/g;
       $plot =~ s/<L$g_count>/$_/g;
       $g_count++;
+    }
+  }
+
+  my $plotReplace = AttrVal($wl, "plotReplace", undef);
+  if($plotReplace) {
+    my ($list, $pr) = parseParams($plotReplace, "\\s"," ");
+    for my $k (keys %$pr) {
+      if($pr->{$k} =~ m/^{.*}$/) {
+        $cmdFromAnalyze = $pr->{$k};
+        $pr->{$k} = eval $cmdFromAnalyze;
+      }
+      $gplot_script =~ s/<$k>/$pr->{$k}/g;
     }
   }
 
@@ -1058,13 +1105,6 @@ SVG_doShowLog($$$$;$)
     my $tmpfile = "/tmp/file.$$";
     my $errfile = "/tmp/gnuplot.err";
     
-    my $xrange;
-
-    if(!$SVG_devs{$d}{from}) {
-      $xrange = "\n";        #We don't have a range, but need the new line
-    } else {
-      $xrange = "set xrange [\"$f\":\"$t\"]\n";
-    }
     my $da = SVG_getData($wl, $f, $t, $srcDesc, 0); # substcfg needs it(!)
 
     my $tmpstring = "";
@@ -1085,11 +1125,13 @@ SVG_doShowLog($$$$;$)
     my $i = 0;
     $plot =~ s/\".*?using 1:[^ ]+ /"\"$tmpfile\" i " . $i++ . " using 1:2 "/gse;
 
+    $plot = "set xrange [\"$f\":\"$t\"]\n\n$plot" if($SVG_devs{$d}{from});
     my $gplot_script = SVG_substcfg(0, $wl, $cfg, $plot, $file, $tmpfile);
+    $gplot_script =~ s/<TMPFILE>/$tmpfile/g;
 
     $plot =~ s/ls \w+//g;
     open(FH, "|gnuplot >> $errfile 2>&1");# feed it to gnuplot
-    print FH $gplot_script, $xrange, $plot;
+    print FH $gplot_script;
     close(FH);
     unlink($tmpfile);
 
@@ -1434,10 +1476,6 @@ SVG_render($$$$$$$$$$)
     }
   }
   $xtics = defined($conf{xtics}) ? $conf{xtics} : "";
-
-  my $caption_left = AttrVal($name, "captionLeft", 0);
-  my ($txtoff1,$txtoff2) = ($off1, $off2);
-  $txtoff1 = $nr_left_axis*$axis_width+$th if( $caption_left );
 
   ######################
   # Loop over the input, digest dates, calculate min/max values
@@ -1915,27 +1953,21 @@ SVG_render($$$$$$$$$$)
       SVG_pO "<polyline $attributes $lStyle points=\"$ret\"/>";
 
     } elsif( $lType eq "bars" ) {
-       if(@{$dxp} == 1) {
-          my $y1 = $y+$h-($dyp->[0]-$min)*$hmul;
-          $ret .=  sprintf(" %d,%d %d,%d %d,%d %d,%d",
-                $x,$y+$h, $x,$y1, $x+$w,$y1, $x+$w,$y+$h);
-       } else {
-          my $bw = $barwidth*$tmul;
-          # bars are all of equal width (see far above !), 
-          # position rounded to integer multiples of bar width
-          foreach my $i (0..int(@{$dxp})-1) {
-            my ($x1, $y1) = ( $x + $dxp->[$i] - $bw,
-                               $y +$h-($dyp->[$i]-$min)*$hmul);
-            my $curBw = $bw;
-            if($x1 < $x) {
-                $curBw -= $x - $x1;
-                $x1 = $x;
-            }
-            my ($x2, $y2) = ($curBw, ($dyp->[$i]-$min)*$hmul);    
-            SVG_pO "<rect $attributes $lStyle x=\"$x1\" y=\"$y1\" ".
-                        "width=\"$x2\" height=\"$y2\"/>";
-         }
-       }
+      my $bw = $barwidth*$tmul;
+      # bars are all of equal width (see far above !), 
+      # position rounded to integer multiples of bar width
+      foreach my $i (0..int(@{$dxp})-1) {
+        my ($x1, $y1) = ( $x + $dxp->[$i] - $bw,
+                           $y +$h-($dyp->[$i]-$min)*$hmul);
+        my $curBw = $bw;
+        if($x1 < $x) {
+            $curBw -= $x - $x1;
+            $x1 = $x;
+        }
+        my ($x2, $y2) = ($curBw, ($dyp->[$i]-$min)*$hmul);    
+        SVG_pO "<rect $attributes $lStyle x=\"$x1\" y=\"$y1\" ".
+                    "width=\"$x2\" height=\"$y2\"/>";
+      }
     } elsif( $lType eq "ibars" ) { # Forum #35268
       if(@{$dxp} == 1) {
         my $y1 = $y+$h-($dyp->[0]-$min)*$hmul;
@@ -2081,11 +2113,38 @@ SVG_render($$$$$$$$$$)
 
   ######################
   # Plot caption (title) at the end, should be draw on top of the lines
-  my $caption_anchor = $caption_left?"beginning":"end";
+  my $caption_pos = SVG_Attr($parent_name, $name, "captionPos", 'right');
+  my( $li,$ri ) = (0,0);
   for my $i (0..int(@{$conf{lTitle}})-1) {
+    my $caption_anchor = "end";
+    if( $caption_pos eq 'auto' ) {
+      my $a = $conf{lAxis}[$i];
+      my $axis = 1; $axis = $1 if( $a && $a =~ m/x\d+y(\d+)/ );
+      if( $axis <= $use_left_axis ) {
+        $caption_anchor = "beginning";
+      } else {
+        $caption_anchor = "end";
+      }
+    } elsif( $caption_pos eq 'left' ) {
+      $caption_anchor = "beginning";
+    }
+
+    my $txtoff1 = $nr_left_axis*$axis_width + $w - $th/2;
+    $txtoff1 = $nr_left_axis*$axis_width+$th/2
+        if($caption_anchor eq 'beginning');
+
     my $j = $i+1;
     my $t = $conf{lTitle}[$i];
     next if( !$t );
+    my $txtoff2;
+    if( $caption_anchor eq 'beginning' ) {
+      $txtoff2 = $y + 3 + $th/1.3 + $th * $li;
+      ++$li;
+    } else {
+      $txtoff2 = $y + 3 + $th/1.3 + $th * $ri;
+      ++$ri;
+    }
+
     my $desc = "";
     if(defined($data{"min$j"})     && $data{"min$j"}     ne "undef" &&
        defined($data{"currval$j"}) && $data{"currval$j"} ne "undef") {
@@ -2394,6 +2453,23 @@ plotAsPng(@)
   <a name="SVGattr"></a>
   <b>Attributes</b>
   <ul>
+    <li><a href="#endPlotNow">endPlotNow</a></li><br>
+    <li><a href="#endPlotToday">endPlotToday</a></li><br>
+
+    <a name="captionLeft"></a>
+    <li>captionLeft<br>
+      Show the legend on the left side (deprecated, will be autoconverted to
+      captionPos)
+      </li><br>
+
+    <a name="captionPos"></a>
+    <li>captionPos<br>
+      right - Show the legend on the right side (default)<br>
+      left - Show the legend on the left side<br>
+      auto - Show the legend labels on the left or on the right side depending
+      on the axis it belongs to<br>
+      </li><br>
+
     <a name="fixedrange"></a>
     <li>fixedrange [offset]<br>
         Contains two time specs in the form YYYY-MM-DD separated by a space.
@@ -2416,18 +2492,6 @@ plotAsPng(@)
     <li>fixedoffset &lt;nDays&gt;<br>
         Set an fixed offset (in days) for the plot.
         </li><br>
-
-    <a name="startDate"></a>
-    <li>startDate<br>
-        Set the start date for the plot. Used for demo installations.
-        </li><br>
-
-    <li><a href="#plotsize">plotsize</a></li><br>
-    <li><a href="#plotmode">plotmode</a></li><br>
-    <li><a href="#endPlotNow">endPlotNow</a></li><br>
-    <li><a href="#endPlotToday">endPlotToday</a></li><br>
-    <li><a href="#plotWeekStartDay">plotWeekStartDay</a></li><br>
-
 
     <a name="label"></a>
     <li>label<br>
@@ -2460,19 +2524,10 @@ plotAsPng(@)
       </ul>
       The value minAll and maxAll (representing the minimum/maximum over all
       values) is also available from the data hash.
-
-      </li>
-
-    <a name="title"></a>
-    <li>title<br>
-      A special form of label (see above), which replaces the string &lt;TL&gt;
-      in the .gplot file. It defaults to the filename of the logfile.
-    </li>
-
-    <a name="captionLeft"></a>
-    <li>captionLeft<br>
-      Show the legend on the left side.
+      <br>Deprecated, see plotReplace.
       </li><br>
+
+    <li><a href="#nrAxis">nrAxis</a></li><br>
 
     <a name="plotfunction"></a>
     <li>plotfunction<br>
@@ -2493,7 +2548,40 @@ plotAsPng(@)
             #DbLog Garage_Raumtemp:temperature::
         </li>
       </ul>
-    </li>
+      Deprecated, see plotReplace.
+      </li><br>
+
+    <li><a href="#plotmode">plotmode</a></li><br>
+
+    <a name="plotReplace"></a>
+    <li>plotReplace<br>
+      space separated list of key=value pairs. value may contain spaces if
+      enclosed in "" or {}. value will be evaluated as a perl expression, if it
+      is enclosed in {}.
+      <br>
+      In the .gplot file &lt;key&gt; is replaced with the corresponding value,
+      the evaluation of {} takes place <i>after</i> the input file is
+      processed, so $data{min1} etc can be used.
+      <br>
+      %key% will be repaced <i>before</i> the input file is processed, this
+      expression can be used to replace parameters for the input processing.
+    </li><br>
+
+    <li><a href="#plotsize">plotsize</a></li><br>
+    <li><a href="#plotWeekStartDay">plotWeekStartDay</a></li><br>
+
+    <a name="startDate"></a>
+    <li>startDate<br>
+        Set the start date for the plot. Used for demo installations.
+        </li><br>
+
+    <a name="title"></a>
+    <li>title<br>
+      A special form of label (see above), which replaces the string &lt;TL&gt;
+      in the .gplot file. It defaults to the filename of the logfile.
+      <br>Deprecated, see plotReplace.
+      </li><br>
+
   </ul>
   <br>
 
@@ -2588,6 +2676,28 @@ plotAsPng(@)
   <a name="SVGattr"></a>
   <b>Attribute</b>
   <ul>
+    <a name="captionLeft"></a>
+    <li>captionLeft<br>
+      Anzeigen der Legende auf der linken Seite. &Uuml;berholt, wird
+      automatisch nach captionPos konvertiert.
+      </li><br>
+
+    <a name="captionPos"></a>
+    <li>captionPos<br>
+      right - Anzeigen der Legende auf der rechten Seite (default)<br>
+      left - Anzeigen der Legende auf der linken Seite<br>
+      auto - Anzeigen der Labels der Legende auf der linken oder rechten Seite
+      je nach Achsenzugeh&ouml;rigkeit<br>
+      </li><br>
+
+    <li><a href="#endPlotNow">endPlotNow</a></li><br>
+    <li><a href="#endPlotToday">endPlotToday</a></li><br>
+
+    <a name="fixedoffset"></a>
+    <li>fixedoffset &lt;nTage&gt;<br>
+      Verschiebt den Plot-Offset um einen festen Wert (in Tagen). 
+      </li><br>
+
     <a name="fixedrange"></a>
     <li>fixedrange [offset]<br>
       Version 1<br>
@@ -2608,23 +2718,6 @@ plotAsPng(@)
       Zeitintervall (z.B. letztes Jahr: <code> fixedrange year -1</code>,
       vorgestern: <code> fixedrange day -2</code>).
       </li><br>
-
-    <a name="fixedoffset"></a>
-    <li>fixedoffset &lt;nTage&gt;<br>
-      Verschiebt den Plot-Offset um einen festen Wert (in Tagen). 
-      </li><br>
-
-    <a name="startDate"></a>
-    <li>startDate<br>
-      Setzt das Startdatum f&uuml;r den Plot. Wird f&uuml;r Demo-Installationen
-      verwendet.
-      </li><br>
-
-    <li><a href="#plotsize">plotsize</a></li><br>
-    <li><a href="#plotmode">plotmode</a></li><br>
-    <li><a href="#endPlotNow">endPlotNow</a></li><br>
-    <li><a href="#endPlotToday">endPlotToday</a></li><br>
-    <li><a href="#plotWeekStartDay">plotWeekStartDay</a></li><br>
 
     <a name="label"></a>
     <li>label<br>
@@ -2664,20 +2757,10 @@ plotAsPng(@)
       </ul>
       Die Werte minAll und maxAll (die das Minimum/Maximum aller Werte
       repr&auml;sentieren) sind ebenfals im data hash vorhanden.
-      </li>
-
-    <a name="title"></a>
-    <li>title<br>
-      Eine besondere Form der &Uuml;berschrift (siehe oben), bei der die
-      Zeichenfolge &lt;TL&gt; in der .gplot-Datei ersetzt wird.
-      Standardm&auml;&szlig;ig wird als &lt;TL&gt; der Dateiname des Logfiles
-      eingesetzt.
+      <br>&Uumlberholt, wird durch das plotReplace Attribut abgel&ouml;st.
       </li><br>
 
-    <a name="captionLeft"></a>
-    <li>captionLeft<br>
-      Anzeigen der Legende auf der linken Seite
-      </li><br>
+    <li><a href="#nrAxis">nrAxis</a></li><br>
 
     <a name="plotfunction"></a>
     <li>plotfunction<br>
@@ -2704,8 +2787,45 @@ plotAsPng(@)
             <code>#DbLog Garage_Raumtemp:temperature::</code>
           </li>
       </ul>
-      </li>
-  </ul>
+      &Uumlberholt, wird durch das plotReplace Attribut abgel&ouml;st.
+    </li><br>
+
+    <li><a href="#plotmode">plotmode</a></li><br>
+
+    <a name="plotReplace"></a>
+    <li>plotReplace<br>
+      Leerzeichen getrennte Liste von Name=Wert Paaren. Wert kann Leerzeichen
+      enthalten, falls es in "" oder {} eingeschlossen ist. Wert wird als
+      perl-Ausdruck ausgewertet, falls es in {} eingeschlossen ist.
+      <br>
+      In der .gplot Datei werden &lt;Name&gt; Zeichenketten durch den
+      zugehoerigen Wert ersetzt, die Auswertung von {} Ausdr&uuml;cken erfolgt
+      <i>nach</i> dem die Daten ausgewertet wurden, d.h. man kann hier
+      $data{min1},etc verwenden.
+      <br>
+      Bei %Name% erfolgt die Ersetzung <i>vor</i> der Datenauswertung, das kann
+      man verwenden, um Parameter f&uuml;r die Auswertung zu ersetzen.
+    </li><br>
+
+    <li><a href="#plotsize">plotsize</a></li><br>
+    <li><a href="#plotWeekStartDay">plotWeekStartDay</a></li><br>
+
+    <a name="startDate"></a>
+    <li>startDate<br>
+      Setzt das Startdatum f&uuml;r den Plot. Wird f&uuml;r Demo-Installationen
+      verwendet.
+      </li><br>
+
+    <a name="title"></a>
+    <li>title<br>
+      Eine besondere Form der &Uuml;berschrift (siehe oben), bei der die
+      Zeichenfolge &lt;TL&gt; in der .gplot-Datei ersetzt wird.
+      Standardm&auml;&szlig;ig wird als &lt;TL&gt; der Dateiname des Logfiles
+      eingesetzt.
+      <br>&Uumlberholt, wird durch das plotReplace Attribut abgel&ouml;st.
+      </li><br>
+
+  </ul> 
   <br>
 
   <a name="plotEditor"></a>

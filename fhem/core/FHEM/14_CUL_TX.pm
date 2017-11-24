@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 14_CUL_TX.pm 12387 2016-10-20 08:07:56Z rudolfkoenig $
+# $Id: 14_CUL_TX.pm 14784 2017-07-25 15:06:43Z rudolfkoenig $
 package main;
 
 # From peterp
@@ -120,6 +120,9 @@ CUL_TX_Parse($$)
   my $state="";
   my $t = ReadingsVal($name, "temperature", undef);
   my $h = ReadingsVal($name, "humidity", undef);
+  $t = $val if($msgtype eq "temperature");
+  $h = $val if($msgtype eq "humidity");
+
   if(defined($t) && defined($h)) {
     $state="T: $t H: $h";
 

@@ -1,4 +1,4 @@
-# $Id: 71_PIONEERAVRZONE.pm 7365 2014-12-30 15:42:43Z hofrichter $
+# $Id: 71_PIONEERAVRZONE.pm 14579 2017-06-26 19:30:40Z 50watt $
 ##############################################################################
 #
 #     71_PIONEERAVRZONE.pm
@@ -31,6 +31,8 @@ sub PIONEERAVRZONE_Get($@);
 sub PIONEERAVRZONE_Set($@);
 sub PIONEERAVRZONE_Attr($@);
 sub PIONEERAVRZONE_Define($$);
+
+no if $] >= 5.017011, warnings => 'experimental::smartmatch';
 
 ###################################
 sub
@@ -557,6 +559,9 @@ PIONEERAVRZONE_Define($$)
 1;
 
 =pod
+=item device
+=item summary control for the zones of a PIONEER AV receivers via network or serial connection
+=item summary_DE Steuerung der Zonen eines PIONEER AV Receiver per Netzwerk oder seriell
 =begin html
 
 <a name="PIONEERAVRZONE"></a>

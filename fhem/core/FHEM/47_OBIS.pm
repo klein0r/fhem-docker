@@ -5,7 +5,7 @@
 # Thanks to matzefizi for letting me merge this with 70_SMLUSB.pm and for testing
 # Tanks to immi for testing and supporting help and tips
 # 
-# $Id: 47_OBIS.pm 13004 2017-01-07 18:41:07Z Icinger $
+# $Id: 47_OBIS.pm 14235 2017-05-09 19:24:14Z Icinger $
 
 package main;
 use strict;
@@ -77,7 +77,7 @@ sub OBIS_Initialize($)
   $hash->{DefFn}   = "OBIS_Define";
   $hash->{ParseFn}   = "OBIS_Parse";
 #  $hash->{SetFn} = "OBIS_Set";
-  
+    $hash->{GetFn} = "OBIS_Get";
   $hash->{UndefFn} = "OBIS_Undef";
   $hash->{AttrFn}	= "OBIS_Attr";
   $hash->{AttrList}= "do_not_notify:1,0 interval offset_feed offset_energy IODev channels directions alignTime pollingMode:on,off unitReadings:on,off ignoreUnknown:on,off valueBracket:first,second,both ".
@@ -159,6 +159,20 @@ sub OBIS_Define($$)
   
   	Log3 $hash,5,"OBIS ($name) - Opening device...";
   	  return DevIo_OpenDev($hash, 0, "OBIS_Init");
+}
+
+sub OBIS_Get($@)
+{
+  my ($hash, @a) = @_;
+  my $name = shift @a;
+  my $opt = shift @a;
+	
+  if ($opt eq "update") {
+  	GetUpdate($hash);
+  } else 
+  
+  {return "Unknown argument $opt, choose one of update";}
+  
 }
 
 sub OBIS_Set($@)
@@ -491,6 +505,8 @@ sub OBIS_Parse($$)
 											my $chan=$3+0 > 0 ? "_Ch$3" : "";
     										if (AttrVal($name,"ignoreUnknown","off") eq "off" || $L ne $channel) {
 												if($1==1) {
+    								Log3($hash,4,"Set ".$L.$chan." to ".((looks_like_number($3) ? $5+0 : $5) +AttrVal($name,"offset_energy",0)));
+
 													readingsBulkUpdate($hash, $L.$chan  ,(looks_like_number($3) ? $5+0 : $5) +AttrVal($name,"offset_energy",0).(AttrVal($name,"unitReadings","off") eq "off"?"":" $6")); 
 												} elsif ($1==2) {
 													readingsBulkUpdate($hash, $L.$chan  ,(looks_like_number($3) ? $5+0 : $5) +AttrVal($name,"offset_feed",0).(AttrVal($name,"unitReadings","off") eq "off"?"":" $6")); 				
@@ -772,9 +788,12 @@ sub OBIS_decodeTL($){
 			$msgLength-=1;
 		}
 		$msgLength-=1;
-		my $valu=substr($msg,0,$msgLength*2);
-		$tmp.=$valu;
+		my $valu;
+		if (length($msg)>$msgLength*2) {
+			$valu=substr($msg,0,$msgLength*2);
+			$tmp.=$valu;
 		$msg=substr($msg,$msgLength*2);
+		}
 #		Log 3,"   Split Msg: $tmp $msg";
 	return $msgLength,$msgType,$valu,$msg,$tmp;
 	};

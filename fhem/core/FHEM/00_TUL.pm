@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_TUL.pm 13037 2017-01-10 19:24:35Z andi291 $
+# $Id: 00_TUL.pm 15260 2017-10-14 18:48:39Z andi291 $
 # ABU 20150916 removed print: simpleWriteDate, cleaned init
 # ABU 20150918 fixed deprecated warning, fixed warning related to hex-conversion in simple-write
 # ABU 20151123 added error-label in getGroup. Responsible for error-handling, if knxd is not accesible
@@ -13,6 +13,11 @@
 # ABU 20161108 added knxd. Added doku as well. Added summary. Treat it like eibd. See thread #58375
 # ABU 20170102 fixed write-mechanism, added mod for extended adressing (thx to its2bit)
 # ABU 20170110 removed mod for extended adressing
+# ABU 20170427 reintegrated mechanism for extenden GAD-Support
+# ABU 20170427 cleaned logs
+# ABU 20171006 deactivated default-log-entry
+# ABU 20171006 EIB requires different handling of extended GAD --> added
+
 
 package main;
 
@@ -49,6 +54,8 @@ my %matchList = (
     "3:EIB"      => "^B.*",
 );
 
+my $useEIB = '0';
+
 sub
 TUL_Initialize($)
 {
@@ -64,8 +71,6 @@ TUL_Initialize($)
   $hash->{UndefFn} = "TUL_Undef";
   $hash->{StateFn} = "TUL_SetState";
   $hash->{AttrFn}  = "TUL_Attr";
-  #$hash->{AttrList}= "do_not_notify:1,0 dummy:1,0 " .
-  #                   "showtime:1,0 model:TUL loglevel:0,1,2,3,4,5,6 ";
 					 
   $hash->{AttrList}= 			"do_not_notify:1,0 " .
 								"dummy:1,0 " .
@@ -87,7 +92,6 @@ TUL_Define($$)
 	if(@a < 4) 
 	{
 		my $msg = "wrong syntax: define <name> TUL <devicename> <device addr> [<line def in hex>]";
-		Log (2, $msg);
 		return $msg;
 	}
 
@@ -107,11 +111,9 @@ TUL_Define($$)
   
 	#Set attributes in order to control backward-compatibility
 	#$attr{$name}{useEIB} = 1;
-	#Log3 ($name, 1, "Using EIB is deprecated. Please migrate to KNX soon. Module 10_EIB is not maintained any longer.") if (AttrVal($name, "useEIB", 0) =~ m/1/);
-	#Log3 ($name, 0, "Using EIB is deprecated. Please migrate to KNX soon. Module 10_EIB is not maintained any longer. If you still want to use the module EIB, please set the attribute useEIB to 1.") if (AttrVal($name, "useEIB", 0) =~ m/1/);
-	Log3 ($name, 0, "Using EIB is deprecated. Please migrate to KNX soon. Module 10_EIB is not maintained any longer. If you still want to use the module EIB, 
-	please set the attribute useEIB to 1 within the tul-device. Please keep in mind, that 10_KNX has a changed syntax regarding the definition, arguments and readings. Please refer to the commandref. 
-	As well 10_EIB and 10_KNX are compatible to daemon eibd and knxd.") if (AttrVal($name, "useEIB", 0) =~ m/0/);
+	#Log3 ($name, 0, "Using EIB is deprecated. Please migrate to KNX soon. Module 10_EIB is not maintained any longer. If you still want to use the module EIB, 
+	#please set the attribute useEIB to 1 within the tul-device. Please keep in mind, that 10_KNX has a changed syntax regarding the definition, arguments and readings. Please refer to the commandref. 
+	#As well 10_EIB and 10_KNX are compatible to daemon eibd and knxd.") if (AttrVal($name, "useEIB", 0) =~ m/0/);
   
 	$hash->{DeviceName} = $dev;
 	$hash->{DeviceAddress} = $devaddr;
@@ -205,7 +207,7 @@ TUL_Write($$$)
 	return if(!defined($fn));
 	
 	#Discard message, if not set to backward-compatibility
-	if ((AttrVal($name, "useEIB", 0) =~ m/0/) and ($fn =~ m/\^B/))
+	if (($useEIB =~ m/0/) and ($fn =~ m/\^B/))
 	{
 		Log3 ($name, 0, "EIB is no longer supported. Message discarded.");
 		return;
@@ -253,7 +255,7 @@ TUL_Read($)
 	}
 
 	#place KNX-Message
-	TUL_Parse($hash, $hash, $name, "B".$buf, $hash->{initString}) if (AttrVal($name, "useEIB", 0) =~ m/1/);
+	TUL_Parse($hash, $hash, $name, "B".$buf, $hash->{initString}) if ($useEIB =~ m/1/);
 	#place EIB-Message
 	TUL_Parse($hash, $hash, $name, "C".$buf, $hash->{initString});
 }
@@ -305,7 +307,12 @@ TUL_SimpleWrite(@)
 	# v is a simple (1 Byte) or complex value (n bytes)	
 
 	# For eibd we need a more elaborate structure
-	if($msg =~ /^[BC](.)(.{4})(.*)$/)
+	# Old
+	#if($msg =~ /^[BC](.)(.{4})(.*)$/)
+	# New: its2bit
+	#if($msg =~ /^[BC](.)(.{5})(.*)$/)
+	#extended adressing
+	if ((($useEIB =~ m/1/) and ($msg =~ /^[BC](.)(.{4})(.*)$/)) or (($useEIB =~ m/0/) and ($msg =~ /^[BC](.)(.{5})(.*)$/)))
 	{
 		my $eibmsg;
 		if($1 eq "w")
@@ -583,7 +590,7 @@ TUL_OpenDev($$)
 	if($ret) 
 	{
 		TUL_CloseDev($hash);
-		Log 1, "Cannot init $dev, ignoring it";
+		Log (1, "Cannot init $dev, ignoring it");
 	}
 
 	DoTrigger($name, "CONNECTED") if($reopen);
@@ -616,7 +623,22 @@ TUL_Disconnected($)
 sub
 TUL_Attr(@)
 {
-	my @a = @_;
+	my ($cmd,$name,$aName,$aVal) = @_;
+
+	Log3 ($name, 5, "changing value, ATTR: $aName, VALUE: $aVal");
+	
+	if ($aName =~ m/useEIB/)
+	{
+		if ($aVal =~ m/1/)
+		{
+			$useEIB = '1';
+		}
+		else
+		{
+			$useEIB = '0';
+		}
+	}
+	
 	return undef;
 }
 
@@ -636,7 +658,12 @@ TUL_Attr(@)
 sub tul_hex2addr 
 {
 	my $str = lc($_[0]);
-    if ($str =~ /([0-9a-f])([0-9a-f])([0-9a-f]{2})/) 
+    # Old
+	#if ($str =~ /([0-9a-f])([0-9a-f])([0-9a-f]{2})/) 
+	# New its2bit
+	#if ($str =~ /([0-9a-f]{2})([0-9a-f])([0-9a-f]{2})/) 
+	#extended adressing
+	if ((($useEIB =~ m/1/) and ($str =~ /([0-9a-f])([0-9a-f])([0-9a-f]{2})/)) or (($useEIB =~ m/0/) and ($str =~ /([0-9a-f]{2})([0-9a-f])([0-9a-f]{2})/)))
 	{
         return (hex($1) << 11) | (hex($2) << 8) | hex($3);
     }
@@ -652,35 +679,72 @@ sub tul_addr2hex
 	my $a = $_[0];
 	my $b = $_[1];  # 1 if local (group) address, else physical address
     my $str ;
+	
     if ($b == 1) 
-	{ 
+	{		
 		#logical address used
 		#old, short-syntax
-        $str = sprintf "%01x%01x%02x", ($a >> 11) & 0xf, ($a >> 8) & 0x7, $a & 0xff;
+        #$str = sprintf "%01x%01x%02x", ($a >> 11) & 0xf, ($a >> 8) & 0x7, $a & 0xff;
 		#extended adress-range
 		#$str = sprintf "%02x%01x%02x", ($a >> 11) & 0x1f, ($a >> 8) & 0x7, $a & 0xff;
+		
+		#extended adressing
+		if ($useEIB =~ m/1/)
+		{
+			$str = sprintf "%01x%01x%02x", ($a >> 11) & 0xf, ($a >> 8) & 0x7, $a & 0xff;
+		}
+		else
+		{
+			$str = sprintf "%02x%01x%02x", ($a >> 11) & 0x1f, ($a >> 8) & 0x7, $a & 0xff;
+		}
     }
     else 
 	{ 
 		#physical address used
-        $str = sprintf "%01x%01x%02x", $a >> 12, ($a >> 8) & 0xf, $a & 0xff;
+		# Old
+		# $str = sprintf "%01x%01x%02x", $a >> 12, ($a >> 8) & 0xf, $a & 0xff;
+		# New
+        #$str = sprintf "%02x%01x%02x", $a >> 12, ($a >> 8) & 0xf, $a & 0xff;
+		
+		#extended adressing
+		if ($useEIB =~ m/1/)
+		{
+			$str = sprintf "%01x%01x%02x", $a >> 12, ($a >> 8) & 0xf, $a & 0xff;
+		}
+		else
+		{
+			$str = sprintf "%02x%01x%02x", $a >> 12, ($a >> 8) & 0xf, $a & 0xff;
+		}
     }
+	
     return $str;
 }
 
 sub tul_str2hex 
 {
 	my $str = $_[0];
-    if ($str =~ /(\d+)\/(\d+)\/(\d+)/) 
-	{ # logical address
-		my $hex = sprintf("%01x%01x%02x",$1,$2,$3);
+	my $hex;
+	
+    if (($str =~ /(\d+)\/(\d+)\/(\d+)/) or ($str =~ /(\d+)\.(\d+)\.(\d+)/))
+	{ 
+		# logical address
+		# old
+		# my $hex = sprintf("%01x%01x%02x",$1,$2,$3);
+		# New
+		#my $hex = sprintf("%02x%01x%02x",$1,$2,$3);
+		
+		#extended adressing
+		if ($useEIB =~ m/1/)
+		{
+			$hex = sprintf("%01x%01x%02x",$1,$2,$3);
+		}
+		else
+		{
+			$hex = sprintf("%02x%01x%02x",$1,$2,$3);
+		}
+
 		return $hex; 
     } 
-    elsif ($str =~ /(\d+)\.(\d+)\.(\d+)/) 
-	{ # physical address
-    	my $hex = sprintf("%01x%01x%02x",$1,$2,$3);
-    	return $hex;
-    }
 }
 
 # For mapping between APCI symbols and values
@@ -713,7 +777,6 @@ sub decode_eibd($)
 	{
 		$msg{'type'} = 'apci ' . $apci;
     }
-
     $msg{'src'} = tul_addr2hex($src,0);
     $msg{'dst'} = tul_addr2hex($dst,1);
 
@@ -751,7 +814,7 @@ sub encode_eibd($)
     @data = (0x0) if(!@data || !defined($data[0])); #make sure data has at least one element
 	#@data = (0x0) if(!(defined @data) || !(defined $data[0])); #make sure data has at least one element
     my $datalen = @data;
-    Log(5,"encode_eibd dst: $mref->{'dst'} apci: $APCI datalen: $datalen data: @data");
+    Log (5,"encode_eibd dst: $mref->{'dst'} apci: $APCI datalen: $datalen data: @data");
     @msg = (
 	    tul_hex2addr( $mref->{'dst'}), 	# Destination address
 	    0x0 | ($APCI >> 2), 	# TPDU type, Sequence no, APCI (msb)
@@ -796,12 +859,11 @@ sub decode_tpuart($)
 	#if(($ctrl & 0xB0)!=0xB0)
     if(($ctrl & 0x90)!=0x90)
     {
-    	#Log(3,"Control Byte " . sprintf("0x%02x",$ctrl) . " does not match expected mask 0xB0");
-		Log(3,"Control Byte " . sprintf("0x%02x",$ctrl) . " does not match expected mask 2x1001nnnn");
+		Log (3,"Control Byte " . sprintf("0x%02x",$ctrl) . " does not match expected mask 2x1001nnnn");
     	return undef;
     }
 
-   Log(5,"msg cmd: " . sprintf("0x%02x",$cmd) ." datalen: $len");
+   Log (5,"msg cmd: " . sprintf("0x%02x",$cmd) ." datalen: $len");
    
    my $apci = ($cmd >> 6) & 0x0F;
    if($len == 2) 
@@ -809,7 +871,7 @@ sub decode_tpuart($)
    	$bytes = pack("C",$cmd & 0x3F);
    }
 
-   Log(5,"msg cmd: " . sprintf("0x%02x",$cmd) ." datalen: $len apci: $apci");
+   Log (5,"msg cmd: " . sprintf("0x%02x",$cmd) ." datalen: $len apci: $apci");
    
     my %msg;
     my @data;
@@ -827,7 +889,7 @@ sub decode_tpuart($)
 
     @data = unpack ("C" . length($bytes), $bytes);
     my $datalen = @data;
-    Log(5, "decode_tpuart byte len: " . length($bytes) . " array size: $datalen");
+    Log (5, "decode_tpuart byte len: " . length($bytes) . " array size: $datalen");
     
     $msg{'data'} = \@data;
     return \%msg;
@@ -844,18 +906,18 @@ sub encode_tpuart($)
     $APCI = $apcivalues{$mref->{'type'}};
     if (!(defined $APCI)) 
 	{
-		Log(3,"Bad EIB message type $mref->{'type'}\n");
+		Log (3,"Bad EIB message type $mref->{'type'}\n");
 		return;
     }
     @data = @{$mref->{'data'}};
     my $datalen = @data;
     if($datalen > 14)
     {
-  		Log(3,"Bad EIB message length $datalen\n");
+  		Log (3,"Bad EIB message length $datalen\n");
 		return;
    	
     }
-    Log(5,"encode_tpuart dst: $mref->{'dst'} apci: $APCI datalen: $datalen data: @data");
+    Log (5,"encode_tpuart dst: $mref->{'dst'} apci: $APCI datalen: $datalen data: @data");
     @msg = (
     	0xBC, # EIB ctrl byte
 		tul_hex2addr($mref->{'src'}), # src address    	
@@ -933,7 +995,7 @@ sub sendGroup($$)
 	{
 	    my @encmsg = encode_eibd($msgref);
 	
-	    Log(5,"SendGroup: dst: $dst, msg: @encmsg \n");
+	    Log (5,"SendGroup: dst: $dst, msg: @encmsg \n");
 	
 	    my @msg = (0x0027);			# EIB_GROUP_PACKET
 	    push @msg, @encmsg;
@@ -943,7 +1005,7 @@ sub sendGroup($$)
 	{
 	    my @encmsg = encode_tpuart($msgref);
 	
-	    Log(5,"SendGroup: dst: $dst, msg: @encmsg \n");
+	    Log (5,"SendGroup: dst: $dst, msg: @encmsg \n");
 		sendRequest($hash, pack("C*", @encmsg));
 		my $response = getRequestFixLength($hash,($#encmsg + 1)/2+1);
 	}
@@ -957,12 +1019,12 @@ sub purgeReceiverBuf($)
 	my ($hash) = @_;
 	if($hash->{DevType} eq 'TPUART')
 	{
-	  Log(5,"purging receiver buffer ");
+	  Log (5,"purging receiver buffer ");
 	  my $data = undef;
 	  do
 	  {
 	    my(undef,$data) =  $hash->{USBDev}->read(100);
-	    Log(5,"purging packet: ". unpack("H*",$data) . "\n") if(defined($data) and length($data)>0);
+	    Log (5,"purging packet: ". unpack("H*",$data) . "\n") if(defined($data) and length($data)>0);
 	  } while(defined($data) and length($data)>0)
 	}
 }
@@ -973,16 +1035,16 @@ sub getRequestFixLength($$)
 	
 	if($hash->{DevType} eq 'TPUART')
 	{
-		Log(5,"waiting to receive $len bytes ...");
+		Log (5,"waiting to receive $len bytes ...");
 		my $buf = "";
 		while(length($buf)<$len)
 		{
 			#select(undef,undef,undef,0.5);
 			my (undef,$data) =  $hash->{USBDev}->read($len-length($buf));
-	    	Log(5,"Received fixlen packet: ". unpack("H*",$data) . "\n") if(defined($data) and length($data)>0);
+	    	Log (5,"Received fixlen packet: ". unpack("H*",$data) . "\n") if(defined($data) and length($data)>0);
 				
 			$buf .= $data if(defined($data));
-			#Log(5,"buf len: " . length($buf) . " expected: $len");
+			#Log (5,"buf len: " . length($buf) . " expected: $len");
 			# TODO: if we are longer than 5 seconds here, we should reset
 		}
 		
@@ -994,10 +1056,10 @@ sub getRequestFixLength($$)
 			$hash->{PARTIAL} .= $remainpart;
 			$buf = substr($buf,0,$len);
 			
-			Log(5,"we got too much.. buf(" .unpack("H*",$buf).") remainingpart(" .unpack("H*",$remainpart).")");
+			Log (5,"we got too much.. buf(" .unpack("H*",$buf).") remainingpart(" .unpack("H*",$remainpart).")");
 		}
 		
-		Log(5,"getRequest len: $len packet: ". unpack("H*",$buf) . "\n");
+		Log (5,"getRequest len: $len packet: ". unpack("H*",$buf) . "\n");
 		return $buf;
 	}
 	
@@ -1031,7 +1093,7 @@ sub getGroup($)
 	    	my $data = getRequestFixLength($hash,$reqlen-length($buf)) if($reqlen>length($buf));
 	    	if(length($buf)==0 && (!defined($data)||length($data)==0))
 	    	{
-	    		Log(5,"read fix length delivered no data.");
+	    		Log (5,"read fix length delivered no data.");
 	    		return undef;
 	    	}
 	    	$buf .= $data if(defined($data));
@@ -1042,7 +1104,7 @@ sub getGroup($)
 	    	{
 	    		$buf = substr($buf,1);
 	    		$hash->{PARTIAL} = $buf;
-	    		Log(5,"TPUART RSP " . sprintf("0x%02x",$ctrl) ." ignored.");
+	    		Log (5,"TPUART RSP " . sprintf("0x%02x",$ctrl) ." ignored.");
 	    		return undef;
 	    	}
 	    	
@@ -1050,7 +1112,7 @@ sub getGroup($)
 	    	{
 	    		my $routingcnt = unpack("xxxxxC", $buf);
 	    		$reqlen = ($routingcnt & 0x0F)+8;
-	    		Log(5,"receiving telegram with len: $reqlen");
+	    		Log (5,"receiving telegram with len: $reqlen");
 	    	}
 			
 			
@@ -1062,8 +1124,8 @@ sub getGroup($)
 		}
 		while(!defined($telegram));
 	    
-	    Log(5, "Telegram: (".length($telegram)."): " . unpack("H*",$telegram));
-	    Log(5, "Buf: (".length($buf)."): " . unpack("H*",$buf));
+	    Log (5, "Telegram: (".length($telegram)."): " . unpack("H*",$telegram));
+	    Log (5, "Buf: (".length($buf)."): " . unpack("H*",$buf));
 	    
 	    $hash->{PARTIAL} = $buf;	
 	    my $msg = decode_tpuart($telegram);
@@ -1076,13 +1138,13 @@ sub getGroup($)
 #	    {
 #	    	# ACK
 #	    	sendRequest($hash,pack('C',0x11));
-#	    	Log(5,"Ack!");
+#	    	Log (5,"Ack!");
 #	    } 
 	    
 	    return $msg;
 	}
 	
-	Log(2,"DevType $hash->{DevType} not supported for getGroup\n");
+	Log (2,"DevType $hash->{DevType} not supported for getGroup\n");
 	return undef;
 	
 	error:
@@ -1102,16 +1164,16 @@ sub getRequest($)
 	    goto error unless sysread($hash->{TCPDev}, $data, 2);
 	    my $size = unpack ("n", $data);
 	    goto error unless sysread($hash->{TCPDev}, $data, $size);
-	    Log(5,"Received packet: ". unpack("H*",$data) . "\n");
+	    Log (5,"Received packet: ". unpack("H*",$data) . "\n");
 	    return $data;
 	}
 	elsif($hash->{USBDev}) {
     	my $data = $hash->{USBDev}->input();
-	    Log(5,"Received packet: ". unpack("H*",$data) . "\n") if(defined($data) and length($data)>0);
+	    Log (5,"Received packet: ". unpack("H*",$data) . "\n") if(defined($data) and length($data)>0);
     	return $data;
 	}
 	
-	Log(1,"TUL $hash->{NAME}: can not select a source for reading data.");
+	Log (1,"TUL $hash->{NAME}: can not select a source for reading data.");
 	return undef;
 	
   error:
@@ -1125,7 +1187,7 @@ sub getRequest($)
 sub sendRequest($$) 
 {
     my ($hash,$str) = @_;
-    Log(5,"sendRequest: ". unpack("H*",$str). "\n");
+    Log (5,"sendRequest: ". unpack("H*",$str). "\n");
 
 	if($hash->{TCPDev})
 	{
@@ -1141,7 +1203,7 @@ sub sendRequest($$)
 	}
 	else
 	{
-		Log(2,"TUL $hash->{NAME}: No known physical protocoll defined.");
+		Log (2,"TUL $hash->{NAME}: No known physical protocoll defined.");
 		return undef;
 	}
 	return 1;

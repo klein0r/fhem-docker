@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 30_pilight_contact.pm 12587 2016-11-15 19:08:48Z risiko79 $
+# $Id: 30_pilight_contact.pm 14105 2017-04-25 18:05:58Z Risiko $
 #
 # Usage
 # 
@@ -50,13 +50,13 @@ sub pilight_contact_Define($$)
   $unit = $a[4] if (@a == 5);
 
   $hash->{STATE} = "defined";
-  $hash->{PROTOCOL} = lc($protocol);  
+  $hash->{PROTOCOL} = $protocol;  
   $hash->{ID} = $id;  
   $hash->{UNIT} = $unit;
 
   #$attr{$me}{verbose} = 5;
   
-  $modules{pilight_contact}{defptr}{lc($protocol)}{$me} = $hash;
+  $modules{pilight_contact}{defptr}{$protocol}{$me} = $hash;
   AssignIoPort($hash);
   return undef;
 }
@@ -81,13 +81,13 @@ sub pilight_contact_Parse($$)
   my $backend = $mhash->{NAME};
 
   Log3 $backend, 4, "pilight_contact_Parse ($backend): RCV -> $rmsg";
-  
+   
   my ($dev,$protocol,$id,$unit,$state,@args) = split(",",$rmsg);
   return () if($dev ne "PICONTACT");
   
   my $chash;
-  foreach my $n (keys %{ $modules{pilight_contact}{defptr}{lc($protocol)} }) { 
-    my $lh = $modules{pilight_contact}{defptr}{$protocol}{$n};
+  foreach my $n (keys %{ $modules{pilight_contact}{defptr}{$protocol} }) { 
+    my $lh = $modules{pilight_contact}{defptr}{$protocol}{$n};  
     next if ( !defined($lh->{ID}) );    
     if ($lh->{ID} eq $id) {
       if (defined($lh->{UNIT})) {
@@ -99,8 +99,14 @@ sub pilight_contact_Parse($$)
   }
   
   return () if (!defined($chash->{NAME}));
-
+  
   readingsBeginUpdate($chash);
+  
+  foreach my $arg (@args){
+    my($feature,$value) = split(":",$arg);
+    readingsBulkUpdate($chash,$feature,$value);
+  }
+    
   readingsBulkUpdate($chash,"state",$state);
   readingsEndUpdate($chash, 1);
   

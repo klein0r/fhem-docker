@@ -1,9 +1,10 @@
-# $Id: 44_S7_ARead.pm 12776 2016-12-14 18:09:08Z charlie71born $
+# $Id: 44_S7_ARead.pm 14965 2017-08-27 05:25:39Z charlie71 $
 ##############################################
 package main;
 
 use strict;
 use warnings;
+use Time::HiRes qw(gettimeofday);
 
 #use Switch;
 require "44_S7_Client.pm";
@@ -50,36 +51,140 @@ sub S7_ARead_Define($$) {
 	my ( $name, $area, $DB, $start, $datatype );
 
 	$name     = $a[0];
-	$area     = lc $a[2];
-	$DB       = $a[3];
-	$start    = $a[4];
-	$datatype = lc $a[5];
 
-	if (   $area ne "inputs"
-		&& $area ne "outputs"
-		&& $area ne "flags"
-		&& $area ne "db" )
-	{
-		my $msg =
-"wrong syntax: define <name> S7_ARead {inputs|outputs|flags|db} <DB> <start> {u8|s8|u16|s16|u32|s32|float}";
+	AssignIoPort($hash);
 
-		Log3 undef, 2, $msg;
-		return $msg;
+	if ( uc $a[2] =~ m/^[NA](\d*)/ ) {
+		my $Offset;
+		$area = "db";
+		$DB   = 0;
+		my $startposition;
+
+		if ( uc $a[2] =~ m/^AI(\d*)/ ) {
+			$startposition = 2;
+			
+			if ( defined($hash->{IODev}{S7TYPE}) && $hash->{IODev}{S7TYPE} eq "LOGO7" ) {
+				$Offset = 926;
+			}
+			elsif ( defined($hash->{IODev}{S7TYPE}) && $hash->{IODev}{S7TYPE} eq "LOGO8" ) {
+				$Offset = 1032;
+			}
+			else {
+				my $msg =
+"wrong syntax : define <name> S7_ARead {inputs|outputs|flags|db} <DB> <address> \n Only for Logo7 or Logo8:\n define <name> S7_ARead {AI|AM|AQ|NAI|NAQ}";
+
+				Log3 undef, 2, $msg;
+				return $msg;
+			}
+
+		}
+		elsif ( uc $a[2] =~ m/^AQ(\d*)/ ) {
+			$startposition = 2;
+			
+			if ( defined($hash->{IODev}{S7TYPE}) && $hash->{IODev}{S7TYPE} eq "LOGO7" ) {
+				$Offset = 944;
+			}
+			elsif ( defined($hash->{IODev}{S7TYPE}) && $hash->{IODev}{S7TYPE} eq "LOGO8" ) {
+				$Offset = 1072;
+			}
+			else {
+				my $msg =
+"wrong syntax : define <name> S7_ARead {inputs|outputs|flags|db} <DB> <address> \n Only for Logo7 or Logo8:\n define <name> S7_ARead {AI|AM|AQ|NAI|NAQ}";
+
+				Log3 undef, 2, $msg;
+				return $msg;
+			}
+
+		}
+		elsif ( uc $a[2] =~ m/^AM(\d*)/ ) {
+			$startposition = 2;
+			
+			if ( defined($hash->{IODev}{S7TYPE}) && $hash->{IODev}{S7TYPE} eq "LOGO7" ) {
+				$Offset = 952;
+			}
+			elsif ( defined($hash->{IODev}{S7TYPE}) && $hash->{IODev}{S7TYPE} eq "LOGO8" ) {
+				$Offset = 1118;
+			}
+			else {
+				my $msg =
+"wrong syntax : define <name> S7_ARead {inputs|outputs|flags|db} <DB> <address> \n Only for Logo7 or Logo8:\n define <name> S7_ARead {AI|AM|AQ|NAI|NAQ}";
+
+				Log3 undef, 2, $msg;
+				return $msg;
+			}
+		}
+
+		elsif ( uc $a[2] =~ m/^NAI(\d*)/ ) {
+			$startposition = 3;
+			if ( $hash->{IODev}{S7TYPE} eq "LOGO8" ) {
+				$Offset = 1262;
+			}
+			else {
+				my $msg =
+"wrong syntax : define <name> S7_ARead {inputs|outputs|flags|db} <DB> <address> \n Only for Logo7 or Logo8:\n define <name> S7_ARead {AI|AM|AQ|NAI|NAQ}";
+
+				Log3 undef, 2, $msg;
+				return $msg;
+			}
+		}
+		elsif ( uc $a[2] =~ m/^NAQ(\d*)/ ) {
+			$startposition = 3;
+			if ( $hash->{IODev}{S7TYPE} eq "LOGO8" ) {
+				$Offset = 1406;
+			}
+			else {
+				my $msg =
+"wrong syntax : define <name> S7_ARead {inputs|outputs|flags|db} <DB> <address> \n Only for Logo7 or Logo8:\n define <name> S7_ARead {AI|AM|AQ|NAI|NAQ}";
+
+				Log3 undef, 2, $msg;
+				return $msg;
+			}
+		}
+		else {
+			my $msg =
+"wrong syntax : define <name> S7_ARead {inputs|outputs|flags|db} <DB> <address> \n Only for Logo7 or Logo8:\n define <name> S7_ARead {AI|AM|AQ|NAI|NAQ}";
+
+			Log3 undef, 2, $msg;
+			return $msg;
+		}
+
+		$start = $Offset  + ((int( substr( $a[2], $startposition ) ) - 1)*2);
+		$datatype = "u16";
+
 	}
+	else {	
+	
+		$area     = lc $a[2];
+		$DB       = $a[3];
+		$start    = $a[4];
+		$datatype = lc $a[5];
 
-	if (   $datatype ne "u8"
-		&& $datatype ne "s8"
-		&& $datatype ne "u16"
-		&& $datatype ne "s16"
-		&& $datatype ne "u32"
-		&& $datatype ne "s32"
-		&& $datatype ne "float" )
-	{
-		my $msg =
-"wrong syntax: define <name> S7_ARead {inputs|outputs|flags|db} <DB> <start> {u8|s8|u16|s16|u32|s32|float}";
+		if (   $area ne "inputs"
+			&& $area ne "outputs"
+			&& $area ne "flags"
+			&& $area ne "db" )
+		{
+			my $msg =
+"wrong syntax: define <name> S7_ARead {inputs|outputs|flags|db} <DB> <start> {u8|s8|u16|s16|u32|s32|float} \n Only for Logo7 or Logo8:\n define <name> S7_ARead {AI|AM|AQ|NAI|NAQ}";
 
-		Log3 undef, 2, $msg;
-		return $msg;
+			Log3 undef, 2, $msg;
+			return $msg;
+		}
+
+		if (   $datatype ne "u8"
+			&& $datatype ne "s8"
+			&& $datatype ne "u16"
+			&& $datatype ne "s16"
+			&& $datatype ne "u32"
+			&& $datatype ne "s32"
+			&& $datatype ne "float" )
+		{
+			my $msg =
+"wrong syntax: define <name> S7_ARead {inputs|outputs|flags|db} <DB> <start> {u8|s8|u16|s16|u32|s32|float} \n Only for Logo7 or Logo8:\n define <name> S7_ARead {AI|AM|AQ|NAI|NAQ}";
+
+			Log3 undef, 2, $msg;
+			return $msg;
+		}
 	}
 
 	$hash->{AREA}     = $area;
@@ -108,8 +213,6 @@ sub S7_ARead_Define($$) {
 	else {
 		push( @{ $modules{S7_ARead}{defptr}{$ID} }, $hash );
 	}
-
-	AssignIoPort($hash);    # logisches modul an physikalisches binden !!!
 
 	$hash->{IODev}{dirty} = 1;
 	Log3 $name, 4,
@@ -163,6 +266,7 @@ sub S7_ARead_Parse($$) {
 			pack( "H2" x $length, split( ",", $hexbuffer ) ) );
 
 		#my $b = pack( "C" x $length, @Writebuffer );
+		my $now = gettimeofday();
 		foreach my $clientName (@clientList) {
 
 			my $h = $defs{$clientName};
@@ -219,11 +323,76 @@ sub S7_ARead_Parse($$) {
 
 				$myI = $myI * $multi + $offset;
 
-				#my $myResult;
+				my $reading="state";
 
-				main::readingsSingleUpdate( $h, "state", $myI, 1 );
+#				main::readingsSingleUpdate( $h, $reading, $myI, 1 );
 
-				#			main::readingsSingleUpdate($h,"value",$myResult, 1);
+				#check event-onchange-reading
+				#code wurde der datei fhem.pl funktion readingsBulkUpdate entnommen und adaptiert
+				my $attreocr= AttrVal($h->{NAME}, "event-on-change-reading", undef);
+				my @a;
+				if($attreocr) {
+					@a = split(/,/,$attreocr);
+					$hash->{".attreocr"} = \@a;
+				}
+				# determine whether the reading is listed in any of the attributes
+				my @eocrv;
+				my $eocr = $attreocr &&
+					( @eocrv = grep { my $l = $_; $l =~ s/:.*//;
+										($reading=~ m/^$l$/) ? $_ : undef} @a);
+			
+
+			  # check if threshold is given
+				my $eocrExists = $eocr;
+				if( $eocr
+					&& $eocrv[0] =~ m/.*:(.*)/ ) {
+				  my $threshold = $1;
+
+				  if($myI =~ m/([\d\.\-eE]+)/ && looks_like_number($1)) { #41083, #62190
+					my $mv = $1;
+					my $last_value = $hash->{".attreocr-threshold$reading"};
+					if( !defined($last_value) ) {
+					  $h->{".attreocr-threshold$reading"} = $mv;
+					} elsif( abs($mv - $last_value) < $threshold ) {
+					  $eocr = 0;
+					} else {
+					  $h->{".attreocr-threshold$reading"} = $mv;
+					}
+				  }
+				}
+				
+				my $changed = !($attreocr)
+					  || ($eocr && ($myI ne ReadingsVal($h->{NAME},$reading,"")));				
+								
+
+				my $attrminint = AttrVal($h->{NAME}, "event-min-interval", undef);
+				my @aa;
+				if($attrminint) {
+						@aa = split(/,/,$attrminint);
+				}								
+					
+				my @v = grep { my $l = $_;
+							   $l =~ s/:.*//;
+							   ($reading=~ m/^$l$/) ? $_ : undef
+							  } @aa;
+				if(@v) {
+				  my (undef, $minInt) = split(":", $v[0]);
+				  my $le = $h->{".lastTime$reading"};
+				  if($le && $now-$le < $minInt) {
+					if(!$eocr || ($eocr && $myI eq ReadingsVal($h->{NAME},$reading,""))){
+					  $changed = 0;
+					#} else {
+					#  $hash->{".lastTime$reading"} = $now;
+					}
+				  } else {
+					#$hash->{".lastTime$reading"} = $now;
+					$changed = 1 if($eocrExists);
+				  }
+				}				
+
+				if ($changed == 1) {				
+					main::readingsSingleUpdate( $h, $reading, $myI, 1 );
+				}
 			}
 
 		}

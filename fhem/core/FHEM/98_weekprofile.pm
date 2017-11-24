@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_weekprofile.pm 13277 2017-01-29 18:38:12Z Risiko $
+# $Id: 98_weekprofile.pm 14084 2017-04-23 11:57:48Z Risiko $
 #
 # Usage
 # 
@@ -422,7 +422,7 @@ sub weekprofile_Initialize($)
   $hash->{StateFn}  = "weekprofile_State";
   $hash->{NotifyFn} = "weekprofile_Notify";
   $hash->{AttrFn}   = "weekprofile_Attr";
-  $hash->{AttrList} = "useTopics:0,1 widgetWeekdays widgetEditOnNewPage:0,1 widgetEditDaysInRow:1,2,3,4,5,6,7 tempON tempOFF configFile ".$readingFnAttributes;
+  $hash->{AttrList} = "useTopics:0,1 widgetTranslations widgetWeekdays widgetEditOnNewPage:0,1 widgetEditDaysInRow:1,2,3,4,5,6,7 tempON tempOFF configFile ".$readingFnAttributes;
   
   $hash->{FW_summaryFn}  = "weekprofile_SummaryFn";
 
@@ -669,7 +669,6 @@ sub weekprofile_Set($$@)
     $prfNew->{TOPIC} = $topic;
     
     push @{$hash->{PROFILES}}, $prfNew;
-    weekprofile_updateReadings($hash);
     weekprofile_writeProfilesToFile($hash);
     return undef;
   }
@@ -739,7 +738,6 @@ sub weekprofile_Set($$@)
       push @{$hash->{PROFILES}}, $prfDest;
     }
     weekprofile_writeProfilesToFile($hash);
-    weekprofile_updateReadings($hash);
     return undef;
   }
   
@@ -774,7 +772,6 @@ sub weekprofile_Set($$@)
       push @{$hash->{PROFILES}}, $prfDest;
     }
     weekprofile_writeProfilesToFile($hash);
-    weekprofile_updateReadings($hash);
     return undef;
   }
   
@@ -796,7 +793,6 @@ sub weekprofile_Set($$@)
     
     splice(@{$hash->{PROFILES}},$idx, 1);
     weekprofile_writeProfilesToFile($hash);
-    weekprofile_updateReadings($hash);
     return undef;
   }
   
@@ -857,8 +853,8 @@ sub weekprofile_Notify($$)
       
       next if(!defined($s));
       my ($what,$who) = split(' ',$s);
-      
-      if ($what =~ m/INITIALIZED/ || $what =~ m/REREADCFG/) {
+           
+      if ($what =~ m/^INITIALIZED$/ || $what =~ m/REREADCFG/) {
         delete $own->{PROFILES};
         weekprofile_refreshSendDevList($own);
         weekprofile_assignDev($own);
@@ -866,7 +862,7 @@ sub weekprofile_Notify($$)
         weekprofile_updateReadings($own);
       }
       
-      if ($what =~ m/DEFINED/ || $what =~ m/DELETED/) {
+      if ($what =~ m/DEFINED/ || $what =~ m/^DELETED/) {
         weekprofile_refreshSendDevList($own);
       }
     }
@@ -949,6 +945,7 @@ sub weekprofile_writeProfilesToFile(@)
   }  
   close $fh;
   DoTrigger($me,"PROFILES_SAVED",1);
+  weekprofile_updateReadings($hash);
 }
 ############################################## 
 sub weekprofile_readProfilesFromFile(@)
@@ -1296,6 +1293,10 @@ sub weekprofile_getEditLNK_MasterDev($$)
   <a name="weekprofileattr"></a>
   <b>Attributes</b>
   <ul>
+    <li>widgetTranslations<br>
+    Comma seperated list of texts translations <german>:<translation>
+    <code>attr name widgetTranslations Abbrechen:Cancel,Speichern:Save</code> 
+    </li>
     <li>widgetWeekdays<br>
       Comma seperated list of week days starting at Monday
       <code>attr name widgetWeekdays Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday</code>
@@ -1448,6 +1449,10 @@ sub weekprofile_getEditLNK_MasterDev($$)
   <a name="weekprofileattr"></a>
   <b>Attribute</b>
   <ul>
+    <li>widgetTranslations<br>
+    Liste von Übersetzungen der Form <german>:<Übersetzung> getrennt durch ',' um Texte im Widget zu übersetzen.
+    <code>attr name widgetTranslations Abbrechen:Abbr,Speichern:Save</code> 
+    </li>
     <li>widgetWeekdays<br>
       Liste von Wochentagen getrennt durch ',' welche im Widget angzeigt werden. 
       Beginnend bei Montag. z.B.

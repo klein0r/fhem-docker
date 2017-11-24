@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 90_at.pm 12717 2016-12-05 21:53:35Z rudolfkoenig $
+# $Id: 90_at.pm 14995 2017-09-03 14:23:14Z rudolfkoenig $
 package main;
 
 use strict;
@@ -48,7 +48,7 @@ sub
 at_Define($$)
 {
   my ($hash, $def) = @_;
-  my ($name, undef, $tm, $command) = split("[ \t]+", $def, 4);
+  my ($name, undef, $tm, $command) = split("[ \t\n]+", $def, 4);
 
   if(!$command) {
     if($hash->{OLDDEF}) { # Called from modify, where command is optional
@@ -79,8 +79,10 @@ at_Define($$)
   }
   return "datespec is not allowed with + or *" if($abstime && ($rel || $rep));
 
-  $err = perlSyntaxCheck($command, ());
-  return $err if($err);
+  if($hash->{CL}) {     # Do not check this for definition
+    $err = perlSyntaxCheck($command, ());
+    return $err if($err);
+  }
 
   $rel = "" if(!defined($rel));
   $rep = "" if(!defined($rep));
@@ -169,6 +171,8 @@ at_Exec($)
 
   my $skip = AttrVal($name, "skip_next", undef);
   delete $attr{$name}{skip_next} if($skip);
+  $hash->{TEMPORARY} = 1 if($hash->{VOLATILE}); # 68680
+  delete $hash->{VOLATILE};
 
   if(!$skip && !IsDisabled($name)) {
     Log3 $name, 5, "exec at command $name";
@@ -204,24 +208,13 @@ at_adjustAlign($$)
 {
   my($hash, $attrVal) = @_;
 
-  my ($alErr, $alHr, $alMin, $alSec, undef) = GetTimeSpec($attrVal);
-  return "$hash->{NAME} alignTime: $alErr" if($alErr);
   my ($tm, $command) = split("[ \t]+", $hash->{DEF}, 2);
   $tm =~ m/^(\+)?(\*({\d+})?)?(.*)$/;
   my ($rel, $rep, $cnt, $tspec) = ($1, $2, $3, $4);
   return "startTimes: $hash->{NAME} is not relative" if(!$rel);
-  my (undef, $hr, $min, $sec, undef) = GetTimeSpec($tspec);
 
-  my $now = time();
-  my $alTime = ($alHr*60+$alMin)*60+$alSec-fhemTzOffset($now);
-  my $step = ($hr*60+$min)*60+$sec;
-  my $ttime = int($hash->{TRIGGERTIME});
-  my $off = ($ttime % 86400) - 86400;
-  while($off < $alTime) {
-    $off += $step;
-  }
-  $ttime += ($alTime-$off);
-  $ttime += $step if($ttime < $now);
+  my ($err, $ttime) = computeAlignTime($tspec, $attrVal,$hash->{TRIGGERTIME});
+  return "$hash->{NAME} $err" if($err);
 
   RemoveInternalTimer($hash);
   InternalTimer($ttime, "at_Exec", $hash, 0);
@@ -339,23 +332,23 @@ at_fhemwebFn($$$$)
   my $isPerl = ($ts =~ m/^{(.*)}/);
   $ts = $1 if($isPerl);
 
-return "<br>Timespec wizard:".
-"<table id='atWizard' nm='$hash->{NAME}' ts='$ts' rl='$hash->{RELATIVE}' ".
+  my $h1 = "<br>Change Wizard:".
+"<table class='block wide' id='atWizard' nm='$hash->{NAME}' ts='$ts' ".
+       "rl='$hash->{RELATIVE}' ".
        "pr='$hash->{PERIODIC}' ip='$isPerl' class='block wide'>".<<'EOF';
-  <tr class="even">
-    <td>Relative &nbsp; <input type="checkbox" id="aw_rl" value="yes"></td>
-    <td>Periodic &nbsp; <input type="checkbox" id="aw_pr" value="yes"></td>
-  </tr><tr class="odd"><td>Use perl function for timespec</td>
-    <td><input type="checkbox" id="aw_ip"></td>
-  </tr><tr class="even"><td>Timespec</td>
-    <td><input type="text" name="aw_pts"></td>
-  </tr><tr class="even"><td>Timespec</td>
-    <td><input type="text" name="aw_ts" size="5"></td>
+  <tr class="even"><td>Change the timespec:</td></tr>
+  <tr class="odd">
+    <td>Relative <input type="checkbox" id="aw_rl" value="yes">&nbsp;
+        Periodic <input type="checkbox" id="aw_pr" value="yes">&nbsp;
+        Use perl function for timespec <input type="checkbox" id="aw_ip"></td>
+  </tr><tr class="even"><td><input type="text" name="aw_pts"></td>
+  </tr><tr class="even"><td><input type="text" name="aw_ts"></td>
+  </tr><tr class="odd"><td><input type="button" id="aw_md"
+        value="Change the timespec"></td>
   </tr>
-  </tr><tr class="even">
-    <td colspan="2"><input type="button" id="aw_md" value="Modify"></td>
-  </tr>
-</table>
+EOF
+
+  my $j1 = << 'EOF';
 <script type="text/javascript">
   {
     var t=$("#atWizard"), ip=$(t).attr("ip"), ts=$(t).attr("ts");
@@ -383,11 +376,16 @@ return "<br>Timespec wizard:".
                "{"+$("[name=aw_pts]").val()+"}" : $("[name=aw_ts]").val();
       def = def.replace(/\+/g, "%2b");
       def = def.replace(/;/g, ";;");
-      location = location.pathname+"?detail="+nm+"&cmd=modify "+def;
+      location = location.pathname+"?detail="+nm+"&cmd=modify "+addcsrf(def);
     });
   }
 </script>
 EOF
+ 
+  my @d = split(" ",$hash->{DEF},2);
+  LoadModule("notify");
+  my ($h2, $j2) = notfy_addFWCmd($d, $d[0], 2);
+  return "$h1$h2</table><br>$j1$j2";
 }
 
 1;
@@ -558,6 +556,10 @@ EOF
         intervals, e.g.:
         <ul>
           23:00-24:00 00:00-01:00
+        </ul>
+        If parts of the attribute value are enclosed in {}, they are evaluated:
+        <ul>
+          {sunset_abs()}-24 {sunrise_abs()}-08
         </ul>
         </li><br>
 
@@ -745,6 +747,11 @@ EOF
         zwei einzelne angeben, z.Bsp.:
         <ul>
           23:00-24:00 00:00-01:00
+        </ul>
+        Falls Teile des Wertes in {} eingeschlossen sind, dann werden sie als
+        ein Perl Ausdruck ausgewertet:
+        <ul>
+          {sunset_abs()}-24 {sunrise_abs()}-08
         </ul>
         </li><br>
 

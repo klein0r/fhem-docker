@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_pilight_ctrl.pm 12587 2016-11-15 19:08:48Z risiko79 $
+# $Id: 10_pilight_ctrl.pm 14997 2017-09-03 17:27:39Z Risiko $
 #
 # Usage
 # 
@@ -46,6 +46,11 @@
 # V 1.19 2016-09-20 - FIX: PERL WARNING: Subroutine from Blocking.pm redefined
 # V 1.20 2016-10-27 - FIX: ContactAsSwitch protocol independend
 # V 1.21 2016-11-13 - NEW: support contact sensors 
+# V 1.22 2017-04-08 - NEW: support contact sensor GW-iwds07
+# V 1.23 2017-04-08 - NEW: support new temperature protocols bmp085 and bmp180
+# V 1.24 2017-04-22 - FIX: GS-iwds07 support
+# V 1.25 2017-04-23 - FIX: react only of global::INITIALIZED m/^INITIALIZED$/
+# V 1.26 2017-09-03 - FIX: heitech support
 ############################################## 
 package main;
 
@@ -425,6 +430,7 @@ sub pilight_ctrl_Write($@)
           case m/mumbi/         {$code .= "\"systemcode\":$id,\"unitcode\":$unit,";}
           case m/brennenstuhl/  {$code .= "\"systemcode\":$id,\"unitcode\":$unit,";}
           case m/pollin/        {$code .= "\"systemcode\":$id,\"unitcode\":$unit,";}
+          case m/heitech/		{$code .= "\"systemcode\":$id,\"unitcode\":$unit,";}
           case m/impuls/        {$code .= "\"systemcode\":$id,\"programcode\":$unit,";}
           case m/rsl366/        {$code .= "\"systemcode\":$id,\"programcode\":$unit,";}
           case m/daycom/        { if (!defined($syscode)) {
@@ -595,7 +601,7 @@ sub pilight_ctrl_Notify($$)
     next if(!defined($s));
     my ($what,$who) = split(' ',$s);
     
-    if ( $what =~ m/INITIALIZED/ ) {
+    if ( $what =~ m/^INITIALIZED$/  ) {
       Log3 $me, 4, "$me(Notify): create white list for $s";
       pilight_ctrl_createWhiteList($own);
     } elsif ( $what =~ m/DEFINED/ ){
@@ -791,6 +797,12 @@ sub pilight_ctrl_Parse($$)
     $state =~ s/closed/off/g;
     Log3 $me, 4, "$me(Parse): contact as switch for $id";
   }
+  
+  # some protocols have no id but unit(code) e.q. ev1527, GS-iwds07
+  $id = $unit if ($id eq "" && $unit ne "");   
+  $unit = "all" if ($unit eq "" && $all ne "");
+  
+  Log3 $me, 5, "$me(Parse): protocol:$proto,id:$id,unit:$unit";
         
   my @ignoreIDs = split(",",AttrVal($me, "ignoreProtocol","")); 
   
@@ -813,12 +825,7 @@ sub pilight_ctrl_Parse($$)
   readingsBeginUpdate($hash);
   readingsBulkUpdate($hash,"rcv_raw",$rmsg);
   readingsEndUpdate($hash, 1);
-  
-  # some protocols have no id but unit(code) e.q. ev1527
-  $id = $unit if ($id eq "" && $unit ne ""); 
-  
-  $unit = "all" if ($unit eq "" && $all ne "");
-  
+    
   my $protoID = -1;  
   switch($proto){
     #switch
@@ -834,6 +841,7 @@ sub pilight_ctrl_Parse($$)
     case m/cleverwatts/ {$protoID = 1;}
     case m/intertechno_old/ {$protoID = 1;}
     case m/quigg_gt/    {$protoID = 1;}
+    case m/heitech/		{$protoID = 1;}
     
     case m/dimmer/      {$protoID = 2;}
     
@@ -841,6 +849,7 @@ sub pilight_ctrl_Parse($$)
     case m/contact/     {$protoID = 3;}
     case m/ev1527/      {$protoID = 3;}
     case m/sc2262/      {$protoID = 3;}
+    case m/GS-iwds07/   {$protoID = 3;} 
     
     #Weather Stations temperature, humidity
     case m/alecto/      {$protoID = 4;}
@@ -858,6 +867,8 @@ sub pilight_ctrl_Parse($$)
     case m/cpu_temp/    {$protoID = 4;}
     case m/lm75/        {$protoID = 4;}
     case m/lm76/        {$protoID = 4;}
+    case m/bmp085/      {$protoID = 4;}
+    case m/bmp180/      {$protoID = 4;}
     
     case m/screen/      {$protoID = 5;}
     
@@ -888,7 +899,13 @@ sub pilight_ctrl_Parse($$)
       Log3 $me, 4, "$me(Dispatch): $msg";
       return Dispatch($hash, $msg ,undef);
     }
-    case 3 { return Dispatch($hash, "PICONTACT,$proto,$id,$unit,$state",undef); }
+    case 3 { 
+		my $piTempData = "";
+        $piTempData .= ",battery:$data->{$s}{battery}"          if (defined($data->{$s}{battery}));
+        my $msg = "PICONTACT,$proto,$id,$unit,$state$piTempData";
+        Log3 $me, 4, "$me(Dispatch): $msg";
+		return Dispatch($hash, $msg,undef);		
+	}
     case 4 {      
         my $piTempData = "";
         $piTempData .= ",temperature:$data->{$s}{temperature}"  if (defined($data->{$s}{temperature}));

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_HMUARTLGW.pm 13367 2017-02-08 23:13:31Z mgernoth $
+# $Id: 00_HMUARTLGW.pm 15383 2017-11-03 08:11:29Z mgernoth $
 #
 # HMUARTLGW provides support for the eQ-3 HomeMatic Wireless LAN Gateway
 # (HM-LGW-O-TW-W-EU) and the eQ-3 HomeMatic UART module (HM-MOD-UART), which
@@ -146,6 +146,8 @@ sub HMUARTLGW_Initialize($)
 	$hash->{SetFn}     = "HMUARTLGW_Set";
 	$hash->{GetFn}     = "HMUARTLGW_Get";
 	$hash->{AttrFn}    = "HMUARTLGW_Attr";
+	$hash->{RenameFn}  = "HMUARTLGW_Rename";
+	$hash->{ShutdownFn}= "HMUARTLGW_Shutdown";
 
 
 	$hash->{Clients} = ":CUL_HM:";
@@ -160,6 +162,7 @@ sub HMUARTLGW_Initialize($)
 	                   "qLen " .
 	                   "logIDs ".
 	                   "dummy:1 ".
+	                   "loadEvents:0,1 ".
 	                   $readingFnAttributes;
 }
 
@@ -170,6 +173,7 @@ sub HMUARTLGW_GetSetParameterReq($);
 sub HMUARTLGW_getAesKeys($);
 sub HMUARTLGW_updateMsgLoad($$);
 sub HMUARTLGW_Read($);
+sub HMUARTLGW_RemoveHMPair($);
 sub HMUARTLGW_send($$$;$);
 sub HMUARTLGW_send_frame($$);
 sub HMUARTLGW_crc16($;$);
@@ -264,9 +268,10 @@ sub HMUARTLGW_Define($$)
 			$dev .= "\@115200";
 		}
 		$hash->{DevType} = "UART";
+		$hash->{model} = "HM-MOD-UART";
 		readingsBeginUpdate($hash);
 		delete($hash->{READINGS}{"D-LANfirmware"});
-		readingsBulkUpdate($hash, "D-type", "HM-MOD-UART");
+		readingsBulkUpdate($hash, "D-type", $hash->{model});
 		readingsEndUpdate($hash, 1);
 	}
 
@@ -287,16 +292,16 @@ sub HMUARTLGW_Undefine($$;$)
 
 	RemoveInternalTimer($hash);
 	RemoveInternalTimer("HMUARTLGW_CheckCredits:$name");
+	RemoveInternalTimer("hmPairForSec:$name");
 	if ($hash->{keepAlive}) {
 		RemoveInternalTimer($hash->{keepAlive});
 		DevIo_CloseDev($hash->{keepAlive});
 		delete($attr{$hash->{keepAlive}->{NAME}});
 		delete($defs{$hash->{keepAlive}->{NAME}});
 		delete($hash->{keepAlive});
-		$devcount--;
 	}
 
-	if (defined($hash->{FD}) && (!$noclose)) {
+	if (!$noclose) {
 		DevIo_CloseDev($hash);
 		Log3($hash, 3, "${name} device closed") if (!defined($hash->{FD}));
 	}
@@ -339,6 +344,36 @@ sub HMUARTLGW_Ready($)
 	return 0;
 }
 
+sub HMUARTLGW_Rename($$)
+{
+	my ($name, $old_name) = @_;
+	my $hash = $defs{$name};
+
+	if (defined($hash->{Helper}{Initialized})) {
+		RemoveInternalTimer("HMUARTLGW_CheckCredits:${old_name}");
+		InternalTimer(gettimeofday()+1, "HMUARTLGW_CheckCredits", "HMUARTLGW_CheckCredits:${name}", 0);
+	}
+
+	if ($hash->{hmPair}) {
+		HMUARTLGW_RemoveHMPair("hmPairForSec:${old_name}");
+	}
+}
+
+sub HMUARTLGW_Shutdown($)
+{
+	my ($hash) = @_;
+	my $name = $hash->{NAME};
+
+	#switch to bootloader to stop the module from interfering
+	HMUARTLGW_send($hash, HMUARTLGW_OS_CHANGE_APP, HMUARTLGW_DST_OS)
+		if ($hash->{DevState} > HMUARTLGW_STATE_ENTER_APP);
+
+	DevIo_CloseDev($hash->{keepAlive}) if ($hash->{keepAlive});
+	DevIo_CloseDev($hash);
+
+	return undef;
+}
+
 #HM-LGW communicates line-based during init
 sub HMUARTLGW_LGW_Init($)
 {
@@ -359,10 +394,16 @@ sub HMUARTLGW_LGW_Init($)
 			$hash->{CNT} = hex($1);
 
 			if ($hash->{DevType} eq "LGW") {
+				$hash->{model} = $2;
 				readingsBeginUpdate($hash);
 				readingsBulkUpdate($hash, "D-type", $2);
-				readingsBulkUpdate($hash, "D-LANfirmware", $3);
 				readingsBulkUpdate($hash, "D-serialNr", $4);
+				my $fw = $3;
+				if ($fw =~ m/^(\d+)\.(\d+)\.(\d+)$/) {
+					my $fwver = (int($1) << 16) | (int($2) << 8) | int($3);
+					$fw .= " (outdated)" if ($fwver < 0x010105);
+				}
+				readingsBulkUpdate($hash, "D-LANfirmware", $fw);
 				readingsEndUpdate($hash, 1);
 			}
 		} elsif ($line =~ m/^V(..),(................................)$/) {
@@ -499,7 +540,7 @@ sub HMUARTLGW_CheckCredits($)
 		$next = 1;
 	}
 	RemoveInternalTimer("HMUARTLGW_CheckCredits:$name");
-	InternalTimer(gettimeofday()+$next, "HMUARTLGW_CheckCredits", "HMUARTLGW_CheckCredits:$name", 1);
+	InternalTimer(gettimeofday()+$next, "HMUARTLGW_CheckCredits", "HMUARTLGW_CheckCredits:$name", 0);
 }
 
 sub HMUARTLGW_SendPendingCmd($)
@@ -510,7 +551,7 @@ sub HMUARTLGW_SendPendingCmd($)
 	if (defined($hash->{XmitOpen}) &&
 	    $hash->{XmitOpen} == 2) {
 		if ($hash->{Helper}{PendingCMD}) {
-			my $qLen = AttrVal($name, "qLen", 20);
+			my $qLen = AttrVal($name, "qLen", 60);
 			if (scalar(@{$hash->{Helper}{PendingCMD}}) < $qLen) {
 				$hash->{XmitOpen} = 1;
 			}
@@ -901,6 +942,7 @@ sub HMUARTLGW_GetSetParameters($;$$)
 			         hex(substr($msg, 12, 2)).".".
 			         hex(substr($msg, 14, 2));
 			$hash->{Helper}{FW} = hex((substr($msg, 10, 6)));
+			$fw .= " (outdated)" if ($hash->{Helper}{FW} < 0x010401);
 			readingsSingleUpdate($hash, "D-firmware", $fw, 1);
 		}
 		$hash->{DevState} = HMUARTLGW_STATE_SET_NORMAL_MODE;
@@ -988,7 +1030,7 @@ sub HMUARTLGW_GetSetParameters($;$$)
 
 		#start credit checker
 		RemoveInternalTimer("HMUARTLGW_CheckCredits:$name");
-		InternalTimer(gettimeofday()+1, "HMUARTLGW_CheckCredits", "HMUARTLGW_CheckCredits:$name", 1);
+		InternalTimer(gettimeofday()+1, "HMUARTLGW_CheckCredits", "HMUARTLGW_CheckCredits:$name", 0);
 
 		$hash->{Helper}{Initialized} = 1;
 		HMUARTLGW_updateCondition($hash);
@@ -1002,7 +1044,8 @@ sub HMUARTLGW_GetSetParameters($;$$)
 				Log3($hash, 1, "HMUARTLGW ${name} Adding peer $hash->{Helper}{UpdatePeer}{id} failed! " .
 				               "You have probably forced an unknown aesKey for this device.");
 			} else {
-				Log3($hash, 1, "HMUARTLGW ${name} Removing peer $hash->{Helper}{UpdatePeer}{id} failed!");
+				Log3($hash, HMUARTLGW_getVerbLvl($hash, $hash->{Helper}{UpdatePeer}{id}, $hash->{Helper}{UpdatePeer}{id}, 4),
+				     "HMUARTLGW ${name} Removing peer $hash->{Helper}{UpdatePeer}{id} failed!");
 			}
 			$hash->{Helper}{UpdatePeer}{operation} = "";
 		}
@@ -1072,7 +1115,6 @@ sub HMUARTLGW_Parse($$$$)
 
 	#Minimally handle DualCopro-Firmware
 	if ($dst == HMUARTLGW_DST_DUAL) {
-		#2017.02.08 23:37:27.735 0: HMUARTLGW testy recv: FE 004475616C436F50726F5F417070, state 2
 		if (($msg =~ m/^00(.*)$/ || $msg =~ m/^0501(.*)$/) &&
 		    $hash->{DevState} <= HMUARTLGW_STATE_ENTER_APP) {
 			if (pack("H*", $1) eq "DualCoPro_App") {
@@ -1093,14 +1135,12 @@ sub HMUARTLGW_Parse($$$$)
 			Log3($hash, HMUARTLGW_getVerbLvl($hash, undef, undef, 4),
 			     "HMUARTLGW ${name} Re-sending app-query for unsupported firmware");
 			HMUARTLGW_send($hash, HMUARTLGW_DUAL_GET_APP, HMUARTLGW_DST_DUAL);
-			return;
 		} elsif (defined($hash->{Helper}{AckPending}{$hash->{DEVCNT}}) &&
 		         $hash->{Helper}{AckPending}{$hash->{DEVCNT}}->{dst} == HMUARTLGW_DST_OS &&
 		         $hash->{Helper}{AckPending}{$hash->{DEVCNT}}->{cmd} eq HMUARTLGW_OS_CHANGE_APP) {
 			Log3($hash, HMUARTLGW_getVerbLvl($hash, undef, undef, 4),
 			     "HMUARTLGW ${name} Re-sending switch to bootloader for unsupported firmare");
 			HMUARTLGW_send($hash, HMUARTLGW_DUAL_CHANGE_APP, HMUARTLGW_DST_DUAL);
-			return;
 		}
 
 		return;
@@ -1121,7 +1161,11 @@ sub HMUARTLGW_Parse($$$$)
 			return;
 		}
 
-		Log3($hash, 1 ,"HMUARTLGW ${name} Ack with invalid counter received, dropping. We: $hash->{CNT}, device: $hash->{DEVCNT}, " .
+		#Firmware sometimes send additional ACK when receiving the
+		#next frame from a device after a command, even if it has
+		#already ACKed the command.
+		Log3($hash, HMUARTLGW_getVerbLvl($hash, undef, undef, 5),
+		               "HMUARTLGW ${name} Ack with invalid/old counter received, dropping. We: $hash->{CNT}, device: $hash->{DEVCNT}, " .
 		               "state: $hash->{DevState}, msg: ${dst} ${msg}");
 
 		return;
@@ -1417,7 +1461,8 @@ sub HMUARTLGW_Read($)
 
 		my $crc = HMUARTLGW_crc16(chr(0xfd).$unescaped);
 		if ($crc != 0x0000 &&
-		    $hash->{DevState} != HMUARTLGW_STATE_RUNNING) {
+		    $hash->{DevState} != HMUARTLGW_STATE_RUNNING &&
+		    defined($hash->{Helper}{LastSendLen})) {
 			#When writing to the device while it prepares to write a frame to
 			#the host, the device seems to initialize the crc with 0x827f or
 			#0x8281 plus the length of the frame being received (firmware bug).
@@ -1548,7 +1593,7 @@ sub HMUARTLGW_Write($$$)
 			#return;
 		}
 
-		my $qLen = AttrVal($name, "qLen", 20);
+		my $qLen = AttrVal($name, "qLen", 60);
 
 		#Queue full?
 		if ($hash->{Helper}{PendingCMD} &&
@@ -1653,16 +1698,18 @@ sub HMUARTLGW_CheckCmdResp($)
 
 	#The data we wait for might have already been received but never
 	#read from the FD. Do a last check now and process new data.
-	my $rin = '';
-	vec($rin, $hash->{FD}, 1) = 1;
-	my $n = select($rin, undef, undef, 0);
-	if ($n > 0) {
-		Log3($hash, HMUARTLGW_getVerbLvl($hash, undef, undef, 5),
-		     "HMUARTLGW ${name} HMUARTLGW_CheckCmdResp: FD is readable, this might be the data we are looking for!");
-		#We will be back very soon!
-		InternalTimer(gettimeofday()+0, "HMUARTLGW_CheckCmdResp", $hash, 0);
-		HMUARTLGW_Read($hash);
-		return;
+	if (defined($hash->{FD})) {
+		my $rin = '';
+		vec($rin, $hash->{FD}, 1) = 1;
+		my $n = select($rin, undef, undef, 0);
+		if ($n > 0) {
+			Log3($hash, HMUARTLGW_getVerbLvl($hash, undef, undef, 5),
+			     "HMUARTLGW ${name} HMUARTLGW_CheckCmdResp: FD is readable, this might be the data we are looking for!");
+			#We will be back very soon!
+			InternalTimer(gettimeofday()+0, "HMUARTLGW_CheckCmdResp", $hash, 0);
+			HMUARTLGW_Read($hash);
+			return;
+		}
 	}
 
 	if ($hash->{DevState} == HMUARTLGW_STATE_SEND) {
@@ -1680,7 +1727,7 @@ sub HMUARTLGW_CheckCmdResp($)
 		$hash->{Helper}{CreditFailed}++;
 		$hash->{DevState} = HMUARTLGW_STATE_RUNNING;
 		RemoveInternalTimer("HMUARTLGW_CheckCredits:$name");
-		InternalTimer(gettimeofday()+1, "HMUARTLGW_CheckCredits", "HMUARTLGW_CheckCredits:$name", 1);
+		InternalTimer(gettimeofday()+1, "HMUARTLGW_CheckCredits", "HMUARTLGW_CheckCredits:$name", 0);
 	} elsif ($hash->{DevState} != HMUARTLGW_STATE_RUNNING) {
 		if ((!defined($hash->{Helper}{AckPending}{$hash->{CNT}}{frame})) ||
 		    (defined($hash->{Helper}{AckPending}{$hash->{CNT}}{resend}) &&
@@ -1742,7 +1789,7 @@ sub HMUARTLGW_Set($@)
 		$arg = 60 if(!$arg || $arg !~ m/^\d+$/);
 		HMUARTLGW_RemoveHMPair("hmPairForSec:$name");
 		$hash->{hmPair} = 1;
-		InternalTimer(gettimeofday()+$arg, "HMUARTLGW_RemoveHMPair", "hmPairForSec:$name", 1);
+		InternalTimer(gettimeofday()+$arg, "HMUARTLGW_RemoveHMPair", "hmPairForSec:$name", 0);
 		Log3($hash, 3, "HMUARTLGW ${name} entered pairing-mode");
 	} elsif ($cmd eq "hmPairSerial") {
 		return "Usage: set $name hmPairSerial <10-character-serialnumber>"
@@ -1756,7 +1803,7 @@ sub HMUARTLGW_Set($@)
 		HMUARTLGW_RemoveHMPair("hmPairForSec:$name");
 		$hash->{hmPair} = 1;
 		$hash->{hmPairSerial} = $arg;
-		InternalTimer(gettimeofday()+20, "HMUARTLGW_RemoveHMPair", "hmPairForSec:".$name, 1);
+		InternalTimer(gettimeofday()+20, "HMUARTLGW_RemoveHMPair", "hmPairForSec:".$name, 0);
 	} elsif ($cmd eq "reopen") {
 		HMUARTLGW_Reopen($hash);
 	} elsif ($cmd eq "close") {
@@ -1836,7 +1883,6 @@ sub HMUARTLGW_Attr(@)
 		}
 		HMUARTLGW_writeAesKey($name) if ($init_done);
 	} elsif ($aName eq "dutyCycle") {
-		my $dutyCycle = 1;
 		if ($cmd eq "set") {
 			return "wrong syntax: dutyCycle must be 1 or 0"
 			    if ($aVal !~ m/^[01]$/);
@@ -1864,8 +1910,8 @@ sub HMUARTLGW_Attr(@)
 		}
 	} elsif ($aName eq "qLen") {
 		if ($cmd eq "set") {
-			return "wrong syntax: qLen must be between 1 and 100"
-			    if ($aVal !~ m/^\d+$/ || $aVal < 1 || $aVal > 100);
+			return "wrong syntax: qLen must be between 1 and 200"
+			    if ($aVal !~ m/^\d+$/ || $aVal < 1 || $aVal > 200);
 			$attr{$name}{$aName} = $aVal;
 		} else {
 			delete $attr{$name}{$aName};
@@ -1905,6 +1951,14 @@ sub HMUARTLGW_Attr(@)
 				delete $attr{$name}{$aName};
 				DevIo_OpenDev($hash, 0, "HMUARTLGW_DoInit", \&HMUARTLGW_Connect);
 			}
+		}
+	} elsif ($aName eq "loadEvents") {
+		if ($cmd eq "set") {
+			return "wrong syntax: loadEvents must be 1 or 0"
+			    if ($aVal !~ m/^[01]$/);
+			$attr{$name}{$aName} = $aVal;
+		} else {
+			delete $attr{$name}{$aName};
 		}
 	}
 
@@ -1955,7 +2009,7 @@ sub HMUARTLGW_updateCondition($)
 	if (defined($hash->{msgLoadCurrent})) {
 		my $load = $hash->{msgLoadCurrent};
 
-		readingsSingleUpdate($hash, "load", $load, 0);
+		readingsSingleUpdate($hash, "load", $load, AttrVal($name, "loadEvents", 0));
 
 		$cond = "ok";
 		#FIXME: Dynamic levels
@@ -2428,8 +2482,8 @@ sub HMUARTLGW_getVerbLvl($$$$) {
         supplied file. Source for firmware-images (version 1.4.1, official
         eQ-3 repository):<br>
         <ul>
-            <li>HM-MOD-UART: <a href="https://raw.githubusercontent.com/eq-3/occu/28045df83480122f90ab92f7c6e625f9bf3b61aa/firmware/HM-MOD-UART/coprocessor_update.eq3">coprocessor_update.eq3</a></li>
-            <li>HM-LGW-O-TW-W-EU: <a href="https://raw.githubusercontent.com/eq-3/occu/28045df83480122f90ab92f7c6e625f9bf3b61aa/firmware/coprocessor_update_hm_only.eq3">coprocessor_update_hm_only.eq3</a><br>
+            <li>HM-MOD-UART: <a href="https://raw.githubusercontent.com/eq-3/occu/28045df83480122f90ab92f7c6e625f9bf3b61aa/firmware/HM-MOD-UART/coprocessor_update.eq3">coprocessor_update.eq3</a> (version 1.4.1)</li>
+            <li>HM-LGW-O-TW-W-EU: <a href="https://raw.githubusercontent.com/eq-3/occu/28045df83480122f90ab92f7c6e625f9bf3b61aa/firmware/coprocessor_update_hm_only.eq3">coprocessor_update_hm_only.eq3</a> (version 1.4.1)<br>
             Please also make sure that D-LANfirmware is at least at version
             1.1.5. To update to this version, use the eQ-3 CLI tools (see wiki)
             or use the eQ-3 netfinder with this firmware image: <a href="https://github.com/eq-3/occu/raw/28045df83480122f90ab92f7c6e625f9bf3b61aa/firmware/hm-lgw-o-tw-w-eu_update.eq3">hm-lgw-o-tw-w-eu_update.eq3</a><br>
@@ -2477,6 +2531,12 @@ sub HMUARTLGW_getVerbLvl($$$$) {
         not be possible. In addition, the perl-module Crypt::Rijndael (which
         provides the AES cipher) must be installed.
         </li>
+    <li>loadEvents<br>
+        Enables logging of the wireless load (in percent of the allowed maximum
+        sending-time) of the interface.
+
+        Default: 0 (disabled)
+        </li>
     <li>logIDs<br>
         Enables selective logging of HMUARTLGW messages. A list of comma separated
         HMIds or HM device names/channel names can be entered which shall be logged.<br>
@@ -2488,8 +2548,10 @@ sub HMUARTLGW_getVerbLvl($$$$) {
         </li>
     <li>qLen<br>
         Maximum number of commands in the internal queue of the HMUARTLGW module.
-        New commands when the queue is full are dropped.<br>
-        Default: 20
+        New commands when the queue is full are dropped. Each command has a maximum
+        lifetime of 3s when active, so the worst-case delay of a command is qLen * 3s
+        (3 minutes with default settings).<br>
+        Default: 60
         </li>
   </ul>
   <br>
@@ -2563,8 +2625,8 @@ sub HMUARTLGW_getVerbLvl($$$$) {
         angegebenen Datei. Quelle f&uuml;r Firmware-Images (Version 1.4.1,
         offizielles eQ-3 Repository):<br>
         <ul>
-            <li>HM-MOD-UART: <a href="https://raw.githubusercontent.com/eq-3/occu/28045df83480122f90ab92f7c6e625f9bf3b61aa/firmware/HM-MOD-UART/coprocessor_update.eq3">coprocessor_update.eq3</a></li>
-            <li>HM-LGW-O-TW-W-EU: <a href="https://raw.githubusercontent.com/eq-3/occu/28045df83480122f90ab92f7c6e625f9bf3b61aa/firmware/coprocessor_update_hm_only.eq3">coprocessor_update_hm_only.eq3</a><br>
+            <li>HM-MOD-UART: <a href="https://raw.githubusercontent.com/eq-3/occu/28045df83480122f90ab92f7c6e625f9bf3b61aa/firmware/HM-MOD-UART/coprocessor_update.eq3">coprocessor_update.eq3</a> (Version 1.4.1)</li>
+            <li>HM-LGW-O-TW-W-EU: <a href="https://raw.githubusercontent.com/eq-3/occu/28045df83480122f90ab92f7c6e625f9bf3b61aa/firmware/coprocessor_update_hm_only.eq3">coprocessor_update_hm_only.eq3</a> (Version 1.4.1)<br>
             Bitte zus&auml;tzlich sicherstellen, dass die Version der
             D-LANfirmware mindestens 1.1.5 betr&auml;gt. Um auf diese Version
             zu aktualisieren k&ouml;nnen die eQ-3 CLI Tools (siehe Wiki) oder
@@ -2618,6 +2680,12 @@ sub HMUARTLGW_getVerbLvl($$$$) {
         m&ouml;glich ist. Zus&auml;tzlich muss das Perl-Modul Crypt::Rijndael
         (stellt den AES-Algorithmus bereit) installiert sein.
         </li>
+    <li>loadEvents<br>
+        Aktiviert die Erzeugung von Log-Nachrichten &uuml;ber die Funklast
+        des Interfaces (in Prozent der erlaubten Sendezeit).
+
+        Default: 0 (deaktiviert)
+        </li>
     <li>logIDs<br>
         Aktiviert die gezielte Erzeugung von Log-Nachrichten. Der Parameter ist
         eine durch Komma getrennte Liste an HMIds oder HM Ger&auml;te-/Kanalnamen,
@@ -2632,8 +2700,10 @@ sub HMUARTLGW_getVerbLvl($$$$) {
     <li>qLen<br>
         Maximale Anzahl an Kommandos in der internen Warteschlange des
         HMUARTLGW-Moduls. Neue Kommandos werden verworfen, wenn die Warteschlange
-        gef&uuml;llt ist.<br>
-        Default: 20
+        gef&uuml;llt ist. Jedes Kommando hat eine Lebensdauer von 3s, sobald es
+        aktiv verarbeitet wird. Die Verz&ouml;gerung eines Kommandos betr&auml;gt
+        im schlechtesten Fall also qLen * 3s (3 Minuten mit den Defaulteinstellungen).<br>
+        Default: 60
         </li>
   </ul>
   <br>

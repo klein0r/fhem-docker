@@ -1,5 +1,5 @@
 #############################################
-# $Id: 98_DOIFtools.pm 13412 2017-02-14 16:29:19Z Ellert $
+# $Id: 98_DOIFtools.pm 15374 2017-11-01 11:02:53Z Ellert $
 # 
 # This file is part of fhem.
 # 
@@ -22,6 +22,7 @@ package main;
 use strict;
 use warnings;
 use Time::Local;
+use Color;
 
 sub DOIFtools_Initialize($);
 sub DOIFtools_Set($@);
@@ -44,79 +45,207 @@ sub DOIFtools_logWrapper($);
 sub DOIFtoolsCounterReset($);
 sub DOIFtoolsDeleteStatReadings;
 
-my @DOIFtools_we =();
+my @DOIFtools_we = [0,0,0,0,0,0,0,0];
 my $DOIFtoolsJSfuncEM = <<'EOF';
-  <script type="text/javascript">
-    //functions
-    function doiftoolsCopyToClipboard() {
-        var txtarea = document.getElementById('console');
-        var start = txtarea.selectionStart;
-        var finish = txtarea.selectionEnd;
-        var txt = txtarea.value.substring(start, finish);
-        var hlp = "Please highlight exactly one complete event line";
-        if(!txt)
-          return FW_okDialog(hlp);
-        var re = /^....-..-..\s..:..:..(\....)?\s([^\s]+)\s([^\s]+)\s([^\s]+:\s)?(.*)([\r\n]*)?$/;
-        var ret = txt.match(re);
-        if(!ret)
-          return FW_okDialog(hlp);
-        var dev = ret[3];
-        var ret1;
-        var red ="";
-        var val ="";
-        if (ret[4]) {
-          ret1 = ret[4].match(/(.*):\s$/);
-          red = ret1[1];
-        }
-        val = ret[5];
-        val = val.replace(/\s/g, ".");
-        re1 = "["+dev+(red ? ":"+red : "")+"]";
-        re2 = "["+dev+(red ? ":"+red : "")+"] eq \""+val+"\"";
-        re3 = "[\"^"+dev+(red ? "$:^"+red+": " : "$:")+"\"]";
-        re4 = "[\"^"+dev+(red ? "$:^"+red+": " : "$:^")+val+"$\"]";
-
-        var txt = "Copy &amp; paste it to your DOIF definition<br><br>";
-        txt += "<div><ul>";
-        txt += "<li>event as [&lt;device&gt;:&lt;reading&gt;] representation:<br><code>"+re1+"</code></li><br>";
-        txt += "<li>event as [&lt;device&gt;:&lt;reading&gt;] representation with comparison:<br><code>"+re2+"</code></li><br>";
-        txt += "<li>event as <i>regular expression</i>:<br><code>"+re3+"</code></li><br>";
-        txt += "<li>event as <i>regular expression</i> with value:<br><code>"+re4+"</code></li><br>";
-        txt += "</ul></div>";
-        return FW_okDialog(txt);
+<script type="text/javascript">
+//functions
+function doiftoolsCopyToClipboard() {
+    var r = $("head").attr("root");
+    var myFW_root = FW_root;
+    if(r)
+      myFW_root = r;
+    var lang = $('#doiftoolstype').attr('lang');
+    var txtarea = document.getElementById("console");
+    var start = txtarea.selectionStart;
+    var finish = txtarea.selectionEnd;
+    var txt = $("textarea#console").text().substring(start, finish);
+    var hlp = lang ? "Bitte, genau eine komplette Eventzeile markieren." : "Please highlight exactly one complete event line.";
+    $('#console').attr('disabled', 'disabled');
+    $('#console').removeAttr('disabled');
+    if(!txt)
+      return FW_okDialog(hlp);
+    var redi=/^....-..-..\s..:..:..(\....)?\s([^\s]+)\s([^\s]+)\s([^\s]+:\s)?(.*)([\n]*)?$/;
+    var retdi = txt.match(redi);
+    if(!retdi)
+      return FW_okDialog("\""+txt+"\" "+(lang ? "ist keine gültige Auswahl." : "is not a valid selection.")+"<br>"+hlp);
+    var evtDev = retdi[3];
+    var retdi1;
+    var evtRead ="";
+    var evtVal ="";
+    if (retdi[4]) {
+      retdi1 = retdi[4].match(/(.*):\s$/);
+      evtRead = retdi1[1];
+    }
+    evtVal = retdi[5];
+    var treffer = evtVal.match(/(-?\d+(\.\d+)?)/);
+    var evtNum;
+    try {
+      evtNum = treffer[1];
+    } catch (e) {
+      evtNum = "";
     }
 
-    function delbutton() {
-        var r = $("head").attr("root");
-        var myFW_root = FW_root;
-        if(r)
-          myFW_root = r;
+    var treffer = evtVal.match(/(\d\d:\d\d)/);
+    var evtHM;
+    try {
+      evtHM = treffer[1];
+    } catch (e) {
+      evtHM = "";
+    }
 
-        FW_cmd(myFW_root+"?cmd={my @d = devspec2array('TYPE=DOIFtools');;return $d[0] ? $d[0] : ''}&XHR=1", function(data){
-          if (data) {
-            var dn = data;
-            FW_cmd(myFW_root+"?cmd={AttrVal(\""+dn+"\",\"DOIFtoolsEMbeforeReadings\",\"0\")}&XHR=1", function(data){
-              if (data == 1) {
-                var ins = document.getElementsByClassName('makeTable wide readings');
-                var del = document.getElementById('doiftoolscons');
-                if (del) {
-                  ins[0].parentNode.insertBefore(del,ins[0]);
-                }
-              }
-            });
+    var treffer = evtVal.match(/^(\d\d:\d\d(:\d\d)?)$/);
+    var evtHMex;
+    try {
+      evtHMex = treffer[1];
+    } catch (e) {
+      evtHMex = "";
+    }
+
+    var evtEvt = evtVal.replace(/\s/g, ".")
+                       .replace(/[\^\$\[\]\(\)\\]/g, function(s){return"\\"+s});
+
+    var diop = [];
+    var diophlp = [];
+    var icnt = 0;
+    diophlp[icnt] = lang ? "a) einfacher auslösender Zugriff auf ein Reading-Wert eines Gerätes oder auf den Wert des Internal STATE, wenn kein Reading im Ereignis vorkommt" : "a) simple triggering access to device reading or internal STATE";
+    diop[icnt] = "["+evtDev+(evtRead ? ":"+evtRead : "")+"]"; icnt++;
+    
+    diophlp[icnt] = lang ? "b) wie a), zusätzlich mit Angabe eines Vergleichsoperators für Zeichenketten (eq &#8793; equal) und Vergleichswert" : "b) like a) additionally with string operator (eq &#8793; equal) and reference value";
+    diop[icnt] = "["+evtDev+(evtRead ? ":"+evtRead : "")+"] eq \""+evtVal+"\""; icnt++;
+    
+    if (evtNum != "") {
+        diophlp[icnt] = lang ? "c) wie a) aber mit Zugriff nur auf die erste Zahl der Wertes und eines Vergleichsoperators für Zahlen (==) und numerischem Vergleichswert" : "c) like a) but with access to the first number and a relational operator for numbers (==) and a numeric reference value";
+        diop[icnt] = "["+evtDev+(evtRead ? ":"+evtRead : ":state")+":d] == "+evtNum; icnt++;}
+        
+    if (evtHM != "") {
+        diophlp[icnt] = lang ? "d) wie a) aber mit Filter für eine Zeitangabe (hh:mm), einer Zeitvorgabe für nicht existierende Readings/Internals, zusätzlich mit Angabe eines Vergleichsoperators für Zeichenketten (ge &#8793; greater equal) und Vergleichswert" : "d) like a) with filter for time (hh:mm), default value for nonexisting readings or Internals and a relational string operator (ge &#8793; greater equal) and a reference value";
+        diop[icnt] = "["+evtDev+(evtRead ? ":"+evtRead : ":state")+":\"(\\d\\d:\\d\\d)\",\"00:00\"] ge $hm"; icnt++;
+        
+        diophlp[icnt] = lang ? "e1) Zeitpunkt (hh:mm) als Auslöser" : "e1) time specification (hh:mm) as trigger";
+        diop[icnt] = "["+evtHM+"]"; icnt++;}
+        
+    if (evtHMex != "") {
+        diophlp[icnt] = lang ? "e2) indirekte Angabe eines Zeitpunktes als Auslöser" : "e2) indirect time specification as trigger";
+        diop[icnt] = "[["+evtDev+(evtRead ? ":"+evtRead : "")+"]]"; icnt++;}
+        
+    diophlp[icnt] = lang ? "f) auslösender Zugriff auf ein Gerät mit Angabe eines \"regulären Ausdrucks\" für ein Reading mit beliebigen Reading-Wert" : "f) triggering access to a device with \"regular expression\" for a reading with arbitrary value";
+    diop[icnt] = "["+evtDev+(evtRead ? ":\"^"+evtRead+": " : ":\"")+"\"]"; icnt++;
+    
+    diophlp[icnt] = lang ? "g) Zugriff mit Angabe eines \"regulären Ausdrucks\" für ein Gerät und ein Reading mit beliebigen Reading-Wert" : "g) access by a \"regular expression\" for a device and a reading with arbitrary value";
+    diop[icnt] = "[\"^"+evtDev+(evtRead ? "$:^"+evtRead+": " : "$: ")+"\"]"; icnt++;
+    
+    diophlp[icnt] = lang ? "h) Zugriff mit Angabe eines \"regulären Ausdrucks\" für ein Gerät und ein Reading mit exaktem Reding-Wert" : "h) access by a \"regular expression\" for a device and a reading with distinct value";
+    diop[icnt] = "[\"^"+evtDev+(evtRead ? "$:^"+evtRead+": " : "$:^")+evtEvt+"$\"]"; icnt++;
+    
+    if (evtHM != "") {
+        diophlp[icnt] = lang ? "i) Zugriff mit Angabe eines \"regulären Ausdrucks\" für ein Gerät und ein Reading mit Filter für eine Zeitangabe (hh:mm), einer Zeitvorgabe falls ein anderer Operand auslöst" : "i) access by a \"regular expression\" for a device and a reading and a filter for a time value (hh:mm), a default value in case a different operator triggers and a relational string operator (ge &#8793; greater equal) and a reference value";
+        diop[icnt] = "[\"^"+evtDev+(evtRead ? "$:^"+evtRead+"\"" : "$:\"")+":\"(\\d\\d:\\d\\d)\",\"00:00\"] ge $hm"; icnt++}
+    var maxlength = 33;
+    for (var i = 0; i < diop.length; i++)
+        maxlength = diop[i].length > maxlength ? diop[i].length : maxlength;
+
+    // build the dialog
+    var txt = '<style type="text/css">\n'+
+              'div.opdi label { display:block; margin-left:2em; font-family:Courier}\n'+
+              'div.opdi input { float:left; }\n'+
+              '</style>\n';
+    var inputPrf = "<input type='radio' name=";
+
+    txt += (lang ? "Bitte einen Opranden wählen." : "Select an Operand please.") + "<br><br>";
+    for (var i = 0; i < diop.length; i++) {
+        txt += "<div class='opdi'>"+inputPrf+"'opType' id='di"+i+"' />"+
+           "<label title='"+diophlp[i]+"' >"+diop[i]+"</label></div><br>";
+    }
+
+    if ($('#doiftoolstype').attr('devtype') == 'doif') {
+        txt += "<input class='opdi' id='opditmp' type='text' size='"+(maxlength+10)+"' style='font-family:Courier' title='"+
+        (lang ? "Der gewählte Operand könnte vor dem Kopieren geändert werden." : "The selected operand may be changed before copying.")+
+        "' ></input>";
+    } else if ($('#doiftoolstype').attr('devtype') == 'doiftools') {
+        txt += "<input newdev='' class='opdi' id='opditmp' type='text' size='"+(maxlength+36)+"' style='font-family:Courier' title='"+
+        (lang ? "Die Definition kann vor der Weiterverarbeitung angepasst werden." : "The definition may be changed before processing.")+
+        "' ></input>";
+    }
+
+    $('body').append('<div id="evtCoM" style="display:none">'+txt+'</div>');
+    if ($('#doiftoolstype').attr('devtype') == 'doif') {
+      $('#evtCoM').dialog(
+        { modal:true, closeOnEscape:true, width:"auto",
+          close:function(){ $('#evtCoM').remove(); },
+          buttons:[
+          { text:"Cancel", click:function(){ $(this).dialog('close'); }},
+          { text:"Open DEF-Editor", title:(lang ? "Kopiert die Eingabezeile in die Zwischenablage und öffnet den DEF-Editor der aktuellen Detailansicht. Mit Strg-v kann der Inhalt der Zwischenablage in die Definition eingefügt werden." : "Copies the input line to clipboard and opens the DEF editor of the current detail view. Paste the content of the clipboard to the editor by using ctrl-v"), click:function(){
+            $("input#opditmp").select();
+            document.execCommand("copy");
+            if ($("#edit").css("display") == "none")
+              $("#DEFa").click();
+              $(this).dialog('close');
+            }}],
+          open:function(){
+            $("#evtCoM input[name='opType'],#evtCoM select").change(doiftoolsOptChanged);
           }
         });
-      var del = document.getElementById('addRegexpPart');
+    } else if ($('#doiftoolstype').attr('devtype') == 'doiftools') {
+      $('#evtCoM').dialog(
+        { modal:true, closeOnEscape:true, width:"auto",
+          close:function(){ $('#evtCoM').remove(); },
+          buttons:[
+          { text:"Cancel", click:function(){ $(this).dialog('close'); }},
+          { text:"Execute Definition", title:(lang ? "Führt den define-Befehl aus und öffnet die Detailansicht des erzeugten Gerätes." : "Executes the define command and opens the detail view of the created device."), click:function(){
+            FW_cmd(myFW_root+"?cmd="+$("input#opditmp").val()+"&XHR=1");
+            $("input[class='maininput'][name='cmd']").val($("input#opditmp").val());
+            var newDev = $("input#opditmp").val();
+            $(this).dialog('close');
+            var rex = newDev.match(/define\s+(.*)\s+DOIF/);
+            try {
+            location = myFW_root+'?detail='+rex[1];
+            } catch (e) {
+            
+            }
+            }}],
+          open:function(){
+            $("#evtCoM input[name='opType'],#evtCoM select").change(doiftoolsOptChanged);
+          }
+        });
+    }
+
+}
+
+function doiftoolsOptChanged() {
+    if ($('#doiftoolstype').attr('devtype') == 'doif') {
+      $("input#opditmp").val($("#evtCoM input:checked").next("label").text());
+    } else if ($('#doiftoolstype').attr('devtype') == 'doiftools') {
+      var N = 8;
+      var newDev = Array(N+1).join((Math.random().toString(36)+'00000000000000000').slice(2, 18)).slice(0, N);
+      $("input#opditmp").val('define newDevice_'+newDev+' DOIF ('+$("#evtCoM input:checked").next("label").text()+') ()');
+      var inpt = document.getElementById("opditmp");
+      inpt.focus();
+      inpt.setSelectionRange(7,17+N);
+    }
+}
+function doiftoolsReplaceBR() {
+        $("textarea#console").html($("textarea#console").html().replace(/<br(.*)?>/g,""));
+}
+
+function delbutton() {
+    if ($('#doiftoolstype').attr('embefore') == 1) {
+      var ins = document.getElementsByClassName('makeTable wide readings');
+      var del = document.getElementById('doiftoolscons');
       if (del) {
-        removeEventListener ('DOMNodeInserted', delbutton);
-        del.parentNode.removeChild(del);
+        ins[0].parentNode.insertBefore(del,ins[0]);
       }
     }
-    //execute
-    var ins = document.getElementById('doiftoolsdel');
-    addEventListener ('DOMNodeInserted', delbutton, false);
-    var ins = document.getElementById('console');
-    ins.addEventListener ('select', doiftoolsCopyToClipboard, false);
-  </script>
+    var del = document.getElementById('addRegexpPart');
+    if (del) {
+      $( window ).off( "load", delbutton );
+      del.parentNode.removeChild(del);
+    }
+}
+  //execute
+  $( window ).on( "load", delbutton );
+  $('#console').on('select', doiftoolsCopyToClipboard);
+  $('#console').on('mouseover',doiftoolsReplaceBR);
+</script>
 EOF
 my $DOIFtoolsJSfuncStart = <<'EOF';
 <script type="text/javascript">
@@ -132,20 +261,20 @@ function doiftoolsAddLookUp () {
       var devList = JSON.parse(data);
       var dev = devList.Results[0];
       var row = 0;
-      for (item in dev.Internals) {
+      for (var item in dev.Internals) {
         if (item == "DEF") {dev.Internals[item] = "<pre>"+dev.Internals[item]+"</pre>"}
         var cla = ((row++&1)?"odd":"even");
         txt += "<tr class='"+cla+"'><td>"+item+"</td><td>"+dev.Internals[item].replace(/\n/g,"<br>")+"</td></tr>\n";
       }
       txt += "</table>Readings<table class='block wide readings' style='font-size:12px'><br>";
       row = 0;
-      for (item in dev.Readings) {
+      for (var item in dev.Readings) {
         var cla = ((row++&1)?"odd":"even");
         txt += "<tr class='"+cla+"'><td>"+item+"</td><td>"+dev.Readings[item].Value+"</td><td>"+dev.Readings[item].Time+"</td></tr>\n";
       }
       txt += "</table>Attributes<table class='block wide attributes' style='font-size:12px'><br>";
       row = 0;
-      for (item in dev.Attributes) {
+      for (var item in dev.Attributes) {
         if (item.match(/(userReadings|wait|setList)/) ) {dev.Attributes[item] = "<pre>"+dev.Attributes[item]+"</pre>"}
         var cla = ((row++&1)?"odd":"even");
         txt += "<tr class='"+cla+"'><td>"+item+"</td><td>"+dev.Attributes[item]+"</td></tr>\n";
@@ -177,7 +306,9 @@ $(document).ready(function(){
     $('#addLookUp').dialog( "close" );
     $(".assoc").find("a:even").each(function() {
         $(this).on("mouseover",doiftoolsAddLookUp);
-        // $(this).on("mouseleave",doiftoolsRemoveLookUp);
+    });
+    $("table[class*='block wide']").each(function() {
+        $(this).on("mouseenter",doiftoolsRemoveLookUp);
     });
 });
 </script>
@@ -195,41 +326,57 @@ sub DOIFtools_Initialize($)
   $hash->{NotifyFn} = "DOIFtools_Notify";
   
   $hash->{FW_detailFn} = "DOIFtools_fhemwebFn";
-
   $data{FWEXT}{"/DOIFtools_logWrapper"}{CONTENTFUNC} = "DOIFtools_logWrapper";
 
   my $oldAttr = "target_room:noArg target_group:noArg executeDefinition:noArg executeSave:noArg eventMonitorInDOIF:noArg readingsPrefix:noArg";
-  $hash->{AttrList} = "DOIFtoolsExecuteDefinition:1,0 DOIFtoolsTargetRoom DOIFtoolsTargetGroup DOIFtoolsExecuteSave:1,0 DOIFtoolsReadingsPrefix DOIFtoolsEventMonitorInDOIF:1,0 DOIFtoolsHideModulShortcuts:1,0 DOIFtoolsHideGetSet:1,0 DOIFtoolsMyShortcuts:textField-long DOIFtoolsMenuEntry:1,0 DOIFtoolsHideStatReadings:1,0 DOIFtoolsEventOnDeleted:1,0 DOIFtoolsEMbeforeReadings:1,0 DOIFtoolsNoLookUp:1,0 DOIFtoolsNoLookUpInDOIF:1,0 disabledForIntervals ".$oldAttr;
+
+  $hash->{AttrList} = "DOIFtoolsExecuteDefinition:1,0 DOIFtoolsTargetRoom DOIFtoolsTargetGroup DOIFtoolsExecuteSave:1,0 DOIFtoolsReadingsPrefix DOIFtoolsEventMonitorInDOIF:1,0 DOIFtoolsHideModulShortcuts:1,0 DOIFtoolsHideGetSet:1,0 DOIFtoolsMyShortcuts:textField-long DOIFtoolsMenuEntry:1,0 DOIFtoolsHideStatReadings:1,0 DOIFtoolsEventOnDeleted:1,0 DOIFtoolsEMbeforeReadings:1,0 DOIFtoolsNoLookUp:1,0 DOIFtoolsNoLookUpInDOIF:1,0 DOIFtoolsLogDir disabledForIntervals ".$oldAttr; #DOIFtoolsForceGet:true 
 }
 
-sub DOIFtools_dO ($$$$){return "";}
+sub DOIFtools_dO ($$$$){
+return "";}
+
 # FW_detailFn for DOIF injecting event monitor
 sub DOIFtools_eM($$$$) {
   my ($FW_wname, $d, $room, $pageHash) = @_; # pageHash is set for summaryFn.
   my @dtn = devspec2array("TYPE=DOIFtools"); 
+  my $lang = AttrVal("global","language","EN");
   my $ret = "";
-  $ret .= $DOIFtoolsJSfuncStart if (!AttrVal($dtn[0],"DOIFtoolsNoLookUpInDOIF",""));
-  # Event Monitor
-  my $a0 = ReadingsVal($d,".eM", "off") eq "on" ? "off" : "on"; 
-  $ret .= "<div class=\"dval\"><br><span title=\"toggle to switch event monitor on/off\">Event monitor: <a href=\"$FW_ME?detail=$d&amp;cmd.$d=setreading $d .eM $a0\">toggle</a>&nbsp;&nbsp;</span>";
-  $ret .= "</div>";
+  # call DOIF_detailFn
+  no strict "refs";
+  my $retfn = &{ReadingsVal($dtn[0],".DOIF_detailFn","")}($FW_wname, $d, $room, $pageHash) if (ReadingsVal($dtn[0],".DOIF_detailFn",""));
+  $ret .= $retfn if ($retfn);
+  use strict "refs";
+  if (!$room) {
+      # LookUp in probably associated with
+      $ret .= $DOIFtoolsJSfuncStart if (!AttrVal($dtn[0],"DOIFtoolsNoLookUpInDOIF",""));
+      # Event Monitor
+      if (AttrVal($dtn[0],"DOIFtoolsEventMonitorInDOIF","")) {
+        my $a0 = ReadingsVal($d,".eM", "off") eq "on" ? "off" : "on";
+        $ret .= "<br>" if (ReadingsVal($dtn[0],".DOIF_detailFn",""));
+        $ret .= "<table class=\"block\"><tr><td><div class=\"dval\"><span title=\"".($lang eq "DE" ? "toggle schaltet den Event-Monitor ein/aus" : "toggle switches event monitor on/off")."\">Event monitor: <a href=\"$FW_ME?detail=$d&amp;cmd.$d=setreading $d .eM $a0$FW_CSRF\">toggle</a>&nbsp;&nbsp;</span>";
+        $ret .= "</div></td>";
+        $ret .= "</tr></table>";
 
-  my $a = "";
-  if (ReadingsVal($d,".eM","off") eq "on") {
-    $ret .= "<script type=\"text/javascript\" src=\"$FW_ME/pgm2/console.js\"></script>";
-    my $filter = $a ? ($a eq "log" ? "global" : $a) : ".*";
-    $ret .= "<div id='doiftoolscons'>";
-    $ret .= "<div><br>";
-    $ret .= "Events (Filter: <a href=\"#\" id=\"eventFilter\">$filter</a>) ".
-          "&nbsp;&nbsp;<span id=\"doiftoolsdel\" class='fhemlog'>FHEM log ".
-                "<input id='eventWithLog' type='checkbox'".
-                ($a && $a eq "log" ? " checked":"")."></span>".
-          "&nbsp;&nbsp;<button id='eventReset'>Reset</button></div>\n";
-    $ret .= "<textarea id=\"console\" style=\"width:99%; top:.1em; bottom:1em; position:relative;\" readonly=\"readonly\" rows=\"25\" cols=\"60\" title=\"selecting an event line displays example operands for DOIFs definition\" ></textarea>";
-    $ret .= "</div>";
-    $ret .= $DOIFtoolsJSfuncEM;
+        my $a = "";
+        if (ReadingsVal($d,".eM","off") eq "on") {
+          $ret .= "<script type=\"text/javascript\" src=\"$FW_ME/pgm2/console.js\"></script>";
+          my $filter = $a ? ($a eq "log" ? "global" : $a) : ".*";
+          $ret .= "<div id='doiftoolscons'>";
+          my $embefore = AttrVal($dtn[0],"DOIFtoolsEMbeforeReadings","0") ? "1" : "";
+          $ret .= "<div id='doiftoolstype' devtype='doif' embefore='".$embefore."' lang='".($lang eq "DE" ? 1 : 0)."'><br>";
+          $ret .= "Events (Filter: <a href=\"#\" id=\"eventFilter\">$filter</a>) ".
+              "&nbsp;&nbsp;<span id=\"doiftoolsdel\" class='fhemlog'>FHEM log ".
+                    "<input id='eventWithLog' type='checkbox'".
+                    ($a && $a eq "log" ? " checked":"")."></span>".
+              "&nbsp;&nbsp;<button id='eventReset'>Reset</button>".($lang eq "DE" ? "&emsp;<b>Hinweis:</b> Eventzeile markieren, Operanden auswählen, Definition ergänzen" : "&emsp;<b>Hint:</b> select event line, choose operand, modify definition")."</div>\n";
+          $ret .= "<textarea id=\"console\" style=\"width:99%; top:.1em; bottom:1em; position:relative;\" readonly=\"readonly\" rows=\"25\" cols=\"60\" title=\"".($lang eq "DE" ? "Die Auswahl einer Event-Zeile zeigt Operanden für DOIF an, sie können im DEF-Editor eingefügt werden (Strg V)." : "Selecting an event line displays operands for DOIFs definition, they can be inserted to DEF-Editor (Ctrl V).")."\" ></textarea>";
+          $ret .= "</div>";
+          $ret .= $DOIFtoolsJSfuncEM;
+        }
+      }
   }
-  return $ret;
+  return $ret ? $ret : undef;
 }
 ######################
 # Show the content of the log (plain text), or an image and offer a link
@@ -257,8 +404,8 @@ sub DOIFtools_logWrapper($) {
 
     FW_pO "<div id=\"content\">";
     FW_pO "<div class=\"tiny\">" if($FW_ss);
-    FW_pO "<pre class=\"log\"><b>jump to: <a name='top'></a><a href=\"#end_of_file\">the end</a> <a href=\"#listing\">first listing</a></b><br>";
-    my $suffix = "<br/><b>jump to: <a name='end_of_file'></a><a href='#top'>the top</a> <a href=\"#listing\">first listing</a></b><br/></pre>".($FW_ss ? "</div>" : "")."</div>";
+    FW_pO "<pre class=\"log\"><b>jump to: <a name='top'></a><a href=\"#end_of_file\">the end</a> <a href=\"#listing\">top listing</a></b><br>";
+    my $suffix = "<br/><b>jump to: <a name='end_of_file'></a><a href='#top'>the top</a> <a href=\"#listing\">top listing</a></b><br/></pre>".($FW_ss ? "</div>" : "")."</div>";
 
     my $reverseLogs = AttrVal($FW_wname, "reverseLogs", 0);
     if(!$reverseLogs) {
@@ -284,7 +431,7 @@ sub DOIFtools_fhemwebFn($$$$) {
   my ($FW_wname, $d, $room, $pageHash) = @_; # pageHash is set for summaryFn.
   my $ret = "";
   # $ret .= "<script type=\"text/javascript\" src=\"$FW_ME/pgm2/myfunction.js\"></script>";
-  $ret .= $DOIFtoolsJSfuncStart if (!AttrVal($d,"DOIFtoolsNoLookUp",""));
+  $ret .= $DOIFtoolsJSfuncStart if ($DOIFtoolsJSfuncStart && !AttrVal($d,"DOIFtoolsNoLookUp",""));
   # Logfile Liste
   if($FW_ss && $pageHash) {
         $ret.= "<div id=\"$d\" align=\"center\" class=\"FileLog col2\">".
@@ -312,97 +459,111 @@ sub DOIFtools_fhemwebFn($$$$) {
   }
   # Event Monitor
   my $a0 = ReadingsVal($d,".eM", "off") eq "on" ? "off" : "on"; 
-  $ret .= "<div class=\"dval\"><br><span title=\"toggle to switch event monitor on/off\">Event monitor: <a href=\"$FW_ME?detail=$d&amp;cmd.$d=setreading $d .eM $a0\">toggle</a>&nbsp;&nbsp;</span>";
-  $ret .= "Shortcuts: " if (!AttrVal($d,"DOIFtoolsHideModulShortcuts",0) or AttrVal($d,"DOIFtoolsMyShortcuts",""));
+  $ret .= "<div class=\"dval\"><table>";
+  $ret .= "<tr><td><span title=\"toggle to switch event monitor on/off\">Event monitor: <a href=\"$FW_ME?detail=$d&amp;cmd.$d=setreading $d .eM $a0$FW_CSRF\">toggle</a>&nbsp;&nbsp;</span>";
   if (!AttrVal($d,"DOIFtoolsHideModulShortcuts",0)) {
-    $ret .= "<a href=\"$FW_ME?detail=$d&amp;cmd.$d=reload 98_DOIFtools.pm\">reload DOIFtools</a>&nbsp;&nbsp;" if(ReadingsVal($d,".debug",""));
-    $ret .= "<a href=\"$FW_ME?detail=$d&amp;cmd.$d=update check\">update check</a>&nbsp;&nbsp;";
-    $ret .= "<a href=\"$FW_ME?detail=$d&amp;cmd.$d=update\">update</a>&nbsp;&nbsp;" if(!ReadingsVal($d,".debug",""));
-    $ret .= "<a href=\"$FW_ME?detail=$d&amp;cmd.$d=set%20update_du:FILTER=state=0%201\">update</a>&nbsp;&nbsp;" if(ReadingsVal($d,".debug",""));
-    $ret .= "<a href=\"$FW_ME?detail=$d&amp;cmd.$d=shutdown restart\">shutdown restart</a>&nbsp;&nbsp;";
-    $ret .= "<a href=\"$FW_ME?detail=$d&amp;cmd.$d=fheminfo send\">fheminfo send</a>&nbsp;&nbsp;";
+    $ret .= "Shortcuts: ";
+    $ret .= "<a href=\"$FW_ME?detail=$d&amp;cmd.$d=reload 98_DOIFtools.pm$FW_CSRF\">reload DOIFtools</a>&nbsp;&nbsp;" if(ReadingsVal($d,".debug",""));
+    $ret .= "<a href=\"$FW_ME?detail=$d&amp;cmd.$d=update check$FW_CSRF\">update check</a>&nbsp;&nbsp;";
+    $ret .= "<a href=\"$FW_ME?detail=$d&amp;cmd.$d=update$FW_CSRF\">update</a>&nbsp;&nbsp;";
+    $ret .= "<a href=\"$FW_ME?detail=$d&amp;cmd.$d=shutdown restart$FW_CSRF\">shutdown restart</a>&nbsp;&nbsp;";
+    $ret .= "<a href=\"$FW_ME?detail=$d&amp;cmd.$d=fheminfo send$FW_CSRF\">fheminfo send</a>&nbsp;&nbsp;";
   }
+  $ret .= "</td></tr>";
   if (AttrVal($d,"DOIFtoolsMyShortcuts","")) {
+  $ret .= "<tr><td>";
     my @sc = split(",",AttrVal($d,"DOIFtoolsMyShortcuts",""));
     for (my $i = 0; $i < @sc; $i+=2) {
       if ($sc[$i] =~ m/^\#\#(.*)/) {
         $ret .= "$1&nbsp;&nbsp;";
       } else {
-        $ret .= "<a href=\"/$sc[$i+1]\">$sc[$i]</a>&nbsp;&nbsp;" if($sc[$i] and $sc[$i+1]);
+        $ret .= "<a href=\"/$sc[$i+1]$FW_CSRF\">$sc[$i]</a>&nbsp;&nbsp;" if($sc[$i] and $sc[$i+1]);
       }
     }
+    $ret .= "</td></tr>";
   }
+  $ret .= "</table>";
+
   if (!AttrVal($d, "DOIFtoolsHideGetSet", 0)) {
-      $ret .= "<br><br>";
       my $a1 = ReadingsVal($d,"doStatistics", "disabled") =~ "disabled|deleted" ? "enabled" : "disabled"; 
       my $a2 = ReadingsVal($d,"specialLog", 0) ? 0 : 1; 
+      $ret .= "<table ><tr>";
       # set doStatistics enabled/disabled
-      $ret .= "<form method=\"post\" action=\"$FW_ME\" autocomplete=\"off\"><input name=\"detail\" value=\"$d\" type=\"hidden\">
-      <input name=\"dev.set$d\" value=\"$d\" type=\"hidden\">
+      $ret .= "<td><form method=\"post\" action=\"$FW_ME\" autocomplete=\"off\">
+      <input name=\"detail\" value=\"$d\" type=\"hidden\">";
+      $ret .= FW_hidden("fwcsrf", $defs{$FW_wname}{CSRFTOKEN}) if($FW_CSRF);
+      $ret .= "<input name=\"dev.set$d\" value=\"$d\" type=\"hidden\">
       <input name=\"cmd.set$d\" value=\"set\" class=\"set\" type=\"submit\">
       <div class=\"set downText\">&nbsp;doStatistics $a1&emsp;</div>
       <div style=\"display:none\" class=\"noArg_widget\" informid=\"$d-doStatistics\">
       <input name=\"val.set$d\" value=\"doStatistics $a1\" type=\"hidden\">
-      </div></form>";
+      </div></form></td>";
       # set doStatistics deleted
-      $ret .= "<form method=\"post\" action=\"$FW_ME\" autocomplete=\"off\"><input name=\"detail\" value=\"$d\" type=\"hidden\">
-      <input name=\"dev.set$d\" value=\"$d\" type=\"hidden\">
+      $ret .= "<td><form method=\"post\" action=\"$FW_ME\" autocomplete=\"off\">
+      <input name=\"detail\" value=\"$d\" type=\"hidden\">";
+      $ret .= FW_hidden("fwcsrf", $defs{$FW_wname}{CSRFTOKEN}) if($FW_CSRF);
+      $ret .= "<input name=\"dev.set$d\" value=\"$d\" type=\"hidden\">
       <input name=\"cmd.set$d\" value=\"set\" class=\"set\" type=\"submit\">
       <div class=\"set downText\">&nbsp;doStatistics deleted&emsp;</div>
       <div style=\"display:none\" class=\"noArg_widget\" informid=\"$d-doStatistics\">
       <input name=\"val.set$d\" value=\"doStatistics deleted\" type=\"hidden\">
-      </div></form>";
+      </div></form></td>";
       # set specialLog 0/1
-      $ret .= "<form method=\"post\" action=\"$FW_ME\" autocomplete=\"off\"><input name=\"detail\" value=\"$d\" type=\"hidden\">
-      <input name=\"dev.set$d\" value=\"$d\" type=\"hidden\">
+      $ret .= "<td><form method=\"post\" action=\"$FW_ME\" autocomplete=\"off\">
+      <input name=\"detail\" value=\"$d\" type=\"hidden\">";
+      $ret .= FW_hidden("fwcsrf", $defs{$FW_wname}{CSRFTOKEN}) if($FW_CSRF);
+      $ret .= "<input name=\"dev.set$d\" value=\"$d\" type=\"hidden\">
       <input name=\"cmd.set$d\" value=\"set\" class=\"set\" type=\"submit\">
       <div class=\"set downText\">&nbsp;specialLog $a2&emsp;</div>
       <div style=\"display:none\" class=\"noArg_widget\" informid=\"$d-doStatistics\">
       <input name=\"val.set$d\" value=\"specialLog $a2\" type=\"hidden\">
-      </div></form>";
-      $ret .= "<br><br>";
+      </div></form></td>";
+      $ret .= "</tr><tr>";
       # get statisticsReport
-      $ret .= "<form method=\"post\" action=\"$FW_ME\" autocomplete=\"off\">
+      $ret .= "<td><form method=\"post\" action=\"$FW_ME\" autocomplete=\"off\">
       <input name=\"detail\" value=\"$d\" type=\"hidden\">
       <input name=\"dev.get$d\" value=\"$d\" type=\"hidden\">
       <input name=\"cmd.get$d\" value=\"get\" class=\"get\" type=\"submit\">
       <div class=\"get downText\">&nbsp;statisticsReport&emsp;</div>
       <div style=\"display:none\" class=\"noArg_widget\" informid=\"$d-statisticsReport\">
       <input name=\"val.get$d\" value=\"statisticsReport\" type=\"hidden\">
-      </div></form>";
+      </div></form></td>";
       # get checkDOIF
-      $ret .= "<form method=\"post\" action=\"$FW_ME\" autocomplete=\"off\">
+      $ret .= "<td><form method=\"post\" action=\"$FW_ME\" autocomplete=\"off\">
       <input name=\"detail\" value=\"$d\" type=\"hidden\">
       <input name=\"dev.get$d\" value=\"$d\" type=\"hidden\">
       <input name=\"cmd.get$d\" value=\"get\" class=\"get\" type=\"submit\">
       <div class=\"get downText\">&nbsp;checkDOIF&emsp;</div>
       <div style=\"display:none\" class=\"noArg_widget\" informid=\"$d-checkDOIF\">
       <input name=\"val.get$d\" value=\"checkDOIF\" type=\"hidden\">
-      </div></form>";
+      </div></form></td>";
       # get runningTimerInDOIF
-      $ret .= "<form method=\"post\" action=\"$FW_ME\" autocomplete=\"off\">
+      $ret .= "<td><form method=\"post\" action=\"$FW_ME\" autocomplete=\"off\">
       <input name=\"detail\" value=\"$d\" type=\"hidden\">
       <input name=\"dev.get$d\" value=\"$d\" type=\"hidden\">
       <input name=\"cmd.get$d\" value=\"get\" class=\"get\" type=\"submit\">
       <div class=\"get downText\">&nbsp;runningTimerInDOIF&emsp;</div>
       <div style=\"display:none\" class=\"noArg_widget\" informid=\"$d-runningTimerInDOIF\">
       <input name=\"val.get$d\" value=\"runningTimerInDOIF\" type=\"hidden\">
-      </div></form>";
+      </div></form></td>";
+      $ret .= "</tr></table>";
   }
-  $ret .= "</div><br>";
+  $ret .= "</div>";
   my $a = "";
   if (ReadingsVal($d,".eM","off") eq "on") {
+    my $lang = AttrVal("global","language","EN");
     $ret .= "<script type=\"text/javascript\" src=\"$FW_ME/pgm2/console.js\"></script>";
     # $ret .= "<script type=\"text/javascript\" src=\"$FW_ME/pgm2/doiftools.js\"></script>";
     my $filter = $a ? ($a eq "log" ? "global" : $a) : ".*";
-    $ret .= "<div><br>";
+    $ret .= "<div><table><tr><td>";
     $ret .= "Events (Filter: <a href=\"#\" id=\"eventFilter\">$filter</a>) ".
           "&nbsp;&nbsp;<span id=\"doiftoolsdel\" class='fhemlog'>FHEM log ".
                 "<input id='eventWithLog' type='checkbox'".
                 ($a && $a eq "log" ? " checked":"")."></span>".
-          "&nbsp;&nbsp;<button id='eventReset'>Reset</button></div>\n";
-    $ret .= "<div>";
-    $ret .= "<textarea id=\"console\" style=\"width:99%; top:.1em; bottom:1em; position:relative;\" readonly=\"readonly\" rows=\"25\" cols=\"60\" title=\"selecting an event line displays example operands for DOIFs definition\"></textarea>";
+          "&nbsp;&nbsp;<button id='eventReset'>Reset</button>".($lang eq "DE" ? "&emsp;<b>Hinweis:</b> Eventzeile markieren, Operanden auswählen, neue Definition erzeugen" : "&emsp;<b>Hint:</b> select event line, choose operand, create definition")."</td></tr></table></div>\n";
+    my $embefore = AttrVal($d,"DOIFtoolsEMbeforeReadings","0") ? "1" : "";
+    $ret .= "<div id='doiftoolstype' devtype='doiftools' embefore='".$embefore."' lang='".($lang eq "DE" ? 1 : 0)."'>";
+    $ret .= "<textarea id=\"console\" style=\"width:99%; top:.1em; bottom:1em; position:relative;\" readonly=\"readonly\" rows=\"25\" cols=\"60\" title=\"".($lang eq "DE" ? "Die Auswahl einer Event-Zeile zeigt Operanden für DOIF an, mit ihnen kann eine neue DOIF-Definition erzeugt werden." : "Selecting an event line displays operands for DOIFs definition, they are used to create a new DOIF definition.")."\"></textarea>";
     $ret .= "</div>";
     $ret .= $DOIFtoolsJSfuncEM;
   }
@@ -422,7 +583,7 @@ sub DOIFtools_Notify($$) {
     my $b;
     for (my $i = 0; $i < 8; $i++) { 
       $DOIFtools_we[$i] = 0;
-      $val = CommandGet(undef,"get $sn days $i");
+      $val = CommandGet(undef,"$sn days $i");
       if($val) {
         ($a, $b) = ReplaceEventMap($sn, [$sn, $val], 0);
         $DOIFtools_we[$i] = 1 if($b ne "none");
@@ -448,13 +609,13 @@ sub DOIFtools_Notify($$) {
       CommandTrigger(undef,"$hash->{TYPE}Log $trig");
     }
     # DOIFtools DEF addition
-    if ($sn eq "global" and $event =~ "MODIFIED|INITIALIZED|DEFINED|DELETED|RENAMED|UNDEFINED") {
-    my @doifList = devspec2array("TYPE=DOIF");
+    if ($sn eq "global" and $event =~ "^INITIALIZED\$|^MODIFIED|^DEFINED|^DELETED|^RENAMED|^UNDEFINED") {
+      my @doifList = devspec2array("TYPE=DOIF");
       $hash->{DEF} = "associated DOIF: ".join(" ",sort @doifList);
       readingsSingleUpdate($hash,"DOIF_version",fhem("version 98_DOIF.pm noheader",1),0);
     }
     # get DOIF version, FHEM revision and default values
-    if ($sn eq "global" and $event =~ "INITIALIZED|MODIFIED $pn") {
+    if ($sn eq "global" and $event =~ "^INITIALIZED\$|^MODIFIED $pn") {
       readingsBeginUpdate($hash);
         readingsBulkUpdate($hash,"DOIF_version",fhem("version 98_DOIF.pm noheader",1));
         readingsBulkUpdate($hash,"FHEM_revision",fhem("version revision noheader",1));
@@ -479,13 +640,16 @@ sub DOIFtools_Notify($$) {
       CommandDeleteAttr(undef,"$pn readingsPrefix") if (AttrVal($pn,"readingsPrefix",""));
       CommandAttr(undef,"$pn DOIFtoolsEventMonitorInDOIF ".AttrVal($pn,"eventMonitorInDOIF","")) if (AttrVal($pn,"eventMonitorInDOIF",""));
       CommandDeleteAttr(undef,"$pn eventMonitorInDOIF") if (AttrVal($pn,"eventMonitorInDOIF",""));
-      CommandSave(undef,undef);
+      # CommandSave(undef,undef);
     }
-    # Event monitor in DOIF
-    if ($modules{DOIF}{LOADED} and !defined $modules{DOIF}->{FW_detailFn} and $sn eq "global" and $event =~ "INITIALIZED" and AttrVal($pn,"DOIFtoolsEventMonitorInDOIF","")) {
-      $modules{DOIF}->{FW_detailFn} = "DOIFtools_eM" if (!defined $modules{DOIF}->{FW_detailFn});
-      readingsSingleUpdate($hash,".DOIFdO",$modules{DOIF}->{FW_deviceOverview},0);
-      $modules{DOIF}->{FW_deviceOverview} = 1;
+    # Event monitor in DOIF FW_detailFn
+    if ($modules{DOIF}{LOADED} and (!$modules{DOIF}->{FW_detailFn} or $modules{DOIF}->{FW_detailFn} and $modules{DOIF}->{FW_detailFn} ne "DOIFtools_eM") and $sn eq "global" and $event =~ "^INITIALIZED\$" ) {
+        readingsBeginUpdate($hash);
+          readingsBulkUpdate($hash,".DOIF_detailFn",$modules{DOIF}->{FW_detailFn});
+          $modules{DOIF}->{FW_detailFn} = "DOIFtools_eM";
+          readingsBulkUpdate($hash,".DOIFdO",$modules{DOIF}->{FW_deviceOverview});
+          $modules{DOIF}->{FW_deviceOverview} = 1;
+        readingsEndUpdate($hash,0);
     }
     # Statistics event recording
     if (ReadingsVal($pn,"doStatistics","disabled") eq "enabled" and !IsDisabled($pn) and $sn ne "global" and (ReadingsVal($pn,"statisticHours",0) <= ReadingsVal($pn,"recording_target_duration",0) or !ReadingsVal($pn,"recording_target_duration",0)))  {
@@ -514,6 +678,57 @@ sub DOIFtools_Notify($$) {
   }
   return undef;
 }
+
+# DOIFtoolsLinColorGrad(start_color,end_color,percent|[$min,max,current])
+# start_color, end_color: 6 hexadecimal values as string with or without leading #
+# percent: from 0 to 1
+# min: minmal value
+# max: maximal value
+# current: current value
+# return: 6 hexadecimal value as string, prefix depends on input
+sub DOIFtoolsLinColorGrad {
+  my ($sc,$ec,$pct,$max,$cur) = @_;
+  $pct = ($cur-$pct)/($max-$pct) if (@_ == 5);
+  my $prefix = "";
+  $prefix = "#" if ("$sc $ec"=~"#");
+  $sc =~ s/^#//;
+  $ec =~ s/^#//;
+  $pct = $pct > 1 ? 1 : $pct;
+  $pct = $pct < 0 ? 0 : $pct;
+  $sc =~/([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})/;
+  my @sc = (hex($1),hex($2),hex($3));
+  $ec =~/([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})/;
+  my @ec = (hex($1),hex($2),hex($3));
+  my @rgb;
+  for (0..2) {
+    $rgb[$_] = sprintf("%02X", int(($ec[$_] - $sc[$_])*$pct + $sc[$_] + .5));
+  }
+  return $prefix.join("",@rgb);
+}
+
+sub DOIFtoolsHsvColorGrad {
+  my ($cur,$min,$max,$min_s,$max_s,$s,$v)=@_;
+  
+  my $m=($max_s-$min_s)/($max-$min);
+  my $n=$min_s-$min*$m;
+  if ($cur>$max) {
+   $cur=$max;
+  } elsif ($cur<$min) {
+    $cur=$min;
+  }
+    
+  my $h=$cur*$m+$n;
+  $h /=360;
+  $s /=100;
+  $v /=100;  
+  
+  my($r,$g,$b)=Color::hsv2rgb ($h,$s,$v);
+  $r *= 255;
+  $g *= 255;
+  $b *= 255;
+  return sprintf("#%02X%02X%02X", $r+0.5, $g+0.5, $b+0.5);
+}
+
 sub DOIFtoolsRg
 {
   my ($hash,$arg) = @_;
@@ -560,11 +775,15 @@ sub DOIFtoolsRg
 }
 # calculate real date in userReadings
 sub DOIFtoolsNextTimer {
-  my ($timer_str) = @_;
-  $timer_str =~ /(\d\d).(\d\d).(\d\d\d\d) (\d\d):(\d\d):(\d\d)\|([0-8]+)/;
-  my $tdays = $7;
-  return "$1.$2.$3 $4:$5:$6" if (length($7)==0); 
+  my ($timer_str,$tn) = @_;
+  $timer_str =~ /(\d\d).(\d\d).(\d\d\d\d) (\d\d):(\d\d):(\d\d)\|?(.*)/;
+  my $tstr = "$1.$2.$3 $4:$5:$6";
+  return $tstr if (length($7) == 0); 
   my $timer = timelocal($6,$5,$4,$1,$2-1,$3);
+  my $tdays = "";
+  $tdays = $tn ? DOIF_weekdays($defs{$tn},$7) : $7;
+  $tdays =~/([0-8])/;
+  return $tstr if (length($1) == 0); 
   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($timer);
   my $ilook = 0;
   my $we;
@@ -588,6 +807,7 @@ sub DOIFtoolsNextTimer {
     }
     $ilook++;
   }
+  return "no timer next 7 days";
 }
 
 sub DOIFtoolsNxTimer {
@@ -598,8 +818,8 @@ sub DOIFtoolsNxTimer {
   my $ret = "";
   my @ret;
   foreach my $key (keys %{$thash->{READINGS}}) {
-    if ($key =~ m/^timer_\d\d_c\d\d/ && $thash->{READINGS}{$key}{VAL} =~ m/.*\|[0-8]+/) {
-      $ret = AttrVal($pn,"DOIFtoolsReadingsPrefix","N_")."$key:$key.* \{DOIFtoolsNextTimer(ReadingsVal(\"$tn\",\"$key\",\"none\"))\}";
+    if ($key =~ m/^timer_\d\d_c\d\d/ && $thash->{READINGS}{$key}{VAL} =~ m/\d\d.\d\d.\d\d\d\d \d\d:\d\d:\d\d\|.*/) {
+      $ret = AttrVal($pn,"DOIFtoolsReadingsPrefix","N_")."$key:$key.* \{DOIFtoolsNextTimer(ReadingsVal(\"$tn\",\"$key\",\"none\"),\"$tn\")\}";
       push @ret, $ret if ($ret);
     }
   }
@@ -851,11 +1071,11 @@ sub DOIFtools_Define($$$)
   my @Liste = devspec2array("TYPE=DOIFtools");
   if (@Liste > 1) {
     CommandDelete(undef,$pn);
-    CommandSave(undef,undef);
+    # CommandSave(undef,undef);
     return "Only one instance of DOIFtools is allowed per FHEM installation. Delete the old one first.";
   }
   $hash->{STATE} = "initialized";
-  $hash->{logfile} = AttrVal("global","logdir","./log/")."$hash->{TYPE}Log-%Y-%j.log";
+  $hash->{logfile} = AttrVal($pn,"DOIFtoolsLogDir",AttrVal("global","logdir","./log/"))."$hash->{TYPE}Log-%Y-%j.log";
   DOIFtoolsCounterReset($pn);
   return undef;
 }
@@ -869,30 +1089,33 @@ sub DOIFtools_Attr(@)
   my $value = (defined $a[3]) ? $a[3] : "";
   my $hash = $defs{$pn};
   my $ret="";
-  if ($init_done and $attr eq "DOIFtoolsEventMonitorInDOIF") {
-    if (!defined $modules{DOIF}->{FW_detailFn} and $cmd eq "set" and $value) {
-        $modules{DOIF}->{FW_detailFn} = "DOIFtools_eM";
-        readingsSingleUpdate($hash,".DOIFdO",$modules{DOIF}->{FW_deviceOverview},0);
-        $modules{DOIF}->{FW_deviceOverview} = "DOIFtools_dO";
-    } elsif ($modules{DOIF}->{FW_detailFn} eq "DOIFtools_eM" and ($cmd eq "del" or !$value)) {
-        delete $modules{DOIF}->{FW_detailFn};
-        $modules{DOIF}->{FW_deviceOverview} = ReadingsVal($pn,"DOIFtools_dO","");
-    }
-  } elsif ($init_done and $attr eq "DOIFtoolsMenuEntry") {
+  if ($init_done and $attr eq "DOIFtoolsMenuEntry") {
     if ($cmd eq "set" and $value) {
       if (!(AttrVal($FW_wname, "menuEntries","") =~ m/(DOIFtools\,$FW_ME\?detail\=DOIFtools\,)/)) {
         CommandAttr(undef, "$FW_wname menuEntries DOIFtools,$FW_ME?detail=DOIFtools,".AttrVal($FW_wname, "menuEntries",""));
-        CommandSave(undef, undef);
+        # CommandSave(undef, undef);
       }
     } elsif ($init_done and $cmd eq "del" or !$value) {
       if (AttrVal($FW_wname, "menuEntries","") =~ m/(DOIFtools\,$FW_ME\?detail\=DOIFtools\,)/) {
         my $me = AttrVal($FW_wname, "menuEntries","");
         $me =~ s/DOIFtools\,$FW_ME\?detail\=DOIFtools\,//;
         CommandAttr(undef, "$FW_wname menuEntries $me");
-        CommandSave(undef, undef);
+        # CommandSave(undef, undef);
       }
     
     }
+  } elsif ($init_done and $attr eq "DOIFtoolsLogDir") {
+      if ($cmd eq "set") {
+        if ($value and -d $value) {
+          $value =~ m,^(.*)/$,;
+          return "Path \"$value\" needs a final slash." if (!$1);
+          $hash->{logfile} = "$value$hash->{TYPE}Log-%Y-%j.log";
+        } else {
+          return "\"$value\" is not a valid directory";
+        }
+      } elsif ($cmd eq "del" or !$value) {
+        $hash->{logfile} = AttrVal("global","logdir","./log/")."$hash->{TYPE}Log-%Y-%j.log";
+      }
   } elsif ($init_done and $attr eq "DOIFtoolsHideStatReadings") {
       DOIFtoolsSetNotifyDev($hash,1,0);
       DOIFtoolsDeleteStatReadings($hash);
@@ -909,8 +1132,8 @@ sub DOIFtools_Undef
   my ($hash, $pn) = @_;
   $hash->{DELETED} = 1;
   if (devspec2array("TYPE=DOIFtools") <=1 and defined($modules{DOIF}->{FW_detailFn}) and $modules{DOIF}->{FW_detailFn} eq "DOIFtools_eM") {
-      delete $modules{DOIF}->{FW_detailFn};
-      $modules{DOIF}->{FW_deviceOverview} = ReadingsVal($pn,"DOIFtools_dO","");
+      $modules{DOIF}->{FW_detailFn} = ReadingsVal($pn,".DOIF_detailFn","");
+      $modules{DOIF}->{FW_deviceOverview} = ReadingsVal($pn,".DOIFdO","");
   }
   if (AttrVal($pn,"DOIFtoolsMenuEntry","")) {
     CommandDeleteAttr(undef, "$pn DOIFtoolsMenuEntry");
@@ -947,6 +1170,7 @@ sub DOIFtools_Set($@)
       return $ret;
   } elsif ($arg eq "targetDOIF") {
       readingsSingleUpdate($hash,"targetDOIF",$value,0);
+      FW_directNotify("#FHEMWEB:$FW_wname", "location.reload('".AttrVal($pn,"DOIFtoolsForceGet","")."')", "");
   } elsif ($arg eq "deleteReadingsInTargetDOIF") {
       if ($value) {
         my @i = split(",",$value);
@@ -963,6 +1187,7 @@ sub DOIFtools_Set($@)
       }
   } elsif ($arg eq "targetDevice") {
       readingsSingleUpdate($hash,"targetDevice",$value,0);
+      FW_directNotify("#FHEMWEB:$FW_wname", "location.reload('".AttrVal($pn,"DOIFtoolsForceGet","")."')", "");
   } elsif ($arg eq "deleteReadingsInTargetDevice") {
       if ($value) {
         my @i = split(",",$value);
@@ -1068,7 +1293,7 @@ sub DOIFtools_Get($@)
 
   foreach my $i (@doifList) {
     foreach my $key (keys %{$defs{$i}{READINGS}}) {
-      if ($key =~ m/^timer_\d\d_c\d\d/ && $defs{$i}{READINGS}{$key}{VAL} =~ m/.*\|[0-8]+/) {
+      if ($key =~ m/^timer_\d\d_c\d\d/ && $defs{$i}{READINGS}{$key}{VAL} =~ m/\d\d.\d\d.\d\d\d\d \d\d:\d\d:\d\d\|.*/) {
         push @ntL, $i;
         last;
       }
@@ -1109,7 +1334,7 @@ sub DOIFtools_Get($@)
       $regex = join("|",@regex).":.*";
       if (AttrVal($pn,"DOIFtoolsExecuteDefinition","")) {
         push @ret, "Create device <b>$pnLog</b>.\n";
-        $ret = CommandDefMod(undef,"$pnLog FileLog ".AttrVal("global","logdir","./log/")."$pnLog-%Y-%j.log $regex");
+        $ret = CommandDefMod(undef,"$pnLog FileLog ".InternalVal($pn,"logfile","./log/$pnLog-%Y-%j.log")." $regex");
         push @ret, $ret if($ret);
         $ret = CommandAttr(undef,"$pnLog mseclog ".AttrVal($pnLog,"mseclog","1"));
         push @ret, $ret if($ret);
@@ -1125,7 +1350,7 @@ sub DOIFtools_Get($@)
       } else {
         $ret = "<b>Definition for a FileLog prepared for import with \"Raw definition\":</b>\r--->\r";
         $ret = "<b>Die FileLog-Definition ist zum Import mit \"Raw definition\"</b>vorbereitet:\r--->\r" if ($DE);
-        $ret .= "defmod $pnLog FileLog ".AttrVal("global","logdir","./log/")."$pnLog-%Y-%j.log $regex\r";
+        $ret .= "defmod $pnLog FileLog ".InternalVal($pn,"logfile","./log/$pnLog-%Y-%j.log")." $regex\r";
         $ret .= "attr $pnLog mseclog 1\r<---\r\r";
         return $ret;
       }
@@ -1257,9 +1482,9 @@ sub DOIFtools_Get($@)
       }
       $ret .= join(" ",@coll);
       if ($DE) {
-        $ret .= "\n<ul><li><b>DOELSIF</b> ohne <b>DOELSE</b> ist o.k., wenn der Status wechselt, bevor die selbe Bedingung wiederholt wahr wird,<br> andernfalls sollte <b>do always</b> genutzt werden (<a target=\"_blank\" href=\"https://fhem.de/commandref_DE.html#DOIF_do_always\">Steuerung durch Events</a>, <a target=\"_blank\" href=\"https://wiki.fhem.de/wiki/DOIF/Einsteigerleitfaden,_Grundfunktionen_und_Erl%C3%A4uterungen#Verhaltensweise_ohne_steuernde_Attribute\">Verhalten ohne Attribute</a>)</li></ul> \n" if (@coll);
+        $ret .= "\n<ul><li><b>DOELSEIF</b> ohne <b>DOELSE</b> ist o.k., wenn der Status wechselt, bevor die selbe Bedingung wiederholt wahr wird,<br> andernfalls sollte <b>do always</b> genutzt werden (<a target=\"_blank\" href=\"https://fhem.de/commandref_DE.html#DOIF_do_always\">Steuerung durch Events</a>, <a target=\"_blank\" href=\"https://wiki.fhem.de/wiki/DOIF/Einsteigerleitfaden,_Grundfunktionen_und_Erl%C3%A4uterungen#Verhaltensweise_ohne_steuernde_Attribute\">Verhalten ohne Attribute</a>)</li></ul> \n" if (@coll);
       } else {
-        $ret .= "\n<ul><li><b>DOELSIF</b> without <b>DOELSE</b> is o.k., if state changes between, the same condition becomes true again,<br>otherwise use attribute <b>do always</b> (<a target=\"_blank\" href=\"https://fhem.de/commandref_DE.html#DOIF_do_always\">controlling by events</a>, <a target=\"_blank\" href=\"https://wiki.fhem.de/wiki/DOIF/Einsteigerleitfaden,_Grundfunktionen_und_Erl%C3%A4uterungen#Verhaltensweise_ohne_steuernde_Attribute\">behaviour without attributes</a>)</li></ul> \n" if (@coll);
+        $ret .= "\n<ul><li><b>DOELSEIF</b> without <b>DOELSE</b> is o.k., if state changes between, the same condition becomes true again,<br>otherwise use attribute <b>do always</b> (<a target=\"_blank\" href=\"https://fhem.de/commandref_DE.html#DOIF_do_always\">controlling by events</a>, <a target=\"_blank\" href=\"https://wiki.fhem.de/wiki/DOIF/Einsteigerleitfaden,_Grundfunktionen_und_Erl%C3%A4uterungen#Verhaltensweise_ohne_steuernde_Attribute\">behaviour without attributes</a>)</li></ul> \n" if (@coll);
       }
       foreach my $di (@doifList) {
         $ret .= DOIFtoolsCheckDOIF($hash,$di);
@@ -1277,9 +1502,192 @@ sub DOIFtools_Get($@)
       $ret = $ret ? "Found running wait_timer for:\n\n$ret" : "No running wait_timer found.";
       return $ret;
       
+  } elsif ($arg eq "SetAttrIconForDOIF") {
+      $ret .= CommandAttr(undef,"$value icon helper_doif");
+      $ret .= CommandSave(undef,undef) if (AttrVal($pn,"DOIFtoolsExecuteSave",""));
+      return $ret;
+  } elsif ($arg eq "linearColorGradient") {
+      my ($sc,$ec,$min,$max,$step) = split(",",$value);
+      if ($value && $sc =~ /[0-9A-F]{6}/ && $ec =~ /[0-9A-F]{6}/ && $min =~ /(-?\d+(\.\d+)?)/ &&  $max =~ /(-?\d+(\.\d+)?)/ && $step =~ /(-?\d+(\.\d+)?)/) {
+        $ret .= "<br></pre><table>";
+        $ret .= "<tr><td colspan=4 style='font-weight:bold;'>Color Table</td></tr>";
+        $ret .= "<tr><td colspan=4><div>";
+        for (my $i=0;$i<=127;$i++) {
+          my $col = DOIFtoolsLinColorGrad($sc,$ec,0,127,$i);
+          $ret .= "<span style='background-color:$col;'>&nbsp;</span>";
+        }
+        $ret .= "</div></td></tr>";
+        $ret .= "<tr style='text-align:center;'><td> Value </td><td> Color Number </td><td> RGB values </td><td> Color</td> </tr>";
+        for (my $i=$min;$i<=$max;$i+=$step) {
+          my $col = DOIFtoolsLinColorGrad($sc,$ec,$min,$max,$i);
+          $col =~ /^#?([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})$/;
+          $ret .= "<tr style='text-align:center;'><td>".sprintf("%.1f",$i)."</td><td>$col</td><td> ".hex($1).",".hex($2).",".hex($3)." </td><td style='background-color:$col;'>&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;</td></tr>";
+        }
+        $ret .= "</table><pre>";
+        
+       return $ret;
+      } else {
+        $ret = $DE ? "<br></pre>
+Falsche Eingabe: <code>$value</code><br>
+Syntax: <code>&lt;Startfarbnummer&gt;,&lt;Endfarbnummer&gt;,&lt;Minimalwert&gt;,&lt;Maximalwert&gt;,&lt;Schrittweite&gt;</code><br>
+<ul>
+<li><code>&lt;Startfarbnummer&gt;</code>, ist eine HTML-Farbnummer, Beispiel: #0000FF für Blau.</li>
+<li><code>&lt;Endfarbnummer&gt;</code>, ist eine HTML-Farbnummer, Beispiel: #FF0000 für Rot.</li>
+<li><code>&lt;Minimalwert&gt;</code>, der Minimalwert auf den die Startfarbnummer skaliert wird, Beispiel: 7.</li>
+<li><code>&lt;Maximalwert&gt;</code>, der Maximalwert auf den die Endfarbnummer skaliert wird, Beispiel: 30.</li>
+<li><code>&lt;Schrittweite&gt;</code>, für jeden Schritt wird ein Farbwert erzeugt, Beispiel: 1.</li>
+</ul>
+Beispielangabe: <code>#0000FF,#FF0000,7,30,1</code>
+<pre>":"<br></pre>
+Wrong input: <code>$value</code><br>
+Syntax: <code>&lt;start color number&gt;,&lt;end color number&gt;,&lt;minimal value&gt;,&lt;maximal value&gt;,&lt;step width&gt;</code><br>
+<ul>
+<li><code>&lt;start color number&gt;</code>, a HTML color number, example: #0000FF for blue.</li>
+<li><code>&lt;end color number&gt;</code>, a HTML color number, example: #FF0000 for red.</li>
+<li><code>&lt;minimal value&gt;</code>, the start color number will be scaled to it, example: 7.</li>
+<li><code>&lt;maximal value&gt;</code>, the end color number will be scaled to it, example: 30.</li>
+<li><code>&lt;step width&gt;</code>, for each step a color number will be generated, example: 1.</li>
+</ul>
+Example specification: <code>#0000FF,#FF0000,7,30,1</code>
+<pre>";
+        return $ret
+      }
+  } elsif ($arg eq "hsvColorGradient") {
+      my ($min_s,$max_s,$min,$max,$step,$s,$v)=split(",",$value);
+      if ($value && $s >= 0 && $s <= 100 && $v >= 0 && $v <= 100  && $min_s >= 0 && $min_s <= 360 && $max_s >= 0 && $max_s <= 360) {
+        $ret .= "<br></pre><table>";
+        $ret .= "<tr><td colspan=4 style='font-weight:bold;'>Color Table</td></tr>";
+        $ret .= "<tr><td colspan=4><div>";
+        for (my $i=0;$i<=127;$i++) {
+          my $col = DOIFtoolsHsvColorGrad($i,0,127,$min_s,$max_s,$s,$v);
+          $ret .= "<span style='background-color:$col;'>&nbsp;</span>";
+        }
+        $ret .= "</div></td></tr>";
+        $ret .= "<tr style='text-align:center;'><td> Value </td><td> Color Number </td><td> RGB values </td><td> Color</td> </tr>";
+        for (my $i=$min;$i<=$max;$i+=$step) {
+          my $col = DOIFtoolsHsvColorGrad($i,$min,$max,$min_s,$max_s,$s,$v);
+          $col =~ /^#?([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})$/;
+          $ret .= "<tr style='text-align:center;'><td>".sprintf("%.1f",$i)."</td><td>$col</td><td> ".hex($1).",".hex($2).",".hex($3)." </td><td style='background-color:$col;'>&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;</td></tr>";
+        }
+        $ret .= "</table><pre>";
+        
+       return $ret;
+      } else {
+        $ret = $DE ? "<br></pre>
+Falsche Eingabe: <code>$value</code><br>
+Syntax: <code>&lt;HUE-Startwert&gt;,&lt;HUE-Endwert&gt;,&lt;Minimalwert&gt;,&lt;Maximalwert&gt;,&lt;Schrittweite&gt;,&lt;Sättigung&gt;,&lt;Hellwert&gt;</code><br>
+<ul>
+<li><code>&lt;HUE-Startwert&gt;</code>, ist ein HUE-Wert <code>0-360</code>, Beispiel: 240 für Blau.</li>
+<li><code>&lt;HUE-Endwert&gt;</code>, ist ein HUE-Wert <code>0-360</code>, Beispiel: 360 für Rot.</li>
+<li><code>&lt;Minimalwert&gt;</code>, der Minimalwert auf den der HUE-Startwert skaliert wird, Beispiel: 7.</li>
+<li><code>&lt;Maximalwert&gt;</code>, der Maximalwert auf den der HUE-Endwert skaliert wird, Beispiel: 30.</li>
+<li><code>&lt;Schrittweite&gt;</code>, für jeden Schritt wird ein Farbwert erzeugt, Beispiel: 1.</li>
+<li><code>&lt;Sättigung&gt;</code>, die verwendete Farbsätigung <code>0-100</code>, Beispiel: 80.</li>
+<li><code>&lt;Hellwert&gt;</code>, Angabe der Helligkeit <code>0-100</code>, Beispiel: 80.</li>
+</ul>
+Beispielangabe: <code>240,360,7,30,1,80,80</code>
+<pre>":"<br></pre>
+Wrong input: <code>$value</code><br>
+Syntax: <code>&lt;HUE start value&gt;,&lt;HUE end value&gt;,&lt;minimal value&gt;,&lt;maximal value&gt;,&lt;step width&gt;,&lt;saturation&gt;,&lt;lightness&gt;</code><br>
+<ul>
+<li><code>&lt;HUE start value&gt;</code>, a HUE value <code>0-360</code>, example: 240 for blue.</li>
+<li><code>&lt;HUE end value&gt;</code>, a HUE value <code>0-360</code>, example: 360 for red.</li>
+<li><code>&lt;minimal value&gt;</code>, the HUE start value will be scaled to it, example: 7.</li>
+<li><code>&lt;maximal value&gt;</code>, the HUE end value will be scaled to it, example: 30.</li>
+<li><code>&lt;step width&gt;</code>, for each step a color number will be generated, example: 1.</li>
+<li><code>&lt;saturation&gt;</code>, a value of saturation <code>0-100</code>, example: 80.</li>
+<li><code>&lt;lightness&gt;</code>, a value of lightness <code>0-100</code>, example: 80.</li>
+</ul>
+Example specification: <code>240,360,7,30,1,80,80</code>
+<pre>";
+        return $ret
+      }
+  } elsif ($arg eq "modelColorGradient") {
+    my $err_ret = $DE ? "<br></pre>
+Falsche Eingabe: <code>$value</code><br>
+Syntax: <code>&lt;Minimalwert&gt;,&lt;Zwischenwert&gt;,&lt;Maximalwert&gt;,&lt;Schrittweite&gt;&lt;Farbmodel&gt;</code><br>
+<ul>
+<li><code>&lt;Minimalwert&gt;</code>, der Minimalwert auf den die Startfarbnummer skaliert wird, Beispiel: 7.</li>
+<li><code>&lt;Zwischenwert&gt;</code>, der Fixpunkt zwischen Start- u. Endwert, Beispiel: 20.</li>
+<li><code>&lt;Maximalwert&gt;</code>, der Maximalwert auf den die Endfarbnummer skaliert wird, Beispiel: 30.</li>
+<li><code>&lt;Schrittweite&gt;</code>, für jeden Schritt wird ein Farbwert erzeugt, Beispiel: 1.</li>
+<li><code>&lt;Farbmodel&gt;</code>, die Angabe eines vordefinierten Modells <code>&lt;0|1|2&gt;</code> oder fünf RGB-Werte <br>als Array <code>[r1,g1,b1,r2,g2,b2,r3,g3,b3,r4,g4,b4,r5,g5,b5]</code> für ein eigenes Model.</li>
+</ul>
+Beispiele:<br>
+<code>30,60,100,5,[255,255,0,127,255,0,0,255,0,0,255,255,0,127,255]</code>, z.B. Luftfeuchte<br>
+<code>7,20,30,1,[0,0,255,63,0,192,127,0,127,192,0,63,255,0,0]</code>, z.B. Temperatur<br>
+<code>0,2.6,5.2,0.0625,[192,0,0,208,63,0,224,127,0,240,192,0,255,255,0]</code>, z.B. Exponent der Helligkeit<br>
+<code>7,20,30,1,0</code>
+<pre>":"<br></pre>
+Wrong input: <code>$value</code><br>
+Syntax: <code>&lt;minimal value&gt;,&lt;middle value&gt;,&lt;maximal value&gt;,&lt;step width&gt;,&lt;color model&gt;</code><br>
+<ul>
+<li><code>&lt;minimal value&gt;</code>, the start color number will be scaled to it, example: 7.</li>
+<li><code>&lt;middle value&gt;</code>, a fix point between min and max, example: 20.</li>
+<li><code>&lt;maximal value&gt;</code>, the end color number will be scaled to it, example: 30.</li>
+<li><code>&lt;step width&gt;</code>, for each step a color number will be generated, example: 1.</li>
+<li><code>&lt;color model&gt;</code>, a predefined number &lt;0|1|2&gt; or an array of five RGB values, <br><code>[r1,g1,b1,r2,g2,b2,r3,g3,b3,r4,g4,b4,r5,g5,b5]</code></li>
+</ul>
+Example specifications:<br>
+<code>0,50,100,5,[255,255,0,127,255,0,0,255,0,0,255,255,0,127,255]</code> e.g. humidity<br>
+<code>7,20,30,1,[0,0,255,63,0,192,127,0,127,192,0,63,255,0,0]</code>, e.g. temperature<br>
+<code>0,2.6,5.2,0.0625,[192,0,0,208,63,0,224,127,0,240,192,0,255,255,0]</code>, e.g. brightness exponent<br>
+<code>7,20,30,1,0</code>
+<pre>";
+    return $err_ret if (!$value);
+    my ($min,$mid,$max,$step,$colors);
+    my $err = "";
+    $value =~ s/,(\[.*\])//;
+    if ($1) {
+      $colors = eval($1);
+      if ($@) {
+        $err="Error eval 1567: $@\n".$err_ret;
+        Log3 $hash->{NAME},3,"modelColorGradient \n".$err; 
+        return $err;
+      }
+      ($min,$mid,$max,$step) = split(",",$value);
+    } else {
+      ($min,$mid,$max,$step,$colors) = split(",",$value);
+    }
+    return $err_ret if ($min>=$mid or $mid >= $max or $step <= 0 or (ref($colors) ne "ARRAY" && $colors !~ "0|1|2"));
+    my $erg=eval("\"".Color::pahColor($min,$mid,$max,$min+$step,$colors)."\"");
+    if ($@) {
+      $err="Error eval 1577: $@\n".$err_ret;
+      Log3 $hash->{NAME},3,"modelColorGradient \n".$err; 
+    return $err;
+    }
+    $ret .= "<br></pre><table>";
+    $ret .= "<tr><td colspan=4 style='font-weight:bold;'>Color Table</td></tr>";
+    $ret .= "<tr><td colspan=4><div>";
+    for (my $i=0;$i<=127;$i++) {
+      my $col = eval("\"".Color::pahColor($min,$mid,$max,$min+$i*($max-$min)/127,$colors)."\"");
+      if ($@) {
+        $err="Error eval 1567: $@\n".$err_ret;
+        Log3 $hash->{NAME},3,"modelColorGradient \n".$err; 
+        return $err;
+      }
+      $col = "#".substr($col,0,6);
+      $ret .= "<span style='background-color:$col;'>&nbsp;</span>";
+    }
+    $ret .= "</div></td></tr>";
+    $ret .= "<tr style='text-align:center;'><td> Value </td><td> Color Number </td><td> RGB values </td><td> Color</td> </tr>";
+    for (my $i=$min;$i<=$max;$i+=$step) {
+      my $col = eval("\"".Color::pahColor($min,$mid,$max,$i,$colors)."\"");
+      if ($@) {
+        $err="Error eval 1567: $@\n".$err_ret;
+        Log3 $hash->{NAME},3,"modelColorGradient \n".$err; 
+        return $err;
+      }
+      $col = "#".substr($col,0,6);
+      $col =~ /^#?([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})$/;
+      $ret .= "<tr style='text-align:center;'><td>".sprintf("%.1f",$i)."</td><td>$col</td><td> ".hex($1).",".hex($2).",".hex($3)." </td><td style='background-color:$col;'>&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;</td></tr>";
+    }
+    $ret .= "</table><pre>";
+    
+    return $ret;
   } else {
       my $hardcoded = "checkDOIF:noArg statisticsReport:noArg runningTimerInDOIF:noArg";
-      return "unknown argument $arg for $pn, choose one of readingsGroup_for:multiple-strict,$dL DOIF_to_Log:multiple-strict,$dL userReading_nextTimer_for:multiple-strict,$ntL ".(AttrVal($pn,"DOIFtoolsHideGetSet",0) ? $hardcoded :"");
+      return "unknown argument $arg for $pn, choose one of readingsGroup_for:multiple-strict,$dL DOIF_to_Log:multiple-strict,$dL SetAttrIconForDOIF:multiple-strict,$dL userReading_nextTimer_for:multiple-strict,$ntL ".(AttrVal($pn,"DOIFtoolsHideGetSet",0) ? $hardcoded :"")." linearColorGradient:textField modelColorGradient:textField hsvColorGradient:textField";
   } 
 
   return $ret;
@@ -1313,14 +1721,16 @@ DOIFtools contains tools to support DOIF.<br>
     <li>lists every DOIF definition in <i>probably associated with</i>.</li>
     <li>access to DOIFtools from any DOIF device via <i>probably associated with</i></li>
     <li>access from DOIFtools to existing DOIFtoolsLog logfiles</li>
-    <li>show event monitor in device overview and optionally DOIF</li>
+    <li>show event monitor in device detail view and optionally in DOIFs detail view</li>
+    <li>convert events to DOIF operands, a selected operand is copied to clipboard and the DEF editor will open</li>
     <li>check definitions and offer recommendations</li>
     <li>create shortcuts</li>
     <li>optionally create a menu entry</li>
     <li>show a list of running wait timer</li>
+    <li>scale values to color numbers and RGB values for coloration</li>
   </ul>
 <br>
-Just one definition per FHEM-installation is allowed. <a href="#DOIFtools"More in the german section.</a>
+Just one definition per FHEM-installation is allowed. <a href="https://fhem.de/commandref_DE.html#DOIFtools">More in the german section.</a>
 <br>
 </ul>
 =end html
@@ -1347,12 +1757,28 @@ DOIFtools stellt Funktionen zur Unterstützung von DOIF-Geräten bereit.<br>
     <li>Zugriff aus DOIFtools auf vorhandene DOIFtoolsLog-Logdateien.</li>
     <li>zeigt den Event Monitor in der Detailansicht von DOIFtools.</li>
     <li>ermöglicht den Zugriff auf den Event Monitor in der Detailansicht von DOIF.</li>
+    <li>erzeugt DOIF-Operanden aus einer Event-Zeile des Event-Monitors.</li>
+    <ul>
+      <li>Ist der <b>Event-Monitor in DOIF</b> geöffnet, dann kann die Definition des <b>DOIF geändert</b> werden.</li>
+      <li>Ist der <b>Event-Monitor in DOIFtools</b> geöffnet, dann kann die Definition eines <b>DOIF erzeugt</b> werden.</li>
+    </ul>
     <li>prüfen der DOIF Definitionen mit Empfehlungen.</li>
     <li>erstellen von Shortcuts</li>
     <li>optionalen Menüeintrag erstellen</li>
     <li>Liste der laufenden Wait-Timer anzeigen</li>
+    <li>skaliert Werte zu Farbnummern und RGB Werten zum Einfärben, z.B. von Icons.</li>
   </ul>
 <br>
+<b>Inhalt</b><br>
+<ul>
+  <a href="#DOIFtoolsBedienungsanleitung">Bedienungsanleitung</a><br>
+  <a href="#DOIFtoolsDefinition">Definition</a><br>
+  <a href="#DOIFtoolsSet">Set-Befehl</a><br>
+  <a href="#DOIFtoolsGet">Get-Befehl</a><br>
+  <a href="#DOIFtoolsAttribute">Attribute</a><br>
+  <a href="#DOIFtoolsReadings">Readings</a><br>
+  <a href="#DOIFtoolsLinks">Links</a><br>
+</ul><br>
 
 <a name="DOIFtoolsBedienungsanleitung"></a>
 <b>Bedienungsanleitung</b>
@@ -1373,11 +1799,10 @@ DOIFtools stellt Funktionen zur Unterstützung von DOIF-Geräten bereit.<br>
         <code>
         defmod DOIFtools DOIFtools<br>
         attr DOIFtools DOIFtoolsEventMonitorInDOIF 1<br>
-        attr DOIFtools DOIFtoolsEMbeforeReadings 1<br>
         attr DOIFtools DOIFtoolsExecuteDefinition 1<br>
         attr DOIFtools DOIFtoolsExecuteSave 1<br>
         attr DOIFtools DOIFtoolsMenuEntry 1<br>
-        attr DOIFtools DOIFtoolsMyShortcuts ##&lt;br&gt;My Shortcuts:,,list DOIFtools,fhem?cmd=list DOIFtools<br>
+        attr DOIFtools DOIFtoolsMyShortcuts ##My Shortcuts:,,list DOIFtools,fhem?cmd=list DOIFtools<br>
         </code>
     </ul>
 <br>
@@ -1446,6 +1871,45 @@ DOIFtools stellt Funktionen zur Unterstützung von DOIF-Geräten bereit.<br>
         <code>get &lt;name&gt; runningTimerInDOIF</code><br>
         <b>runningTimerInDOIF</b> zeigt eine Liste der laufenden Timer. Damit kann entschieden werden, ob bei einem Neustart wichtige Timer gelöscht werden und der Neustart ggf. verschoben werden sollte.<br>
         <br>
+        <code>get &lt;name&gt; SetAttrIconForDOIF &lt;DOIF names for setting the attribute icon to helper_doif&gt;</code><br>
+        <b>SetAttrIconForDOIF</b> setzt für die ausgewählten DOIF das Attribut <i>icon</i> auf <i>helper_doif</i>.<br>
+        <br>
+        <code>get &lt;name&gt; linearColorGradient &lt;start color number&gt;,&lt;end color number&gt;,&lt;minimal value&gt;,&lt;maximal value&gt;,&lt;step width&gt;</code><br>
+        <b>linearColorGradient</b> erzeugt eine Tabelle mit linear abgestuften Farbnummern und RGB-Werten.<br>
+        &lt;start color number&gt;, ist eine HTML-Farbnummer, Beispiel: #0000FF für Blau.<br>
+        &lt;end color number&gt;, , ist eine HTML-Farbnummer, Beispiel: #FF0000 für Rot.<br>
+        &lt;minimal value&gt;, der Minimalwert auf den die Startfarbnummer skaliert wird, Beispiel: 7.<br>
+        &lt;maximal value&gt;, der Maximalwert auf den die Endfarbnummer skaliert wird, Beispiel: 30.<br>
+        &lt;step width&gt;, für jeden Schritt wird ein Farbwert erzeugt, Beispiel: 0.5.
+        <br>
+        Beispiel: <code>get DOIFtools linearColorGradient #0000FF,#FF0000,7,30,0.5</code><br>
+        <br>
+        <code>get &lt;name&gt; modelColorGradient &lt;minimal value&gt;,&lt;middle value&gt;,&lt;maximal value&gt;,&lt;step width&gt;,&lt;color model&gt;</code><br>
+        <b>modelColorGradient</b> erzeugt eine Tabelle mit modellbedingt abgestuften Farbnummern und RGB-Werten, siehe FHEM-Wiki<a href="https://wiki.fhem.de/wiki/Color#Farbskala_mit_Color::pahColor"> Farbskala mit Color::pahColor </a><br>
+        &lt;minimal value&gt;, der Minimalwert auf den die Startfarbnummer skaliert wird, Beispiel: 7.<br>
+        &lt;middle value&gt;, der Mittenwert ist ein Fixpunkt zwischen Minimal- u. Maximalwert, Beispiel: 20.<br>
+        &lt;maximal value&gt;, der Maximalwert auf den die Endfarbnummer skaliert wird, Beispiel: 30.<br>
+        &lt;step width&gt;, für jeden Schritt wird ein Farbwert erzeugt, Beispiel: 1.<br>
+        &lt;color model&gt;, die Angabe eines vordefinierten Modells &lt;0|1|2&gt; oder fünf RGB-Werte als Array [r1,g1,b1,r2,g2,b2,r3,g3,b3,r4,g4,b4,r5,g5,b5] für ein eigenes Model.<br>
+        <br>
+        Beispiele:<br>
+        <code>get DOIFtools modelColorGradient 7,20,30,1,0</code><br>
+        <code>get DOIFtools modelColorGradient 0,50,100,5,[255,255,0,127,255,0,0,255,0,0,255,255,0,127,255]</code><br>
+        <br>
+        <code>get &lt;name&gt; hsvColorGradient &lt;HUE start value&gt;,&lt;HUE end value&gt;,&lt;minimal value&gt;,&lt;maximal value&gt;,&lt;step width&gt;,&lt;saturation&gt;,&lt;lightness&gt;</code><br>
+        <b>hsvColorGradient</b> erzeugt eine Tabelle über HUE-Werte abgestufte Farbnummern und RGB-Werten.<br>
+        &lt;Hue start value&gt;, der HUE-Startwert, Beispiel: 240 für Blau.<br>
+        &lt;HUE end value&gt;, der HUE-Endwert, Beispiel: 360 für Rot.<br>
+        &lt;minimal value&gt;, der Minimalwert auf den der HUE-Startwert skaliert wird, Beispiel: 7.<br 20.<br>
+        &lt;maximal value&gt;, der Maximalwert auf den der HUE-Endwert skaliert wird, Beispiel: 30.<br>
+        &lt;step width&gt;, für jeden Schritt wird ein Farbwert erzeugt, Beispiel: 1.<br>
+        &lt;saturation&gt;, die Angabe eines Wertes für die Farbsättigung &lt;0-100&gt;, Beispiel 80.<br>
+        &lt;lightness&gt;, die Angabe eines Wertes für die Helligkeit &lt;0-100&gt;, Beispiel 80.<br>
+        <br>
+        Beispiele:<br>
+        <code>get DOIFtools hsvColorGradient 240,360,7,30,1,80,80</code><br>
+        <br>
+        
     </ul>
 
 <a name="DOIFtoolsAttribute"></a>
@@ -1499,10 +1963,14 @@ DOIFtools stellt Funktionen zur Unterstützung von DOIF-Geräten bereit.<br>
         <code>attr &lt;name&gt; DOIFtoolsMenuEntry &lt;0|1&gt;</code><br>
         <b>DOIFtoolsMenuEntry</b> <b>1</b>, erzeugt einen Menüeintrag im FHEM-Menü. <b>Default 0</b>.<br>
         <br>
+        <code>attr &lt;name&gt; DOIFtoolsLogDir &lt;path to DOIFtools logfile&gt;</code><br>
+        <b>DOIFtoolsLogDir</b> <b>&lt;path&gt;</b>, gibt den Pfad zum Logfile an <b>Default <i>./log</i> oder der Pfad aus dem Attribut <i>global logdir</i></b>.<br>
+        <br>
         <a href="#disabledForIntervals"><b>disabledForIntervals</b></a> pausiert die Statistikdatenerfassung.<br>
         <br>
     </ul>
-<a name="DOIFtoolsReadings"></a>
+
+    <a name="DOIFtoolsReadings"></a>
 <b>Readings</b>
 <br>
     <ul>
@@ -1528,7 +1996,14 @@ DOIFtools stellt Funktionen zur Unterstützung von DOIF-Geräten bereit.<br>
 <br>
 <ul>
 <a href="https://forum.fhem.de/index.php/topic,63938.0.html">DOIFtools im FHEM-Forum</a><br>
-<a href="https://wiki.fhem.de/wiki/DOIFtools">DOIFtools im FHEM-Wiki</a>
+<a href="https://wiki.fhem.de/wiki/DOIFtools">DOIFtools im FHEM-Wiki</a><br>
+<br>
+<a href="https://wiki.fhem.de/wiki/DOIF">DOIF im FHEM-Wiki</a><br>
+<a href="https://wiki.fhem.de/wiki/DOIF/Einsteigerleitfaden,_Grundfunktionen_und_Erl%C3%A4uterungen#Erste_Schritte_mit_DOIF:_Zeit-_und_Ereignissteuerung">Erste Schritte mit DOIF</a><br>
+<a href="https://wiki.fhem.de/wiki/DOIF/Einsteigerleitfaden,_Grundfunktionen_und_Erl%C3%A4uterungen">DOIF: Einsteigerleitfaden, Grundfunktionen und Erläuterungen</a><br>
+<a href="https://wiki.fhem.de/wiki/DOIF/Labor_-_ausf%C3%BChrbare,_praxisnahe_Beispiele_als_Probleml%C3%B6sung_zum_Experimentieren">DOIF-Labor - ausführbare, praxisnahe Beispiele als Problemlösung zum Experimentieren</a><br>
+<a href="https://wiki.fhem.de/wiki/DOIF/Tipps_zur_leichteren_Bedienung">DOIF: Tipps zur leichteren Bedienung</a><br>
+<a href="https://wiki.fhem.de/wiki/DOIF/Tools_und_Fehlersuche">DOIF: Tools und Fehlersuche</a><br>
 </ul>
 </ul>
 =end html_DE

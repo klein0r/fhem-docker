@@ -1,5 +1,5 @@
 ##############################################
-#     $Id: 98_THRESHOLD.pm 8521 2015-05-03 18:32:17Z damian-s $
+#     $Id: 98_THRESHOLD.pm 14179 2017-05-03 20:10:16Z Damian $
 #
 #     This file is part of fhem.
 #
@@ -174,7 +174,7 @@ THRESHOLD_Define($$$)
        $attr{$pn}{state_cmd1_gt}="off";
        $attr{$pn}{state_cmd2_lt}="on";
        $attr{$pn}{state_format} = "_sc";
-       $hysteresis = 0;
+       $hysteresis = 0 if (!$hysteresis);
        $cmd_default = 0;
     } else {
       $cmd1_gt = "set $actor off";
@@ -626,6 +626,9 @@ THRESHOLD_setValue($$)
 1;
 
 =pod
+=item helper
+=item summary simulation of a thermostat or humidistat
+=item summary_DE Simulation eines Zweipunktreglers
 =begin html
 
 <a name="THRESHOLD"></a>

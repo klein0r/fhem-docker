@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 99_SUNRISE_EL.pm 12485 2016-11-01 15:18:51Z rudolfkoenig $
+# $Id: 99_SUNRISE_EL.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
 # This code is derived from DateTime::Event::Sunrise, version 0.0501.
 # Simplified and removed further package # dependency (DateTime,
 # Params::Validate, etc). For comments see the original code.

@@ -21,7 +21,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 73_NUKIBridge.pm 13228 2017-01-25 08:46:37Z CoolTux $
+# $Id: 73_NUKIBridge.pm 14250 2017-05-12 04:10:05Z CoolTux $
 #
 ###############################################################################
 
@@ -46,7 +46,7 @@ use JSON;
 
 use HttpUtils;
 
-my $version     = "0.6.0";
+my $version     = "0.6.1";
 my $bridgeapi   = "1.5";
 
 
@@ -372,7 +372,7 @@ sub NUKIBridge_Distribution($$$) {
     
     Log3 $name, 5, "NUKIBridge ($name) - Response JSON: $json";
     Log3 $name, 5, "NUKIBridge ($name) - Response ERROR: $err";
-    Log3 $name, 5, "NUKIBridge ($name) - Response CODE: $param->{code}";
+    Log3 $name, 5, "NUKIBridge ($name) - Response CODE: $param->{code}" if( defined($param->{code}) and ($param->{code}) );
     
     readingsBeginUpdate($hash);
     

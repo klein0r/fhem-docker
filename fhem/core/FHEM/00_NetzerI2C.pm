@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_NetzerI2C.pm 12059 2016-08-22 21:14:59Z klauswitt $
+# $Id: 00_NetzerI2C.pm 15021 2017-09-06 19:48:55Z klausw $
 package main;
 
 use strict;
@@ -28,6 +28,7 @@ I2C_BME280
 I2C_BMP180
 I2C_SHT21
 I2C_TSL2561
+I2C_LM.*
 );
 
 sub NetzerI2C_Initialize($) {

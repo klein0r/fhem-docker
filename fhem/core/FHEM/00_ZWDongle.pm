@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_ZWDongle.pm 12654 2016-11-25 19:18:53Z rudolfkoenig $
+# $Id: 00_ZWDongle.pm 15491 2017-11-23 21:47:11Z rudolfkoenig $
 package main;
 
 use strict;
@@ -35,6 +35,7 @@ my %sets = (
                           param => { on     =>0x02, stop =>0x05,
                                      stopFailed =>0x06 } },
   "createNode"       => { cmd => "60%02x" },   # ZW_REQUEST_NODE_INFO
+  "createNodeSec"    => { cmd => "60%02x" },   # ZW_REQUEST_NODE_INFO
   "factoryReset"     => { cmd => ""       },   # ZW_SET_DEFAULT
   "learnMode"        => { cmd => "50%02x@",    # ZW_SET_LEARN_MODE
                           param => { onNw   =>0x02, on   =>0x01,
@@ -44,6 +45,8 @@ my %sets = (
                           param => {onNw=>0xc1, on=>0x81, off=>0x05 } },
   "reopen"           => { cmd => "" },
   "replaceFailedNode"=> { cmd => "63%02x@" },  # ZW_REPLACE_FAILED_NODE
+  "routeFor"         => { cmd => "93%02x%02x%02x%02x%02x%02x" },
+                                              # ZW_SET_PRIORITY_ROUTE
   "sendNIF"          => { cmd => "12%02x05@" },# ZW_SEND_NODE_INFORMATION
   "setNIF"           => { cmd => "03%02x%02x%02x%02x" },
                                               # SERIAL_API_APPL_NODE_INFORMATION
@@ -55,6 +58,7 @@ my %sets = (
 );
 
 my %gets = (
+  "backgroundRSSI"  => "3b",      # GET_BACKGROUND_RSSI
   "caps"            => "07",      # SERIAL_API_GET_CAPABILITIES
   "ctrlCaps"        => "05",      # ZW_GET_CONTROLLER_CAPS
   "homeId"          => "20",      # MEMORY_GET_ID
@@ -66,7 +70,7 @@ my %gets = (
   "raw"             => "%s",      # hex
   "routeFor"        => "92%02x",  # hex
   "sucNodeId"       => "56",      # ZW_GET_SUC_NODE_ID
-  "timeouts"        => "06",      # SERIAL_API_SET_TIMEOUTS
+#  "timeouts"        => "06",     # Forum #71333
   "version"         => "15",      # ZW_GET_VERSION
 );
 
@@ -89,9 +93,21 @@ ZWDongle_Initialize($)
   $hash->{GetFn}   = "ZWDongle_Get";
   $hash->{AttrFn}  = "ZWDongle_Attr";
   $hash->{UndefFn} = "ZWDongle_Undef";
-  $hash->{AttrList}= "do_not_notify:1,0 dummy:1,0 model:ZWDongle disable:0,1 ".
-                     "helpSites:multiple,pepper,alliance homeId networkKey ".
-                     "neighborListPos neighborListFmt";
+  no warnings 'qw';
+  my @attrList = qw(
+    do_not_notify:1,0
+    dummy:1,0
+    model:ZWDongle
+    disable:0,1
+    helpSites:multiple,pepper,alliance
+    homeId
+    networkKey
+    neighborListPos
+    neighborListFmt
+    showSetInState:1,0
+  );
+  use warnings 'qw';
+  $hash->{AttrList} = join(" ", @attrList);
 
   $hash->{FW_detailFn} = "ZWDongle_fhemwebFn";
 }
@@ -138,7 +154,7 @@ ZWDongle_Define($$)
   $hash->{nrNAck} = 0;
   my @empty;
   $hash->{SendStack} = \@empty;
-  ZWDongle_shiftSendStack($hash, 0, 5, undef);
+  ZWDongle_shiftSendStack($hash, 0, 5, undef); # Init variables
 
   my $ret = DevIo_OpenDev($hash, 0, "ZWDongle_DoInit");
   return $ret;
@@ -334,7 +350,7 @@ ZWDongle_Set($@)
 
   if($type eq "removeFailedNode" ||
      $type eq "replaceFailedNode" ||
-     $type eq "createNode" ||
+     $type =~ m/^createNode/ ||
      $type eq "sendNIF") {
 
     $a[0] =~ s/^UNKNOWN_//;
@@ -350,12 +366,11 @@ ZWDongle_Set($@)
     return "$type is unsupported by this controller";
   }
 
+  delete($hash->{addSecure});
+  $hash->{addSecure} = 1 if($type eq "createNodeSec");
+
   if($type eq "addNode") {
-    if($a[0] && $a[0] =~ m/sec/i) {
-      $hash->{addSecure} = 1;
-    } else {
-      delete($hash->{addSecure});
-    }
+    $hash->{addSecure} = 1 if($a[0] && $a[0] =~ m/sec/i);
 
     if($a[0]) { # Remember the client for the failed message
       if($a[0] eq "off") {
@@ -363,6 +378,15 @@ ZWDongle_Set($@)
       } elsif($hash->{CL}) {
         $hash->{addCL} = $hash->{CL};
       }
+    }
+  }
+
+  if($type eq "routeFor") {
+    for(@a = @a) {
+      $_ =~ s/^UNKNOWN_//;
+      $_ = hex($defs{$_}{nodeIdHex})
+        if($defs{$_} && $defs{$_}{nodeIdHex});
+      return "$_ is neither a device nor a decimal id" if($_ !~ m/\d+/);
     }
   }
 
@@ -483,7 +507,7 @@ ZWDongle_Get($@)
                 substr($ret,4,8), substr($ret,12,2));
     $hash->{homeId} = substr($ret,4,8);
     $hash->{nodeIdHex} = substr($ret,12,2);
-    $attr{NAME}{homeId} = substr($ret,4,8);
+    $attr{$name}{homeId} = substr($ret,4,8);
 
   } elsif($cmd eq "version") {                 ############################
     $msg = join("",  map { chr($_) } @r[2..13]);
@@ -524,7 +548,10 @@ ZWDongle_Get($@)
   } elsif($cmd eq "routeFor") {                ############################
     my $homeId = $hash->{homeId};
     my @list;
-    for(my $off=6; $off<16; $off+=2) {
+    my $e = hex(substr($msg, 6, 2));
+    push @list, ($e==1 ? "last": ($e==2 ? "next":"application"))
+        if($e !=0);
+    for(my $off=8; $off<16; $off+=2) {
         my $dec = hex(substr($msg, $off, 2));
         my $hex = sprintf("%02x", $dec);
         my $h = ($hex eq $hash->{nodeIdHex} ?
@@ -535,6 +562,27 @@ ZWDongle_Get($@)
     push @list, ("at ".($f==1 ? "9.6": ($f==2 ? "40":"100"))."kbps")
         if(@list && $f =~ m/[123]/);
     $msg = (@list ? join(" ", @list) : "N/A");
+  
+  } elsif($cmd eq "backgroundRSSI") {          ############################
+    my @list;
+    my $i=0;
+    my $maxlen = (length($msg) >= 10 ? 10 : length($msg));
+    for(my $off=4; $off<$maxlen; $off+=2) {
+        my $dec = hex(substr($msg, $off, 2));
+        if($dec == 127 || $dec == 0) {
+          push @list, ("ch".($i+1).":N/A");
+        } elsif($dec == 126) {
+          push @list, ("ch".($i+1).":aboveMaxPower");
+        } elsif($dec == 125) {
+          push @list, ("ch".($i+1).":belowReceiverSensitivity");
+        } elsif($dec > 161 && $dec < 225) {
+          push @list, ("ch".($i+1).":".unpack('c', pack('C', $dec))." dBm");
+        } else {
+          push @list, ("ch".($i+1).":reservedValue");
+        }
+        $i++
+    }
+    $msg = join(" ", @list);
   }
 
   $cmd .= "_".join("_", @a) if(@a);
@@ -634,6 +682,10 @@ ZWDongle_Write($$$)
   ZWDongle_ProcessSendStack($hash);
 }
 
+# Flags:
+# - WaitForAck:  0:Written, 1:SerialACK received, 2:RF-Sent
+# - SendRetries < MaxSendRetries(3, up to 7 when receiving CAN)
+
 sub
 ZWDongle_shiftSendStack($$$$;$)
 {
@@ -643,7 +695,7 @@ ZWDongle_shiftSendStack($$$$;$)
 
   if($cmd && $reason==0 && $cmd =~ m/^01..0013/) { # ACK for SEND_DATA
     Log3 $hash, $loglevel, "$txt, WaitForAck=>2 for $cmd"
-        if($txt && $cmd);
+        if($txt);
     $hash->{WaitForAck}=2;
 
   } else {
@@ -729,7 +781,7 @@ ZWDongle_Read($@)
   #Log3 $name, 5, "ZWDongle RAW buffer: $data";
 
   my $msg;
-  while(length($data) > 0) {
+  while(length($data) >= 2) {
 
     my $fb = substr($data, 0, 2);
 
@@ -770,9 +822,16 @@ ZWDongle_Read($@)
       last;
     }
 
+    last if(length($data) < 4);
+
     my $len = substr($data, 2, 2);
     my $l = hex($len)*2;
-    last if(!$l || length($data) < $l+4);       # Message not yet complete
+    last if(length($data) < $l+4);       # Message not yet complete
+
+    if($l < 4) {       # Bogus messages, forget the rest
+      $data = "";
+      last;
+    }
 
     $msg = substr($data, 4, $l-2);
     my $rcs  = substr($data, $l+2, 2);          # Received Checksum
@@ -939,6 +998,10 @@ ZWDongle_Attr($$$$)
       return "attr $name networkKey: not a hex string with a length of 32";
     }
     return;
+
+  } elsif($attr eq "showSetInState") {
+    $hash->{showSetInState} = ($cmd eq "set" ? (defined($value) ? $value:1) :0);
+
   }
 
   return undef;
@@ -1051,13 +1114,17 @@ ZWDongle_Ready($)
     stopFailed: stop createNewPrimary and report an error
     </li>
 
-  <li>createNode &lt;decimal nodeId&gt;<br>
+  <li>createNode &lt;device&gt;<br>
+      createNodeSec &lt;device&gt;<br>
     Request the class information for the specified node, and create
     a FHEM device upon reception of the answer. Used to create FHEM devices for
     nodes included with another software or if the fhem.cfg got lost. For the
     node id see the get nodeList command below.  Note: the node must be "alive",
     i.e. for battery based devices you have to press the "wakeup" button 1-2
-    seconds before entering this command in FHEM.
+    seconds before entering this command in FHEM.<br>
+    &lt;device&gt; is either device name or decimal nodeId.<br>
+    createNodeSec assumes a secure inclusion, see the comments for "addNode
+    onSec" for details.
     </li>
 
   <li>factoryReset yes<br>
@@ -1073,10 +1140,12 @@ ZWDongle_Ready($)
     Assign a homeId, nodeId and receive/store nodeList and routing infos.
     </li>
 
-  <li>removeFailedNode &lt;decimal nodeId&gt;<br>
+  <li>removeFailedNode &lt;device&gt;<br>
     Remove non-responding node -that must be on the failed node list-
     from the routing table in controller. Instead, always use removeNode if
-    possible. Note: the corresponding FHEM device have to be deleted manually.
+    possible. Note: the corresponding FHEM device have to be deleted 
+    manually.<br>
+    &lt;device&gt; is either device name or decimal nodeId.
     </li>
 
   <li>removeNode onNw|on|off<br>
@@ -1090,13 +1159,27 @@ ZWDongle_Ready($)
     First close and then open the device. Used for debugging purposes.
     </li>
 
-  <li>replaceFailedNode &lt;decimal nodeId&gt;<br>
+  <li>replaceFailedNode &lt;device&gt;<br>
     Replace a non-responding node with a new one. The non-responding node
-    must be on the failed node list.</li>
+    must be on the failed node list.<br>
+    &lt;device&gt; is either device name or decimal nodeId.
+    </li>
+
+  <li>routeFor &lt;device&gt; &lt;hop1&gt; &lt;hop2&gt; &lt;hop3&gt;
+               &lt;hop4&gt; &lt;speed&gt;<br>
+    set priority routing for &ltdevice&gt. &ltdevice&gt and &lt;hopN&gt are
+    either device name or decimal nodeId or 0 for unused.<br>
+    &lt;speed&gt;: 1=9,6kbps; 2=40kbps; 3=100kbps
+    </li>
+
+  <li>sendNIF &lt;device&gt;<br>
+    Send NIF to the specified &lt;device&g.
+    &lt;device&gt; is either device name or decimal nodeId.
+    </li>
 
   <li>sucNodeId &lt;decimal nodeId&gt; &lt;sucState&gt;
                 &lt;capabilities&gt;<br>
-    &lt;Configure a controller node to be a SUC/SIS or not.<br>
+    Configure a controller node to be a SUC/SIS or not.<br>
     &lt;nodeId&gt;: decimal nodeId to be SUC/SIS<br>
     &lt;sucState&gt;: 0 = deactivate; 1 = activate<br>
     &lt;capabilities&gt;: 0 = basic SUC; 1 = SIS
@@ -1119,9 +1202,9 @@ ZWDongle_Ready($)
   <li>homeId<br>
     return the six hex-digit homeId of the controller.
     </li>
-
-  <li>isFailedNode &lt;decimal nodeId&gt;<br>
-    return if a node is stored in the failed node list.
+  
+  <li>backgroundRSSI<br>
+    query the measured RSSI on the Z-Wave network
     </li>
 
   <li>caps, ctrlCaps, version<br>
@@ -1129,15 +1212,21 @@ ZWDongle_Ready($)
     only.
     </li>
 
-  <li>neighborList [excludeDead] [onlyRep] &lt;decimal nodeId&gt;<br>
-    return neighborList of the decimal nodeId.<br>
+  <li>isFailedNode &lt;device&gt;<br>
+    return if a node is stored in the failed node list. &lt;device&gt; is
+    either device name or decimal nodeId.
+    </li>
+
+  <li>neighborList [excludeDead] [onlyRep] &lt;device&gt;<br>
+    return neighborList of the &lt;device&gt;.<br>
+    &lt;device&gt; is either device name or decimal nodeId.<br>
     With onlyRep the result will include only nodes with repeater
     functionality.
     </li>
 
-  <li>nodeInfo &lt;decimal nodeId&gt;<br>
-    return node specific information.
-    Needed by developers only.
+  <li>nodeInfo &lt;device&gt;<br>
+    return node specific information. &lt;device&gt; is either device name or 
+    decimal nodeId.
     </li>
 
   <li>nodeList<br>
@@ -1154,9 +1243,9 @@ ZWDongle_Ready($)
     Send raw data &lt;hex&gt; to the controller. Developer only.
     </li>
 
-  <li>routeFor node<br>
-    request priority routing for node
-    </li>
+  <li>routeFor &lt;device&gt;<br>
+    request priority routing for &lt;device&gt;. &lt;device&gt; is either 
+    device name or decimal nodeId.</li>
 
   <li>sucNodeId<br>
     return the currently registered decimal SUC nodeId.
@@ -1196,6 +1285,14 @@ ZWDongle_Ready($)
       <ul><code>
         { txt=>"NAME", img=>"IMAGE", title=>"Time to ack: timeToAck" }
       </code></ul>
+      </li>
+    <li><a name="showSetInState">showSetInState</a><br>
+      If the attribute is set to 1, and a user issues a set command to a ZWave
+      device, then the state of the ZWave device will be changed to
+      set_&lt;cmd&gt; first, and after the ACK from the device is received, to
+      &lt;cmd&gt;. E.g.: Issuing the command on changes the state first to
+      set_on, and after the device ack is received, to on.  This is analoguos
+      to the CUL_HM module.  Default for this attribute is 0.
       </li>
       
   </ul>
@@ -1249,6 +1346,9 @@ ZWDongle_Ready($)
             failedNodeNotFound|failedNodeRemoveProcessBusy|
             failedNodeRemoveFail|nodeOk|failedNodeReplace|
             failedNodeReplaceDone|failedNodeRemoveFailed]</li>
+
+  <br><b>routeFor</b>
+  <li>ZW_SET_PRIORITY_ROUTE node $nodeId result $nr</li>
 
   <br><b>sucNetworkUpdate</b>
   <li>ZW_REQUEST_NETWORK_UPDATE [started|selfOrNoSUC|done|abort|wait|diabled|

@@ -1,14 +1,14 @@
-################################################################
+######################################################################
 #
 #  88_HMCCUCHN.pm
 #
-#  $Id: 88_HMCCUCHN.pm 13427 2017-02-17 16:30:12Z zap $
+#  $Id: 88_HMCCUCHN.pm 15429 2017-11-13 15:36:46Z zap $
 #
-#  Version 3.9.003
+#  Version 4.1.003
 #
-#  (c) 2016 zap (zap01 <at> t-online <dot> de)
+#  (c) 2017 zap (zap01 <at> t-online <dot> de)
 #
-################################################################
+######################################################################
 #
 #  define <name> HMCCUCHN <ccudev> [readonly] [defaults]
 #         [iodev=<iodevname>]
@@ -38,21 +38,22 @@
 #  attr <name> ccuflags { altread, nochn0, trace }
 #  attr <name> ccuget { State | Value }
 #  attr <name> ccureadings { 0 | 1 }
-#  attr <name> ccureadingfilter <datapoint-expr>
+#  attr <name> ccureadingfilter <filter-rule>[;...]
 #  attr <name> ccureadingformat { name[lc] | address[lc] | datapoint[lc] }
 #  attr <name> ccureadingname <oldname>:<newname>[;...]
 #  attr <name> ccuverify { 0 | 1 | 2 }
 #  attr <name> controldatapoint <datapoint>
 #  attr <name> disable { 0 | 1 }
+#  attr <name> peer datapoints:condition:{hmccu:object=value|ccu:object=value|fhem:command}
 #  attr <name> hmstatevals <subst-rule>[;...]
 #  attr <name> statedatapoint <datapoint>
 #  attr <name> statevals <text1>:<subtext1>[,...]
 #  attr <name> substexcl <reading-expr>
 #  attr <name> substitute <subst-rule>[;...]
 #
-################################################################
-#  Requires module 88_HMCCU.pm
-################################################################
+######################################################################
+#  Requires modules 88_HMCCU.pm, HMCCUConf.pm
+######################################################################
 
 package main;
 
@@ -66,7 +67,6 @@ sub HMCCUCHN_Define ($@);
 sub HMCCUCHN_Set ($@);
 sub HMCCUCHN_Get ($@);
 sub HMCCUCHN_Attr ($@);
-sub HMCCUCHN_SetError ($$);
 
 ##################################################
 # Initialize module
@@ -82,7 +82,13 @@ sub HMCCUCHN_Initialize ($)
 	$hash->{AttrFn} = "HMCCUCHN_Attr";
 	$hash->{parseParams} = 1;
 
-	$hash->{AttrList} = "IODev ccuackstate:0,1 ccucalculate ccuflags:multiple-strict,altread,nochn0,trace ccureadingfilter ccureadingformat:name,namelc,address,addresslc,datapoint,datapointlc ccureadingname ccureadings:0,1 ccuscaleval ccuverify:0,1,2 ccuget:State,Value controldatapoint disable:0,1 hmstatevals:textField-long statedatapoint statevals substitute:textField-long substexcl stripnumber ". $readingFnAttributes;
+	$hash->{AttrList} = "IODev ccuackstate:0,1 ccucalculate ".
+		"ccuflags:multiple-strict,altread,nochn0,trace ccureadingfilter ".
+		"ccureadingformat:name,namelc,address,addresslc,datapoint,datapointlc ".
+		"ccureadingname:textField-long ".
+		"ccureadings:0,1 ccuscaleval ccuverify:0,1,2 ccuget:State,Value controldatapoint ".
+		"disable:0,1 hmstatevals:textField-long statedatapoint statevals substitute:textField-long ".
+		"substexcl stripnumber peer:textField-long ". $readingFnAttributes;
 }
 
 ##################################################
@@ -128,15 +134,9 @@ sub HMCCUCHN_Define ($@)
 	my $arg = shift @$a;
 	while (defined ($arg)) {
 		return $usage if ($n == 3);
-		if ($arg eq 'readonly') {
-			$hash->{statevals} = $arg;
-		}
-		elsif ($arg eq 'defaults') {
-			HMCCU_SetDefaults ($hash);
-		}
-		else {
-			return $usage;
-		}
+		if    ($arg eq 'readonly') { $hash->{statevals} = $arg; }
+		elsif ($arg eq 'defaults') { HMCCU_SetDefaults ($hash); }
+		else { return $usage; }
 		$n++;
 		$arg = shift @$a;
 	}
@@ -145,7 +145,7 @@ sub HMCCUCHN_Define ($@)
 	AssignIoPort ($hash, $hmccu_hash->{NAME});
 
 	readingsSingleUpdate ($hash, "state", "Initialized", 1);
-	$hash->{ccudevstate} = 'Active';
+	$hash->{ccudevstate} = 'active';
 
 	return undef;
 }
@@ -234,8 +234,7 @@ sub HMCCUCHN_Set ($@)
 		$rc = HMCCU_SetDatapoint ($hash, $objname, $objvalue);
 		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
 
-		HMCCU_SetState ($hash, "OK");
-		return undef;
+		return HMCCU_SetState ($hash, "OK");
 	}
 	elsif ($opt eq 'control') {
 		return HMCCU_SetError ($hash, -14) if ($cd eq '');
@@ -250,8 +249,7 @@ sub HMCCUCHN_Set ($@)
 		$rc = HMCCU_SetDatapoint ($hash, $objname, $objvalue);
 		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
 		
-		HMCCU_SetState ($hash, "OK");
-		return undef;
+		return HMCCU_SetState ($hash, "OK");
 	}
 	elsif ($opt =~ /^($hash->{statevals})$/) {
 		my $cmd = $1;
@@ -270,8 +268,7 @@ sub HMCCUCHN_Set ($@)
 		$rc = HMCCU_SetDatapoint ($hash, $objname, $objvalue);
 		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
 
-		HMCCU_SetState ($hash, "OK");
-		return undef;
+		return HMCCU_SetState ($hash, "OK");
 	}
 	elsif ($opt eq 'toggle') {
 		return HMCCU_SetError ($hash, -15) if ($statevals eq '' || !exists($hash->{statevals}));
@@ -286,7 +283,7 @@ sub HMCCUCHN_Set ($@)
 
 		my $objname = $ccuif.'.'.$ccuaddr.'.'.$sd;
 		($rc, $result) = HMCCU_GetDatapoint ($hash, $objname);
-		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
+		return HMCCU_SetError ($hash, $rc, $result) if ($rc < 0);
 
 		my $objvalue = '';
 		my $st = 0;
@@ -307,8 +304,7 @@ sub HMCCUCHN_Set ($@)
 		$rc = HMCCU_SetDatapoint ($hash, $objname, $objvalue);
 		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
 		
-		HMCCU_SetState ($hash, "OK");
-		return undef;
+		return HMCCU_SetState ($hash, "OK");
 	}
 	elsif ($opt eq 'pct') {
 		return HMCCU_SetError ($hash, "Can't find LEVEL datapoint for device type $ccutype")
@@ -357,8 +353,7 @@ sub HMCCUCHN_Set ($@)
 		$rc = HMCCU_SetDatapoint ($hash, $objname, $objvalue);
 		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
 		
-		HMCCU_SetState ($hash, "OK");
-		return undef;
+		return HMCCU_SetState ($hash, "OK");
 	}
 	elsif ($opt eq 'on-for-timer' || $opt eq 'on-till') {
 		return HMCCU_SetError ($hash, -15) if ($statevals eq '' || !exists($hash->{statevals}));
@@ -396,8 +391,7 @@ sub HMCCUCHN_Set ($@)
 		$rc = HMCCU_SetDatapoint ($hash, $objname, $objvalue);
 		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
 		
-		HMCCU_SetState ($hash, "OK");
-		return undef;
+		return HMCCU_SetState ($hash, "OK");
 	}
 	elsif ($opt eq 'clear') {
 		my $rnexp = shift @$a;
@@ -418,14 +412,12 @@ sub HMCCUCHN_Set ($@)
 		}
 		my $rc = HMCCU_RPCSetConfig ($hash, $ccuobj, $h);
 		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
-		HMCCU_SetState ($hash, "OK");
-		return undef;
+		return HMCCU_SetState ($hash, "OK");
 	}
 	elsif ($opt eq 'defaults') {
 		my $rc = HMCCU_SetDefaults ($hash);
 		return HMCCU_SetError ($hash, "HMCCU: No default attributes found") if ($rc == 0);
-		HMCCU_SetState ($hash, "OK");
-		return undef;
+		return HMCCU_SetState ($hash, "OK");
 	}
 	else {
 		return "HMCCUCHN: Unknown argument $opt, choose one of ".$rocmds
@@ -487,7 +479,7 @@ sub HMCCUCHN_Get ($@)
 
 		my $objname = $ccuif.'.'.$ccuaddr.'.'.$sd;
 		($rc, $result) = HMCCU_GetDatapoint ($hash, $objname);
-		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
+		return HMCCU_SetError ($hash, $rc, $result) if ($rc < 0);
 		return $ccureadings ? undef : $result;
 	}
 	elsif ($opt eq 'datapoint') {
@@ -500,7 +492,7 @@ sub HMCCUCHN_Get ($@)
 
 		$objname = $ccuif.'.'.$ccuaddr.'.'.$objname;
 		($rc, $result) = HMCCU_GetDatapoint ($hash, $objname);
-		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
+		return HMCCU_SetError ($hash, $rc, $result) if ($rc < 0);
 		return $ccureadings ? undef : $result;
 	}
 	elsif ($opt eq 'update') {
@@ -536,7 +528,7 @@ sub HMCCUCHN_Get ($@)
 		$par = '.*' if (!defined ($par));
 
 		my ($rc, $res) = HMCCU_RPCGetConfig ($hash, $ccuobj, "getParamset", $par);
-		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
+		return HMCCU_SetError ($hash, $rc, $res) if ($rc < 0);
 		return $ccureadings ? undef : $res;
 	}
 	elsif ($opt eq 'configlist') {
@@ -551,7 +543,7 @@ sub HMCCUCHN_Get ($@)
 		$par = '.*' if (!defined ($par));
 
 		my ($rc, $res) = HMCCU_RPCGetConfig ($hash, $ccuobj, "listParamset", $par);
-		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
+		return HMCCU_SetError ($hash, $rc, $res) if ($rc < 0);
 		return $res;
 	}
 	elsif ($opt eq 'configdesc') {
@@ -562,7 +554,7 @@ sub HMCCUCHN_Get ($@)
 		}
 		
 		my ($rc, $res) = HMCCU_RPCGetConfig ($hash, $ccuobj, "getParamsetDescription", undef);
-		return HMCCU_SetError ($hash, $rc) if ($rc < 0);
+		return HMCCU_SetError ($hash, $rc, $res) if ($rc < 0);
 		return $res;
 	}
 	elsif ($opt eq 'defaults') {
@@ -582,36 +574,6 @@ sub HMCCUCHN_Get ($@)
 	}
 }
 
-#####################################
-# Set error status
-#####################################
-
-sub HMCCUCHN_SetError ($$)
-{
-	my ($hash, $text) = @_;
-	my $name = $hash->{NAME};
-	my $msg;
-	my %errlist = (
-		-1 => 'Channel name or address invalid',
-		-2 => 'Execution of CCU script failed',
-		-3 => 'Cannot detect IO device',
-		-4 => 'Device deleted in CCU',
-		-5 => 'No response from CCU',
-		-6 => 'Update of readings disabled. Set attribute ccureadings first'
-	);
-
-	if (exists ($errlist{$text})) {
-		$msg = $errlist{$text};
-	}
-	else {
-		$msg = $text;
-	}
-
-	$msg = "HMCCUCHN: ".$name." ". $msg;
-	readingsSingleUpdate ($hash, "state", "Error", 1);
-	Log3 $name, 1, $msg;
-	return $msg;
-}
 
 1;
 
@@ -787,11 +749,20 @@ sub HMCCUCHN_SetError ($$)
          If set to 1 state will be set to result of command (i.e. 'OK'). Otherwise state is only
          updated if value of state datapoint has changed.
       </li><br/>
-      <li><b>ccucalculate &lt;value&gt;:&lt;reading&gt;[:&lt;dp-list&gt;[;...]</b><br/>
+      <li><b>ccucalculate &lt;value-type&gt;:&lt;reading&gt;[:&lt;dp-list&gt;[;...]</b><br/>
       	Calculate special values like dewpoint based on datapoints specified in
       	<i>dp-list</i>. The result is stored in <i>reading</i>. The following <i>values</i>
       	are supported:<br/>
-      	dewpoint = calculate dewpoint, <i>dp-list</i> = &lt;temperature&gt;,&lt;humidity&gt;
+      	dewpoint = calculate dewpoint, <i>dp-list</i> = &lt;temperature&gt;,&lt;humidity&gt;<br/>
+      	abshumidity = calculate absolute humidity, <i>dp-list</i> = &lt;temperature&gt;,&lt;humidity&gt;<br/>
+      	inc = increment datapoint value considering reset of datapoint, <i>dp-list</i> = &lt;counter-datapoint&gt;<br/>
+      	inc = increment datapoint value considering reset of datapoint, <i>dp-list</i> = &lt;counter-datapoint&gt;<br/>
+      	min = calculate minimum continuously, <i>dp-list</i> = &lt;datapoint&gt;<br/>
+      	max = calculate maximum continuously, <i>dp-list</i> = &lt;datapoint&gt;<br/>
+      	sum = calculate sum continuously, <i>dp-list</i> = &lt;datapoint&gt;<br/>
+      	avg = calculate average continuously, <i>dp-list</i> = &lt;datapoint&gt;
+      	Example:<br/>
+      	<code>dewpoint:taupunkt:1.TEMPERATURE,1.HUMIDITY</code>
       </li><br/>
       <li><b>ccuflags {nochn0, trace}</b><br/>
       	Control behaviour of device:<br/>
@@ -808,15 +779,19 @@ sub HMCCUCHN_SetError ($$)
       </li><br/>
       <li><b>ccureadingfilter &lt;filter-rule[;...]&gt;</b><br/>
          Only datapoints matching specified expression are stored as readings.<br/>
-         Syntax for <i>filter-rule</i> is: [N:][&lt;channel-name&gt;!]&lt;RegExp&gt;<br/>
-         If <i>channel-name</i> is specified the following rule applies only to this channel.
+         Syntax for <i>filter-rule</i> is either:<br/>
+         [N:]{&lt;channel-name&gt;|&lt;channel-number&gt;}!&lt;RegExp&gt; or:<br/>
+         [N:][&lt;channel-number&gt;.]&lt;RegExp&gt;<br/>
+         If <i>channel-name</i> or <i>channel-number</i> is specified the following rule 
+         applies only to this channel.
          By default all datapoints will be stored as readings. Attribute ccudef-readingfilter
          of I/O device will be checked before this attribute.<br/>
          If a rule starts with 'N:' the filter is negated which means that a reading is 
          stored if rule doesn't match.
       </li><br/>
       <li><b>ccureadingformat {address[lc] | name[lc] | datapoint[lc]}</b><br/>
-         Set format of reading names. Default is 'name'. If set to 'address' format of reading names
+         Set format of reading names. Default for virtual device groups is 'name'. The default for all
+         other device types is 'datapoint'. If set to 'address' format of reading names
          is channel-address.datapoint. If set to 'name' format of reading names is
          channel-name.datapoint. If set to 'datapoint' format is channel-number.datapoint. With
          suffix 'lc' reading names are converted to lowercase.
@@ -835,7 +810,7 @@ sub HMCCUCHN_SetError ($$)
          attr mydev ccureadingname 0.(LOWBAT|LOW_BAT):battery<br/>
          # Add reading battery as a copy of readings LOWBAT and LOW_BAT.<br/>
          # Rename reading 4.SET_TEMPERATURE as desired-temp<br/>
-         attr mydev ccureadingname 0.(LOWBAT|LOW_BAT):+battery,1.SET_TEMPERATURE:desired-temp<br/>
+         attr mydev ccureadingname 0.(LOWBAT|LOW_BAT):+battery;1.SET_TEMPERATURE:desired-temp<br/>
          # Store values of readings n.PRESS_SHORT in new reading pressed.<br/>
          # Value of pressed is 1/true if any button is pressed<br/>
          attr mydev ccureadingname [1-4].PRESSED_SHORT:+pressed
@@ -895,6 +870,38 @@ sub HMCCUCHN_SetError ($$)
          Optionally the name of the HomeMatic state reading can be specified at the beginning of
          the attribute in format =&lt;reading&gt;;. The default reading name is 'hmstate'.
       </li><br/>
+		<li><b>peer &lt;datapoints&gt;:&lt;condition&gt;:
+			{ccu:&lt;object&gt;=&lt;value&gt;|hmccu:&lt;object&gt;=&lt;value&gt;|
+			fhem:&lt;command&gt;}</b><br/>
+      	Logically peer datapoints of a HMCCUCHN or HMCCUDEV device with another device or any
+      	FHEM command.<br/>
+      	Parameter <i>datapoints</i> is a comma separated list of datapoints in format
+      	<i>channelno.datapoint</i> which can trigger the action.<br/>
+      	Parameter <i>condition</i> is a valid Perl expression which can contain
+      	<i>channelno.datapoint</i> names as variables. Variables must start with a '$' or a '%'.
+      	If a variable is preceded by a '$' the variable is substituted by the converted datapoint
+      	value (i.e. "on" instead of "true"). If variable is preceded by a '%' the raw value
+      	(i.e. "true") is used. If '$' or '%' is doubled the previous values will be used.<br/>
+      	If the result of this operation is true, the action specified after the second colon
+      	is executed. Three types of actions are supported:<br/>
+      	<b>hmccu</b>: Parameter <i>object</i> refers to a FHEM device/datapoint in format
+      	&lt;device&gt;:&lt;channelno&gt;.&lt;datapoint&gt;<br/>
+      	<b>ccu</b>: Parameter <i>object</i> refers to a CCU channel/datapoint in format
+      	&lt;channel&gt;.&lt;datapoint&gt;. <i>channel</i> can be a channel name or address.<br/>
+      	<b>fhem</b>: The specified <i>command</i> will be executed<br/>
+      	If action contains the string $value it is substituted by the current value of the 
+      	datapoint which triggered the action. The attribute supports multiple peering rules
+      	separated by semicolons and optionally by newline characters.<br/><br/>
+      	Examples:<br/>
+      	# Set FHEM device mydummy to value if formatted value of 1.STATE is 'on'<br/>
+      	<code>attr mydev peer 1.STATE:'$1.STATE' eq 'on':fhem:set mydummy $value</code><br/>
+      	# Set 2.LEVEL of device myBlind to 100 if raw value of 1.STATE is 1<br/>
+      	<code>attr mydev peer 1.STATE:'%1.STATE' eq '1':hmccu:myBlind:2.LEVEL=100</code><br/>
+      	# Set 1.STATE of device LEQ1234567 to true if 1.LEVEL < 100<br/>
+      	<code>attr mydev peer 1.LEVEL:$1.LEVEL < 100:ccu:LEQ1234567:1.STATE=true</code><br/>
+      	# Set 1.STATE of device LEQ1234567 to true if current level is different from old level<br/>
+      	<code>attr mydev peer 1.LEVEL:$1.LEVEL != $$1.LEVEL:ccu:LEQ1234567:1.STATE=true</code><br/>
+		</li><br/>
       <li><b>statedatapoint &lt;datapoint&gt;</b><br/>
          Set state datapoint used by some commands like 'set devstate'.
       </li><br/>
@@ -908,14 +915,16 @@ sub HMCCUCHN_SetError ($$)
          set my_switch on
          </code>
       </li><br/>
-      <li><b>stripnumber {<u>0</u> | 1 | 2 | -n}</b><br/>
+      <li><b>stripnumber [&lt;datapoint-expr&gt;!]{<u>0</u>|1|2|-n}[;...]</b><br/>
       	Remove trailing digits or zeroes from floating point numbers and/or round floating
       	point numbers. If attribute is negative (-0 is valid) floating point values are rounded
       	to the specified number of digits before they are stored in readings. The meaning of
       	values 0-2 is:<br/>
       	0 = Floating point numbers are stored as read from CCU (i.e. with trailing zeros)<br/>
       	1 = Trailing zeros are stripped from floating point numbers except one digit.<br/>
-   		2 = All trailing zeros are stripped from floating point numbers.
+   		2 = All trailing zeros are stripped from floating point numbers.<br/>
+   		If <i>datapoint-expr</i> is specified the formatting applies only to datapoints 
+   		matching the regular expression.
       </li><br/>
       <li><b>substexcl &lt;reading-expr&gt;</b><br/>
       	Exclude values of readings matching <i>reading-expr</i> from substitution. This is helpful
@@ -924,7 +933,7 @@ sub HMCCUCHN_SetError ($$)
       </li><br/>
       <li><b>substitute &lt;subst-rule&gt;[;...]</b><br/>
          Define substitutions for datapoint/reading values. Syntax of <i>subst-rule</i> is<br/><br/>
-         [[&lt;channelno.&gt;]&lt;datapoint&gt;[,...]!]&lt;{#n1-m1|regexp}&gt;:&lt;text&gt;[,...]
+         [[&lt;channelno&gt;.]&lt;datapoint&gt;[,...]!]&lt;{#n1-m1|regexp}&gt;:&lt;text&gt;[,...]
          <br/><br/>
          Parameter <i>text</i> can contain variables in format ${<i>varname</i>}. The variable 
          ${value} is
@@ -935,11 +944,11 @@ sub HMCCUCHN_SetError ($$)
          'T=<i>val</i> deg' and append current value of datapoint 1.HUMIDITY<br/>
          <code>
          attr my_weather substitute TEMPERATURE!.+:T=${value} deg H=${1.HUMIDITY}%
-         </code>
+         </code><br/><br/>
          If rule expression starts with a hash sign a numeric datapoint value is substituted if
          it fits in the number range n &lt;= value &lt;= m.
          <br/><br/>
-         Example: Interpret LEVEL values of dimmer as "on" and "off"<br/>
+         Example: Interpret LEVEL values 100 and 0 of dimmer as "on" and "off"<br/>
          <code>
          attr my_dim substitute LEVEL!#0-0:off,#1-100:on
          </code>

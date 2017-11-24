@@ -21,7 +21,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 74_NUKIDevice.pm 13228 2017-01-25 08:46:37Z CoolTux $
+# $Id: 74_NUKIDevice.pm 14292 2017-05-15 12:20:23Z CoolTux $
 #
 ###############################################################################
 
@@ -33,7 +33,7 @@ use warnings;
 use JSON;
 
 
-my $version = "0.6.0";
+my $version = "0.6.1";
 
 
 
@@ -456,13 +456,13 @@ sub NUKIDevice_WriteReadings($$) {
         my ($state,$lockState);
         
         
-        if( $decode_json->{success} eq "true" ) {
+        if( defined($decode_json->{success}) and ($decode_json->{success} eq "true" or $decode_json->{success} eq "1") ) {
         
             $state = $hash->{helper}{lockAction};
             $lockState = $hash->{helper}{lockAction};
             NUKIDevice_ReadFromNUKIBridge($hash, "lockState", undef, $hash->{NUKIID} ) if( ReadingsVal($hash->{IODev}->{NAME},'bridgeType','Software') eq 'Software' );
             
-        } elsif ( $decode_json->{success} eq "false" ) {
+        } elsif ( defined($decode_json->{success}) and ($decode_json->{success} eq "false" or $decode_json->{success} eq "0") ) {
         
             $state = "error";
             NUKIDevice_ReadFromNUKIBridge($hash, "lockState", undef, $hash->{NUKIID} );

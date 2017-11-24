@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 18_CUL_HOERMANN.pm 12655 2016-11-25 19:20:44Z rudolfkoenig $
+# $Id: 18_CUL_HOERMANN.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
 package main;
 
 use strict;

@@ -1,4 +1,4 @@
-# $Id: 57_Calendar.pm 13328 2017-02-04 07:51:36Z neubert $
+# $Id: 57_Calendar.pm 15443 2017-11-17 21:34:26Z neubert $
 ##############################################################################
 #
 #     57_Calendar.pm
@@ -25,6 +25,7 @@
 use strict;
 use warnings;
 use HttpUtils;
+use Storable qw(freeze thaw);
 
 
 ##############################################
@@ -480,6 +481,11 @@ sub description {
   return $self->{description};
 }
 
+sub categories {
+  my ($self)= @_;
+  return $self->{categories};
+}
+
 sub ts($$) {
   my ($self,$tm)= @_;
   return "" unless($tm);
@@ -504,20 +510,21 @@ sub asText {
 
 sub asFull {
   my ($self)= @_;
-  return sprintf("%s %9s %s %s-%s %s %s",
+  return sprintf("%s %9s %s %s-%s %s %s %s",
     $self->uid(),
     $self->getMode(),
     $self->{alarm} ? $self->ts($self->{alarm}) : "                   ",
     $self->ts($self->{start}),
     $self->ts($self->{end}),
     $self->{summary},
+    $self->{categories},
     $self->{location}
   );
 }
 
 sub asDebug {
   my ($self)= @_;
-  return sprintf("%s %s %9s %s %s-%s %s %s %s",
+  return sprintf("%s %s %9s %s %s-%s %s %s %s %s",
     $self->uid(),
     $self->modeChanged() ? "*" : " ",
     $self->getMode(),
@@ -525,6 +532,7 @@ sub asDebug {
     $self->ts($self->{start}),
     $self->ts($self->{end}),
     $self->{summary},
+    $self->{categories},
     $self->{location},
     $self->hasNote() ? $self->getNote() : ""
   );
@@ -876,23 +884,26 @@ sub addproperty($$) {
   my ($key,$parts,$parameter);
   if($line =~ /^([\w\d\-]+)(;(.*))?:(.*)$/) {
     $key= $1;
-    $parts= defined($3) ? $3 : "";
-    $parameter= defined($4) ? $4 : "";
+    $parts= $3 // "";
+    $parameter= $4 // "";
   } else {
     return;
   }
   return unless($key);
+  #main::Debug "addproperty for key $key";
   
   # ignore some properties
-  my @ignores= qw(TRANSP STATUS ATTENDEE);
-  return if($key ~~ @ignores);
-  return if($key =~ /^X-/);
+  # commented out: it is faster to add the property than to do the check
+  # return if(($key eq "ATTENDEE") or ($key eq "TRANSP") or ($key eq "STATUS")); 
+  return if(substr($key,0,2) eq "^X-");
 
-  if(($key eq "EXDATE") or ($key eq "RDATE")) {
+  if(($key eq "RDATE") or ($key eq "EXDATE")) {
+        #main::Debug "addproperty for dates";
         # handle multiple properties
         my @values;
         @values= @{$self->values($key)} if($self->hasKey($key));
         push @values, $parameter;
+        #main::Debug "addproperty pushed parameter $parameter to key $key";
         $self->{properties}{$key}= {
             multiple => 1,
             VALUES => \@values,
@@ -908,35 +919,41 @@ sub addproperty($$) {
 }
 
 sub parse($$) {
-  my ($self,@ical)= @_;
-  return $self->parseSub(0, @ical);
+  my ($self,$ics)= @_;
+  
+  # This is the proper way to do it, with \R corresponding to (?>\r\n|\n|\x0b|\f|\r|\x85|\x2028|\x2029)
+  #      my @ical= split /\R/, $ics;
+  # Tt does not treat some unicode emojis correctly, though. 
+  # We thus go for the the DOS/Windows/Unix/Mac classic variants.
+  # Suggested reading: 
+  # http://stackoverflow.com/questions/3219014/what-is-a-cross-platform-regex-for-removal-of-line-breaks
+  my @ical= split /(?>\r\n|[\r\n])/, $ics;
+  return $self->parseSub(0, \@ical);
 }
 
 sub parseSub($$$) {
-  my ($self,$ln,@ical)= @_;
+  my ($self,$ln,$icalref)= @_;
+  my $len= scalar @$icalref;
+  #main::Debug "lines= $len";
   #main::Debug "ENTER @ $ln";
-  while($ln<$#ical) {
-    my $line= $ical[$ln];
-    chomp $line;
-    $line =~ s/[\x0D]$//; # chomp will not remove the CR
+  while($ln< $len) {
+    my $line= $$icalref[$ln];
     $ln++;
     # check for and handle continuation lines (4.1 on page 12)
-    while($ln<$#ical) {
-      my $line1= $ical[$ln];
-      last unless($line1 =~ /^\s(.*)/);
-      $line.= $1;
-      chomp $line;
-      $line =~ s/[\x0D]$//; # chomp will not remove the CR
+    while($ln< $len) {
+      my $line1= $$icalref[$ln];
+      last if(substr($line1,0,1) ne " ");
+      $line.= substr($line1,1);
       $ln++;
     };
     #main::Debug "$ln: $line";
     next if($line eq ""); # ignore empty line
-    last if($line =~ m/^END:.*$/);
-    if($line =~ m/^BEGIN:(.*)$/) {
-      my $entry= ICal::Entry->new($1);
+    last if(substr($line,0,4) eq "END:");
+    if(substr($line,0,6) eq "BEGIN:") {
+      my $entry= ICal::Entry->new(substr($line,6));
       $entry->{ln}= $ln;
       push @{$self->{entries}}, $entry;
-      $ln= $entry->parseSub($ln,@ical);
+      $ln= $entry->parseSub($ln,$icalref);
     } else {
       $self->addproperty($line);
     }
@@ -1087,6 +1104,7 @@ sub makeEventDetails($$) {
   $event->{summary}= $self->valueOrDefault("SUMMARY", "");
   $event->{location}= $self->valueOrDefault("LOCATION", "");
   $event->{description}= $self->valueOrDefault("DESCRIPTION", "");
+  $event->{categories}= $self->valueOrDefault("CATEGORIES", "");
   
   return $event;
 }
@@ -1557,7 +1575,7 @@ sub Calendar_Initialize($) {
   $hash->{SetFn}   = "Calendar_Set";
   $hash->{AttrFn}   = "Calendar_Attr";
   $hash->{NotifyFn}= "Calendar_Notify";
-  $hash->{AttrList}=  "hideOlderThan hideLaterThan onCreateEvent SSLVerify:0,1 $readingFnAttributes";
+  $hash->{AttrList}=  "update:sync,async,none removevcalendar:0,1 cutoffOlderThan hideOlderThan hideLaterThan onCreateEvent SSLVerify:0,1 $readingFnAttributes";
 }
 
 
@@ -1610,6 +1628,13 @@ sub Calendar_Undef($$) {
   my ($hash, $arg) = @_;
 
   Calendar_DisarmTimer($hash);
+
+  if(exists($hash->{".fhem"}{subprocess})) {
+    my $subprocess= $hash->{".fhem"}{subprocess};
+    $subprocess->terminate();
+    $subprocess->wait();
+  }
+  
   return undef;
 }
 
@@ -1630,6 +1655,10 @@ sub Calendar_Attr(@) {
     if($arg !~ m/^{.*}$/s) {
         return "$arg must be a perl command in curly brackets but you supplied $arg.";
     }
+  } elsif($a[0] eq "update") {
+    my @args= qw/none sync async/;
+    return "Argument for update must be one of " . join(" ", @args) . 
+      " instead of $arg." unless($arg ~~ @args);
   }
   
   return undef;
@@ -1729,7 +1758,7 @@ sub Calendar_Get($@) {
 
   }
   
-  my @cmds2= qw/text full summary location description alarm start end uid debug/;
+  my @cmds2= qw/text full summary location description categories alarm start end uid debug/;
   if($cmd ~~ @cmds2) {
 
     return "argument is missing" if($#a < 2);
@@ -1798,6 +1827,7 @@ sub Calendar_Get($@) {
         push @texts, $event->summary() if $cmd eq "summary";
         push @texts, $event->location() if $cmd eq "location";
         push @texts, $event->description() if $cmd eq "description";
+        push @texts, $event->categories() if $cmd eq "categories";
         push @texts, $event->alarmTime() if $cmd eq "alarm";
         push @texts, $event->startTime() if $cmd eq "start";
         push @texts, $event->endTime() if $cmd eq "end";
@@ -1851,7 +1881,7 @@ sub Calendar_Get($@) {
     return join(";", keys %uids);
   
   } else {
-    return "Unknown argument $cmd, choose one of update:noArg reload:noArg find text full summary location description alarm start end vcalendar:noArg vevents:noArg";
+    return "Unknown argument $cmd, choose one of update:noArg reload:noArg find text full summary location description categories alarm start end vcalendar:noArg vevents:noArg";
   }
 
 }
@@ -2079,6 +2109,14 @@ sub Calendar_GetUpdate($$$) {
   #main::Debug "Getting update now: " . $hash->{".fhem"}{lastUpdate};
   #main::Debug "Next Update is at : " . $hash->{".fhem"}{nextUpdate};
 
+  # If update is disable, shortcut to time checking and rearming timer.
+  # Why is this here and not in Calendar_Wakeup? Because the next update time needs to be set
+  if(AttrVal($hash->{NAME},"update","") eq "none") {
+    Calendar_CheckTimes($hash, $t);
+    Calendar_RearmTimer($hash, $t);
+    return;  
+  }
+
   Log3 $hash, 4, "Calendar $name: Updating...";
   my $type = $hash->{".fhem"}{type};
   my $url= $hash->{".fhem"}{url};
@@ -2154,6 +2192,15 @@ sub Calendar_ProcessUpdate($$$) {
   my $removeall = $param->{removeall};
   my $t= $param->{t};
   
+  if(exists($hash->{".fhem"}{subprocess})) {
+      Log3 $hash, 2, "Calendar $name: update in progress, process aborted.";
+      return 0;
+  }
+
+  # not for the developer:
+  # we must be sure that code that starts here ends with Calendar_CheckAndRearm()
+  # no matter what branch is taken in the following
+  
   delete($hash->{".fhem"}{iCalendar});
     
   if($errmsg) {
@@ -2166,73 +2213,177 @@ sub Calendar_ProcessUpdate($$$) {
   if($errmsg or !defined($ics) or ("$ics" eq "") ) {
     Log3 $hash, 1, "Calendar $name: retrieved no or empty data";
     readingsSingleUpdate($hash, "state", "error (no or empty data)", 1);
+    Calendar_CheckAndRearm($hash, $t);
   } else {
-    Calendar_UpdateCalendar($hash, $t, $ics, $removeall);
+    $hash->{".fhem"}{iCalendar}= $ics; # the plain text iCalendar 
+    $hash->{".fhem"}{t}= $t;
+    $hash->{".fhem"}{removeall}= $removeall;
+    if(AttrVal($name, "update", "sync") eq "async") {
+      Calendar_AsynchronousUpdateCalendar($hash);
+    } else {
+      Calendar_SynchronousUpdateCalendar($hash);
+    }
   }
-  
-  #main::Debug "Calendar $name: iCalendar=\n$ics"; 
-  
-  Calendar_CheckTimes($hash, $t);
-  Calendar_RearmTimer($hash, $t);
   
 }
 
-###################################
-sub Calendar_UpdateCalendar($$$$) {
-
-  my ($hash, $t, $ics, $removeall) = @_;
-
-  
-  # *********************
-  # *** Step 1 Parsing
-  # *********************
-  
-  #
-  # 1
-  #
-  
-  $hash->{".fhem"}{iCalendar}= $ics; # the plain text iCalendar 
-  
-  #
-  # 2 Parsing
-  #
-  
+sub Calendar_Cleanup($) {
+  my ($hash)= @_;
+  delete($hash->{".fhem"}{t});
+  delete($hash->{".fhem"}{removeall});
+  delete($hash->{".fhem"}{serialized});
+  delete($hash->{".fhem"}{subprocess});
+    
   my $name= $hash->{NAME};
-  Log3 $hash, 4, "Calendar $name: parsing data"; 
-  #main::Debug "Calendar $name: parsing data"; 
+  delete($hash->{".fhem"}{iCalendar}) if(AttrVal($name,"removevcalendar",0));
+  Log3 $hash, 4, "Calendar $name: process ended."; 
+}
 
+
+sub Calendar_CheckAndRearm($) {
+
+  my ($hash)= @_;
+  my $t= $hash->{".fhem"}{t};
+  Calendar_CheckTimes($hash, $t);
+  Calendar_RearmTimer($hash, $t);
+}  
+
+sub Calendar_SynchronousUpdateCalendar($) {
   
-  # we remove disturbing CRs from the file
-  $ics =~ s/[\r\n]+/\n/g; 
+  my ($hash) = @_;
+  my $name= $hash->{NAME};
+  Log3 $hash, 4, "Calendar $name: parsing data synchronously"; 
+  my $ical= Calendar_ParseICS($hash->{".fhem"}{iCalendar});
+  Calendar_UpdateCalendar($hash, $ical);
+  Calendar_CheckAndRearm($hash);
+  Calendar_Cleanup($hash);
+}
+
+use constant POLLINTERVAL => 1;
+
+sub Calendar_AsynchronousUpdateCalendar($) {
+
+  require "SubProcess.pm";
   
+  my ($hash) = @_;
+  my $name= $hash->{NAME};
+  
+  my $subprocess= SubProcess->new({ onRun => \&Calendar_OnRun });
+  $subprocess->{ics}= $hash->{".fhem"}{iCalendar};
+  my $pid= $subprocess->run();
+
+  if(!defined($pid)) {
+    Log3 $hash, 1, "Calendar $name: Cannot parse asynchronously";
+    Calendar_CheckAndRearm($hash);
+    Calendar_Cleanup($hash);
+    return undef;
+  }
+
+  Log3 $hash, 4, "Calendar $name: parsing data asynchronously (PID= $pid)"; 
+  $hash->{".fhem"}{subprocess}= $subprocess;
+  $hash->{".fhem"}{serialized}= "";
+  InternalTimer(gettimeofday()+POLLINTERVAL, "Calendar_PollChild", $hash, 0);
+  
+  # go and do your thing while the timer polls and waits for the child to terminate
+  Log3 $hash, 5, "Calendar $name: control passed back to main loop."; 
+  
+}
+
+sub Calendar_OnRun() {
+
+  # This routine runs in a process separate from the main process.
+  my $subprocess= shift;
+  my $ical= Calendar_ParseICS($subprocess->{ics});
+  my $serialized= freeze $ical;
+  $subprocess->writeToParent($serialized);
+}
+
+
+
+sub Calendar_PollChild($) {
+  
+  my ($hash)= @_;
+  my $name= $hash->{NAME};
+  my $subprocess= $hash->{".fhem"}{subprocess};
+  my $data= $subprocess->readFromChild();
+  if(!defined($data)) {
+    Log3 $name, 4, "Calendar $name: still waiting (". $subprocess->{lasterror} .").";
+    InternalTimer(gettimeofday()+POLLINTERVAL, "Calendar_PollChild", $hash, 0);
+    return;
+  } else {
+    Log3 $name, 4, "Calendar $name: got result from asynchronous parsing.";
+    $subprocess->wait();
+    Log3 $name, 4, "Calendar $name: asynchronous parsing finished.";
+    my $ical= thaw($data);
+    Calendar_UpdateCalendar($hash, $ical);
+    Calendar_CheckAndRearm($hash);
+    Calendar_Cleanup($hash);
+  }
+}
+
+
+sub Calendar_ParseICS($) {
+
+  #main::Debug "Calendar $name: parsing data"; 
+  my ($ics)= @_;
+  my ($error, $state)= (undef, "");
+
   # we parse the calendar into a recursive ICal::Entry structure
   my $ical= ICal::Entry->new("root");
-  $ical->parse(split("\n",$ics));
+  $ical->parse($ics);
   
   #main::Debug "*** Result:";
   #main::Debug $ical->asString();
 
-  my @entries= @{$ical->{entries}};
-  if($#entries<0) {
+  my $numentries= scalar @{$ical->{entries}};
+  if($numentries<= 0) {
     eval { require Compress::Zlib; };
     if($@) {
-      readingsSingleUpdate($hash, "state", 
-             "error (data not in ICal format or no Compress::Zlib)", 1);
-      Log3 $hash, 1, "Calendar $name: maybe gzip data, but cannot load Compress::Zlib";
+      $error= "data not in ICal format; maybe gzip data, but cannot load Compress::Zlib";
     }
     else {
-      Log3 $hash, 4, "Calendar $name: unzipping data"; 
       $ics = Compress::Zlib::memGunzip($ics);
-      $ical->parse(split("\n",$ics));
-      @entries= @{$ical->{entries}};
+      $ical->parse($ics);
+      $numentries= scalar @{$ical->{entries}};
+      if($numentries<= 0) {
+        $error= "data not in ICal format; even not gzip data";
+      } else {
+        $state= "parsed (gzip data)";
+      }
     }
+  } else {
+    $state= "parsed";
   };
-  if($#entries<0) {
-    Log3 $hash, 1, "Calendar $name: data not in ICal format";
-    readingsSingleUpdate($hash, "state", "error (data not in ICal format)", 1);
-    return 0;
-  };
+
+  $ical->{error}= $error;
+  $ical->{state}= $state;
+  return $ical;
+}
+
+###################################
+sub Calendar_UpdateCalendar($$) {
+
+  my ($hash, $ical)= @_;
   
+  # *******************************
+  # *** Step 1 Digest Parser Result 
+  # *******************************
+  
+  my $name= $hash->{NAME};
+  my $error= $ical->{error};
+  my $state= $ical->{state};
+  
+  if(defined($error)) {
+    Log3 $hash, 2, "Calendar $name: error ($error)";
+    readingsSingleUpdate($hash, "state", "error ($error)", 1);
+    return 0;
+  } else {
+    readingsSingleUpdate($hash, "state", $state, 1);
+  }
+  my $t= $hash->{".fhem"}{t};
+  my $removeall= $hash->{".fhem"}{removeall};
+  
+  my @entries= @{$ical->{entries}};
   my $root= @{$ical->{entries}}[0];
   my $calname= "?";
   if($root->{type} ne "VCALENDAR") {
@@ -2242,7 +2393,6 @@ sub Calendar_UpdateCalendar($$$$) {
   } else {
     $calname= $root->value("X-WR-CALNAME");
   }
-  
  
   # *********************
   # *** Step 2 Merging
@@ -2295,8 +2445,29 @@ sub Calendar_UpdateCalendar($$$$) {
         #main::Debug "Adding event $id with key $k to lookup hash.";
   }
   
+    # start of time window for cutoff
+    my $cutoffOlderThan = AttrVal($name, "cutoffOlderThan", undef);
+    my $cutoffT= 0;
+    my $cutoff;
+    if(defined($cutoffOlderThan)) {
+        ($error, $cutoffT)= Calendar_GetSecondsFromTimeSpec($cutoffOlderThan);
+        if($error) {
+            Log3 $hash, 2, "$name: attribute cutoffOlderThan: $error";
+        };
+        $cutoff= $t- $cutoffT;
+    }
+  
   foreach my $v (grep { $_->{type} eq "VEVENT" } @{$root->{entries}}) {
-        #main::Debug "Merging " . $v->asString();
+        
+        # totally skip outdated calendar entries
+	next if(
+          defined($cutoffOlderThan) && 
+          $v->hasKey("DTEND") && 
+          $v->tm($v->value("DTEND")) < $cutoff && 
+          !$v->hasKey("RRULE")
+        );
+		
+	#main::Debug "Merging " . $v->asString();
         my $found= 0;
         my $added= 0; # flag to prevent multiple additions
         $n++;
@@ -2673,9 +2844,11 @@ sub CalendarAsHtml($;$) {
     <tr><td>text</td><td>a user-friendly textual representation, best suited for display</td></tr>
     <tr><td>summary</td><td>the content of the summary field (subject, title)</td></tr>
     <tr><td>location</td><td>the content of the location field</td></tr>
+    <tr><td>categories</td><td>the content of the categories field</td></tr>
     <tr><td>alarm</td><td>alarm time in human-readable format</td></tr>
     <tr><td>start</td><td>start time in human-readable format</td></tr>
     <tr><td>end</td><td>end time in human-readable format</td></tr>
+    <tr><td>categories</td><td>the content of the categories field</td></tr>
     <tr><td>full</td><td>the full state</td></tr>
     <tr><td>debug</td><td>like full with additional information for debugging purposes</td></tr>
     </table><br>
@@ -2733,6 +2906,19 @@ sub CalendarAsHtml($;$) {
   <b>Attributes</b>
   <br><br>
   <ul>
+    <li><code>update sync|async|none</code><br>
+        If this attribute is not set or if it is set to <code>sync</code>, the processing of
+        the calendar is done in the foreground. Large calendars will block FHEM on slow
+        systems. If this attribute is set to <code>async</code>, the processing is done in the
+        background and FHEM will not block during updates. If this attribute is set to 
+        <code>none</code>, the calendar will not be updated at all.
+        </li><p>
+
+    <li><code>removevcalendar 0|1</code><br>
+        If this attribute is set to 1, the vCalendar will be discarded after the processing to reduce the memory consumption of the module.
+        A retrieval via <code>get &lt;name&gt; vcalendar</code> is then no longer possible.
+        </li><p>
+		
     <li><code>hideOlderThan &lt;timespec&gt;</code><br>
         <code>hideLaterThan &lt;timespec&gt;</code><br><p>
         
@@ -2758,7 +2944,14 @@ sub CalendarAsHtml($;$) {
         <tr><td>DDDd</td><td>days</td><td>100d</td></tr>
         </table></li>
         <p>
-    
+
+    <li><code>cutoffOlderThan &lt;timespec&gt;</code><br>
+        This attribute cuts off all non-recurring calendar events that ended a timespan cutoffOlderThan
+        before the last update of the calendar. The purpose of setting this attribute is to save memory. 
+        Such calendar events cannot be accessed at all from FHEM. Calendar events are not cut off if
+        they are recurring or if they have no end time (DTEND).
+    </li><p>
+        
     <li><code>onCreateEvent &lt;perl-code&gt;</code><br>
     
         This attribute allows to run the Perl code &lt;perl-code&gt; for every
@@ -3059,6 +3252,7 @@ sub CalendarAsHtml($;$) {
     <tr><td>text</td><td>Benutzer-/Monitorfreundliche Textausgabe.</td></tr>
     <tr><td>summary</td><td>&Uuml;bersicht (Betreff, Titel)</td></tr>
     <tr><td>location</td><td>Ort</td></tr>
+    <tr><td>categories</td><td>Kategorien</td></tr>
     <tr><td>alarm</td><td>Alarmzeit</td></tr>
     <tr><td>start</td><td>Startzeit</td></tr>
     <tr><td>end</td><td>Endezeit</td></tr>
@@ -3118,6 +3312,21 @@ sub CalendarAsHtml($;$) {
   <b>Attributes</b>
   <br><br>
   <ul>
+    <li><code>update sync|async|none</code><br>
+        Wenn dieses Attribut nicht gesetzt ist oder wenn es auf <code>sync</code> gesetzt ist,
+        findet die Verarbeitung des Kalenders im Vordergrund statt. Gro&szlig;e Kalender werden FHEM
+        auf langsamen Systemen blockieren. Wenn das Attribut auf <code>async</code> gesetzt ist, 
+        findet die Verarbeitung im Hintergrund statt, und FHEM wird w&auml;hrend der Verarbeitung
+        nicht blockieren. Wenn dieses Attribut auf <code>none</code> gesetzt ist, wird der
+        Kalender &uuml;berhaupt nicht aktualisiert.
+        </li><p>
+
+    <li><code>removevcalendar 0|1</code><br>
+		Wenn dieses Attribut auf 1 gesetzt ist, wird der vCalendar nach der Verarbeitung verworfen,
+		gleichzeitig reduziert sich der Speicherverbrauch des Moduls.
+		Ein Abruf &uuml;ber <code>get &lt;name&gt; vcalendar</code> ist dann nicht mehr m&ouml;glich.
+        </li><p>
+		
     <li><code>hideOlderThan &lt;timespec&gt;</code><br>
         <code>hideLaterThan &lt;timespec&gt;</code><br><p>
         
@@ -3143,6 +3352,13 @@ sub CalendarAsHtml($;$) {
         </table></li>
         <p>
     
+    <li><code>cutoffOlderThan &lt;timespec&gt;</code><br>
+        Dieses Attribut schneidet alle nicht wiederkehrenden Termine weg, die eine Zeitspanne cutoffOlderThan
+        vor der letzten Aktualisierung des Kalenders endeten. Der Zweck dieses Attributs ist es Speicher zu
+        sparen. Auf solche Termine kann gar nicht mehr aus FHEM heraus zugegriffen werden. Serientermine und
+        Termine ohne Endezeitpunkt (DTEND) werden nicht weggeschnitten.
+    </li><p>
+
     <li><code>onCreateEvent &lt;perl-code&gt;</code><br>
     
 		Dieses Attribut f&uuml;hrt ein Perlprogramm &lt;perl-code&gt; f&uuml;r jeden erzeugten Termin aus.
@@ -3151,7 +3367,7 @@ sub CalendarAsHtml($;$) {
         
         <li><code>SSLVerify</code><br>
     
-        Dieses Attribut setzt die Art der &Uuml;berpruuml;fung des Zertifikats des Partners
+        Dieses Attribut setzt die Art der &Uuml;berpr&uuml;fung des Zertifikats des Partners
         bei mit SSL gesicherten Verbindungen. Entweder auf 0 setzen f&uuml;r 
         SSL_VERIFY_NONE (keine &Uuml;berpr&uuml;fung des Zertifikats) oder auf 1 f&uuml;r
         SSL_VERIFY_PEER (&Uuml;berpr&uuml;fung des Zertifikats). Die &Uuml;berpr&uuml;fung auszuschalten

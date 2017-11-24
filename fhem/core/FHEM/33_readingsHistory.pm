@@ -1,4 +1,4 @@
-# $Id: 33_readingsHistory.pm 12295 2016-10-08 09:13:11Z justme1968 $
+# $Id: 33_readingsHistory.pm 15100 2017-09-19 21:21:27Z justme1968 $
 ##############################################################################
 #
 #     This file is part of fhem.
@@ -25,6 +25,11 @@ use warnings;
 
 use POSIX qw(strftime);
 
+use vars qw(%defs);
+use vars qw(%attr);
+sub Log($$);
+sub Log3($$$);
+
 use vars qw($FW_ME);
 use vars qw($FW_wname);
 use vars qw($FW_subdir);
@@ -50,6 +55,8 @@ sub readingsHistory_Initialize($)
 
   $hash->{FW_detailFn}  = "readingsHistory_detailFn";
   $hash->{FW_summaryFn}  = "readingsHistory_detailFn";
+
+  $data{FWEXT}{"readingsHistory"}{SCRIPT} = "fhemweb_readingsHistory.js";
 
   $hash->{FW_atPageEnd} = 1;
 

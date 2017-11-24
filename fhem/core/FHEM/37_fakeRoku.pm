@@ -1,4 +1,4 @@
-# $Id: 37_fakeRoku.pm 13035 2017-01-10 12:05:25Z justme1968 $
+# $Id: 37_fakeRoku.pm 13780 2017-03-23 13:25:41Z justme1968 $
 
 package main;
 
@@ -846,9 +846,9 @@ Log 1, "!!!!!!!!!!";
       overwrites autodetected local ip used in advertising</li>
     <li>httpPort</li>
     <li>reusePort<br>
-      not set -> set ReusePort on multicast socket if SO_REUSEPORT flag ist known. should work in most cases. </li>
+      not set -> set ReusePort on multicast socket if SO_REUSEPORT flag ist known. should work in most cases.<br>
       0 -> don't set ReusePort on multicast socket<br>
-      1 -> set ReusePort on multicast socket<br>
+      1 -> set ReusePort on multicast socket</li>
   </ul>
 
 </ul><br>

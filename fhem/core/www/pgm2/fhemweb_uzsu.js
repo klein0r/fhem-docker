@@ -1,5 +1,5 @@
 
-var version="$Id: fhemweb_uzsu.js 13107 2017-01-16 13:14:31Z justme1968 $";
+FW_version["fhemweb_uzsu.js"] = "$Id: fhemweb_uzsu.js 15190 2017-10-03 18:10:45Z justme1968 $";
 
 FW_widgets['uzsuToggle'] = {
   createFn:FW_uzsuToggleCreate,
@@ -46,17 +46,20 @@ FW_uzsuDropDownCreate(elName, devName, vArr, currVal, set, params, cmd)
   if(!vArr.length || vArr[0] != "uzsuDropDown")
     return undefined;
 
-  vArr[0] = 'time';
+  //vArr[0] = 'time';
   //return FW_createTime(elName, devName, vArr, currVal, set, params, cmd);
 
   var newEl = $("<div style='display:inline-block;margin:2px 4px 2px 0px;'>").get(0);
 
-  $(newEl).append( FW_createSelect(elName, devName,
-    ["select",
-      "00:00","01:00","02:00","03:00","04:00","05:00","06:00","07:00","08:00","09:00",
-      "10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00",
-      "20:00","21:00","22:00","23:00"]
-    ,currVal, set, params, cmd) );
+  if( vArr[1] === undefined )
+    vArr = ["select",
+            "00:00","01:00","02:00","03:00","04:00","05:00","06:00","07:00","08:00","09:00",
+            "10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00",
+            "20:00","21:00","22:00","23:00"];
+  else
+    vArr[0] = 'select';
+    
+  $(newEl).append( FW_createSelect(elName, devName, vArr, currVal, set, params, cmd) );
   var select = $(newEl).find("select");
   select.selectmenu();
   select.selectmenu( "option", "width", "auto" );
@@ -329,30 +332,29 @@ FW_uzsuTimerEntryCreate(elName, devName, vArr, currVal, set, params, cmd)
   $(newEl).append(time); //time.activateFn();
 
   var widget;
-  if( vArr[1] )
-    {
-      var vArr = vArr;
-      var params = vArr.slice(1).join(',').split(',');
-      var wn = params[0];
-      if( FW_widgets[wn]
-          && FW_widgets[wn].createFn ) {
-        widget = FW_widgets[wn].createFn(elName+'-'+wn, devName+'-'+wn, params,
-                                         currVals[3], undefined, undefined, wchanged);
-        if( widget ) {
-          if( widget.activateFn )
-            widget.activateFn();
+  if( vArr[1] ) {
+    var vArr = vArr;
+    var params = vArr.slice(1).join(',').split(',');
+    var wn = params[0];
+    FW_callCreateFn(elName+'-'+wn, devName+'-'+wn, params,
+                    currVals[3], undefined, undefined, wchanged,
+                    function(wn, ne) {
+      widget = ne;
 
-          wval = currVals[3];
-          if( typeof wval == 'undefined' )
-            wval = params[1];
+      if( widget ) {
+        if( widget.activateFn )
+          widget.activateFn();
 
-          if( widget.setValueFn
-              &&( typeof wval !== 'undefined' )  )
-            widget.setValueFn(wval);
+        wval = currVals[3];
+        if( typeof wval == 'undefined' )
+          wval = params[1];
 
-          $(widget).css('margin','0 8px 0 4px');
-          $(newEl).append(widget)
-        }
+        if( widget.setValueFn
+            &&( typeof wval !== 'undefined' )  )
+          widget.setValueFn(wval);
+
+        $(widget).css('margin','0 8px 0 4px');
+        $(newEl).append(widget)
       } else {
         var button = $('<button>aktion</button>');
         button.button();
@@ -362,7 +364,8 @@ FW_uzsuTimerEntryCreate(elName, devName, vArr, currVal, set, params, cmd)
         button.button("disable");
         $(newEl).append(button);
       }
-    }
+    });
+  }
 
   var enabled = FW_uzsuToggleCreate(undefined, devName+"Enabled", ["uzsuToggle","disabled","enabled"],
                                     currVals[2], undefined, params, changed);
@@ -594,3 +597,109 @@ FW_uzsuCreate(elName, devName, vArr, currVal, set, params, cmd)
 
   return newEl;
 }
+
+/*
+=pod
+
+=begin html
+
+  <li>uzsuToggle,state1,state2 - dispay a toggle button with two possible
+      states. the first is the active state.</li>
+
+  <li>uzsuSelect,val1,val2,... - display a button bar with a button per value
+      from which multiple values can be selected. the result is comma
+      separated.</li>
+
+  <li>uzsuSelectRadio,val1,val2,... - display a button bar with a button per
+      value from which only one value can be selected.</li>
+
+  <li>uzsuDropDown,val1,val2,... - display a dropdown with all values.</li>
+
+  <li>uzsuTimerEntry[,modifier2] - combine uzsuSelect, uzsuDropDown and
+      uzsuToggle into a single line display to select a timer entry. an
+      optional modifier can be given to select the switching value. see
+      examples below.  the result is a comma separated list of days followed by
+      a time, an enabled indicator and the switching value all separated by a|.
+      eg: Mo,Di,Sa,So|00:00|enabled|19.5</li>
+
+  <li>uzsu[,modifier2] - combine multiple uzsuTimerEntry widets to allow the
+      setting of multiple switching times an optional modifier can be given to
+      select the switching value. see examples below.  the result is a space
+      separeted list of uzsuTimerEntry results. Examples:
+      <ul>
+        attr myToggle widgetOverride state:uzsuToggle,123,xyz<br>
+        attr mySelect widgetOverride state:uzsuSelect,abc,123,456,xyz<br>
+        attr myTemp widgetOverride state:uzsuDropDown,18,18.5,19,19.5,20,20.5,21,21.5,22,22.5,23<br>
+        attr myTimerEntry widgetOverride state:uzsuTimerEntry<br>
+        attr myTimer widgetOverride state:uzsu<br>
+        <br>
+        the following gives some examples of for the modifier2 parameter of uzsuTimerEntry and uzsu to
+        combine the setting of a timer with another widget to select the switching value :
+        <pre>
+... widgetOverride state:uzsu,slider,0,5,100                                         -> a slider
+... widgetOverride state:uzsu,uzsuToggle,off,on                                      -> a on/off button
+... widgetOverride state:uzsu,uzsuDropDown,18,19,20,21,22,23                         -> a dropDownMenue
+... widgetOverride state:uzsu,knob,min:18,max:24,step:0.5,linecap:round,fgColor:red  -> a knob widget
+... widgetOverride state:uzsu,colorpicker                                            -> a colorpicker
+... widgetOverride state:uzsu,colorpicker,CT,2700,50,5000                            -> a colortemperature selector
+        </pre>
+      </ul>
+      </li>
+
+=end html
+
+=begin html_DE
+
+  <li>uzsuToggle,zust1,zust2 - damit ist es m&ouml;glich mit einem
+      Toggle-Button zwischen zwei Zust&auml;nden zu w&auml;hlen. Der Erste ist
+      der aktive Zustand.</li>
+
+  <li>uzsuSelect,val1,val2,... - damit ist es m&ouml;gliche in einer
+      Buttonleiste meherere Werte auszuw&auml;hlen.  Das Ergebnis ist
+      Komma-separiert.</li>
+
+  <li>uzsuSelectRadio,val1,val2,... - damit ist es m&ouml;gliche in einer
+      Buttonleiste einen aus meherere Werten auszuw&auml;hlen.</li>
+
+  <li>uzsuDropDown,val1,val2,... - damit ist es m&ouml;gliche mit einem
+      DropDown Men&uuml; einen der Werte auszuw&auml;hlen.</li>
+
+  <li>uzsuTimerEntry[,modifier2] - damit werden je ein uzsuSelect,
+      uzsuDropDown und uzsuToggle Widget kombiniert um einen Schaltzeitpunkt
+      auszuw&auml;hlen. &Uuml;ber den optionalen modifier2 kann ein Widget zur
+      Auswahl des Schaltwertes angegeben werden. Siehe Beispiele unten.  Das
+      Ergebniss is eine komma-separiert Liste von Wochentagen gefolgt vom
+      Zeitpunkt, eine Aktiv-Indikator und dem Schaltwert, jeweils durch |
+      abetrennt.  Zum Beispiel: Mo,Di,Sa,So|00:00|enabled|19.5</li>
+
+  <li>uzsu[,modifier2] - damit werden mehrere uzsuTimerEntry Widets kombiniert
+      um eine beliebige Anzahl an Schaltzeiten einzugeben. &Uuml;ber den
+      optionalen modifier2 kann ein Widget zur Auswahl des Schaltwertes
+      angegeben werden. Siehe Beispiele unten.  Das Ergebiss ist eine durch
+      leerzeichen getrennte Liste von uzsuTimerEntry Ergebnissen.<br>
+      Beispiele:
+      <ul>
+        attr myToggle widgetOverride state:uzsuToggle,123,xyz<br>
+        attr mySelect widgetOverride state:uzsuSelect,abc,123,456,xyz<br>
+        attr myTemp widgetOverride
+          state:uzsuDropDown,18,18.5,19,19.5,20,20.5,21,21.5,22,22.5,23<br>
+        attr myTimerEntry widgetOverride state:uzsuTimerEntry<br>
+        attr myTimer widgetOverride state:uzsu<br>
+        <br>
+        Im Folgenden wird die Verwendung des modifier2 parameters von
+        uzsuTimerEntry und uzsu gezeigt um die Auswahl des Schaltzeitpunktes
+        mit der Auswahl des Schaltwertes zu kombinieren:
+        <pre>
+      ... widgetOverride state:uzsu,slider,0,5,100                                         -> ein slider
+      ... widgetOverride state:uzsu,uzsuToggle,off,on                                      -> ein on/off button
+      ... widgetOverride state:uzsu,uzsuDropDown,18,19,20,21,22,23                         -> ein dropDownMenue
+      ... widgetOverride state:uzsu,knob,min:18,max:24,step:0.5,linecap:round,fgColor:red  -> ein knob widget
+      ... widgetOverride state:uzsu,colorpicker                                            -> ein colorpicker
+      ... widgetOverride state:uzsu,colorpicker,CT,2700,50,5000                            -> ein colortemperature slider
+        </pre>
+      </ul></li>
+
+=end html_DE
+
+=cut
+*/

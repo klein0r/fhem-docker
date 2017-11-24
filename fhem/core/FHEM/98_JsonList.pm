@@ -433,7 +433,7 @@ CommandJsonList($$)
               "room": "Server",
               "statefile": "/var/cache/fhem/fhem.save",
               "verbose": "4",
-              "version": "5.8 from 2017-02-19 ($Id: 98_JsonList.pm 12275 2016-10-05 14:33:55Z rudolfkoenig $)"
+              "version": "=VERS= from =DATE= ($Id: 98_JsonList.pm 12275 2016-10-05 14:33:55Z rudolfkoenig $)"
             },
             "READINGS": []
           }

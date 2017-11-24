@@ -1,57 +1,22 @@
-# $Id: 75_msgConfig.pm 12317 2016-10-10 23:12:02Z loredo $
-##############################################################################
-#
-#     97_msgConfig.pm
-#     Global configuration settings for FHEM msg command.
-#
-#     Copyright by Julian Pawlowski
-#     e-mail: julian.pawlowski at gmail.com
-#
-#     This file is part of fhem.
-#
-#     Fhem is free software: you can redistribute it and/or modify
-#     it under the terms of the GNU General Public License as published by
-#     the Free Software Foundation, either version 2 of the License, or
-#     (at your option) any later version.
-#
-#     Fhem is distributed in the hope that it will be useful,
-#     but WITHOUT ANY WARRANTY; without even the implied warranty of
-#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#     GNU General Public License for more details.
-#
-#     You should have received a copy of the GNU General Public License
-#     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
-#
-#
-# Version: 1.0.0
-#
-# Major Version History:
-# - 1.0.0 - 2015-10-18
-# -- First release
-#
-##############################################################################
-
+###############################################################################
+# $Id: 75_msgConfig.pm 15167 2017-10-01 18:46:23Z loredo $
 package main;
-
 use strict;
 use warnings;
 use Data::Dumper;
 
-sub msgConfig_Set($@);
-sub msgConfig_Get($@);
-sub msgConfig_Define($$);
-sub msgConfig_Undefine($$);
-
-###################################
+# initialize ##################################################################
 sub msgConfig_Initialize($) {
     my ($hash) = @_;
+    my $TYPE = "msgConfig";
 
     require "$attr{global}{modpath}/FHEM/msgSchema.pm";
 
-    $hash->{DefFn}   = "msgConfig_Define";
-    $hash->{SetFn}   = "msgConfig_Set";
-    $hash->{GetFn}   = "msgConfig_Get";
-    $hash->{UndefFn} = "msgConfig_Undefine";
+    $hash->{DefFn}    = $TYPE . "_Define";
+    $hash->{SetFn}    = $TYPE . "_Set";
+    $hash->{GetFn}    = $TYPE . "_Get";
+    $hash->{UndefFn}  = $TYPE . "_Undefine";
+    $hash->{NotifyFn} = $TYPE . "_Notify";
 
     # add attributes for configuration
     no warnings 'qw';
@@ -82,12 +47,31 @@ sub msgConfig_Initialize($) {
       msgFwPrioGoneLight:-2,-1,0,1,2
       msgFwPrioGoneScreen:-2,-1,0,1,2
       msgLocationDevs
+      msgParamsAudio
+      msgParamsAudioShort
+      msgParamsAudioShortPrio
+      msgParamsLight
+      msgParamsLightHigh
+      msgParamsLightLow
+      msgParamsMail
+      msgParamsMailHigh
+      msgParamsMailLow
+      msgParamsPush
+      msgParamsPushHigh
+      msgParamsPushLow
+      msgParamsScreen
+      msgParamsScreenHigh
+      msgParamsScreenLow
+      msgParamsText
+      msgParamsTextHigh
+      msgParamsTextLow
       msgPriorityAudio:-2,-1,0,1,2
       msgPriorityLight:-2,-1,0,1,2
       msgPriorityMail:-2,-1,0,1,2
       msgPriorityPush:-2,-1,0,1,2
       msgPriorityScreen:-2,-1,0,1,2
       msgPriorityText:-2,-1,0,1,2
+      msgRcv:1,0
       msgResidentsDev
       msgSwitcherDev
       msgThPrioHigh:-2,-1,0,1,2
@@ -115,40 +99,70 @@ sub msgConfig_Initialize($) {
       msgTitleText
       msgTitleTextHigh
       msgTitleTextLow
-      msgType
+      msgTitleShrtAudio
+      msgTitleShrtAudioShort
+      msgTitleShrtAudioShortPrio
+      msgTitleShrtLight
+      msgTitleShrtLightHigh
+      msgTitleShrtLightLow
+      msgTitleShrtMail
+      msgTitleShrtMailHigh
+      msgTitleShrtMailLow
+      msgTitleShrtPush
+      msgTitleShrtPushHigh
+      msgTitleShrtPushLow
+      msgTitleShrtScreen
+      msgTitleShrtScreenHigh
+      msgTitleShrtScreenLow
+      msgTitleShrtText
+      msgTitleShrtTextHigh
+      msgTitleShrtTextLow
     );
     use warnings 'qw';
     $hash->{AttrList} = join( " ", @attrList ) . " " . $readingFnAttributes;
 
     # add global attributes
     foreach (
-        "msgContactAudio",    "msgContactMail",   "msgContactPush",
-        "msgContactScreen",   "msgContactLight",  "msgRecipient",
-        "msgRecipientAudio",  "msgRecipientMail", "msgRecipientPush",
-        "msgRecipientScreen", "msgRecipientText", "msgRecipientLight",
+        "msgContactAudio",
+        "msgContactMail",
+        "msgContactPush",
+        "msgContactScreen",
+        "msgContactLight",
+        "msgParams",
+        "msgPriority",
+        "msgRecipient",
+        "msgRecipientAudio",
+        "msgRecipientMail",
+        "msgRecipientPush",
+        "msgRecipientScreen",
+        "msgRecipientText",
+        "msgRecipientLight",
+        "msgTitle",
+        "msgTitleShrt",
+        "msgType:text,push,mail,screen,light,audio,queue",
       )
     {
         addToAttrList($_);
     }
 }
 
-###################################
+# regular Fn ##################################################################
 sub msgConfig_Define($$) {
-
     my ( $hash, $def ) = @_;
+    my $TYPE = $hash->{TYPE};
 
     my @a = split( "[ \t]+", $def, 5 );
 
-    return "Usage: define <name> msgConfig"
+    return "Usage: define <name> $TYPE"
       if ( int(@a) < 2 );
     my $name = $a[0];
 
     return "Global configuration device already defined: "
-      . $modules{msgConfig}{defptr}{NAME}
-      if ( defined( $modules{msgConfig}{defptr} ) );
+      . $modules{$TYPE}{defptr}{NAME}
+      if ( defined( $modules{$TYPE}{defptr} ) );
 
     # create global unique device definition
-    $modules{msgConfig}{defptr} = $hash;
+    $modules{$TYPE}{defptr} = $hash;
 
     # set default settings on first define
     if ( $init_done && !defined( $hash->{OLDDEF} ) ) {
@@ -161,36 +175,38 @@ sub msgConfig_Define($$) {
         $attr{$name}{room}    = $room if ( $room ne "" );
         $attr{$name}{comment} = "FHEM Global Configuration for command 'msg'";
         $attr{$name}{stateFormat} = "fhemMsgState";
+        $attr{$name}{msgType}     = "text";
 
         readingsBeginUpdate($hash);
         readingsBulkUpdate( $hash, "fhemMsgState", "initialized" );
         readingsEndUpdate( $hash, 1 );
     }
 
+    $hash->{NOTIFYDEV} = "TYPE=(Jabber|TelegramBot|yowsup)";
+
     return undef;
 }
 
-###################################
 sub msgConfig_Undefine($$) {
-
     my ( $hash, $name ) = @_;
+    my $TYPE = $hash->{TYPE};
 
     # release global unique device definition
-    delete $modules{msgConfig}{defptr};
+    delete $modules{$TYPE}{defptr};
 
     return undef;
 }
 
-###################################
 sub msgConfig_Set($@) {
     my ( $hash, @a ) = @_;
     my $name = $hash->{NAME};
+    my $TYPE = $hash->{TYPE};
     shift @a;
     my $what = shift @a;
 
-    Log3 $name, 5, "msgConfig $name: called function msgConfig_Set()";
+    Log3 $name, 5, "$TYPE $name: called function $TYPE" . "_Set()";
 
-    my @msgTypes = ( "audio", "light", "mail", "push", "screen" );
+    my @msgTypes = ( "audio", "light", "mail", "push", "screen", "queue" );
 
     # cleanReadings
     if ( lc($what) eq "cleanreadings" ) {
@@ -202,7 +218,7 @@ sub msgConfig_Set($@) {
     # addLocation
     elsif ( lc($what) eq "addlocation" ) {
         my $location = join( " ", @a );
-        my $group = AttrVal( $name, "group", "msgConfig" );
+        my $group = AttrVal( $name, "group", $TYPE );
         my $room  = AttrVal( $name, "room",  "" );
         my $return = "";
 
@@ -213,9 +229,10 @@ sub msgConfig_Set($@) {
         $device =~ s/[\s\t-]+/_/g;
 
         return "Device $device is already existing but not a dummy device"
-          if ( defined( $defs{$device} ) && $defs{$device}{TYPE} ne "dummy" );
+          if ( IsDevice($device)
+            && GetType($device) ne "dummy" );
 
-        if ( !defined( $defs{$device} ) ) {
+        if ( !IsDevice($device) ) {
             $return = fhem( "define $device dummy", 1 );
             $return .= "Device $device was created"
               if ( $return eq "" );
@@ -232,7 +249,7 @@ sub msgConfig_Set($@) {
         $attr{$device}{userattr} .= " msgLocationName"
           if ( defined( $attr{$device}{userattr} )
             && $attr{$device}{userattr} !~
-/^msgLocationName$|^msgLocationName\s|\smsgLocationName\s|\smsgLocationName$/
+m/^msgLocationName$|^msgLocationName\s|\smsgLocationName\s|\smsgLocationName$/
           );
         $attr{$device}{userattr} = "msgLocationName"
           if ( !defined( $attr{$device}{userattr} ) );
@@ -260,9 +277,10 @@ sub msgConfig_Set($@) {
           if ( defined( $a[0] ) && $a[0] eq "de" );
 
         return "Device $device is already existing but not a dummy device"
-          if ( defined( $defs{$device} ) && $defs{$device}{TYPE} ne "dummy" );
+          if ( IsDevice($device)
+            && GetType($device) ne "dummy" );
 
-        if ( !defined( $defs{$device} ) ) {
+        if ( !IsDevice($device) ) {
             $return = fhem( "define $device dummy", 1 );
             $return .= "Device $device was created"
               if ( $return eq "" );
@@ -315,57 +333,30 @@ sub msgConfig_Set($@) {
         my $device = AttrVal( $name, "msgResidentsDev", "rgr_Residents" );
         my $return = "";
 
-        my $lang = "en";
-        $lang = $a[0]
-          if ( defined( $a[0] ) && $a[0] eq "de" );
+        my $lang = defined( $a[0] ) ? uc( $a[0] ) : "EN";
 
         return
 "Device $device is already existing but not a RESIDENTS or ROOMMATE device"
-          if (
-            defined( $defs{$device} )
-            && (   $defs{$device}{TYPE} ne "RESIDENTS"
-                && $defs{$device}{TYPE} ne "ROOMMATE" )
-          );
+          if ( IsDevice($device)
+            && !IsDevice( $device, "RESIDENTS|ROOMMATE" ) );
 
-        if ( !defined( $defs{$device} ) ) {
+        if ( !IsDevice($device) ) {
             $return = fhem( "define $device RESIDENTS", 1 );
             $return .= "RESIDENTS device $device was created."
               if ( $return eq "" );
         }
         else {
             $return =
-                "Existing "
-              . $defs{$device}{TYPE}
-              . " device $device was updated.";
+              "Existing " . GetType($device) . " device $device was updated.";
         }
 
-        if ( $lang eq "de" ) {
-            $attr{$device}{alias} = "Bewohner";
-            $attr{$device}{eventMap} =
-"home:zu_Hause absent:außer_Haus gone:verreist gotosleep:bettfertig asleep:schläft awoken:aufgestanden";
-            $attr{$device}{group} = "Haus Status"
-              if ( !defined( $attr{$device}{group} ) );
-            $attr{$device}{room} = "Haus"
-              if ( !defined( $attr{$device}{room} ) );
-            $attr{$device}{widgetOverride} =
-              "state:zu_Hause,bettfertig,außer_Haus,verreist";
-        }
-        else {
-            $attr{$device}{alias} = "Residents";
-            $attr{$device}{group} = "Home State"
-              if ( !defined( $attr{$device}{group} ) );
-            $attr{$device}{room} = "House"
-              if ( !defined( $attr{$device}{room} ) );
-            delete $attr{$device}{eventMap}
-              if ( defined( $attr{$device}{eventMap} ) );
-            delete $attr{$device}{widgetOverride}
-              if ( defined( $attr{$device}{widgetOverride} ) );
-        }
+        my $txt = fhem("attr $device rgr_lang $lang")
+          unless ( $lang eq "EN" );
+        $return .= $txt if ($txt);
+
         $attr{$device}{comment} = "Auto-created by $name"
           if ( !defined( $attr{$device}{comment} )
             || $attr{$device}{comment} ne "Auto-created by $name" );
-        $attr{$device}{devStateIcon} =
-'.*home:status_available@green .*absent:status_away_1@orange .*gone:status_standby .*none:control_building_empty .*gotosleep:status_night@green:asleep .*asleep:status_night@green .*awoken:status_available@green:home .*zu_Hause:user_available:absent .*außer_Haus:user_away:home .*verreist:user_ext_away:home .*bettfertig:scene_toilet:asleep .*schläft:scene_sleeping:awoken .*aufgestanden:scene_sleeping_alternat:home .*:user_unknown';
 
         $return .=
 "\nIf you would like this device to act as an overall presence device for ALL msg commands, please adjust attribute msgResidentsDev at device $name to $device."
@@ -382,16 +373,18 @@ sub msgConfig_Set($@) {
         return
 "Unknown argument $what, choose one of cleanReadings addLocation createSwitcherDev:de,en createResidentsDev:de,en";
     }
+
+    return undef;
 }
 
-###################################
 sub msgConfig_Get($@) {
     my ( $hash, @a ) = @_;
     my $name = $hash->{NAME};
+    my $TYPE = $hash->{TYPE};
     shift @a;
     my $what = shift @a;
 
-    Log3 $name, 5, "msgConfig $name: called function msgConfig_Get()";
+    Log3 $name, 5, "$TYPE $name: called function $TYPE" . "_Get()";
 
     my @msgTypes = ( "audio", "light", "mail", "push", "screen" );
 
@@ -409,12 +402,12 @@ sub msgConfig_Get($@) {
             # Check device
             if ( $devicesReq ne "" ) {
                 foreach my $device ( split( /,/, $devicesReq ) ) {
-                    if ( defined( $defs{$device} ) ) {
-                        $UserDeviceTypes .= "," . $defs{$device}{TYPE}
+                    if ( IsDevice($device) ) {
+                        $UserDeviceTypes .= "," . GetType($device)
                           if ( $UserDeviceTypes ne ""
                             && $msgType ne "mail"
                             && $device ne $name );
-                        $UserDeviceTypes = $defs{$device}{TYPE}
+                        $UserDeviceTypes = GetType($device)
                           if ( $UserDeviceTypes eq ""
                             && $msgType ne "mail"
                             && $device ne $name );
@@ -440,53 +433,8 @@ sub msgConfig_Get($@) {
                             my $priorityCat = "";
                             $priorityCat = $prio if ( $prio ne "Normal" );
 
-                            my $cmd =
-
-                              # look for direct
-                              AttrVal(
-                                $device, "msgCmd$typeUc$priorityCat",
-
-                                # look for indirect
-                                AttrVal(
-                                    AttrVal(
-                                        $device, "msgRecipient$typeUc", ""
-                                    ),
-                                    "msgCmd$typeUc$priorityCat",
-
-                                    #look for indirect general
-                                    AttrVal(
-                                        AttrVal( $device, "msgRecipient", "" ),
-                                        "msgCmd$typeUc$priorityCat",
-
-                                        # look for global direct
-                                        AttrVal(
-                                            $name,
-                                            "msgCmd$typeUc$priorityCat",
-
-                                            # look for global indirect
-                                            AttrVal(
-                                                AttrVal(
-                                                    $name,
-                                                    "msgRecipient$typeUc", ""
-                                                ),
-                                                "msgCmd$typeUc$priorityCat",
-
-                                               #look for global indirect general
-                                                AttrVal(
-                                                    AttrVal(
-                                                        $name, "msgRecipient",
-                                                        ""
-                                                    ),
-                                                    "msgCmd$typeUc$priorityCat",
-
-                                                    # none
-                                                    ""
-                                                )
-                                            )
-                                        )
-                                    )
-                                )
-                              );
+                            my $cmd = MSG_FindAttrVal( $device,
+                                "msgCmd$typeUc$priorityCat", $typeUc, "" );
 
                             next
                               if ( $cmd eq ""
@@ -498,7 +446,7 @@ sub msgConfig_Get($@) {
                               if ( $output == 0 );
                             $return .=
                               "  $device (DEVICE TYPE: "
-                              . $defs{$device}{TYPE} . ")\n"
+                              . GetType($device) . ")\n"
                               if ( $output == 0 );
                             $output = 1 if ( $output == 0 );
 
@@ -604,8 +552,251 @@ sub msgConfig_Get($@) {
 
     else {
         return
-"Unknown argument $what, choose one of routeCmd:,audio,light,mail,push,screen";
+"Unknown argument $what, choose one of routeCmd:,audio,light,mail,push,screen,queue";
     }
+
+    return undef;
+}
+
+sub msgConfig_Notify($$) {
+    my ( $hash, $dev ) = @_;
+    my $name    = $hash->{NAME};
+    my $TYPE    = GetType($name);
+    my $devName = $dev->{NAME};
+    my $devType = GetType($devName);
+
+    return ""
+      if ( IsDisabled($name)
+        or IsDisabled($devName)
+        or !AttrVal( $devName, "msgRcv", AttrVal( $name, "msgRcv", "1" ) ) );
+
+    Log3 $name, 5, "$TYPE $name: called function $TYPE" . "_Notify()";
+
+    my @events = @{ deviceEvents( $dev, 1 ) };
+
+    return "" unless (@events);
+
+    foreach my $event (@events) {
+        next
+          unless (
+            $event =~ m/^(msgText|queryData|((?:OTR)?Last)Message|message)/ );
+        my ( $sender, $msg );
+
+        # TelegramBot
+        if ( $devType eq "TelegramBot" ) {
+            if ( $1 eq "msgText" ) {
+                $sender = ReadingsVal( $devName, "msgPeerId", undef );
+                $msg    = ReadingsVal( $devName, "msgText",   undef );
+            }
+            elsif ( $1 eq "queryData" ) {
+                $sender = ReadingsVal( $devName, "queryPeerId", undef );
+                $msg    = ReadingsVal( $devName, "queryData",   undef );
+            }
+        }
+
+        # Jabber
+        elsif ( $devType eq "Jabber" ) {
+            ($sender) =
+              ( ReadingsVal( $devName, $2 . "SenderJID", undef ) =~ m/[^\/]/g );
+            $msg = ReadingsVal( $devName, $2 . "Message", undef );
+        }
+
+        # yowsup
+        elsif ( $devType eq "yowsup" ) {
+            $sender  = $devName;
+            $devName = $modules{yowsup}{defptr}{yowsup}->{NAME};
+            $msg     = ReadingsVal( $devName, "message", undef );
+        }
+
+        next unless ( $msg && $msg ne "" );
+
+        unless ( $sender && $sender ne "" ) {
+            Log3 $name, 5,
+              "msg: ERROR RCV $devName: "
+              . "Unable to retrieve sender reference";
+            next;
+        }
+
+        my $delivered = 0;
+
+        foreach my $t ( "push", "screen" ) {
+            my @contacts = devspec2array(
+                "msgContact" . ucfirst($t) . "=.*$devName:[@#]*$sender.*" );
+
+            if (@contacts) {
+                foreach (@contacts) {
+                    next unless ( IsDevice($_) );
+
+                    Log3 $_, 4,
+                      "msg $_: " . "Received $t message from $devName: $msg";
+
+                    $delivered = 1;
+                    my $recipient = $defs{$_};
+
+                    readingsBeginUpdate($recipient);
+                    readingsBulkUpdate( $recipient,
+                        "fhemMsgRcv" . ucfirst($t), $msg );
+                    readingsBulkUpdate( $recipient,
+                        "fhemMsgRcv" . ucfirst($t) . "Gw", $devName );
+                    readingsEndUpdate( $recipient, 1 );
+                }
+            }
+
+            last if ($delivered);
+        }
+
+        unless ($delivered) {
+            Log3 $name, 4,
+              "msg: ERROR RCV $devName $sender: "
+              . "Missing reference in msgContact attribute of any device";
+            DoTrigger( $name,
+                    "ERROR RCV $devName $sender: "
+                  . "Missing reference in msgContact attribute of any device" );
+        }
+
+    }
+
+    return "";
+}
+
+# module Fn ####################################################################
+sub MSG_FindAttrVal($$$$) {
+    my ( $d, $n, $msgType, $default ) = @_;
+    $msgType = "" unless ($msgType);
+    $msgType = ucfirst($msgType);
+    $n .= $msgType if ( $n =~ /^msg(Contact)$/ );
+
+    my $g = (
+        (
+            defined( $modules{msgConfig}{defptr} )
+              && $n !~ /^(verbose|msgContact.*)$/
+        )
+        ? $modules{msgConfig}{defptr}{NAME}
+        : ""
+    );
+
+    return
+
+      # look for direct
+      AttrVal(
+        $d, $n,
+
+        # look for indirect
+        AttrVal(
+            AttrVal( $d, "msgRecipient$msgType", "" ),
+            $n,
+
+            # look for indirect, type-independent
+            AttrVal(
+                AttrVal( $d, "msgRecipient", "" ),
+                $n,
+
+                # look for global direct
+                AttrVal(
+                    $g, $n,
+
+                    # look for global indirect
+                    AttrVal(
+                        AttrVal( $g, "msgRecipient$msgType", "" ),
+                        $n,
+
+                        # look for global indirect, type-independent
+                        AttrVal(
+                            AttrVal( $g, "msgRecipient", "" ),
+                            $n,
+
+                            # default
+                            $default
+                        )
+                    )
+                )
+            )
+        )
+      );
+}
+
+sub msgConfig_FindReadingsVal($$$$) {
+    my ( $d, $n, $msgType, $default ) = @_;
+    $msgType = ucfirst($msgType) if ($msgType);
+
+    return
+
+      # look for direct
+      ReadingsVal(
+        $d, $n,
+
+        # look for indirect
+        ReadingsVal(
+            AttrVal( $d, "msgRecipient$msgType", "" ),
+            $n,
+
+            # look for indirect, type-independent
+            ReadingsVal(
+                AttrVal( $d, "msgRecipient", "" ),
+                $n,
+
+                # default
+                $default
+            )
+        )
+      );
+}
+
+sub msgConfig_QueueAdd(@) {
+    my (
+        $msgA,          $params,   $datetime,  $msgID,
+        $minorID,       $type,     $recipient, $subRecipient,
+        $termRecipient, $priority, $title,     $msg
+    ) = @_;
+
+    my $name = $modules{msgConfig}{defptr}{NAME};
+
+    return 0 if ( $defs{$name}{queue}{$recipient}{"$msgID.$minorID"} );
+
+    $defs{$name}{queue}{$recipient}{"$msgID.$minorID"} = {
+        msgOrig           => $msgA,
+        msgOrigParams     => $params,
+        datetime          => $datetime,
+        majorId           => $msgID,
+        minorId           => $minorID,
+        type              => $type,
+        recipient         => $recipient,
+        subRecipient      => $subRecipient,
+        terminalRecipient => $termRecipient,
+        priority          => $priority,
+        title             => $title,
+        message           => $msg,
+    };
+
+    delete $defs{$name}{queue}{$recipient}{"$msgID.$minorID"}{msgOrigParams}
+      {msgQID};
+
+    readingsSingleUpdate(
+        $defs{$name},
+        "Q_" . $recipient,
+        scalar keys %{ $defs{$name}{queue}{$recipient} }, 1
+    );
+
+    return 1;
+}
+
+sub msgConfig_QueueReleaseMsgId($$) {
+    my ( $recipient, $msgID ) = @_;
+
+    my $name = $modules{msgConfig}{defptr}{NAME};
+
+    return 0
+      unless ( $defs{$name}{queue}
+        && $defs{$name}{queue}{$recipient}
+        && $defs{$name}{queue}{$recipient}{$msgID} );
+
+    delete $defs{$name}{queue}{$recipient}{$msgID};
+    my $c = scalar keys %{ $defs{$name}{queue}{$recipient} };
+    delete $defs{$name}{queue}{$recipient} unless ($c);
+
+    readingsSingleUpdate( $defs{$name}, "Q_" . $recipient, $c, 1 );
+
+    return 1;
 }
 
 1;
@@ -652,7 +843,6 @@ This next step is basically to set attribute msgResidentsDevice to refer to this
           <li>
             <b>createSwitcherDev</b> &nbsp;&nbsp;<de|en>&nbsp;&nbsp;<br>
             Creates a pre-configured Dummy device named HouseAnn and updates globalMsg attribute msgSwitcherDev to refer to it.
-            
           </li>
         </ul>
       </ul>

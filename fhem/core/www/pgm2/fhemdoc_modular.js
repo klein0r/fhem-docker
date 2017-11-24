@@ -1,5 +1,8 @@
+"use strict";
+// $Id: fhemdoc_modular.js 13576 2017-03-02 09:43:52Z rudolfkoenig $
+
 var fd_loadedHash={}, fd_loadedList=[], fd_all={}, fd_allCnt, fd_progress=0, 
-    fd_lang, fd_offsets=[], fd_scrolled=0, fd_modLinks={};
+    fd_lang, fd_offsets=[], fd_scrolled=0, fd_modLinks={}, csrfToken="X";
 
 
 function
@@ -19,15 +22,19 @@ fd_status(txt)
 function
 fd_fC(fn, callback)
 {
+  console.log("fd_fC:"+fn);
   var p = location.pathname;
-  var cmd = p.substr(0,p.indexOf('/doc'))+
-                '?cmd='+fn+
-                (typeof(csrfToken)!='undefined'?csrfToken:'')+
-                '&XHR=1';
-  var ax = $.ajax({ cache:false, url:cmd });
-  ax.done(callback);
-  ax.fail(function(req, stat, err) {
-    console.log("FAIL ERR:"+err+" STAT:"+stat);
+  var cmd = p.substr(0,p.indexOf('/doc'))+'?cmd='+fn+csrfToken+'&XHR=1';
+  $.ajax({
+    url:cmd, method:'POST', cache:false, success:callback,
+    error:function(xhr, status, err) {
+      if(xhr.status == 400 && csrfToken) {
+        csrfToken = "";
+        fd_csrfRefresh(function(){fd_fC(fn, callback)});
+      } else {
+        console.log("FAIL ERR:"+xhr.status+" STAT:"+status);
+      }
+    }
   });
 }
 
@@ -153,6 +160,21 @@ loadOtherLang()
   loadOneDoc(mname, fd_loadedHash[mname]=="EN" ? "DE" : "EN");
 }
 
+function
+fd_csrfRefresh(callback)
+{
+  console.log("fd_csrfRefresh");
+  $.ajax({
+    url:location.pathname.replace(/docs.*/,'')+"?XHR=1",
+    success: function(data, textStatus, request){
+      csrfToken = request.getResponseHeader('x-fhem-csrftoken');
+      csrfToken = csrfToken ? ("&fwcsrf="+csrfToken) : "";
+      if(callback)
+        callback();
+    }
+  });
+}
+
 $(document).ready(function(){
   var p = location.pathname;
   fd_lang = p.substring(p.indexOf("commandref")+11,p.indexOf(".html"));
@@ -204,4 +226,6 @@ $(document).ready(function(){
     if(!fd_scrolled++)
       setTimeout(checkScroll, 500);
   };
+
+  fd_csrfRefresh();
 });

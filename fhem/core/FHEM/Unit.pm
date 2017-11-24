@@ -1,15 +1,15 @@
-# $Id: Unit.pm 13272 2017-01-29 17:28:13Z loredo $
-
+###############################################################################
+# $Id: Unit.pm 14136 2017-04-29 16:31:46Z loredo $
+package main;
 use strict;
 use warnings;
-use Scalar::Util qw(looks_like_number);
-use UConv;
 use Data::Dumper;
 use utf8;
 use Encode qw(encode_utf8 decode_utf8);
 
-sub Unit_Initialize() {
-}
+use UConv;
+
+sub Unit_Initialize() { }
 
 # scale helper for metric numbers
 my $scales_m = {
@@ -802,32 +802,32 @@ my $rtypes = {
     weekday => {
         ref_base => 900,
         symbol   => {
-            de => [ 'So',  'Mo',  'Di',  'Mi',  'Do',  'Fr',  'Sa' ],
-            en => [ 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat' ],
+            de => [ 'So',  'Mo',  'Di',  'Mi',  'Do',  'Fr',  'Sa',  'So' ],
+            en => [ 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ],
         },
         txt => {
-            de => [ 'So',  'Mo',  'Di',  'Mi',  'Do',  'Fr',  'Sa' ],
-            en => [ 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat' ],
+            de => [ 'So',  'Mo',  'Di',  'Mi',  'Do',  'Fr',  'Sa',  'So' ],
+            en => [ 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ],
         },
         txt_long => {
             de => [
                 'Sonntag',    'Montag',  'Dienstag', 'Mittwoch',
-                'Donnerstag', 'Freitag', 'Samstag'
+                'Donnerstag', 'Freitag', 'Samstag',  'Sonntag'
             ],
             en => [
-                'Sunday',   'Monday', 'Tuesday', 'Wednesday',
-                'Thursday', 'Friday', 'Saturday'
+                'Sunday',   'Monday', 'Tuesday',  'Wednesday',
+                'Thursday', 'Friday', 'Saturday', 'Sunday'
             ],
         },
         scope => {
             de => [
-                '^(So|Son|Sonntag|0)$',    '^(Mo|Mon|Montag|1)$',
+                '^(So|Son|Sonntag|0|7)$',  '^(Mo|Mon|Montag|1)$',
                 '^(Di|Die|Dienstag|2)$',   '^(Mi|Mit|Mittwoch|3)$',
                 '^(Do|Don|Donnerstag|4)$', '^(Fr|Fre|Freitag|5)$',
-                '^(Sa|Sam|Samstag|6)$'
+                '^(Sa|Sam|Samstag|6)$',
             ],
             en => [
-                '^(Sun|Su|Sunday|0)$',   '^(Mon|Mo|Monday|1)$',
+                '^(Sun|Su|Sunday|0|7)$', '^(Mon|Mo|Monday|1)$',
                 '^(Tue|Tu|Tuesday|2)$',  '^(Wed|We|Wednesday|3)$',
                 '^(Thu|Th|Thursday|4)$', '^(Fri|Fr|Friday|5)$',
                 '^(Sat|Sa|Saturday|6)$'
@@ -846,35 +846,35 @@ my $rtypes = {
     weekday_iso => {
         ref_base => 900,
         symbol   => {
-            de => [ 'So',  'Mo',  'Di',  'Mi',  'Do',  'Fr',  'Sa' ],
-            en => [ 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat' ],
+            de => [ 'So',  'Mo',  'Di',  'Mi',  'Do',  'Fr',  'Sa',  'So' ],
+            en => [ 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ],
         },
         txt => {
-            de => [ 'So',  'Mo',  'Di',  'Mi',  'Do',  'Fr',  'Sa' ],
-            en => [ 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat' ],
+            de => [ 'So',  'Mo',  'Di',  'Mi',  'Do',  'Fr',  'Sa',  'So' ],
+            en => [ 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ],
         },
         txt_long => {
             de => [
                 'Sonntag',    'Montag',  'Dienstag', 'Mittwoch',
-                'Donnerstag', 'Freitag', 'Samstag'
+                'Donnerstag', 'Freitag', 'Samstag',  'Sonntag'
             ],
             en => [
-                'Sunday',   'Monday', 'Tuesday', 'Wednesday',
-                'Thursday', 'Friday', 'Saturday'
+                'Sunday',   'Monday', 'Tuesday',  'Wednesday',
+                'Thursday', 'Friday', 'Saturday', 'Sunday'
             ],
         },
         scope => {
             de => [
-                '^(So|Son|Sonntag|6)$',    '^(Mo|Mon|Montag|0)$',
-                '^(Di|Die|Dienstag|1)$',   '^(Mi|Mit|Mittwoch|2)$',
-                '^(Do|Don|Donnerstag|3)$', '^(Fr|Fre|Freitag|4)$',
-                '^(Sa|Sam|Samstag|5)$'
+                '^(So|Son|Sonntag|7)$',    '^(Mo|Mon|Montag|1)$',
+                '^(Di|Die|Dienstag|2)$',   '^(Mi|Mit|Mittwoch|3)$',
+                '^(Do|Don|Donnerstag|4)$', '^(Fr|Fre|Freitag|5)$',
+                '^(Sa|Sam|Samstag|6)$'
             ],
             en => [
-                '^(Sun|Su|Sunday|6)$',   '^(Mon|Mo|Monday|0)$',
-                '^(Tue|Tu|Tuesday|1)$',  '^(Wed|We|Wednesday|2)$',
-                '^(Thu|Th|Thursday|3)$', '^(Fri|Fr|Friday|4)$',
-                '^(Sat|Sa|Saturday|5)$'
+                '^(Sun|Su|Sunday|7)$',   '^(Mon|Mo|Monday|1)$',
+                '^(Tue|Tu|Tuesday|2)$',  '^(Wed|We|Wednesday|3)$',
+                '^(Thu|Th|Thursday|4)$', '^(Fri|Fr|Friday|5)$',
+                '^(Sat|Sa|Saturday|6)$'
             ],
         },
         tmpl              => '%txt%',
@@ -1038,6 +1038,18 @@ my $rtypes = {
                 'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
                 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'
             ],
+            nl => [
+                'N', 'NNO', 'NO', 'ONO', 'O', 'OZO', 'ZO', 'ZZO',
+                'Z', 'ZZW', 'ZW', 'WZW', 'W', 'WNW', 'NW', 'NNW'
+            ],
+            fr => [
+                'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+                'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'
+            ],
+            pl => [
+                'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+                'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'
+            ],
         },
         txt_long => {
             de => [
@@ -1055,6 +1067,18 @@ my $rtypes = {
                 'Southwest', 'West-Southwest',
                 'West',      'West-Northwest',
                 'Northwest', 'North-Northwest'
+            ],
+            nl => [
+                'N', 'NNO', 'NO', 'ONO', 'O', 'OZO', 'ZO', 'ZZO',
+                'Z', 'ZZW', 'ZW', 'WZW', 'W', 'WNW', 'NW', 'NNW'
+            ],
+            fr => [
+                'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+                'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'
+            ],
+            pl => [
+                'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+                'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'
             ],
         },
 
@@ -1298,10 +1322,11 @@ my $rtypes = {
         ref_base => 900,
         txt      => {
             de => [ 'trocken', 'niedrig', 'optimal', 'hoch', 'feucht' ],
-            en => [ 'dry',     'low',     'optimal', 'high', 'wet' ],
+            en => [ 'dry',     'low',     'ideal',   'high', 'wet' ],
         },
         scope => [
-            '^(dry|0)$', '^(low|1)$', '^(optimal|2)$', '^(high|3)$',
+            '^(dry|0)$',           '^(low|1)$',
+            '^(ideal|optimal|2)$', '^(high|3)$',
             '^(wet|4)$'
         ],
         rtype_description => {
@@ -1327,6 +1352,26 @@ my $rtypes = {
         },
     },
 
+    # color
+    rgbhex => {
+        ref_base          => 900,
+        rtype_description => {
+            de => 'RGB Farbwert in Hex Notation',
+            en => 'RGB color value in Hex notation',
+        },
+        scope => '^#?(([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2}))$',
+    },
+
+    rgb => {
+        ref_base          => 900,
+        rtype_description => {
+            de => 'RGB Farbwert in Dezimal Notation',
+            en => 'RGB color value in decimal notation',
+        },
+        scope =>
+'^[\s\t\n ]*(?:rgb|RGB)?[\s\t\n ]*\(?[\s\t\n ]*((?:([0-9]{1,2}|1[0-9]{1,2}|2[0-4][0-9]|25[0-5])[\s\t\n ]*,?[\s\t\n ]*)(?:([0-9]{1,2}|1[0-9]{1,2}|2[0-4][0-9]|25[0-5])[\s\t\n ]*,?[\s\t\n ]*)(?:([0-9]{1,2}|1[0-9]{1,2}|2[0-4][0-9]|25[0-5])))[\s\t\n ]*\)?[\s\t\n ]*$',
+    },
+
     # logical operators
     bool => {
         ref_base => 26,
@@ -1334,7 +1379,7 @@ my $rtypes = {
             de => [ 'falsch', 'wahr' ],
             en => [ 'false',  'true' ],
         },
-        scope             => [ '^(false|no|0)$', '^(true|yes|1)$' ],
+        scope             => [ '^(false|n|no|0)$', '^(true|y|yes|1)$' ],
         rtype_description => {
             de => 'Boolesch wahr/falsch',
             en => 'Boolean true/false',
@@ -1354,7 +1399,7 @@ my $rtypes = {
         },
     },
 
-    # numbering
+    # decimal numbering
     short => {
         ref_base          => 25,
         format            => '%i',
@@ -1437,6 +1482,33 @@ my $rtypes = {
             en => 'percent',
         },
         scope => { minValue => 0, maxValue => 100 },
+    },
+
+    # binary numbering
+    bin => {
+        rtype_description => {
+            de => 'Binärnummer',
+            en => 'Binary number',
+        },
+        scope => '^[01]+$',
+    },
+
+    # octal numbering
+    oct => {
+        rtype_description => {
+            de => 'Oktalnummer',
+            en => 'Octal number',
+        },
+        scope => '^[0-7]+$',
+    },
+
+    # hexadecimal numbering
+    hex => {
+        rtype_description => {
+            de => 'Hexadezimalnummer',
+            en => 'Hexadecimal number',
+        },
+        scope => '^[0-9a-fA-F]+$',
     },
 
     # currency
@@ -1641,6 +1713,7 @@ my $rtypes = {
     inhg => {
         ref_base => 12,
         suffix   => 'inHg',
+        format   => '%.2f',
         txt      => {
             de => 'Zoll Quecksilbersäule',
             en => 'Inches of Mercury',
@@ -2808,9 +2881,9 @@ sub rname2rtype ($$@) {
     # remove some prefix or other values to
     # flatten reading name
     $r =~ s/^fc\d+_//i;
-    $r =~ s/_(min|max|avg|sum|cum|avg\d+m|sum\d+m|cum\d+m)_/_/i;
-    $r =~ s/^(min|max|avg|sum|cum|avg\d+m|sum\d+m|cum\d+m)_//i;
-    $r =~ s/_(min|max|avg|sum|cum|avg\d+m|sum\d+m|cum\d+m)$//i;
+    $r =~ s/_(min|max|avg|sum|cum|min\d+m|max\d+m|avg\d+m|sum\d+m|cum\d+m)_/_/i;
+    $r =~ s/^(min|max|avg|sum|cum|min\d+m|max\d+m|avg\d+m|sum\d+m|cum\d+m)_//i;
+    $r =~ s/_(min|max|avg|sum|cum|min\d+m|max\d+m|avg\d+m|sum\d+m|cum\d+m)$//i;
     $r =~ s/.*[-_](temp)$/$1/i;
 
     # rename capital letter containing readings
@@ -4350,7 +4423,9 @@ sub Unit_DbLog_split($$) {
     }
 
     # exclude sum/cum and avg events
-    elsif ( $event =~ /^.*(min|max|avg|sum|cum|avg\d+m|sum\d+m|cum\d+m): +.*/ )
+    elsif ( $event =~
+        /^.*(min|max|avg|sum|cum|min\d+m|max\d+m|avg\d+m|sum\d+m|cum\d+m): +.*/
+      )
     {
         Log3 $name, 5, "Unit_DbLog_split $name: Ignoring sum/avg event $event";
         return undef;
@@ -4381,7 +4456,7 @@ sub Unit_DbLog_split($$) {
     # general event handling
     if ( !defined($value)
         && $event =~
-/^(.+): +[\D]*(\d+\.?\d*)[\s\u202F\u00A0]*[\[\{\(]?[\s\u202F\u00A0]*([\w\°\%\^\/\\]*).*/
+m/^(.+): +[\D]*(\d+\.?\d*)[\s\u202F\u00A0]*[\[\{\(]?[\s\u202F\u00A0]*([\w\°\%\^\/\\]*).*/
         && defined($1)
         && defined($2) )
     {
@@ -4390,10 +4465,10 @@ sub Unit_DbLog_split($$) {
         $unit    = defined($3) ? $3 : "";
     }
 
-    unless ( defined($value) && looks_like_number($value) ) {
+    if ( !defined($value) || !looks_like_number($value) ) {
         Unit_Log3( $name, $reading, undef, 10,
 "Unit_DbLog_split $name: Ignoring event $event: value $value does not look like a number"
-        );
+        ) if ( defined($value) );
         return undef;
     }
 
@@ -4458,7 +4533,7 @@ sub CommandSetReadingDesc($@) {
     my @rets;
     my $last;
     foreach my $name ( devspec2array( $a->[0], $cl ) ) {
-        if ( !defined( $defs{$name} ) ) {
+        unless ( IsDevice($name) ) {
             push @rets, "Please define $name first";
             next;
         }
@@ -4524,7 +4599,7 @@ sub CommandDeleteReadingDesc($@) {
     my @rets;
     my $last;
     foreach my $name ( devspec2array( $a->[0], $cl ) ) {
-        if ( !defined( $defs{$name} ) ) {
+        unless ( IsDevice($name) ) {
             push @rets, "Please define $name first";
             next;
         }

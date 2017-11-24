@@ -1,82 +1,25 @@
-# $Id: 98_GEOFANCY.pm 13333 2017-02-05 10:45:36Z loredo $
-##############################################################################
-#
-#     98_GEOFANCY.pm
-#     An FHEM Perl module to receive geofencing webhooks from geofancy.com.
-#
-#     Copyright by Julian Pawlowski
-#     e-mail: julian.pawlowski at gmail.com
-#
-#     Based on HTTPSRV from Dr. Boris Neubert
-#
-#     This file is part of fhem.
-#
-#     Fhem is free software: you can redistribute it and/or modify
-#     it under the terms of the GNU General Public License as published by
-#     the Free Software Foundation, either version 2 of the License, or
-#     (at your option) any later version.
-#
-#     Fhem is distributed in the hope that it will be useful,
-#     but WITHOUT ANY WARRANTY; without even the implied warranty of
-#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#     GNU General Public License for more details.
-#
-#     You should have received a copy of the GNU General Public License
-#     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
-#
-##############################################################################
-
+###############################################################################
+# $Id: 98_GEOFANCY.pm 14110 2017-04-26 06:54:58Z loredo $
 package main;
-
 use strict;
 use warnings;
-use vars qw(%data);
-use HttpUtils;
-use Time::Local;
 use Data::Dumper;
+use Time::Local;
 
-sub GEOFANCY_Set($@);
-sub GEOFANCY_Define($$);
-sub GEOFANCY_Undefine($$);
+use HttpUtils;
 
-#########################
-sub GEOFANCY_addExtension($$$) {
-    my ( $name, $func, $link ) = @_;
-
-    my $url = "/$link";
-    Log3 $name, 2, "Registering GEOFANCY $name for URL $url...";
-    $data{FWEXT}{$url}{deviceName} = $name;
-    $data{FWEXT}{$url}{FUNC}       = $func;
-    $data{FWEXT}{$url}{LINK}       = $link;
-}
-
-#########################
-sub GEOFANCY_removeExtension($) {
-    my ($link) = @_;
-
-    my $url  = "/$link";
-    my $name = $data{FWEXT}{$url}{deviceName};
-    Log3 $name, 2, "Unregistering GEOFANCY $name for URL $url...";
-    delete $data{FWEXT}{$url};
-}
-
-###################################
+# initialize ##################################################################
 sub GEOFANCY_Initialize($) {
     my ($hash) = @_;
-
-    Log3 $hash, 5, "GEOFANCY_Initialize: Entering";
-
-    $hash->{SetFn}    = "GEOFANCY_Set";
     $hash->{DefFn}    = "GEOFANCY_Define";
     $hash->{UndefFn}  = "GEOFANCY_Undefine";
+    $hash->{SetFn}    = "GEOFANCY_Set";
     $hash->{AttrList} = "devAlias disable:0,1 " . $readingFnAttributes;
 }
 
-###################################
+# regular Fn ##################################################################
 sub GEOFANCY_Define($$) {
-
     my ( $hash, $def ) = @_;
-
     my @a = split( "[ \t]+", $def, 5 );
 
     return "Usage: define <name> GEOFANCY <infix>"
@@ -94,17 +37,12 @@ sub GEOFANCY_Define($$) {
     return undef;
 }
 
-###################################
 sub GEOFANCY_Undefine($$) {
-
     my ( $hash, $name ) = @_;
-
     GEOFANCY_removeExtension( $hash->{fhem}{infix} );
-
     return undef;
 }
 
-###################################
 sub GEOFANCY_Set($@) {
     my ( $hash, @a ) = @_;
     my $name  = $hash->{NAME};
@@ -145,13 +83,7 @@ sub GEOFANCY_Set($@) {
     return undef;
 }
 
-############################################################################################################
-#
-#   Begin of helper functions
-#
-############################################################################################################
-
-###################################
+# module Fn ####################################################################
 sub GEOFANCY_CGI() {
 
 # Locative.app (https://itunes.apple.com/us/app/locative/id725198453?mt=8)
@@ -409,63 +341,49 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
     # update ROOMMATE devices associated with this device UUID
     my $matchingResident = 0;
     delete $hash->{ROOMMATES};
-    if ( defined( $modules{ROOMMATE}{defptr} ) ) {
-        Log3 $name, 5, "GEOFANCY $name: found defptr for ROOMMATE\n"
-          . Dumper( $modules{ROOMMATE}{defptr} );
+    foreach my $gdev ( devspec2array("rr_geofenceUUIDs=.+") ) {
+        next unless ( IsDevice( $gdev, "ROOMMATE" ) );
+        Log3 $name, 5, "GEOFANCY $name: Checking rr_geofenceUUIDs for $gdev";
+        my $geofenceUUIDs = AttrVal( $gdev, "rr_geofenceUUIDs", undef );
 
-        while ( my ( $key, $value ) = each %{ $modules{ROOMMATE}{defptr} } ) {
-            Log3 $name, 5, "GEOFANCY $name: Checking rr_geofenceUUIDs for $key";
+        $hash->{ROOMMATES} .= ",$gdev" if $hash->{ROOMMATES};
+        $hash->{ROOMMATES} = $gdev if !$hash->{ROOMMATES};
 
-            my $geofenceUUIDs = AttrVal( $key, "rr_geofenceUUIDs", undef );
-            next if !$geofenceUUIDs;
-
-            Log3 $name, 5,
-"GEOFANCY $name: ROOMMATE device $key has assigned UUIDs: $geofenceUUIDs";
-
-            $hash->{ROOMMATES} .= ",$key" if $hash->{ROOMMATES};
-            $hash->{ROOMMATES} = $key if !$hash->{ROOMMATES};
-
-            my @UUIDs = split( ',', $geofenceUUIDs );
-
-            if (@UUIDs) {
-                foreach (@UUIDs) {
-                    if ( $_ eq $device ) {
-                        Log3 $name, 4,
-"GEOFANCY $name: Found matching UUID at ROOMMATE device $key";
-                        $deviceAlias      = $key;
-                        $matchingResident = 1;
-                        last;
-                    }
+        my @UUIDs = split( ',', $geofenceUUIDs );
+        if (@UUIDs) {
+            foreach (@UUIDs) {
+                if ( $_ eq $device ) {
+                    Log3 $name, 4,
+                      "GEOFANCY $name: "
+                      . "Found matching UUID at ROOMMATE device $gdev";
+                    $deviceAlias      = $gdev;
+                    $matchingResident = 1;
+                    last;
                 }
             }
         }
     }
 
-    delete $hash->{GUESTS};
-
     # update GUEST devices associated with this device UUID
-    if ( $matchingResident == 0 && defined( $modules{GUEST}{defptr} ) ) {
-        while ( my ( $key, $value ) = each %{ $modules{GUEST}{defptr} } ) {
-            my $geofenceUUIDs = AttrVal( $key, "rg_geofenceUUIDs", undef );
-            next if !$geofenceUUIDs;
+    delete $hash->{GUESTS};
+    foreach my $gdev ( devspec2array("rg_geofenceUUIDs=.+") ) {
+        next unless ( IsDevice( $gdev, "GUEST" ) );
+        Log3 $name, 5, "GEOFANCY $name: Checking rg_geofenceUUIDs for $gdev";
+        my $geofenceUUIDs = AttrVal( $gdev, "rg_geofenceUUIDs", undef );
 
-            Log3 $name, 5,
-"GEOFANCY $name: GUEST device $key has assigned UUIDs: $geofenceUUIDs";
+        $hash->{GUESTS} .= ",$gdev" if $hash->{GUESTS};
+        $hash->{GUESTS} = $gdev if !$hash->{GUESTS};
 
-            $hash->{GUESTS} .= ",$key" if $hash->{GUESTS};
-            $hash->{GUESTS} = $key if !$hash->{GUESTS};
-
-            my @UUIDs = split( ',', $geofenceUUIDs );
-
-            if (@UUIDs) {
-                foreach (@UUIDs) {
-                    if ( $_ eq $device ) {
-                        Log3 $name, 4,
-"GEOFANCY $name: Found matching UUID at GUEST device $key";
-                        $deviceAlias      = $key;
-                        $matchingResident = 1;
-                        last;
-                    }
+        my @UUIDs = split( ',', $geofenceUUIDs );
+        if (@UUIDs) {
+            foreach (@UUIDs) {
+                if ( $_ eq $device ) {
+                    Log3 $name, 4,
+                      "GEOFANCY $name: "
+                      . "Found matching UUID at GUESTS device $gdev";
+                    $deviceAlias      = $gdev;
+                    $matchingResident = 1;
+                    last;
                 }
             }
         }
@@ -478,18 +396,13 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
     delete $hash->{helper}{device_names}
       if $hash->{helper}{device_names};
 
-    if ( defined( $attr{$name}{devAlias} ) ) {
-        my @devices = split( ' ', $attr{$name}{devAlias} );
-
-        if (@devices) {
-            foreach (@devices) {
-                my @device = split( ':', $_ );
-                $hash->{helper}{device_aliases}{ $device[0] } =
-                  $device[1];
-                $hash->{helper}{device_names}{ $device[1] } =
-                  $device[0];
-            }
-        }
+    my @devices = split( ' ', AttrVal( $name, "devAlias", "" ) );
+    foreach (@devices) {
+        my @device = split( ':', $_ );
+        $hash->{helper}{device_aliases}{ $device[0] } =
+          $device[1];
+        $hash->{helper}{device_names}{ $device[1] } =
+          $device[0];
     }
 
     $deviceAlias = $hash->{helper}{device_aliases}{$device}
@@ -565,22 +478,16 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
 
             # backup last known location if not "underway"
             $currReading = "currLoc_" . $deviceAlias;
-            if ( defined( $hash->{READINGS}{$currReading}{VAL} )
-                && $hash->{READINGS}{$currReading}{VAL} ne "underway" )
-            {
+            my $currVal = ReadingsVal( $name, $currReading, undef );
+            if ( $currVal && $currVal ne "underway" ) {
                 foreach ( 'Loc', 'LocLat', 'LocLong', 'LocAddr' ) {
                     $currReading = "curr" . $_ . "_" . $deviceAlias;
                     $lastReading = "last" . $_ . "_" . $deviceAlias;
-                    readingsBulkUpdate( $hash, $lastReading,
-                        $hash->{READINGS}{$currReading}{VAL} )
-                      if ( defined( $hash->{READINGS}{$currReading}{VAL} ) );
+                    readingsBulkUpdate( $hash, $lastReading, $currVal );
                 }
                 $currReading = "currLocTime_" . $deviceAlias;
-                readingsBulkUpdate(
-                    $hash,
-                    "lastLocArr_" . $deviceAlias,
-                    $hash->{READINGS}{$currReading}{VAL}
-                ) if ( defined( $hash->{READINGS}{$currReading}{VAL} ) );
+                readingsBulkUpdate( $hash, "lastLocArr_" . $deviceAlias,
+                    $currVal );
                 readingsBulkUpdate( $hash, "lastLocDep_" . $deviceAlias,
                     $time );
             }
@@ -606,15 +513,10 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
             || lc($entry) eq "test" );
         $locName = $id if ( $locName eq "" );
 
-        ROOMMATE_SetLocation(
+        RESIDENTStk_SetLocation(
             $deviceAlias, $locName, $trigger, $id, $time,
             $lat,         $long,    $address, $device
-        ) if ( $defs{$deviceAlias}{TYPE} eq "ROOMMATE" );
-
-        GUEST_SetLocation(
-            $deviceAlias, $locName, $trigger, $id, $time,
-            $lat,         $long,    $address, $device
-        ) if ( $defs{$deviceAlias}{TYPE} eq "GUEST" );
+        ) if ( IsDevice( $deviceAlias, "ROOMMATE|GUEST" ) );
     }
 
     $msg = lc($entry) . " OK";
@@ -622,6 +524,25 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
       if ( lc($entry) eq "test" );
 
     return ( "text/plain; charset=utf-8", $msg );
+}
+
+sub GEOFANCY_addExtension($$$) {
+    my ( $name, $func, $link ) = @_;
+
+    my $url = "/$link";
+    Log3 $name, 2, "Registering GEOFANCY $name for URL $url...";
+    $data{FWEXT}{$url}{deviceName} = $name;
+    $data{FWEXT}{$url}{FUNC}       = $func;
+    $data{FWEXT}{$url}{LINK}       = $link;
+}
+
+sub GEOFANCY_removeExtension($) {
+    my ($link) = @_;
+
+    my $url  = "/$link";
+    my $name = $data{FWEXT}{$url}{deviceName};
+    Log3 $name, 2, "Unregistering GEOFANCY $name for URL $url...";
+    delete $data{FWEXT}{$url};
 }
 
 sub GEOFANCY_ISO8601UTCtoLocal ($) {

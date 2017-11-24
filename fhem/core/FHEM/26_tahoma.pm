@@ -1,4 +1,4 @@
-# $Id: 26_tahoma.pm 13224 2017-01-24 23:05:57Z mike3436 $
+# $Id: 26_tahoma.pm 15245 2017-10-13 18:26:18Z mike3436 $
 ################################################################
 #
 #  Copyright notice
@@ -42,6 +42,13 @@
 # 2017-01-24 V 0212 start scene with launchActionGroup so cancel is working on scenes now
 # 2017-01-24 V 0212 Attribut interval used to disable or enable refreshAllstates
 # 2017-01-24 V 0212 Setup changes recognized for reading places
+# 2017-03-23 V 0213 username and password stored encrypted
+# 2017-05-07 V 0214 encryption can be disabled by new attribut cryptLoginData
+# 2017-05-07 V 0214 correct parameters of setClosureAndLinearSpeed caused syntax error
+# 2017-07-01 V 0215 creation of fid and device names for first autocreate extended
+# 2017-07-08 V 0215 login delay increased automatically up to 160s if login failed
+# 2017-07-08 V 0215 default set commands on devices without commands deleted
+# 2017-10-08 V 0216 group definition added
 
 package main;
 
@@ -82,19 +89,39 @@ sub tahoma_Initialize($)
                       "url ".
                       "placeClasses ".
                       "levelInvert ".
+                      "cryptLoginData ".
                       "userAgent ";
   $hash->{AttrList} .= $readingFnAttributes;
 }
 
 #####################################
 
+sub tahoma_fhemIdFromDevice($)
+{
+  my @device = split "/", shift;
+  $device[-1] =~ s/\W/_/g;
+  return $device[-1] if (@device <= 4);
+  $device[-2] =~ s/\W/_/g;
+  return $device[-2].'_'.$device[-1] if (@device <= 5);;
+  $device[-3] =~ s/\W/_/g;
+  return $device[-3].'_'.$device[-2].'_'.$device[-1];
+}
+
+sub tahoma_fhemIdFromOid($)
+{
+  my @oid = split "-", shift;
+  $oid[0] =~ s/\W/_/g;
+  return $oid[0];
+}
+
+my $groupId = 123001;
 sub tahoma_Define($$)
 {
   my ($hash, $def) = @_;
 
   my @a = split("[ \t][ \t]*", $def);
 
-  my $ModuleVersion = "0212";
+  my $ModuleVersion = "0216";
   
   my $subtype;
   my $name = $a[0];
@@ -102,7 +129,7 @@ sub tahoma_Define($$)
     $subtype = "DEVICE";
 
     my $device = $a[3];
-    my $fid = (split "/", $device)[-1];
+    my $fid = tahoma_fhemIdFromDevice($device);
 
     $hash->{device} = $device;
     $hash->{fid} = $fid;
@@ -118,7 +145,7 @@ sub tahoma_Define($$)
     $subtype = "PLACE";
 
     my $oid = $a[@a-1];
-    my $fid = (split "-", $oid)[0];
+    my $fid = tahoma_fhemIdFromOid($oid);
 
     $hash->{oid} = $oid;
     $hash->{fid} = $fid;
@@ -130,11 +157,28 @@ sub tahoma_Define($$)
 
     $modules{$hash->{TYPE}}{defptr}{"$fid"} = $hash;
 
+  } elsif( $a[2] eq "GROUP" && @a == 4 ) {
+    $subtype = "GROUP";
+
+    my $oid = $a[@a-1];
+    my $fid = 'group' . "$groupId";
+    $groupId++;
+
+    $hash->{oid} = $oid;
+    $hash->{fid} = $fid;
+
+    $hash->{INTERVAL} = 0;
+
+    my $d = $modules{$hash->{TYPE}}{defptr}{"$fid"};
+    return "group oid $oid already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
+
+    $modules{$hash->{TYPE}}{defptr}{"$fid"} = $hash;
+
   } elsif( $a[2] eq "SCENE" && @a == 4 ) {
     $subtype = "SCENE";
 
     my $oid = $a[@a-1];
-    my $fid = (split "-", $oid)[0];
+    my $fid = tahoma_fhemIdFromOid($oid);
 
     $hash->{oid} = $oid;
     $hash->{fid} = $fid;
@@ -151,11 +195,11 @@ sub tahoma_Define($$)
 
     my $username = $a[@a-2];
     my $password = $a[@a-1];
-
+    
     $hash->{Clients} = ":tahoma:";
 
-    $hash->{username} = $username;
-    $hash->{password} = $password;
+    $hash->{helper}{username} = $username;
+    $hash->{helper}{password} = $password;
     $hash->{BLOCKING} = 0;
     $hash->{INTERVAL} = 0;
     $hash->{VERSION} = $ModuleVersion;
@@ -177,6 +221,7 @@ sub tahoma_Define($$)
     tahoma_connect($hash) if( $hash->{SUBTYPE} eq "ACCOUNT" );
     tahoma_initDevice($hash) if( $hash->{SUBTYPE} eq "DEVICE" );
     tahoma_initDevice($hash) if( $hash->{SUBTYPE} eq "PLACE" );
+    tahoma_initDevice($hash) if( $hash->{SUBTYPE} eq "GROUP" );
     tahoma_initDevice($hash) if( $hash->{SUBTYPE} eq "SCENE" );
   }
 
@@ -190,9 +235,28 @@ sub tahoma_Notify($$)
   return if($dev->{NAME} ne "global");
   return if(!grep(m/^INITIALIZED|REREADCFG$/, @{$dev->{CHANGED}}));
 
+  if( $hash->{SUBTYPE} eq "ACCOUNT" )
+  {
+    my $name = $hash->{NAME};
+    my $username = $hash->{helper}{username};
+    my $password = $hash->{helper}{password};
+    if ((defined $attr{$name}{cryptLoginData}) && (not $attr{$name}{cryptLoginData}))
+    {
+      $username = tahoma_decrypt($username);
+      $password = tahoma_decrypt($password);
+    }
+    else
+    {
+      $username = tahoma_encrypt($username);
+      $password = tahoma_encrypt($password);
+    }
+    $hash->{DEF} = "$hash->{SUBTYPE} $username $password";
+  }
+  
   tahoma_connect($hash) if( $hash->{SUBTYPE} eq "ACCOUNT" );
   tahoma_initDevice($hash) if( $hash->{SUBTYPE} eq "DEVICE" );
   tahoma_initDevice($hash) if( $hash->{SUBTYPE} eq "PLACE" );
+  tahoma_initDevice($hash) if( $hash->{SUBTYPE} eq "GROUP" );
   tahoma_initDevice($hash) if( $hash->{SUBTYPE} eq "SCENE" );
 }
 
@@ -200,9 +264,10 @@ sub tahoma_Undefine($$)
 {
   my ($hash, $arg) = @_;
 
-  delete( $modules{$hash->{TYPE}}{defptr}{"$hash->{device}"} ) if( $hash->{SUBTYPE} eq "DEVICE" );
-  delete( $modules{$hash->{TYPE}}{defptr}{"$hash->{oid}"} ) if( $hash->{SUBTYPE} eq "PLACE" );
-  delete( $modules{$hash->{TYPE}}{defptr}{"$hash->{oid}"} ) if( $hash->{SUBTYPE} eq "SCENE" );
+  delete( $modules{$hash->{TYPE}}{defptr}{"$hash->{fid}"} ) if( $hash->{SUBTYPE} eq "DEVICE" );
+  delete( $modules{$hash->{TYPE}}{defptr}{"$hash->{fid}"} ) if( $hash->{SUBTYPE} eq "PLACE" );
+  delete( $modules{$hash->{TYPE}}{defptr}{"$hash->{fid}"} ) if( $hash->{SUBTYPE} eq "GROUP" );
+  delete( $modules{$hash->{TYPE}}{defptr}{"$hash->{fid}"} ) if( $hash->{SUBTYPE} eq "SCENE" );
 
   return undef;
 }
@@ -222,14 +287,16 @@ sub tahoma_login($)
   $hash->{userAgent} = $attr{$name}{userAgent} if (defined $attr{$name}{userAgent});
   $hash->{timeout} = 10;
   $hash->{HTTPCookies} = undef;
-
+  $hash->{loginRetryTimer} = 5 if (!defined $hash->{loginRetryTimer});
+  $hash->{loginRetryTimer} *= 2 if ($hash->{loginRetryTimer} < 160);
+  
   Log3 $name, 2, "$name: login start";
   tahoma_UserAgent_NonblockingGet({
     timeout => 10,
     noshutdown => 1,
     hash => $hash,
     page => 'login',
-    data => {'userId' => $hash->{username} , 'userPassword'  => $hash->{password}},
+    data => {'userId' => tahoma_decrypt($hash->{helper}{username}) , 'userPassword'  => tahoma_decrypt($hash->{helper}{password})},
     callback => \&tahoma_dispatch,
     nonblocking => 1,
   });
@@ -359,7 +426,7 @@ sub tahoma_readStatusTimer($)
     }
   }
   elsif( !$hash->{logged_in} ) {
-    tahoma_login($hash);
+    tahoma_login($hash) if (!(defined $hash->{loginRetryTimer}) || !(defined $hash->{request_time}) || (($timestart - $hash->{request_time}) >= $hash->{loginRetryTimer}));
     $timeinfo = "tahoma_login";
   }
   elsif( !$hash->{startup_done} ) {
@@ -453,6 +520,13 @@ sub tahoma_initDevice($)
     Log3 $name, 4, "$name: I/O device is label=".$device->{label};
     $hash->{inLabel} = $device->{label};
     $hash->{inOID} = $device->{oid};
+  }
+  elsif($subtype eq 'GROUP' ) {
+    $hash->{inType} = '';
+    $hash->{inLabel} = '';
+    $hash->{inLabel} = $attr{$hash->{NAME}}{alias} if (defined $attr{$hash->{NAME}}{alias});
+    $hash->{inOID} = '';
+    $hash->{inClass} = '';
   }
   else
   {
@@ -611,6 +685,19 @@ sub tahoma_getDeviceList($$$$)
   }
 }
 
+sub tahoma_getGroupList($$$)
+{
+  my ($hash,$oid,$deviceList) = @_;
+  #print "tahoma_getGroupList oid=$oid devices=".scalar @{$deviceList}."\n";
+
+  my @groupDevices = split(',',$oid);
+  foreach my $module (@groupDevices) {
+    if (defined($defs{$module}) && defined($defs{$module}{device}) && defined($defs{$module}{inClass})) {
+      push ( @{$deviceList}, { device => $defs{$module}{device}, class => $defs{$module}{inClass}, levelInvert => $attr{$module}{levelInvert} } ) ;
+    }
+  }
+}
+
 sub tahoma_checkCommand($$$$)
 {
   my ($hash,$device,$command,$value) = @_;
@@ -640,13 +727,15 @@ sub tahoma_applyRequest($$$)
   Log3 $name, 4, "$name: tahoma_applyRequest";
 
   if ( !defined($hash->{IODev}) || !(defined($hash->{device}) || defined($hash->{oid})) || !defined($hash->{inLabel}) || !defined($hash->{inClass}) ) {
-    Log3 $name, 4, "$name: tahoma_applyRequest failed - define error";
+    Log3 $name, 3, "$name: tahoma_applyRequest failed - define error";
     return;
   }
   
   my @devices = ();
   if ( defined($hash->{device}) ) {
     push ( @devices, { device => $hash->{device}, class => $hash->{inClass}, commands => $hash->{COMMANDS}, levelInvert => $attr{$hash->{NAME}}{levelInvert} } );
+  } elsif ($hash->{SUBTYPE} eq 'GROUP') {
+    tahoma_getGroupList($hash->{IODev},$hash->{oid},\@devices);
   } else {
     tahoma_getDeviceList($hash->{IODev},$hash->{oid},$hash->{inClass},\@devices);
   }
@@ -680,6 +769,8 @@ sub tahoma_applyRequest($$$)
     $dataHead .= ' - Schliessen - iPhone","actions":[';
   } elsif ($commandChecked eq 'open') {
     $dataHead .= ' - Oeffnen - iPhone","actions":[';
+  } elsif ($commandChecked eq 'setClosureAndLinearSpeed') {                                         #neu fuer setClosureAndLinearSpeed
+    $dataHead .= ' - Positionieren auf '.(split(',',$valueChecked))[0].' % - iPhone","actions":[';  #neu fuer setClosureAndLinearSpeed
   } else {
     $dataHead .= " - $commandChecked $valueChecked".' - iPhone","actions":[';
   }
@@ -819,6 +910,14 @@ sub tahoma_dispatch($$$)
     if( (ref $json ne 'ARRAY') && ($json->{errorResponse}) ) {
       $hash->{lastError} = $json->{errorResponse}{message};
       $hash->{logged_in} = 0;
+      Log3 $name, 3, "$name: tahoma_dispatch error: $hash->{lastError}";
+      return;
+    }
+
+    if( (ref $json ne 'ARRAY') && ($json->{error}) ) {
+      $hash->{lastError} = $json->{error};
+      $hash->{logged_in} = 0;
+      Log3 $name, 3, "$name: tahoma_dispatch error: $hash->{lastError}";
       return;
     }
 
@@ -874,7 +973,7 @@ sub tahoma_autocreate($)
     my ($id, $fid, $devname, $define);
     if ($device->{deviceURL}) {
       $id = $device->{deviceURL};
-      $fid = (split("/",$id))[-1];
+      $fid = tahoma_fhemIdFromDevice($id);
       $devname = "tahoma_". $fid;
       $define = "$devname tahoma DEVICE $id";
       if( defined($modules{$hash->{TYPE}}{defptr}{"$fid"}) ) {
@@ -883,7 +982,7 @@ sub tahoma_autocreate($)
       }
     } elsif ( $device->{oid} ) {
       $id = $device->{oid};
-      $fid = (split("-",$id))[0];
+      my $fid = tahoma_fhemIdFromOid($id);
       $devname = "tahoma_". $fid;
       $define = "$devname tahoma PLACE $id" if (!defined $device->{actions});
       $define = "$devname tahoma SCENE $id" if (defined $device->{actions});
@@ -924,19 +1023,20 @@ sub tahoma_defineCommands($)
     my ($id, $fid, $devname, $define);
     if ($device->{deviceURL}) {
       $id = $device->{deviceURL};
-      $fid = (split("/",$id))[-1];
+      $fid = tahoma_fhemIdFromDevice($id);
       $devname = "tahoma_". $fid;
       $define = "$devname tahoma DEVICE $id";
+      my $commandlist = "";
       if( defined $device->{definition}{commands}[0]{commandName} ) {
-        my $commandlist = "dim:slider,0,1,100 cancel:noArg";
+        $commandlist = "dim:slider,0,1,100 cancel:noArg";
         foreach my $command (@{$device->{definition}{commands}}) {
           $commandlist .= " " . $command->{commandName};
           $commandlist .= ":noArg" if ($command->{nparams} == 0);
         }
-        if( defined($modules{$hash->{TYPE}}{defptr}{"$fid"}) ) {
-          $modules{$hash->{TYPE}}{defptr}{"$fid"}{COMMANDS} = $commandlist;
-          Log3 $name, 4, "$name: tahoma_defineCommands fid=$fid commandlist=$commandlist";
-        }
+      }
+      if( defined($modules{$hash->{TYPE}}{defptr}{"$fid"}) ) {
+        $modules{$hash->{TYPE}}{defptr}{"$fid"}{COMMANDS} = $commandlist;
+        Log3 $name, 4, "$name: tahoma_defineCommands fid=$fid commandlist=$commandlist";
       }
     }
   }
@@ -951,8 +1051,9 @@ sub tahoma_parseLogin($$)
     $hash->{logged_in} = 0;
     $hash->{STATE} = $json->{errorResponse}{message};
   } else {
-	$hash->{inVersion} = $json->{version};
+    $hash->{inVersion} = $json->{version};
     $hash->{logged_in} = 1;
+    $hash->{loginRetryTimer} = 5,
   }
   Log3 $name, 2, "$name: login end, logged_in=".$hash->{logged_in};
 }
@@ -977,7 +1078,7 @@ sub tahoma_parseGetEvents($$)
       if( defined($devices->{deviceURL}) ) {
         #print "\nDevice=$devices->{deviceURL} found\n";
         my $id = $devices->{deviceURL};
-        my $fid = (split("/",$id))[-1];
+        my $fid = tahoma_fhemIdFromDevice($id);
         my $devname = "tahoma_". $fid;
         my $d = $modules{$hash->{TYPE}}{defptr}{"$fid"};
         if( defined($d) )# && $d->{NAME} eq $devname )
@@ -1127,7 +1228,7 @@ sub tahoma_parseGetStates($$)
     foreach my $devices ( @{$states->{devices}} ) {
       if( defined($devices->{deviceURL}) ) {
         my $id = $devices->{deviceURL};
-        my $fid = (split("/",$id))[-1];
+        my $fid = tahoma_fhemIdFromDevice($id);
         my $devname = "tahoma_". $fid;
         my $d = $modules{$hash->{TYPE}}{defptr}{"$fid"};
         if( defined($d) )# && $d->{NAME} eq $devname )
@@ -1231,6 +1332,7 @@ sub tahoma_Get($$@)
     }
 
   } elsif( $hash->{SUBTYPE} eq "SCENE"
+      || $hash->{SUBTYPE} eq "GROUP" 
       || $hash->{SUBTYPE} eq "PLACE" ) {
     $list = "";
 
@@ -1252,6 +1354,7 @@ sub tahoma_Get($$@)
     elsif( $cmd eq "reset" ) {
       HttpUtils_Close($hash);
       $hash->{logged_in} = undef;
+      $hash->{loginRetryTimer} = undef;
       return "connection closed";
     }
   }
@@ -1262,9 +1365,11 @@ sub tahoma_Get($$@)
 sub tahoma_Set($$@)
 {
   my ($hash, $name, $cmd, $val) = @_;
+  #Log3 $name, 3, "$name: tahoma_Set $cmd $val $hash->{SUBTYPE} $hash->{COMMANDS}";
 
   my $list = "";
   if( $hash->{SUBTYPE} eq "DEVICE" ||
+      $hash->{SUBTYPE} eq "GROUP" ||
       $hash->{SUBTYPE} eq "PLACE" ) {
     $list = "dim:slider,0,1,100 setClosure open:noArg close:noArg my:noArg stop:noArg cancel:noArg";
     $list = $hash->{COMMANDS} if (defined $hash->{COMMANDS});
@@ -1376,6 +1481,9 @@ sub tahoma_UserAgent_NonblockingGet($)
   if (index($hash->{url},'file:') == 0)
   {
     $param->{url} = $hash->{url} . $param->{page} . '.json';
+    my $find = "../";
+    $find = quotemeta $find; # escape regex metachars if present
+    $param->{url} =~ s/$find//g;
   }
   else
   {
@@ -1428,6 +1536,41 @@ sub tahoma_GetCookies($$)
     
 }
 
+sub tahoma_encrypt($)
+{
+  my ($decoded) = @_;
+  my $key = getUniqueId();
+  my $encoded;
+
+  return $decoded if( $decoded =~ /^crypt:(.*)/ );
+
+  for my $char (split //, $decoded) {
+    my $encode = chop($key);
+    $encoded .= sprintf("%.2x",ord($char)^ord($encode));
+    $key = $encode.$key;
+  }
+
+  return 'crypt:'. $encoded;
+}
+
+sub tahoma_decrypt($)
+{
+  my ($encoded) = @_;
+  my $key = getUniqueId();
+  my $decoded;
+
+  return $encoded if not ( $encoded =~ /^crypt:(.*)/ );
+  
+  $encoded = $1 if( $encoded =~ /^crypt:(.*)/ );
+
+  for my $char (map { pack('C', hex($_)) } ($encoded =~ /(..)/g)) {
+    my $decode = chop($key);
+    $decoded .= chr(ord($char)^ord($decode));
+    $key = $decode.$key;
+  }
+  
+  return $decoded;
+}
 
 1;
 
@@ -1456,6 +1599,7 @@ sub tahoma_GetCookies($$)
     <code>define &lt;name&gt; tahoma DEVICE &lt;DeviceURL&gt;</code><br>
     <code>define &lt;name&gt; tahoma PLACE &lt;oid&gt;</code><br>
     <code>define &lt;name&gt; tahoma SCENE &lt;oid&gt;</code><br>
+    <code>define &lt;name&gt; tahoma GROUP &lt;tahoma_device1&gt;,&lt;tahoma_device2&gt;,&lt;tahoma_device3&gt;</code><br>
     <br>
     <br>
     A definition is only necessary for a tahoma device:<br>
@@ -1465,6 +1609,7 @@ sub tahoma_GetCookies($$)
     All registrated devices are automatically created with name tahoma_12345 (device number 12345 is used from setup)<br>
     All defined rooms will be are automatically created.<br>
     Also all defined scenes will be automatically created.<br>
+    Groups of devices can be manually added to send out one group command for all attached devices<br>
     <br>
     <br>
     <b>global Attributes for ACCOUNT:</b>
@@ -1477,6 +1622,10 @@ sub tahoma_GetCookies($$)
     <ul>
       Normally, the web commands will be send asynchron, and this can be forced to wait of the result by blocking=1<br>
       <code>attr tahoma1 blocking 1</code><br>
+    </ul>
+    <ul>
+      Normally, the login data is stored encrypted after the first start, but this functionality can be disabled by cryptLoginData=0<br>
+      <code>attr tahoma1 cryptLoginData 0</code><br>
     </ul>
     <br>
     <b>local Attributes for DEVICE:</b>
@@ -1516,6 +1665,12 @@ sub tahoma_GetCookies($$)
       <code>attr tahoma_4ef30a23 IODev tahoma1</code><br>
       <code>attr tahoma_4ef30a23 alias scene Rolladen S&uuml;dfenster zu</code><br>
       <code>attr tahoma_4ef30a23 room tahoma</code><br>
+      <br>
+      <br>manual created group e.g.:<br>
+      <code>define tahoma_group1 tahoma GROUP tahoma_23234545,tahoma_23234546,tahoma_23234547</code><br>
+      <code>attr tahoma_group1 IODev tahoma1</code><br>
+      <code>attr tahoma_group1 alias Gruppe Rolladen Westen</code><br>
+      <code>attr tahoma_group1 room tahoma</code><br>
     </ul>
   </ul><br>
 </ul>

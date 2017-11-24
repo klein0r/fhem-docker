@@ -1,5 +1,5 @@
 
-# $Id: 32_mailcheck.pm 12339 2016-10-14 18:11:14Z justme1968 $
+# $Id: 32_mailcheck.pm 15207 2017-10-06 17:24:43Z justme1968 $
 
 # basic idea from https://github.com/justinribeiro/idlemailcheck
 
@@ -321,7 +321,7 @@ mailcheck_Attr($$$)
   } elsif( $attrName eq "logfile" ) {
     my $hash = $defs{$name};
 
-    close( $hash->{FH} );
+    close( $hash->{FH} ) if( defined($hash->{FH}) );
     delete $hash->{FH};
     delete $hash->{currentlogfile};
 

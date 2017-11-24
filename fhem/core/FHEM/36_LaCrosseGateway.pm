@@ -1,4 +1,4 @@
-# $Id: 36_LaCrosseGateway.pm 12990 2017-01-06 19:34:30Z HCS $
+# $Id: 36_LaCrosseGateway.pm 15483 2017-11-23 20:03:23Z HCS $
 
 package main;
 
@@ -26,6 +26,7 @@ sub LaCrosseGateway_Initialize($) {
   $hash->{ReadFn}         = "LaCrosseGateway_Read";
   $hash->{WriteFn}        = "LaCrosseGateway_Write";
   $hash->{ReadyFn}        = "LaCrosseGateway_Ready";
+  $hash->{NotifyFn}       = "LaCrosseGateway_Notify";
   $hash->{DefFn}          = "LaCrosseGateway_Define";
   $hash->{FingerprintFn}  = "LaCrosseGateway_Fingerprint";
   $hash->{UndefFn}        = "LaCrosseGateway_Undef";
@@ -40,10 +41,12 @@ sub LaCrosseGateway_Initialize($) {
                            ." disable:0,1"
                            ." tftFile"
                            ." kvp:dispatch,readings,both"
+                           ." loopTimeReadings:1,0"
                            ." ownSensors:dispatch,readings,both"
                            ." mode:USB,WiFi,Cable"
                            ." usbFlashCommand"
-                           ." $readingFnAttributes";
+                           ." filter"
+    ." $readingFnAttributes";
 
 }
 
@@ -52,10 +55,23 @@ sub LaCrosseGateway_Fingerprint($$) {
 }
 
 #=======================================================================================
-sub LaCrosseGateway_Define($$) {
-  my ($hash, $def) = @_;
-  my @a = split("[ \t][ \t]*", $def);
+sub LaCrosseGateway_Notify($$) {
+  my ($hash, $source_hash) = @_;
+  my $name = $hash->{NAME};
+  
+  my $sourceName = $source_hash->{NAME};
+  my $events = deviceEvents($source_hash, 1);
+  
+  if($sourceName eq "global" && grep(m/^INITIALIZED|REREADCFG$/, @{$events})) {
+    LaCrosseGateway_Connect($hash)
+  }
+  
+}
 
+#=======================================================================================
+sub LaCrosseGateway_Define($$) {my ($hash, $def) = @_;
+  my @a = split("[ \t][ \t]*", $def);
+  
   if(@a != 3) {
     my $msg = "wrong syntax: define <name> LaCrosseGateway {none | devicename[\@baudrate] | devicename\@directio | hostname:port}";
     Log3 undef, 2, $msg;
@@ -82,9 +98,9 @@ sub LaCrosseGateway_Define($$) {
   $dev .= "\@57600" if( $dev !~ m/\@/ && $def !~ m/:/ );
   $hash->{DeviceName} = $dev;
 
-  my $ret = LaCrosseGateway_Connect($hash);
+  LaCrosseGateway_Connect($hash) if($init_done);
   
-  return $ret;
+  return undef;
 }
 
 #=======================================================================================
@@ -92,15 +108,11 @@ sub LaCrosseGateway_Undef($$) {
   my ($hash, $arg) = @_;
   my $name = $hash->{NAME};
 
-  foreach my $d (sort keys %defs) {
-    if(defined($defs{$d}) && defined($defs{$d}{IODev}) && $defs{$d}{IODev} == $hash) {
-      my $lev = ($reread_active ? 4 : 2);
-      Log3 $name, $lev, "deleting port for $d";
-      delete $defs{$d}{IODev};
-    }
+  BlockingKill($hash->{helper}{RUNNING_PID}) if(defined($hash->{helper}{RUNNING_PID}));
+  
+  if($hash->{STATE} ne "disconnected") {
+    DevIo_CloseDev($hash);
   }
-
-  DevIo_CloseDev($hash);
   
   return undef;
 }
@@ -109,6 +121,215 @@ sub LaCrosseGateway_Undef($$) {
 sub LaCrosseGateway_RemoveLaCrossePair($) {
   my $hash = shift;
   delete($hash->{LaCrossePair});
+}
+
+#=======================================================================================
+sub LaCrosseGateway_LogOTA($) {
+  my($text) = @_;
+  BlockingInformParent("DoTrigger", ["global", "   $text"], 0);
+}
+
+#=======================================================================================
+sub LaCrosseGateway_StartUpload($) {
+  my ($string) = @_;
+  my ($name, $argument) = split("\\|", $string);
+  my $hash = $defs{$name};
+  
+  sleep(2);
+  LaCrosseGateway_LogOTA("Started not blocking");
+  
+  my @deviceName = split('@', $hash->{DeviceName});
+  my $port = $deviceName[0];
+  my $logFile = AttrVal("global", "logdir", "./log") . "/LaCrosseGatewayFlash.log";
+  my $hexFile;
+  if($hash->{model} =~ m/^\[LaCrosseGateway32 V/) {
+    $hexFile = "./FHEM/firmware/LaCrosseGateway32.bin";
+  }
+  else {
+    $hexFile = "./FHEM/firmware/JeeLink_LaCrosseGateway.bin";
+  }
+  
+  if(!-e $hexFile) {
+    LaCrosseGateway_LogOTA("The file '$hexFile' does not exist");
+    return $name;
+  }
+
+  LaCrosseGateway_LogOTA("flashing LaCrosseGateway $name");
+  LaCrosseGateway_LogOTA("hex file: $hexFile");
+
+  if(AttrVal($name, "mode", "WiFi") eq "WiFi") {
+    eval "use LWP::UserAgent";
+    if($@) {
+      LaCrosseGateway_LogOTA("ERROR: Please install LWP::UserAgent");
+      return $name;
+    }
+    eval "use HTTP::Request::Common";
+    if($@) {
+      LaCrosseGateway_LogOTA("ERROR: Please install HTTP::Request::Common");
+      return $name;
+    }
+
+    LaCrosseGateway_LogOTA("Mode is LaCrosseGateway OTA-update");
+    DevIo_CloseDev($hash);
+    readingsSingleUpdate($hash, "state", "disconnected", 1);
+    LaCrosseGateway_LogOTA("$name closed");
+
+    my @spl = split(':', $hash->{DeviceName});
+    my $targetIP = $spl[0];
+    my $targetURL = "http://" . $targetIP . "/ota/firmware.bin";
+    LaCrosseGateway_LogOTA("target: $targetURL");
+
+    my $request = POST($targetURL, Content_Type => 'multipart/form-data', Content => [ file => [$hexFile, "firmware.bin"] ]);
+    my $userAgent = LWP::UserAgent->new;
+    $userAgent->timeout(120);
+    LaCrosseGateway_LogOTA("Upload started, please wait a minute or two ...");
+    my $response = $userAgent->request($request);
+    if ($response->is_success) {
+      LaCrosseGateway_LogOTA("");
+      LaCrosseGateway_LogOTA("--- LGW reports ---------------------------------------------------------------------------");
+      my @lines = split /\r\n|\n|\r/, $response->decoded_content;
+      foreach (@lines) {
+        LaCrosseGateway_LogOTA($_);
+      }
+      LaCrosseGateway_LogOTA("----------------------------------------------------------------------------------------------------");
+  
+    }
+    else {
+      LaCrosseGateway_LogOTA("");
+      LaCrosseGateway_LogOTA("ERROR: " . $response->code);
+      my @lines = split /\r\n|\n|\r/, $response->decoded_content;
+      foreach (@lines) {
+        LaCrosseGateway_LogOTA($_);
+      }
+    }
+  }
+  else {
+    LaCrosseGateway_LogOTA("Mode is LaCrosseGateway USB-update");
+    my $usbFlashCommand = AttrVal($name, "usbFlashCommand", "");
+
+    if ($usbFlashCommand ne "") {
+      my $command = $usbFlashCommand;
+      $command =~ s/\Q[PORT]\E/$port/g;
+      $command =~ s/\Q[BINFILE]\E/$hexFile/g;
+      $command =~ s/\Q[LOGFILE]\E/$logFile/g;
+
+      LaCrosseGateway_LogOTA("");
+      LaCrosseGateway_LogOTA("Upload started, please wait a minute or two ...");
+      `$command`;
+      
+      if (-e $logFile) {
+        LaCrosseGateway_LogOTA("");
+        LaCrosseGateway_LogOTA("--- esptool ---------------------------------------------------------------------------------");
+        local $/ = undef;
+        open FILE, $logFile;
+        my $content = <FILE>;
+        my @lines = split /\r\n|\n|\r/, $content;
+        foreach (@lines) {
+          LaCrosseGateway_LogOTA($_);
+        }
+        LaCrosseGateway_LogOTA("--- esptool ---------------------------------------------------------------------------------");
+        LaCrosseGateway_LogOTA("");
+      }
+      else {
+        LaCrosseGateway_LogOTA("WARNING: esptool created no log file");
+      }
+    }
+    else {
+      LaCrosseGateway_LogOTA("No usbFlashCommand found. Please define this attribute.");
+    }
+  }
+  
+  return $name;
+}
+
+#=======================================================================================
+sub LaCrosseGateway_UploadDone($) {
+  my ($name) = @_;
+  return unless(defined($name));
+  my $hash = $defs{$name};
+  delete($hash->{helper}{RUNNING_PID});
+  delete($hash->{helper}{FLASHING});
+  
+  LaCrosseGateway_Connect($hash);
+  LaCrosseGateway_LogOTA("$name opened");
+
+  LaCrosseGateway_LogOTA("Finshed");
+}
+
+#=======================================================================================
+sub LaCrosseGateway_UploadError($) {
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+  delete($hash->{helper}{RUNNING_PID});
+  delete($hash->{helper}{FLASHING});
+  LaCrosseGateway_LogOTA("Upload failed");
+  LaCrosseGateway_Connect($hash);
+  LaCrosseGateway_LogOTA("$name opened");
+}
+
+#=======================================================================================
+sub LaCrosseGateway_StartNextion($) {
+  my ($string) = @_;
+  my ($name, $argument) = split("\\|", $string);
+  my $hash = $defs{$name};
+  
+  sleep(2);
+  LaCrosseGateway_LogOTA("Started not blocking");
+  
+  my @deviceName = split('@', $hash->{DeviceName});
+  my $port = $deviceName[0];
+  my $logFile = AttrVal("global", "logdir", "./log") . "/NextionUpload.log";
+  my $tftFile = AttrVal($name, "tftFile", "./FHEM/firmware/nextion.tft");
+  
+  if(!-e $tftFile) {
+    LaCrosseGateway_LogOTA("The file '$tftFile' does not exist");
+    return $name;
+  }
+
+  LaCrosseGateway_LogOTA("upload Nextion firmware to $name");
+  LaCrosseGateway_LogOTA("tft file: $tftFile");
+  
+  eval "use LWP::UserAgent";
+  if($@) {
+    LaCrosseGateway_LogOTA("ERROR: Please install LWP::UserAgent");
+    return $name;
+  }
+  eval "use HTTP::Request::Common";
+  if($@) {
+    LaCrosseGateway_LogOTA("ERROR: Please install HTTP::Request::Common");
+    return $name;
+  }
+
+  my @spl = split(':', $hash->{DeviceName});
+  my $targetIP = $spl[0];
+  my $targetURL = "http://" . $targetIP . "/ota/nextion";
+  LaCrosseGateway_LogOTA("target: $targetURL");
+
+  my $request = POST($targetURL, Content_Type => 'multipart/form-data', Content => [ file => [$tftFile, "nextion.tft"] ]);
+  my $userAgent = LWP::UserAgent->new;
+  $userAgent->timeout(900);
+  LaCrosseGateway_LogOTA("");
+  LaCrosseGateway_LogOTA("Upload started, this can take 10 minutes or more ...");
+  my $response = $userAgent->request($request);
+  if ($response->is_success) {
+    LaCrosseGateway_LogOTA("");
+    LaCrosseGateway_LogOTA("--- LGW reports ---------------------------------------------------------------------------");
+    my @lines = split /\r\n|\n|\r/, $response->decoded_content;
+    foreach (@lines) {
+      LaCrosseGateway_LogOTA($_);
+    }
+    LaCrosseGateway_LogOTA("----------------------------------------------------------------------------------------------------");
+  }
+  else {
+    LaCrosseGateway_LogOTA("");
+    LaCrosseGateway_LogOTA("ERROR: " . $response->code);
+    my @lines = split /\r\n|\n|\r/, $response->decoded_content;
+    foreach (@lines) {
+      LaCrosseGateway_LogOTA($_);
+    }
+  }
+    
+  return $name;
 }
 
 #=======================================================================================
@@ -126,123 +347,20 @@ sub LaCrosseGateway_Set($@) {
     LaCrosseGateway_SimpleWrite($hash, $arg);
   } 
   elsif ($cmd eq "flash") {
-    my @args = split(' ', $arg);
-    my $log = "";
-    my @deviceName = split('@', $hash->{DeviceName});
-    my $port = $deviceName[0];
-    my $logFile = AttrVal("global", "logdir", "./log") . "/LaCrosseGatewayFlash.log";
-    my $hexFile = "./FHEM/firmware/JeeLink_LaCrosseGateway.bin";
-    
-    return "The file '$hexFile' does not exist" if(!-e $hexFile);
-
-    $log .= "flashing LaCrosseGateway $name\n";
-    $log .= "hex file: $hexFile\n";
-
-    if(AttrVal($name, "mode", "WiFi") eq "WiFi") {
-      eval "use LWP::UserAgent";
-      return "\nERROR: Please install LWP::UserAgent" if($@);
-
-      eval "use HTTP::Request::Common";
-      return "\nERROR: Please install HTTP::Request::Common" if($@);
-
-      $log .= "Mode is LaCrosseGateway OTA-update\n";
-      DevIo_CloseDev($hash);
-      readingsSingleUpdate($hash, "state", "disconnected", 1);
-      $log .= "$name closed\n";
-
-      my @spl = split(':', $hash->{DeviceName});
-      my $targetIP = $spl[0];
-      my $targetURL = "http://" . $targetIP . "/ota/firmware.bin";
-      $log .= "target: $targetURL\n";
-
-      my $request = POST($targetURL, Content_Type => 'multipart/form-data', Content => [ file => [$hexFile, "firmware.bin"] ]);
-      my $userAgent = LWP::UserAgent->new;
-      $userAgent->timeout(60);
-      my $response = $userAgent->request($request);
-      if ($response->is_success) {
-        $log .= "\n\nSketch reports:\n";
-        $log .= $response->decoded_content;
-      }
-      else {
-        $log .= "\nERROR: " . $response->code . " " . $response->decoded_content;
-      }
-    }
-    else {
-      $log .= "Mode is LaCrosseGateway USB-update\n";
-      my $usbFlashCommand = AttrVal($name, "usbFlashCommand", "");
-
-      if ($usbFlashCommand ne "") {
-        if (-e $logFile) {
-          unlink $logFile;
-        }
-
-        my $command = $usbFlashCommand;
-        $command =~ s/\Q[PORT]\E/$port/g;
-        $command =~ s/\Q[BINFILE]\E/$hexFile/g;
-        $command =~ s/\Q[LOGFILE]\E/$logFile/g;
-
-        $log .= "command: $command\n\n";
-        `$command`;
-
-        local $/ = undef;
-        if (-e $logFile) {
-          open FILE, $logFile;
-          my $logText = <FILE>;
-          close FILE;
-          $log .= "--- esptool ---------------------------------------------------------------------------------\n";
-          $log .= $logText;
-          $log .= "--- esptool ---------------------------------------------------------------------------------\n\n";
-        }
-        else {
-          $log .= "WARNING: esptool created no log file\n\n";
-        }
-      }
-      else {
-        $log .= "\n\nNo usbFlashCommand found. Please define this attribute.\n\n";
-      }
-    }
-
-    LaCrosseGateway_Connect($hash);
-    $log .= "$name opened\n";
-    
-    return $log;
+    CallFn("WEB", "ActivateInformFn", $hash, "global");
+    DevIo_CloseDev($hash);
+    readingsSingleUpdate($hash, "state", "disconnected", 1);
+    $hash->{helper}{FLASHING} = 1;
+    $hash->{helper}{RUNNING_PID} = BlockingCall("LaCrosseGateway_StartUpload", $name . "|" . $arg, "LaCrosseGateway_UploadDone", 300, "LaCrosseGateway_UploadError", $hash);
+    return undef;
   }
    elsif ($cmd eq "nextionUpload") {
-    my $log = "";
-    my @deviceName = split('@', $hash->{DeviceName});
-    my $port = $deviceName[0];
-    my $logFile = AttrVal("global", "logdir", "./log") . "/NextionUpload.log";
-    my $tftFile = AttrVal($name, "tftFile", "./FHEM/firmware/nextion.tft");
-    
-    return "The file '$tftFile' does not exist" if(!-e $tftFile);
-
-    $log .= "upload Nextion firmware to $name\n";
-    $log .= "tft file: $tftFile\n";
-
-    eval "use LWP::UserAgent";
-    return "\nERROR: Please install LWP::UserAgent" if($@);
-
-    eval "use HTTP::Request::Common";
-    return "\nERROR: Please install HTTP::Request::Common" if($@);
-
-    my @spl = split(':', $hash->{DeviceName});
-    my $targetIP = $spl[0];
-    my $targetURL = "http://" . $targetIP . "/ota/nextion";
-    $log .= "target: $targetURL\n";
-
-    my $request = POST($targetURL, Content_Type => 'multipart/form-data', Content => [ file => [$tftFile, "nextion.tft"] ]);
-    my $userAgent = LWP::UserAgent->new;
-    $userAgent->timeout(300);
-    my $response = $userAgent->request($request);
-    if ($response->is_success) {
-      $log .= "\n\nLGW reports:\n";
-      $log .= $response->decoded_content;
-    }
-    else {
-      $log .= "\nERROR: " . $response->code . " " . $response->decoded_content;
-    }
-    
-    return $log;
+    CallFn("WEB", "ActivateInformFn", $hash, "global");
+    DevIo_CloseDev($hash);
+    readingsSingleUpdate($hash, "state", "disconnected", 1);
+    $hash->{helper}{FLASHING} = 1;
+    $hash->{helper}{RUNNING_PID} = BlockingCall("LaCrosseGateway_StartNextion", $name . "|" . $arg, "LaCrosseGateway_UploadDone", 1200, "LaCrosseGateway_UploadError", $hash);
+    return undef; 
   }
   elsif ($cmd eq "LaCrossePairForSec") {
     my @args = split(' ', $arg);
@@ -267,8 +385,7 @@ sub LaCrosseGateway_Set($@) {
       $po->rts_active(1);
       $po->dtr_active(1);
     }
-
-
+    LaCrosseGateway_Connect($hash);
   }
   elsif ($cmd eq "parse") {
     LaCrosseGateway_Parse($hash, $hash, $name, $arg);
@@ -293,7 +410,7 @@ sub LaCrosseGateway_DoInit($) {
   my $hash = shift;
   my $name = $hash->{NAME};
   
-  my $enabled = AttrVal($name, "disable", "0") != "1";
+  my $enabled = AttrVal($name, "disable", "0") != "1" && !defined($hash->{helper}{FLASHING});
   if($enabled) {
     readingsSingleUpdate($hash, "state", "opened", 1);
     if(AttrVal($name, "mode", "") ne "USB") {
@@ -365,6 +482,9 @@ sub LaCrosseGateway_DeleteKVPReadings($) {
 #=======================================================================================
 sub LaCrosseGateway_HandleKVP($$) {
   my ($hash, $kvp) = @_;
+  my $name = $hash->{NAME};
+  
+  $kvp .= ",";
   
   readingsBeginUpdate($hash);
   
@@ -377,6 +497,30 @@ sub LaCrosseGateway_HandleKVP($$) {
   if($kvp =~ m/FramesPerMinute=(.*?)(\,|\ ,)/) {
     readingsBulkUpdate($hash, "FramesPerMinute", $1);
   }
+  if($kvp =~ m/ReceivedFrames=(.*?)(\,|\ ,)/) {
+    readingsBulkUpdate($hash, "ReceivedFrames", $1);
+  }
+  if($kvp =~ m/FreeHeap=(.*?)(\,|\ ,)/) {
+    readingsBulkUpdate($hash, "FreeHeap", $1);
+  }
+  if($kvp =~ m/OLED=(.*?)(\,|\ ,)/) {
+    readingsBulkUpdate($hash, "OLED", $1);
+  }
+  if($kvp =~ m/CPU-Temperature=(.*?)(\,|\ ,)/) {
+    readingsBulkUpdate($hash, "CPU-Temperature", $1);
+  }
+  
+  if(AttrVal($name, "loopTimeReadings", "0") == "1") {
+    if($kvp =~ m/LD\.Min=(.*?)(\,|\ ,)/) {
+      readingsBulkUpdate($hash, "LD.Min", $1);
+    }
+    if($kvp =~ m/LD\.Avg=(.*?)(\,|\ ,)/) {
+      readingsBulkUpdate($hash, "LD.Avg", $1);
+    }
+    if($kvp =~ m/LD\.Max=(.*?)(\,|\ ,)/) {
+      readingsBulkUpdate($hash, "LD.Max", $1);
+    }
+  }
   
   readingsEndUpdate($hash, 1);
 }
@@ -387,6 +531,9 @@ sub LaCrosseGateway_DeleteOwnSensorsReadings($) {
   delete $hash->{READINGS}{"temperature"};
   delete $hash->{READINGS}{"humidity"};
   delete $hash->{READINGS}{"pressure"};
+  delete $hash->{READINGS}{"gas"};
+  delete $hash->{READINGS}{"debug"};
+  
 }
 
 #=======================================================================================
@@ -401,6 +548,8 @@ sub LaCrosseGateway_HandleOwnSensors($$) {
   my $temperature = undef;
   my $humidity = undef;
   my $pressure = undef;
+  my $gas = undef;
+  my $debug = undef;
 
   if($bytes[2] != 0xFF) {
     $temperature = ($bytes[2]*256 + $bytes[3] - 1000)/10;
@@ -411,18 +560,30 @@ sub LaCrosseGateway_HandleOwnSensors($$) {
     $humidity = $bytes[4];
     readingsBulkUpdate($hash, "humidity", $humidity);
   }
-
-  if(@bytes > 15 && $bytes[14] != 0xFF) {
+  
+  if(@bytes >= 16 && $bytes[14] != 0xFF) {
     $pressure = $bytes[14] * 256 + $bytes[15];
+    $pressure /= 10.0 if $pressure > 5000;
     readingsBulkUpdate($hash, "pressure", $pressure);
+  }
+  
+  if(@bytes >= 19 && $bytes[16] != 0xFF) {
+    $gas = $bytes[16] * 65536 + $bytes[17] * 256 + $bytes[18];
+    readingsBulkUpdate($hash, "gas", $gas);
+  }
+  
+  if(@bytes >= 22 && $bytes[19] != 0xFF) {
+    $debug = $bytes[19] * 65536 + $bytes[20] * 256 + $bytes[21];
+    readingsBulkUpdate($hash, "debug", $debug);
   }
 
   readingsEndUpdate($hash, 1);
 
-  delete $hash->{READINGS}{"temperature"} if !$temperature;
-  delete $hash->{READINGS}{"humidity"} if !$humidity;
-  delete $hash->{READINGS}{"pressure"} if !$pressure;
-
+  delete $hash->{READINGS}{"temperature"} if $temperature == undef;
+  delete $hash->{READINGS}{"humidity"} if $humidity == undef;
+  delete $hash->{READINGS}{"pressure"} if $pressure == undef;
+  delete $hash->{READINGS}{"gas"} if $gas == undef;
+  delete $hash->{READINGS}{"debug"} if $debug == undef;
 }
 
 #=======================================================================================
@@ -442,16 +603,19 @@ sub LaCrosseGateway_HandleAnalogData($$) {
 
 }}
 
+
 #=======================================================================================
 sub LaCrosseGateway_Parse($$$$) {
   my ($hash, $iohash, $name, $msg) = @_;
-
+  
   next if (!$msg || length($msg) < 1);
   return if ($msg =~ m/^\*\*\*CLEARLOG/);
-
   return if ($msg =~ m/[^\x20-\x7E]/);
 
-
+  my $filter = AttrVal($name, "filter", undef);
+  if(defined($filter)) {
+    return if ($msg =~ m/$filter/);
+  }  
 
   if ($msg =~ m/^LGW/) {
     if ($msg =~ /ALIVE/) {
@@ -462,9 +626,22 @@ sub LaCrosseGateway_Parse($$$$) {
 
     return;
   }
-
-  if($msg =~ m/^\[LaCrosseITPlusReader.Gateway/ ) {
-    $hash->{model} = $msg;
+  
+  if($msg =~ m/^\[LaCrosseITPlusReader.Gateway|\[LaCrosseGateway32 V/) {
+    my $model = "";
+    my $version = "";
+    my $settings = "";
+    if($msg =~ m/^\[LaCrosseGateway32 V/) {
+      ($model, $version, $settings) = split(/ /, $msg, 3);
+      $model .= " $version";
+    }
+    else {
+      ($model, $settings) = split(/ /, $msg, 2);
+    }
+    $model = substr($model, 1);
+    
+    $hash->{model} = $model;
+    $hash->{settings} = $settings;
 
     my $attrVal = AttrVal($name, "timeout", undef);
     if(defined($attrVal)) {
@@ -549,9 +726,12 @@ sub LaCrosseGateway_Connect($;$) {
   my ($hash, $mode) = @_;
   my $name = $hash->{NAME};
   
+  DevIo_CloseDev($hash);
+  
   $mode = 0 if!($mode);
-  my $enabled = AttrVal($name, "disable", "0") != "1";
+  my $enabled = AttrVal($name, "disable", "0") != "1" && !defined($hash->{helper}{FLASHING});
   if($enabled) {
+    $hash->{nextOpenDelay} = 2;
     my $ret = DevIo_OpenDev($hash, $mode, "LaCrosseGateway_DoInit");
     return $ret;
   }
@@ -590,7 +770,7 @@ sub LaCrosseGateway_OnConnectTimer($) {
 
     InternalTimer(gettimeofday() + $interval, "LaCrosseGateway_OnConnectTimer", $hash, 0);
 
-    if(AttrVal($name, "disable", "0") != "1") {
+    if(AttrVal($name, "disable", "0") != "1" && !defined($hash->{helper}{FLASHING})) {
       my ($date, $time, $year, $month, $day, $hour, $min, $sec, $timestamp, $alive);
       if($useOldMethod) {
         $alive = InternalVal($name, "${name}_TIME", "2000-01-01 00:00:00");
@@ -818,6 +998,18 @@ sub LaCrosseGateway_Attr(@) {
     
     <li>tftFile<br>
       defines the .tft file that shall be used by the Nextion firmware upload (set nextionUpload)
+    </li><br>
+    
+    <li>filter<br>
+      defines a filter (regular expression) that is applied to the incoming data. If the regex matches, the data will be discarded.<br>
+      This allows to suppress sensors, for example those of the neighbour.<br>
+      The data of different kinds of sensors starts with (where xx is the ID):<br>
+      LaCrosse sensor: OK 9 xx<br>
+      EnergyCount 3000: OK 22 xx xx<br>
+      EMT7110: OK EMT7110 xx xx<br>
+      LevelSender: OK LS xx<br>
+      Example: set lgw filter ^OK 22 117 196|^OK 9 49<br>
+      will filter the LaCrosse sensor with ID "49" and the EC3000 with ID "117 196"
     </li><br>
 
   </ul>

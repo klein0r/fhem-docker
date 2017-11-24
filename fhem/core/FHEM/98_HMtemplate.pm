@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_HMtemplate.pm 13167 2017-01-21 11:55:53Z martinp876 $
+# $Id: 98_HMtemplate.pm 15459 2017-11-19 18:21:41Z martinp876 $
 package main;
 use strict;
 use warnings;
@@ -17,36 +17,36 @@ sub HMtemplate_noDup(@);
 use Blocking;
 use HMConfig;
 my %HtState =(
-  s0=>{name=>"init"   ,cmd=>["defTmpl","edit","delete","select"] ,info=>[ "delete to remove a template definition"
-                                                                         ,"defTmpl to greate a template"
-                                                                         ,"-       use an entity as default"
-                                                                         ,"edit to modify a template definition"
-                                                                         ,"select to apply a template to a entity"
-                                                                        ]}  
- ,s1=>{name=>"edit"   ,cmd=>["dismiss","save","saveAs"]          ,info=>[ "change attr Reg_ as desired"
-                                                                         ,"change attr tpl_params as desired"
-                                                                         ,"save    if finished"
-                                                                         ,"saveAs  to create a copy"
-                                                                         ,"dismiss will reset HMtemplate"
-                                                                        ]}  
- ,s2=>{name=>"defTmpl",cmd=>["dismiss","save","saveAs"]          ,info=>[ "1)set attr tpl_type"
-                                                                         ,"2)set attr tpl_source"
-                                                                         ,"3)set attr tpl_peer if peer required"
-                                                                         ,"4)set attr tpl_params if params are desired"
-                                                                         ,"5)set attr tpl_description for the template"
-                                                                        ]} 
- ,s3=>{name=>"defTmpl",cmd=>["defTmpl","edit","delete"]          ,info=>[ "delete"
-                                                                        ]}  
- ,s4=>{name=>"select" ,cmd=>["dismiss","apply"]                  ,info=>[ "apply the selected template to an entity"
-                                                                         ,"1) choose target entity"
-                                                                         ,"2) select a peer if required"
-                                                                         ,"3) select type if required"
-                                                                         ,"4) fill all attr tpl_param_"
-                                                                         ,"5) set apply to execute and write the register"
-                                                                        ]}  
- ,s5=>{name=>"defTmpl",cmd=>["defTmpl","edit","delete"]          ,info=>[ "s5 info1"
-                                                                         ,"s5 info2"
-                                                                        ]}
+  s0=>{name=>"init"   ,cmd=>["select" ,"defTmpl","delete","edit"]      ,info=>[ "delete to remove a template definition"
+                                                                               ,"defTmpl to greate a template"
+                                                                               ,"-       use an entity as default"
+                                                                               ,"edit to modify a template definition"
+                                                                               ,"select to apply a template to a entity"
+                                                                            ]}  
+ ,s1=>{name=>"edit"   ,cmd=>["dismiss","save"   ,"saveAs","importReg"] ,info=>[ "change attr Reg_ as desired"
+                                                                               ,"change attr tpl_params ':' separated"
+                                                                               ,"save    if finished"
+                                                                               ,"saveAs  to create a copy"
+                                                                               ,"dismiss will reset HMtemplate"
+                                                                            ]}  
+ ,s2=>{name=>"defTmpl",cmd=>["dismiss","save","saveAs"]                ,info=>[ "1)set attr tpl_type"
+                                                                               ,"2)set attr tpl_source"
+                                                                               ,"3)set attr tpl_peer if peer required"
+                                                                               ,"4)set attr tpl_params ':' separated"
+                                                                               ,"5)set attr tpl_description for the template"
+                                                                            ]} 
+ ,s3=>{name=>"defTmpl",cmd=>["defTmpl","edit"   ,"delete"]             ,info=>[ "delete"
+                                                                            ]}  
+ ,s4=>{name=>"select" ,cmd=>["dismiss","apply"  ,"select"]             ,info=>[ "apply the selected template to an entity"
+                                                                               ,"1) choose target entity"
+                                                                               ,"2) select a peer if required"
+                                                                               ,"3) select type if required"
+                                                                               ,"4) fill all attr tpl_param_"
+                                                                               ,"5) set apply to execute and write the register"
+                                                                            ]}  
+ ,s5=>{name=>"defTmpl",cmd=>["defTmpl","edit"   ,"delete"]             ,info=>[ "s5 info1"
+                                                                               ,"s5 info2"
+                                                                            ]}
 );
 
 sub HMtemplate_Initialize($$) {################################################
@@ -81,7 +81,7 @@ sub HMtemplate_Attr(@) {#######################################################
   my ($cmd,$name,$attrName,$attrVal) = @_;
   my @hashL;
   my $hash = $defs{$name};
-  return "$attrName  not an option in this state" if($modules{HMtemplate}{AttrList}!~ m/$attrName/);
+  #return "$attrName  not an option in this state" if($modules{HMtemplate}{AttrList}!~ m/$attrName/);
   if   ($attrName =~ m/^Reg_/){
     if (!$init_done){
       return "remove attr $attrName after restart - start again with template definition";
@@ -102,8 +102,8 @@ sub HMtemplate_Attr(@) {#######################################################
         return "value $attrVal not numeric for $rN"  if ($attrVal !~/^\d+?\.?\d?$/);
         return "value $attrVal out of range for $rN :"
               .$culHmRegDef->{$ty.$rN}{min} ."..."
-              .$culHmRegDef->{$ty.$rN}{max}              if ($culHmRegDef->{$ty.$rN}{min} < $attrVal 
-                                                      || $culHmRegDef->{$ty.$rN}{max} > $attrVal);
+              .$culHmRegDef->{$ty.$rN}{max}          if ($culHmRegDef->{$ty.$rN}{min} > $attrVal 
+                                                      || $culHmRegDef->{$ty.$rN}{max} < $attrVal);
       }
     }
     else{# delete is ok anyhow
@@ -121,14 +121,40 @@ sub HMtemplate_Attr(@) {#######################################################
         return "still $paramCnt in use. Remove those from template first" if($1 > ($paramCnt - 1));
       }
       foreach my $rN (keys %{$culHmTpl->{$hash->{tpl_Name}}{reg}}){#now we need to rename all readings if parameter are in use
-        next if ($culHmTpl->{$hash->{tpl_Name}}{reg}{$rN} !~ m/^p(.)/);
+        next if ($culHmTpl->{$hash->{tpl_Name}}{reg}{$rN} !~ m/^p(.)$/);
         my $no = $1;
         $attr{$name}{"Reg_".$rN} = $param[$no];
       }
       
+      #remove old params
+      if ($attr{$name}{tpl_params}){# first setting
+        my @atS;
+        foreach my $atS (split(" ",$modules{HMtemplate}{AttrList})){
+          if ($atS !~ m/:/){# no values
+            push @atS,$atS;
+            next;
+          }
+          my ($aN,$aV) = split (":",$atS);
+          my @aVaNew;
+          foreach my $curAV(split(",",$aV)){
+            next if (!$curAV);
+            foreach my $curParam (split(",",$attr{$name}{tpl_params})){
+              push @aVaNew,$_ if($curAV ne $curParam);
+            }
+          }
+          push @atS,"$aN:".join(",",@aVaNew);
+        }
+        $modules{HMtemplate}{AttrList} = join(" ",sort @atS);
+      }
+      
+      #now add new ones
       my $paramSnew = join(",",@param);
+      my @at = split(" ",$modules{HMtemplate}{AttrList});
+      $_ .= ",".$paramSnew foreach (grep (m/:/,@at));
       my $paramSold = join(",",split(" ",$attr{$name}{tpl_params}));
-      $modules{HMtemplate}{AttrList} =~ s/$paramSold/$paramSnew/g;
+      #$modules{HMtemplate}{AttrList} =~ s/$paramSold/$paramSnew/g;
+      $modules{HMtemplate}{AttrList} = join(" ",@at);
+      Log 1,"General \n   $paramSnew\n   $paramSold".join("\n   ".split(" ","$modules{HMtemplate}{AttrList}"));
       
       $hash->{tpl_Param} = $attrVal;
     }
@@ -165,6 +191,7 @@ sub HMtemplate_Attr(@) {#######################################################
   }
   elsif($attrName eq "tpl_entity"){# used with select option
     if ($cmd eq "set"){
+      return "entity:$attrVal not defined" if(!defined $defs{$attrVal});
       $attr{$name}{tpl_ePeer} = "";
       if($hash->{tpl_type} eq "basic"){# we dont need peer - import now
       }
@@ -174,9 +201,25 @@ sub HMtemplate_Attr(@) {#######################################################
         $modules{HMtemplate}{AttrList}  =~ s/tpl_ePeer.*?( |$)//;
         $modules{HMtemplate}{AttrList}  .=" tpl_ePeer:$peerList";
       }
+      ############ set attr param from device if selected
+      if(ReadingsVal($hash->{NAME},"state","") eq "select"){# do we have to set params?
+        my $dh = $defs{$attrVal};
+        my ($tName,$tType) = (InternalVal($name,"tpl_Name",""),InternalVal($name,"tpl_type","")); 
+        if (   $tType eq "basic"){ #we have enough to prefill parameter
+          my @pN = split(" ",$culHmTpl->{$tName}{p});## get param Names template
+          my @pD ;
+          @pD = split(" ",$dh->{helper}{tmpl}{"0>$tName"}) 
+                   if(   defined $dh->{helper}{tmpl}
+                      && defined $dh->{helper}{tmpl}{"0>$tName"});
+          
+          for (my $cnt = 0;$cnt < scalar(@pN); $cnt++){
+            $attr{$name}{"tpl_param_$pN[$cnt]"} = defined $pD[$cnt] ? $pD[$cnt] : "";
+          }
+        }
+      }
     }
     else{
-      $attr{$name}{"tpl_ePeer"}       = "";
+      $attr{$name}{tpl_ePeer}         = "";
       $modules{HMtemplate}{AttrList}  =~ s/ tpl_ePeer.*?\ / tpl_ePeer/;
     }
   }
@@ -185,6 +228,10 @@ sub HMtemplate_Attr(@) {#######################################################
     }
   }
   elsif($attrName eq "tpl_eType"){# used with select option
+    if ($cmd eq "set"){
+    }
+  }
+  elsif($attrName eq "tpl_description"){# used with select option
     if ($cmd eq "set"){
     }
   }
@@ -225,12 +272,23 @@ sub HMtemplate_GetFn($@) {#####################################################
             ." ".join(" ",map{$_.=":".$culHmTpl->{$tN}{reg}{$_}} keys %{$culHmTpl->{$tN}{reg}})
             ;
   }  
+  elsif($cmd eq "regInfo"){##print protocol-events-------------------------
+    my @regArr = map { $_ =~ s/Reg_//g; $_ } 
+              grep /^Reg_/,keys %{$attr{$name}};
+    if (InternalVal($name,"tpl_type","") =~ m/peer-(short|long)/){
+      $_ = "lg".$_ foreach (@regArr);
+    }
+    return CUL_HM_getRegInfo(\@regArr,1,1); # 
+  }  
   else{
     my @cmdLst = ( "defineCmd"
+                  ,"regInfo"
                  );
 
     my $tList = ":".join(",",sort keys%{$culHmTpl});
     $_ .=$tList foreach(grep/^(defineCmd)$/,@cmdLst);
+    
+    $_ .=":noArg" foreach(grep/^(regInfo)$/,@cmdLst);# no arguments
            
     $ret = "Unknown argument $cmd, choose one of ".join (" ",sort @cmdLst);
   }
@@ -243,6 +301,7 @@ sub HMtemplate_SetFn($@) {#####################################################
   $cmd = "?" if(!$cmd);# by default print options
   $cmd .=" " if ($cmd ne "?" && !(grep /$cmd/,@{$HtState{${$eSt}}{cmd}}));
 
+  HMtemplate_setUsageReading($hash);
   if    ($cmd eq "delete" )   {##actionImmediate: delete template--------------
     my ($tName) = @a;                               
     return "$tName is not defined" if (! defined $culHmTpl->{$tName});
@@ -262,7 +321,7 @@ sub HMtemplate_SetFn($@) {#####################################################
   }
   elsif ($cmd eq "defTmpl" )  {#
     my ($tName) = @a;  
-    return "spezify template name" if (!defined $tName); 
+    return "specify template name" if (!defined $tName); 
     return "$tName is already defined" if (defined $culHmTpl->{$tName}); 
     readingsSingleUpdate($hash,"state","define",0);
     ${$eSt}="s2";
@@ -338,17 +397,47 @@ sub HMtemplate_SetFn($@) {#####################################################
       }
     }
   }
-  elsif ($cmd eq "apply" )    {#  
-
+  elsif ($cmd eq "apply" )    {# 
     my @p = split(" ",$culHmTpl->{$hash->{tpl_Name}}{p});## get params in correct order
     $_ = $attr{$name}{"tpl_param_$_"} foreach (@p);
     return HMinfo_templateSet( $attr{$name}{tpl_entity}
                        ,$hash->{tpl_Name}
-                       ,($hash->{tpl_type} eq "basic"?"none"
-                                                    :$attr{$name}{tpl_ePeer}.":".AttrVal($name,"tpl_eType","both"))# type either long/short/both
+                       ,($hash->{tpl_type} eq "basic" ? "0"
+                                                      : $attr{$name}{tpl_ePeer}.":".AttrVal($name,"tpl_eType","both"))# type either long/short/both
                        ,@p
                         );
-    return;
+  }
+  elsif ($cmd eq "importReg" ){#
+    my ($eName) = @a;
+
+    return "please enter a device to be used "if(!$eName);
+    my @fnd = grep /^$eName /, 
+              map {$hash->{READINGS}{$_}{VAL}}
+              grep /^usage_/,keys %{$hash->{READINGS}};
+    return "template not assigned to $eName" if (scalar(@fnd) != 1);
+
+    HMtemplate_import($name,$eName,InternalVal($name,"tpl_type",""),InternalVal($name,"tpl_peer",""));
+    
+    # my @fnd = map { $_ =~ s/ .*//g; $_ } 
+    #           map {$hash->{READINGS}{$_}{VAL}}
+    #           grep /^usage_/,keys %{$hash->{READINGS}};
+    # my @reg;
+    # my $first = 1;
+    # foreach my $d(@fnd){
+    #   my $dHash = CUL_HM_getDeviceHash($defs{$d});
+    #   my $st = AttrVal($dHash->{NAME},"subType","");
+    #   my $md = AttrVal($dHash->{NAME},"model","");
+    #   my @dr = (CUL_HM_getRegN($st,$md,"01"));
+    #   
+    #   if ($first){
+    #     @reg = @dr;
+    #     $first = 0;
+    #   }
+    #   else{
+    #     @reg = HMtemplate_intersection(\@reg,\@dr);
+    #   }
+    # }
+    # return join("\n",sort @reg);
   }
   elsif ($cmd eq "edit" )     {#
     my ($templ) = @a;                               
@@ -358,8 +447,8 @@ sub HMtemplate_SetFn($@) {#####################################################
     ${$eSt}="s1";
 
     my $tType = "";
-    $attr{$name}{tpl_params}      = $culHmTpl->{$templ}{p}?$culHmTpl->{$templ}{p}:"";
-    $attr{$name}{tpl_description} = $culHmTpl->{$templ}{t}?$culHmTpl->{$templ}{t}:"";
+    $attr{$name}{tpl_params}      = $culHmTpl->{$templ}{p} ? $culHmTpl->{$templ}{p} : "";
+    $attr{$name}{tpl_description} = $culHmTpl->{$templ}{t} ? $culHmTpl->{$templ}{t} : "";
     my @param = split(" ",$culHmTpl->{$templ}{p});
     my $paramS = join(",",@param);# whatchout: dont change order, may be replaced!
     
@@ -411,10 +500,19 @@ sub HMtemplate_SetFn($@) {#####################################################
     return HMtemplate_save($name,$tName);
   }
   else{
+    #"select","edit","delete", "defTmpl","dismiss","save","saveAs","importReg","apply"]            
     my @cmdLst = @{$HtState{${$eSt}}{cmd}};
     my $tList = ":".join(",",sort keys%{$culHmTpl});
     $_ .=$tList foreach(grep/^(edit|delete|select)$/,@cmdLst);
-    
+    if (grep/^importReg$/,@cmdLst){
+      my @fnd = map { $_ =~ s/ .*//g; $_ } 
+                map {$hash->{READINGS}{$_}{VAL}}
+                grep /^usage_/,keys %{$hash->{READINGS}};
+      my $eList = ":".join(",",sort @fnd);
+      $_ .=$eList foreach(grep/^(importReg)$/,@cmdLst);
+    }
+    $_ .=":noArg" foreach(grep/^(save|dismiss|apply)$/,@cmdLst);# no arguments
+
     $ret = "Unknown argument $cmd, choose one of ".join (" ",sort @cmdLst);
   }
   my $i = 0;
@@ -422,13 +520,19 @@ sub HMtemplate_SetFn($@) {#####################################################
   $hash->{"tpl_Info".$i++}= $_ foreach (@{$HtState{${$eSt}}{info}});
   return $ret;
 }
+sub HMtemplate_intersection($$) {#
+    my ($x, $y) = @_;
+    my %seen;
+    @seen{ @$x } = (1) x @$x;
+    return grep { $seen{ $_} } @$y;
+}
 
 sub HMtemplate_import(@){####################################################
   my ($name,$eName,$tType,$tPeer) = @_;
   my @regReads;
   my ($ty,$match) = ("","");
-  if ($tType eq "basic"){
-    @regReads = grep !/\-.*\-/ ,grep /\.?R-/,keys %{$defs{$eName}{READINGS}};
+  if    ($tType eq "basic"){
+    @regReads = grep !/\-.*\-/   ,grep /\.?R-/      ,keys %{$defs{$eName}{READINGS}};
   }
   elsif ($tType =~ m/peer-(Long|Short)/){
     $ty = $1 eq "Long" ? "lg" : "sh";
@@ -437,16 +541,18 @@ sub HMtemplate_import(@){####################################################
   }
   elsif ($tType eq "peer-both"){
     $match = ".*-";
-    @regReads = grep /\-.*\-/ ,grep /\.?R-$tPeer/,keys %{$defs{$eName}{READINGS}};
+    @regReads = grep /\-.*\-/    ,grep /\.?R-$tPeer/,keys %{$defs{$eName}{READINGS}};
   }
 
   foreach my $rR (@regReads){
     my $rN = $rR;
     $rN =~ s/\.?R-$match$ty//; 
-    $attr{$name}{"Reg_".$rN} = $defs{$eName}{READINGS}{$rR}{VAL};
-    $attr{$name}{"Reg_".$rN} =~ s/ .*//;# remove units which are in the readings
-    my $lits = ":".join(",",(sort (keys %{$culHmRegDef->{$ty.$rN}{lit}}))) if ($culHmRegDef->{$ty.$rN}{c} eq "lit");
-    $modules{HMtemplate}{AttrList} .= " Reg_".$rN.$lits;
+    if (!$attr{$name}{"Reg_".$rN}){ #dont overwrite existing
+      $attr{$name}{"Reg_".$rN} = $defs{$eName}{READINGS}{$rR}{VAL};
+      $attr{$name}{"Reg_".$rN} =~ s/ .*//;# remove units which are in the readings
+      my $lits = ":".join(",",(sort (keys %{$culHmRegDef->{$ty.$rN}{lit}}))) if ($culHmRegDef->{$ty.$rN}{c} eq "lit");
+      $modules{HMtemplate}{AttrList} .= " Reg_".$rN.$lits;
+    }
   }
 }
 
@@ -462,7 +568,7 @@ sub HMtemplate_save($$)  {#
     my @params = split(" ",AttrVal($name,"tpl_params",""));
     my $i = 0;
     foreach my $p (@params){
-      $_ =~ s/$p/p$i/ foreach(@regs) ;
+      $_ =~ s/(.*:)$p$/$1p$i/ foreach(@regs) ;
       $i++;
       }
     HMinfo_templateDef( $tName
@@ -507,6 +613,21 @@ sub HMtemplate_sourceList($){
   return HMtemplate_noDup(@list);
 }
 
+sub HMtemplate_setUsageReading($){
+  my ($hash) = @_;  
+  delete $hash->{READINGS}{$_} foreach (grep /^usage_/,keys %{$hash->{READINGS}});
+  if (eval "defined(&HMinfo_templateUsg)" && $hash->{tpl_Name}){
+    my $tu = HMinfo_templateUsg("","",$hash->{tpl_Name});
+    $tu =~ s/\|$hash->{tpl_Name}//g;
+    $tu =~ s/.\|/|/g;
+    my $usgCnt = 1;
+    readingsBeginUpdate($hash);
+    readingsBulkUpdate($hash,"usage_".$usgCnt++,$_) foreach(split("\n",$tu));
+    readingsEndUpdate($hash,1);
+  }
+}
+
+
 1;
 =pod
 =item command
@@ -538,7 +659,7 @@ sub HMtemplate_sourceList($){
             </li>
             <li><B><a href="#HMtemplate_tpl_source">tpl_source</a></B>select the entity which will be used as master for the template 
             </li>
-            <li><B><a href="#HMtemplate_tpl_peer">tpl_peer</a></B>select the peer of the entity which will be used as master for the template. This is onle necessary for types that require peers.
+            <li><B><a href="#HMtemplate_tpl_peer">tpl_peer</a></B>select the peer of the entity which will be used as master for the template. This is only necessary for types that require peers.
             </li>
             <li><B><a href="#HMtemplate_tpl_params">tpl_params</a></B>if the template shall have parameter those need to be defined next. <br>
             parameter will allow to use one template with selected registers to be defined upon appling to the entity.
@@ -575,6 +696,8 @@ sub HMtemplate_sourceList($){
     
     
   </ul>
+=end html
+
 =begin html_DE
 
 <a name="HMtemplate"></a>

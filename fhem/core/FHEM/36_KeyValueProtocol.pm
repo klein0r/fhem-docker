@@ -1,4 +1,4 @@
-# $Id: 36_KeyValueProtocol.pm 13429 2017-02-18 11:46:50Z HCS $
+# $Id: 36_KeyValueProtocol.pm 13540 2017-02-27 19:31:25Z HCS $
 
 # ToDo-List
 # ---------
@@ -231,17 +231,17 @@ sub KeyValueProtocol_Parse($$) {
   <a name="KeyValueProtocol_Attr"></a>
   <b>Attributes</b>
   <ul>
-    <li>Dictionary<br>
-      The Dictionary attribute can optionally be used to translate the Keys.<br>
+    <li>Mapping<br>
+      The Mapping attribute can optionally be used to translate the Keys.<br>
       The format is: ReceivedKey1=NewKey1,ReceivedKey2=NewKey2, ...<br>
       The Sketch can then send short Keys, which will get translated to long names.<br>
-      Example: attr myKVP Dictionary T=Temperature,H=Humidity<br>
+      Example: attr myKVP Mapping T=Temperature,H=Humidity<br>
       If the sketch then sends: OK VALUES T=12,H=70<br>
       you will get the readings Temperature and Humidity with the Values 12 and 70<br>
     </li>
   </ul>
   <br>
-  
+
   <a name="KeyValueProtocol_Readings"></a>
   <b>Readings</b><br>
   <ul>

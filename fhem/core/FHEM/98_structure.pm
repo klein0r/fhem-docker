@@ -1,4 +1,4 @@
-# $Id: 98_structure.pm 12500 2016-11-04 10:42:50Z rudolfkoenig $
+# $Id: 98_structure.pm 15129 2017-09-24 08:58:57Z rudolfkoenig $
 ##############################################################################
 #
 #     98_structure.pm
@@ -43,7 +43,8 @@ structure_Initialize($)
   $hash->{AttrFn}    = "structure_Attr";
   $hash->{AttrList}  = "async_delay clientstate_priority ".
                  "clientstate_behavior:relative,relativeKnown,absolute,last ".
-                 "disable disabledForIntervals $readingFnAttributes";
+                 "disable disabledForIntervals evaluateSetResult:1,0 ".
+                 $readingFnAttributes;
 
   my %ahash = ( Fn=>"CommandAddStruct",
                 Hlp=>"<structure> <devspec>,add <devspec> to <structure>" );
@@ -88,6 +89,7 @@ structure_Define($$)
   my $stype   = shift(@a);
 
   $hash->{ATTR} = $stype;
+  $hash->{CHANGEDCNT} = 0;
 
   my %list;
   my $aList = "$stype ${stype}_map structexclude";
@@ -182,9 +184,9 @@ structure_Notify($$)
   my %clientstate;
 
   my @structPrio = attrSplit($attr{$me}{clientstate_priority})
-        if($attr{$me}{clientstate_priority});
+        if($attr{$me} && $attr{$me}{clientstate_priority});
 
-  return "" if($hash->{INSET}); # Do not trigger for our own set
+  return "" if($hash->{INSET} && !AttrVal($me, "evaluateSetResult", 0));
   return "" if(@{$hash->{".asyncQueue"}}); # Do not trigger during async set 
 
   if($hash->{INNTFY}) {
@@ -273,7 +275,9 @@ structure_Notify($$)
     $newState = $priority[$minprio];
 
   } elsif($behavior eq "last"){
-    $newState = ReadingsVal($dev->{NAME}, "state", undef);
+    my $readingName = AttrVal($dev->{NAME}, $devmap, "state");
+    $newState = ReadingsVal($dev->{NAME}, $readingName, undef);
+    $newState = "undefined" if(!defined($newState));
 
   }
 
@@ -285,6 +289,7 @@ structure_Notify($$)
                                 structure_getChangedDevice($dev->{NAME}), 0);
   readingsBulkUpdate($hash, "state", $newState);
   readingsEndUpdate($hash, 1);
+  $hash->{CHANGEDCNT}++;
 
   delete($hash->{INNTFY});
   undef;
@@ -375,6 +380,10 @@ structure_Set($@)
 
   my @devList = split("[ \t][ \t]*", $hash->{DEF});
   shift @devList;
+  if(@list > 1 && $list[$#list] eq "reverse") {
+    pop @list;
+    @devList = reverse @devList;
+  }
   foreach my $d (@devList) {
     next if(!$defs{$d});
     if($defs{$d}{INSET}) {
@@ -391,11 +400,17 @@ structure_Set($@)
     my $sret;
     if($filter) {
       my $ret;
-      if(defined($defs{$list[0]}) && $defs{$list[0]}{TYPE} eq "structure") {
-        AnalyzeCommand(undef, "set $list[0] [$filter] ".
+      my $dl0 = $defs{$list[0]};
+      if(defined($dl0) && $dl0->{TYPE} eq "structure") {
+        my ($ostate,$ocnt) = ($dl0->{STATE}, $dl0->{CHANGEDCNT});
+        $ret = AnalyzeCommand(undef, "set $list[0] [$filter] ".
                                 join(" ", @list[1..@list-1]) );
+        if($dl0->{CHANGEDCNT} == $ocnt) { # Forum #70488
+          $dl0->{STATE} = $dl0->{READINGS}{state}{VAL} = $ostate;
+          structure_Notify($hash, $dl0);
+        }
       } else {
-        AnalyzeCommand(undef, "set $list[0]:$filter ".
+        $ret = AnalyzeCommand(undef, "set $list[0]:$filter ".
                                 join(" ", @list[1..@list-1]) );
       }
       $sret .= $ret if( $ret );
@@ -553,9 +568,13 @@ structure_Attr($@)
     Every set command is propagated to the attached devices. Exception: if an
     attached device has an attribute structexclude, and the attribute value
     matches (as a regexp) the name of the current structure.<br>
-    If the set is of the form <code>set &lt;structure&gt; [FILTER=&lt;filter&gt;] &lt;type-specific&gt;</code>
-    then :FILTER=&lt;filter&gt; will be appended to the device name in the propagated set for
-    the attached devices like this: <code>set <devN>:FILTER=&lt;filter&gt; &lt;type-specific&gt;</code>
+    If the set is of the form <code>set &lt;structure&gt;
+    [FILTER=&lt;filter&gt;] &lt;type-specific&gt;</code> then
+    :FILTER=&lt;filter&gt; will be appended to the device name in the
+    propagated set for the attached devices like this: <code>set
+    <devN>:FILTER=&lt;filter&gt; &lt;type-specific&gt;</code><br>
+    If the last set parameter is "reverse", then execute the set commands in
+    the reverse order.
   </ul>
   <br>
 
@@ -651,6 +670,14 @@ structure_Attr($@)
         </ul>
         </li>
 
+    <a name="evaluateSetResult"></a>
+    <li>evaluateSetResult<br>
+      if a set command sets the state of the structure members to something
+      different from the set command (like set statusRequest), then you have to
+      set this attribute to 1 in order to enable the structure instance to
+      compute the new status.
+      </li>
+
     <a name="structexclude"></a>
     <li>structexclude<br>
         exclude the device from set/notify or attribute operations. For the set
@@ -719,10 +746,14 @@ structure_Attr($@)
   <ul>
     Jedes set Kommando wird an alle Devices dieser Struktur weitergegeben.<br>
     Aussnahme: das Attribut structexclude ist in einem Device definiert und
-    dessen Attributwert matched als Regexp zum Namen der aktuellen Struktur.<br>
-    Wenn das set Kommando diese Form hat <code>set &lt;structure&gt; [FILTER=&lt;filter&gt;] &lt;type-specific&gt;</code>
-    wird :FILTER=&lt;filter&gt; bei der Weitergebe der set an jeden Devicenamen wie folgt angehängt:
-    <code>set <devN>:FILTER=&lt;filter&gt; &lt;type-specific&gt;</code>
+    dessen Attributwert matched als Regexp zum Namen der aktuellen
+    Struktur.<br> Wenn das set Kommando diese Form hat <code>set
+    &lt;structure&gt; [FILTER=&lt;filter&gt;] &lt;type-specific&gt;</code> wird
+    :FILTER=&lt;filter&gt; bei der Weitergebe der set an jeden Devicenamen wie
+    folgt angehängt: <code>set <devN>:FILTER=&lt;filter&gt;
+    &lt;type-specific&gt;</code><br>
+    Falls der letzte Parameter reverse ist, dann werden die Befehle in der
+    umgekehrten Reihenfolge ausgef&uuml;hrt.
   </ul>
   <br>
   <a name="structureget"></a>
@@ -837,6 +868,15 @@ structure_Attr($@)
         <li>attr tuer2 struct_kitchen_map A</li>
       </ul>
       </li>
+
+    <a name="evaluateSetResult"></a>
+    <li>evaluateSetResult<br>
+      Falls ein set Befehl den Status der Struktur-Mitglieder auf was
+      unterschiedliches setzt (wie z.Bsp. beim set statusRequest), dann muss
+      dieses Attribut auf 1 gesetzt werden, wenn die Struktur Instanz diesen
+      neuen Status auswerten soll.
+      </li>
+
 
     <li>structexclude<br>
       Bei gesetztem Attribut wird set, attr/deleteattr ignoriert.  Dies

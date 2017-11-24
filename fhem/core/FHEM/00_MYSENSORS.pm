@@ -19,7 +19,7 @@
 #     You should have received a copy of the GNU General Public License
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-# $Id: 00_MYSENSORS.pm 9341 2015-10-02 14:55:54Z ntruchsess $
+# $Id: 00_MYSENSORS.pm 15106 2017-09-20 13:23:20Z Hauswart $
 #
 ##############################################
 
@@ -114,6 +114,7 @@ sub Define($$) {
 
 sub Undef($) {
   Stop(shift);
+  return undef;
 }
 
 sub Set($@) {
@@ -194,6 +195,11 @@ sub Stop($) {
 sub Ready($) {
   my $hash = shift;
   return DevIo_OpenDev($hash, 1, "MYSENSORS::Init") if($hash->{STATE} eq "disconnected");
+	if(defined($hash->{USBDev})) {
+		my $po = $hash->{USBDev};
+		my ( $BlockingFlags, $InBytes, $OutBytes, $ErrorFlags ) = $po->status;
+		return ( $InBytes > 0 );
+	}
 }
 
 sub Init($) {
@@ -467,6 +473,10 @@ sub matchClient($$) {
 1;
 
 =pod
+=item device
+=item summary includes a MYSENSORS gateway
+=item summary_DE integriert ein MYSENSORS Gateway
+
 =begin html
 
 <a name="MYSENSORS"></a>

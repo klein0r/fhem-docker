@@ -1,7 +1,7 @@
 #
 #	kaihs@FHEM_Forum (forum.fhem.de)
 #
-# $Id: 36_WMBUS.pm 12532 2016-11-08 19:34:33Z kaihs $
+# $Id: 36_WMBUS.pm 15410 2017-11-08 19:27:50Z kaihs $
 #
 # 
 
@@ -100,7 +100,11 @@ WMBUS_Define($$)
 			}
 			WMBUS_SetRSSI($hash, $mb, $rssi);
 		} else {
-			return "failed to parse msg: $mb->{errormsg}";
+      my $error = "failed to parse msg: $mb->{errormsg}";
+			if ($mb->{errorcode} == WMBus::ERR_MSG_TOO_SHORT && $hash->{MessageEncoding} eq 'CUL') {
+        $error .= ". Please make sure that TTY_BUFSIZE in culfw is at least two times the message length + 1";
+      }
+      return $error;
 		}
 
 	} else {
@@ -262,6 +266,9 @@ WMBUS_Parse($$)
 		} else {
 			# error
 			Log3 $name, 2, "WMBUS Error during LinkLayer parse:" . $mb->{errormsg};
+			if ($mb->{errorcode} == WMBus::ERR_MSG_TOO_SHORT && $hash->{MessageEncoding} eq 'CUL') {
+        Log3 $name, 2, "Please make sure that TTY_BUFSIZE in culfw is at least two times the message length + 1";
+      }
 			return undef;
 		}
   } else {

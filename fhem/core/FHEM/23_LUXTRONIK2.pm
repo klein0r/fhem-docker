@@ -1,9 +1,9 @@
 ###############################################################
-# $Id: 23_LUXTRONIK2.pm 13384 2017-02-11 10:04:02Z tupol $Date: $
+# $Id: 23_LUXTRONIK2.pm 15291 2017-10-19 19:29:29Z tupol $Date: $
 #
 #  23_LUXTRONIK2.pm 
 #
-#  (c) 2012,2014 Torsten Poitzsch (torsten poitzsch at gmx . de)
+#  (c) 2012-2017 Torsten Poitzsch
 #  (c) 2012-2013 Jan-Hinrich Fessel (oskar at fessel . org)
 #
 #  Copyright notice
@@ -48,9 +48,9 @@ sub LUXTRONIK2_doStatisticDelta ($$$$$) ;
 sub LUXTRONIK2_doStatisticDeltaSingle ($$$$$$$);
 
 
-  #List of firmware versions that are known to be compatible with this modul
-  my $testedFirmware = "#V1.51#V1.54C#V1.60#V1.61#V1.64#V1.69#V1.70#V1.73#V1.77#V1.80#";
-  my $compatibleFirmware = "#V1.51#V1.54C#V1.60#V1.61#V1.64#V1.69#V1.70#V1.73#V1.77#V1.80#";
+#List of firmware versions that are known to be compatible with this modul
+my $testedFirmware = "#V1.51#V1.54C#V1.60#V1.61#V1.64#V1.69#V1.70#V1.73#V1.77#V1.80#";
+my $compatibleFirmware = "#V1.51#V1.54C#V1.60#V1.61#V1.64#V1.69#V1.70#V1.73#V1.77#V1.80#";
 
 sub ##########################################
 LUXTRONIK2_Log($$$)
@@ -105,7 +105,7 @@ LUXTRONIK2_Define($$)
 
   my $interval = 5*60;
   $interval = $a[3] if(int(@a) == 4);
-  $interval = 30 if( $interval < 30 );
+  $interval = 10 if( $interval < 10 );
 
   $hash->{NAME} = $name;
 
@@ -135,8 +135,11 @@ LUXTRONIK2_Define($$)
   $hash->{fhem}{statBoilerHeatUpStep} = 0;
   $hash->{fhem}{statBoilerCoolDownStep} = 0;
   $hash->{fhem}{defrost}{mode}="none";
+  $hash->{fhem}{hotWaterLastRun} = time();
+  $hash->{fhem}{heatingPumpLastStop} = time();
+  $hash->{fhem}{heatingPumpLastRun} = time();
  
-  $hash->{fhem}{modulVersion} = '$Date: 2017-02-11 11:04:02 +0100 (Sat, 11 Feb 2017) $';
+  $hash->{fhem}{modulVersion} = '$Date: 2017-10-19 21:29:29 +0200 (Thu, 19 Oct 2017) $';
        
   return undef;
 }
@@ -216,7 +219,7 @@ LUXTRONIK2_Set($$@)
    
    elsif($cmd eq 'INTERVAL' && int(@_)==4 ) {
       Log3 $name, 3, "set $name $cmd $val";
-      $val = 30 if( $val < 30 );
+      $val = 10 if( $val < 10 );
       $hash->{INTERVAL}=$val;
       return "Polling interval set to $val seconds.";
    }
@@ -363,8 +366,8 @@ LUXTRONIK2_GetUpdate($)
   $hash->{helper}{RUNNING_PID} = BlockingCall("LUXTRONIK2_DoUpdate", $name, "LUXTRONIK2_UpdateDone", 25, "LUXTRONIK2_UpdateAborted", $hash) unless(exists($hash->{helper}{RUNNING_PID}));
 }
 
-sub ########################################
-LUXTRONIK2_DoUpdate($)
+########################################
+sub LUXTRONIK2_DoUpdate($)
 {
   my ($name) = @_;
   my $hash = $defs{$name};
@@ -394,12 +397,11 @@ LUXTRONIK2_DoUpdate($)
 #Fetch operational values (FOV)
 ############################ 
   LUXTRONIK2_Log $name, 5, "Ask host for operational values";
-  $socket->send(pack("N", 3004));
-  $socket->send(pack("N", 0));
-  
+  $socket->send( pack( "N2", (3004,0) ) );
+
   LUXTRONIK2_Log $name, 5, "Start to receive operational values";
  #(FOV) read first 4 bytes of response -> should be request_echo = 3004
-  $socket->recv($result,4);
+  $socket->recv( $result,4, MSG_WAITALL );
   $count = unpack("N", $result);
   if($count != 3004) {
       LUXTRONIK2_Log $name, 2, "Fetching operational values - wrong echo of request 3004: ".length($result)." -> ".$count;
@@ -408,7 +410,7 @@ LUXTRONIK2_DoUpdate($)
   }
  
  #(FOV) read next 4 bytes of response -> should be status = 0
-  $socket->recv($result,4);
+  $socket->recv($result,4, MSG_WAITALL );
   $count = unpack("N", $result);
   if($count > 0) {
       LUXTRONIK2_Log $name, 4, "Parameter on target changed, restart parameter reading after 5 seconds";
@@ -417,7 +419,7 @@ LUXTRONIK2_DoUpdate($)
   }
   
  #(FOV) read next 4 bytes of response -> should be count_calc_values > 0
-  $socket->recv($result,4);
+  $socket->recv($result,4, MSG_WAITALL );
   my $count_calc_values = unpack("N", $result);
   if($count_calc_values == 0) {
       LUXTRONIK2_Log $name, 2, "Fetching operational values - 0 values announced: ".length($result)." -> ".$count_calc_values;
@@ -426,15 +428,8 @@ LUXTRONIK2_DoUpdate($)
   }
   
  #(FOV) read remaining response -> should be previous number of parameters
-  my $i=1;
-  $result="";
-  my $buf="";
-  while($i<=$count_calc_values) {
-     $socket->recv($buf,4);
-      $result.=$buf;
-     $i++;
-  }
-  if(length($result) != $count_calc_values*4) {
+  $socket->recv( $result, $count_calc_values*4, MSG_WAITALL ); 
+  if( length($result) != $count_calc_values*4 ) {
       LUXTRONIK2_Log $name, 1, "Operational values length check: ".length($result)." should have been ". $count_calc_values * 4;
       $socket->close();
       return "$name|0|Number of values read mismatch ( $!)\n";
@@ -455,12 +450,11 @@ LUXTRONIK2_DoUpdate($)
 #Fetch set parameters (FSP)
 ############################ 
   LUXTRONIK2_Log $name, 5, "Ask host for set parameters";
-  $socket->send(pack("N", 3003));
-  $socket->send(pack("N", 0));
+  $socket->send( pack( "N2", (3003,0) ) );
 
   LUXTRONIK2_Log $name, 5, "Start to receive set parameters";
  #(FSP) read first 4 bytes of response -> should be request_echo=3003
-  $socket->recv($result,4);
+  $socket->recv($result,4, MSG_WAITALL );
   $count = unpack("N", $result);
   if($count != 3003) {
       LUXTRONIK2_Log $name, 2, "Wrong echo of request 3003: ".length($result)." -> ".$count;
@@ -469,7 +463,7 @@ LUXTRONIK2_DoUpdate($)
   }
   
  #(FSP) read next 4 bytes of response -> should be number_of_parameters > 0
-  $socket->recv($result,4);
+  $socket->recv($result,4, MSG_WAITALL );
   my $count_set_parameter = unpack("N", $result);
   if($count_set_parameter == 0) {
       LUXTRONIK2_Log $name, 2, "0 parameter read: ".length($result)." -> ".$count_set_parameter;
@@ -478,16 +472,10 @@ LUXTRONIK2_DoUpdate($)
   }
   
  #(FSP) read remaining response -> should be previous number of parameters
-  $i=1;
-  $result="";
-  $buf="";
-  while($i<=$count_set_parameter) {
-     $socket->recv($buf,4);
-      $result.=$buf;
-     $i++;
-  }
-  if(length($result) != $count_set_parameter*4) {
-      LUXTRONIK2_Log $name, 1, "Parameter length check: ".length($result)." should have been ". $count_set_parameter * 4;
+   $socket->recv( $result, $count_set_parameter*4, MSG_WAITALL ); 
+
+  if( length($result) != $count_set_parameter*4 ) {
+     LUXTRONIK2_Log $name, 1, "Parameter length check: ".length($result)." should have been ". ($count_set_parameter * 4);
      $socket->close();
       return "$name|0|Number of parameters read mismatch ( $!)\n";
   }
@@ -505,12 +493,11 @@ LUXTRONIK2_DoUpdate($)
 #Fetch Visibility Attributes (FVA)
 ############################ 
   LUXTRONIK2_Log $name, 5, "Ask host for visibility attributes";
-  $socket->send(pack("N", 3005));
-  $socket->send(pack("N", 0));
+  $socket->send( pack( "N2", (3005,0) ) );
 
   LUXTRONIK2_Log $name, 5, "Start to receive visibility attributes";
  #(FVA) read first 4 bytes of response -> should be request_echo=3005
-  $socket->recv($result,4);
+  $socket->recv($result,4, MSG_WAITALL );
   $count = unpack("N", $result);
   if($count != 3005) {
       LUXTRONIK2_Log $name, 2, "Wrong echo of request 3005: ".length($result)." -> ".$count;
@@ -519,33 +506,26 @@ LUXTRONIK2_DoUpdate($)
   }
   
  #(FVA) read next 4 bytes of response -> should be number_of_Visibility_Attributes > 0
-  $socket->recv($result,4);
+  $socket->recv($result,4, MSG_WAITALL );
   my $countVisibAttr = unpack("N", $result);
   if($countVisibAttr == 0) {
       LUXTRONIK2_Log $name, 2, "0 visibility attributes announced: ".length($result)." -> ".$countVisibAttr;
-     $socket->close();
+      $socket->close();
       return "$name|0|0 visibility attributes announced";
   }
   
  #(FVA) read remaining response bytewise -> should be previous number of parameters
-  $i=1;
-  $result="";
-  $buf="";
-  while($i<=$countVisibAttr) {
-     $socket->recv($buf,1);
-      $result.=$buf;
-     $i++;
-  }
-  if(length($result) != $countVisibAttr) {
+  $socket->recv( $result, $countVisibAttr, MSG_WAITALL ); 
+   if( length( $result ) != $countVisibAttr ) {
       LUXTRONIK2_Log $name, 1, "Visibility attributes length check: ".length($result)." should have been ". $countVisibAttr;
-     $socket->close();
+      $socket->close();
       return "$name|0|Number of Visibility attributes read mismatch ( $!)\n";
-  }
+   }
 
   @heatpump_visibility = unpack("C$countVisibAttr", $result);
   if(scalar(@heatpump_visibility) != $countVisibAttr) {
       LUXTRONIK2_Log $name, 2, "Unpacking problem by visibility attributes: ".scalar(@heatpump_visibility)." instead of ".$countVisibAttr;
-     $socket->close();
+      $socket->close();
       return "$name|0|Unpacking problem of visibility attributes";
   }
 
@@ -695,7 +675,9 @@ LUXTRONIK2_DoUpdate($)
   # 64 - heatSourceMotor
    $return_str .= "|". ($heatpump_visibility[54]==1 ? $heatpump_values[43] : "no");
   # 65 - typeSerial
-   $return_str .= "|".substr($heatpump_parameters[874],0,4)."/".substr($heatpump_parameters[874],4)."-".sprintf("%03X",$heatpump_parameters[875]);
+  $return_str .= "|";
+  $return_str .= substr($heatpump_parameters[874],0,4)."/".substr($heatpump_parameters[874],4).= "-".sprintf("%03X",$heatpump_parameters[875])
+        if $heatpump_parameters[874] || $heatpump_parameters[875] ;
   # 66 - heatSourceDefrostTimer
    $return_str .= "|". ($heatpump_visibility[219]==1 ? $heatpump_values[141] : "no");
   # 67 - defrostValve
@@ -710,7 +692,13 @@ LUXTRONIK2_DoUpdate($)
    $return_str .= "|". ($heatpump_visibility[97]==1 ? $heatpump_parameters[44] : "no");
   # 72 - heatSourcedefrostAirEnd
    $return_str .= "|". ($heatpump_visibility[105]==1 ? $heatpump_parameters[98] : "no");
-
+  # 73 - analogOut4 - Voltage heating system circulation pump
+   $return_str .= "|". ($heatpump_visibility[267]==1 ? $heatpump_values[163] : "no");
+  # 74 - solarPump
+   $return_str .= "|". ($heatpump_visibility[63]==1 ? $heatpump_values[52] : "no");
+  # 75 - 2ndHeatSource1
+    $return_str .= "|". ($heatpump_visibility[59]==1 ? $heatpump_values[48] : "no");
+ 
    return $return_str;
 }
 
@@ -850,13 +838,19 @@ LUXTRONIK2_UpdateDone($)
    my $returnTemperature = LUXTRONIK2_CalcTemp($a[16]);
    my $returnTemperatureTarget = LUXTRONIK2_CalcTemp($a[17]);
    my $returnTempHyst = LUXTRONIK2_CalcTemp($a[68]);
-   my $returnTemperatureTargetMin = LUXTRONIK2_CalcTemp($a[63]);
+   my $returnTemperatureTargetMin = ($a[63] eq "no"?15:LUXTRONIK2_CalcTemp($a[63]) );
    my $compressor1 = $a[6]; #Ausgang Verdichter 1
    my $heatSourceMotor = $a[64]; #Ausgang Ventilator_BOSUP
    my $defrostValve = $a[67]; #AVout
    my $hotWaterBoilerValve = $a[9]; #BUP
    my $heatingSystemCircPump = $a[27]; #HUP
    my $opStateHeatPump3 = $a[3];
+   my $analogOut4 = $a[73]; #Voltage heating system circulation pump
+   my $flowRate = $a[19]; # flow rate
+   # skips inconsistent flow rates (known problem of the used flow measurement devices)
+   if ($flowRate !~ /no/ && $heatingSystemCircPump) {
+      $flowRate = "inconsistent" if $flowRate == 0;
+   } 
    
    my $heatPumpPower = 0;
    my $heatRodPower = AttrVal($name, "heatRodElectricalPowerWatt", 0);
@@ -865,13 +859,13 @@ LUXTRONIK2_UpdateDone($)
    my $thermalPower = 0;
    # 0=Heizen, 5=Brauchwasser, 7=Abtauen, 16=Durchflussüberwachung 
    if ($opStateHeatPump3 =~ /^(0|5|16)$/) { 
-      if ($a[19] !~ /no/) { $thermalPower = abs($flowTemperature - $returnTemperature) * $a[19] / 866.65; } #Nur bei Wärmezählern
+      if ($flowRate !~ /no|inconsistent/) { $thermalPower = abs($flowTemperature - $returnTemperature) * $flowRate / 866.65; } #Nur bei Wärmezählern
       $heatPumpPower = AttrVal($name, "heatPumpElectricalPowerWatt", -1);
       $heatPumpPower *= (1 + ($flowTemperature-35) * AttrVal($name, "heatPumpElectricalPowerFactor", 0));
    }
-   if ($a[19] !~ /no/) { readingsBulkUpdate( $hash, "thermalPower", sprintf "%.1f", $thermalPower); } #Nur bei Wärmezählern
+   if ($flowRate !~ /no|inconsistent/) { readingsBulkUpdate( $hash, "thermalPower", sprintf "%.1f", $thermalPower); } #Nur bei Wärmezählern
    if ($heatPumpPower >-1 ) {    readingsBulkUpdate( $hash, "heatPumpElectricalPowerEstimated", sprintf "%.0f", $heatPumpPower); }
-   if ($heatPumpPower > 0 && $a[19] !~ /no/) { #Nur bei Wärmezählern
+   if ($heatPumpPower > 0 && $flowRate !~ /no|inconsistent/) { #Nur bei Wärmezählern
      $cop = $thermalPower * 1000 / $heatPumpPower;
      readingsBulkUpdate( $hash, "COP", sprintf "%.2f", $cop);
    }
@@ -1013,15 +1007,26 @@ LUXTRONIK2_UpdateDone($)
          if ($opStateHeatPump3 == 16) { 
             readingsBulkUpdate( $hash, "heatSourceDefrostLastTimeout", "Amb: ".$hash->{fhem}{defrost}{amb}." hsIN: ".$hash->{fhem}{defrost}{hsIn}." hsOUT: ".$hash->{fhem}{defrost}{hsOut});
          }
-         
       }
+      
+   # Determine last real heatings system return temperature, circulation needs to run at least 3 min or has been stopped less than 2 min ago
+     $hash->{fhem}{hotWaterLastRun} = time()     if $hotWaterBoilerValve;
+     $hash->{fhem}{heatingPumpLastStop} = time()     if !$heatingSystemCircPump;
+     $hash->{fhem}{heatingPumpLastRun} = time()     if $heatingSystemCircPump;
+     readingsBulkUpdate( $hash, "returnTemperatureHeating", $returnTemperature)
+         if ( $heatingSystemCircPump && !$hotWaterBoilerValve 
+              && time() - $hash->{fhem}{hotWaterLastRun} >= 180 
+              && time() - $hash->{fhem}{heatingPumpLastStop} >= 120);
+#           || ( !$heatingSystemCircPump && !$hotWaterBoilerValve 
+#              && time() - $hash->{fhem}{hotWaterLastRun} >= 180 
+#              && time() - $hash->{fhem}{heatingPumpLastRun} < $hash->{INTERVAL}+10);
       
    # Device and reading times, delays and durations
      $value = strftime "%Y-%m-%d %H:%M:%S", localtime($a[22]);
      readingsBulkUpdate($hash, "deviceTimeCalc", $value);
      my $delayDeviceTimeCalc=sprintf("%.0f",$a[29]-$a[22]);
      readingsBulkUpdate($hash, "delayDeviceTimeCalc", $delayDeviceTimeCalc);
-     my $durationFetchReadings = sprintf("%.2f",$a[30]-$a[29]);
+     my $durationFetchReadings = sprintf("%.3f",$a[30]-$a[29]);
      readingsBulkUpdate($hash, "durationFetchReadings", $durationFetchReadings);
      #Remember min and max reading durations, will be reset when initializing the device
      if ($hash->{fhem}{durationFetchReadingsMin} == 0 || $hash->{fhem}{durationFetchReadingsMin} > $durationFetchReadings) {
@@ -1047,7 +1052,8 @@ LUXTRONIK2_UpdateDone($)
      readingsBulkUpdate( $hash, "returnTemperatureHyst", $returnTempHyst);
      readingsBulkUpdate( $hash, "returnTemperatureSetBack",LUXTRONIK2_CalcTemp($a[54]));
      if ($a[18] !~ /no/) {readingsBulkUpdate( $hash, "returnTemperatureExtern",LUXTRONIK2_CalcTemp($a[18]));}
-     if ($a[19] !~ /no/) {readingsBulkUpdate( $hash, "flowRate",$a[19]);}
+     if ($analogOut4 !~ /no/) {readingsBulkUpdate( $hash, "heatingSystemCircPumpVoltage", $analogOut4/100);}
+     if ($flowRate !~ /no|inconsistent/ ) { readingsBulkUpdate( $hash, "flowRate",$flowRate); }
      readingsBulkUpdate( $hash, "heatSourceIN", $heatSourceIN );
      readingsBulkUpdate( $hash, "heatSourceOUT", $heatSourceOUT );
      readingsBulkUpdate( $hash, "heatSourceMotor", $heatSourceMotor?"on":"off");
@@ -1073,24 +1079,26 @@ LUXTRONIK2_UpdateDone($)
      LUXTRONIK2_storeReadings $hash, "counterHoursHotWater", $a[35], 3600, $doStatistic, $heatPumpPower;
      my $heatQTotal = 0 ; 
      if ($a[36] !~ /no/) {
-         LUXTRONIK2_storeReadings $hash, "counterHeatQHeating", $a[36], 10, ($a[19] !~ /no/ ? $doStatistic : 0), -1; 
+         LUXTRONIK2_storeReadings $hash, "counterHeatQHeating", $a[36], 10, ($flowRate !~ /no/ ? $doStatistic : 0), -1; 
          $heatQTotal += $a[36];
       }
      if ($a[37] !~ /no/) { 
-         LUXTRONIK2_storeReadings $hash, "counterHeatQHotWater", $a[37], 10, ($a[19] !~ /no/ ? $doStatistic : 0), -1; 
+         LUXTRONIK2_storeReadings $hash, "counterHeatQHotWater", $a[37], 10, ($flowRate !~ /no/ ? $doStatistic : 0), -1; 
          $heatQTotal += $a[37];
      }
      if ($a[62] !~ /no/) { 
-         LUXTRONIK2_storeReadings $hash, "counterHeatQPool", $a[62], 10, ($a[19] !~ /no/ ? $doStatistic : 0), -1; 
+         LUXTRONIK2_storeReadings $hash, "counterHeatQPool", $a[62], 10, ($flowRate !~ /no/ ? $doStatistic : 0), -1; 
          $heatQTotal += $a[62];
      }
-     LUXTRONIK2_storeReadings $hash, "counterHeatQTotal", $heatQTotal, 10, ($a[19] !~ /no/ ? $doStatistic : 0), -1;
+     LUXTRONIK2_storeReadings $hash, "counterHeatQTotal", $heatQTotal, 10, ($flowRate !~ /no/ ? $doStatistic : 0), -1;
       
      
    # Input / Output status
      readingsBulkUpdate($hash,"heatingSystemCircPump",$heatingSystemCircPump?"on":"off");
      readingsBulkUpdate($hash,"hotWaterCircPumpExtern",$a[28]?"on":"off");
      readingsBulkUpdate($hash,"hotWaterSwitchingValve",$hotWaterBoilerValve?"on":"off");
+     if ($a[74] !~ /no/) { readingsBulkUpdate($hash,"solarPump",$a[74]?"on":"off"); }
+     if ($a[75] !~ /no/) { readingsBulkUpdate($hash,"2ndHeatSource1",$a[75]?"on":"off"); }
      
    # Deaerate Function
      readingsBulkUpdate( $hash, "hotWaterCircPumpDeaerate",$a[61]?"on":"off")    unless $a[61] eq "no";
@@ -1112,7 +1120,7 @@ LUXTRONIK2_UpdateDone($)
      $value = $wpType{$a[31]};
      $value = "unbekannt (".$a[31].")" unless $value;
      readingsBulkUpdate($hash,"typeHeatpump",$value);
-     readingsBulkUpdate($hash,"typeSerial",$a[65]);
+     readingsBulkUpdate($hash,"typeSerial",$a[65])       if $a[65] ne "";
 
    # Solar
      if ($a[50] !~ /no/) {readingsBulkUpdate($hash, "solarCollectorTemperature", LUXTRONIK2_CalcTemp($a[50]));}
@@ -1323,7 +1331,7 @@ sub LUXTRONIK2_SetParameter ($$$)
     #limit temperature range
     $realValue = 0.5 if( $realValue < 0.5 );
     $realValue = 3.0 if( $realValue > 3.0 );
-    #Allow only integer temperatures
+    #Allow only temperatures with decimal .1
     $setValue = int($realValue * 10);
     $realValue = $setValue / 10;
   }
@@ -1334,8 +1342,8 @@ sub LUXTRONIK2_SetParameter ($$$)
     #limit temperature range
     $realValue = -5 if( $realValue < -5 );
     $realValue = 5 if( $realValue > 5 );
-    #Allow only integer temperature or with decimal .5
-    $setValue = int($realValue * 2) * 5;
+    #Allow only temperatures with decimal .1
+    $setValue = int($realValue * 10);
     $realValue = $setValue / 10;
   }
 
@@ -1369,13 +1377,11 @@ sub LUXTRONIK2_SetParameter ($$$)
       $socket->autoflush(1);
      
      LUXTRONIK2_Log $name, 5, "Set parameter $parameterName ($setParameter) = $realValue ($setValue)";
-     $socket->send(pack("N", 3002));
-     $socket->send(pack("N", $setParameter));
-     $socket->send(pack("N", $setValue));
+     $socket->send( pack( "N3", (3002, $setParameter, $setValue) ) );
      
      LUXTRONIK2_Log $name, 5, "Receive confirmation";
     #read first 4 bytes of response -> should be request_echo = 3002
-     $socket->recv($buffer,4);
+     $socket->recv($buffer,4, MSG_WAITALL );
      $result = unpack("N", $buffer);
      if($result != 3002) {
         LUXTRONIK2_Log $name, 2, "Set parameter $parameterName - wrong echo of request: $result instead of 3002";
@@ -1384,7 +1390,7 @@ sub LUXTRONIK2_SetParameter ($$$)
      }
     
     #Read next 4 bytes of response -> should be setParameter
-     $socket->recv($buffer,4);
+     $socket->recv($buffer,4, MSG_WAITALL );
      $result = unpack("N", $buffer);
      if($result !=$setParameter) {
         LUXTRONIK2_Log $name, 2, "Set parameter $parameterName - missing confirmation: $result instead of $setParameter";
@@ -1411,15 +1417,17 @@ sub LUXTRONIK2_synchronizeClock (@)
   my $delay = 0;
   my $returnStr = "";
 
+  $maxDelta = 60 unless defined $maxDelta;
   $maxDelta = 60 unless $maxDelta >= 0;
   $maxDelta = 600 unless $maxDelta <= 600;
          
    LUXTRONIK2_Log $name, 5, "Open telnet connection to $host";
-     my $telnet = new Net::Telnet ( Host=>$host, Port => 23, Timeout=>10, Errmode=>'return');
-      if (!$telnet) {
-       LUXTRONIK2_Log $name, 1, $telnet->errmsg;
-        return "$name synchronizeDeviceClock-Error: ".$telnet->errmsg;
-      }
+   my $telnet = new Net::Telnet ( host=>$host, port => 23, timeout=>10, errmode=>'return');
+   if (!$telnet) {
+      my $msg = "Could not open telnet connection to $host: $!";
+      LUXTRONIK2_Log $name, 1, $msg;
+      return "$name synchronizeDeviceClock-Error: ".$msg;
+   }
   
     LUXTRONIK2_Log $name, 5, "Log into $host";
       if (!$telnet->login('root', '')) {
@@ -2092,7 +2100,7 @@ LUXTRONIK2_doStatisticDeltaSingle ($$$$$$$)
   <b>Define</b>
   <ul>
     <code>define &lt;name&gt; LUXTRONIK2 &lt;IP-address[:Port]&gt; [poll-interval]</code><br>
-    If the pool interval is omitted, it is set to 300 (seconds). Smallest possible value is 30.
+    If the pool interval is omitted, it is set to 300 (seconds). Smallest possible value is 10.
     <br>
     Usually, the port needs not to be defined.
     <br>
@@ -2133,7 +2141,7 @@ LUXTRONIK2_doStatisticDeltaSingle ($$$$$$$)
          </li><br>
      <li><code>returnTemperatureSetBack &lt;Temperature&gt;</code>
          <br>
-         Decreasing or increasing of the returnTemperatureTarget by -5 K till + 5 K
+         Decreasing or increasing of the returnTemperatureTarget by -5 K till + 5 K. Adjustable in 0.1 steps.
          </li><br>
       <li><code>statusRequest</code><br>
          Update device information
@@ -2222,7 +2230,7 @@ LUXTRONIK2_doStatisticDeltaSingle ($$$$$$$)
   <ul>
     <code>define &lt;name&gt; LUXTRONIK2 &lt;IP-Adresse[:Port]&gt; [Abfrageinterval]</code>
     <br>
-    Wenn das Abfrage-Interval nicht angegeben ist, wird es auf 300 (Sekunden) gesetzt. Der kleinste m&ouml;gliche Wert ist 30.
+    Wenn das Abfrage-Interval nicht angegeben ist, wird es auf 300 (Sekunden) gesetzt. Der kleinste m&ouml;gliche Wert ist 10.
     <br>
     Die Angabe des Portes kann gew&ouml;hnlich entfallen.
     <br>
@@ -2265,7 +2273,7 @@ LUXTRONIK2_doStatisticDeltaSingle ($$$$$$$)
          </li><br>
      <li><code>returnTemperatureSetBack &lt;Temperatur&gt;</code>
          <br>
-         Absenkung oder Anhebung der R&uuml;cklauftemperatur von -5&deg;C bis + 5&deg;C
+         Absenkung oder Anhebung der R&uuml;cklauftemperatur von -5 K bis + 5K. In 0.1er Schritten einstellbar.
          </li><br>
      <li><code>INTERVAL &lt;Sekunden&gt;</code>
          <br>

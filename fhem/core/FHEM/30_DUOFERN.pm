@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 30_DUOFERN.pm 12577 2016-11-14 21:11:32Z telekatz $
+# $Id: 30_DUOFERN.pm 14565 2017-06-25 08:30:18Z Telekatz $
 
 package main;
 
@@ -420,6 +420,7 @@ my %setsThermostat = (
                         
 my $duoStatusRequest      = "0DFFnn400000000000000000000000000000yyyyyy01";
 my $duoCommand            = "0Dccnnnnnnnnnnnnnnnnnnnn000000zzzzzzyyyyyy00";
+my $duoCommand2           = "0Dccnnnnnnnnnnnnnnnnnnnn000000000000yyyyyy01";
 my $duoWeatherConfig      = "0D001B400000000000000000000000000000yyyyyy00";
 my $duoWeatherWriteConfig = "0DFF1Brrnnnnnnnnnnnnnnnnnnnn00000000yyyyyy00";
 my $duoSetTime            = "0D0110800001mmmmmmmmnnnnnn0000000000yyyyyy00";
@@ -665,8 +666,14 @@ DUOFERN_Set($@)
     my $argV = "00";
     my $argW = "0000";
     my $timer ="00";
-    my $buf = $duoCommand;
+    my $buf;
     my $command;
+    
+    if ($cmd eq "remotePair") {
+      $buf = $duoCommand2;
+    } else {
+      $buf = $duoCommand;
+    }
     
     $chanNo = $hash->{chanNo} if ($hash->{chanNo});
     
@@ -905,7 +912,7 @@ DUOFERN_Parse($$)
     DoTrigger("global","UNDEFINED DUOFERN_$code DUOFERN $code");
     $def = $modules{DUOFERN}{defptr}{$code};
     if(!$def) {
-      Log3 $hash, 1, "DUOFERN UNDEFINED, code $code";
+      Log3 $hash, 4, "DUOFERN UNDEFINED, code $code";
       return "UNDEFINED DUOFERN_$code DUOFERN $code $msg";
     }
   }
@@ -1284,7 +1291,7 @@ DUOFERN_Parse($$)
       readingsEndUpdate($hash, 1); # Notify is done by Dispatch  
             
     } else {
-      Log3 $hash, 2, "DUOFERN unknown msg: $msg";
+      Log3 $hash, 3, "DUOFERN unknown msg: $msg";
     }
   
   #Wandtaster, Funksender UP, Handsender, Sensoren      
@@ -1292,7 +1299,7 @@ DUOFERN_Parse($$)
     my $id = substr($msg, 4, 4);
     
     if (!(exists $sensorMsg{$id})) {
-      Log3 $hash, 2, "DUOFERN unknown msg: $msg";
+      Log3 $hash, 3, "DUOFERN unknown msg: $msg";
     }
     
     my $chan = substr($msg, $sensorMsg{$id}{chan}*2 + 2 , 2);
@@ -1442,7 +1449,7 @@ DUOFERN_Parse($$)
     Log3 $hash, 3, "DUOFERN error: $name MISSING ACK";
                    
   } else {
-    Log3 $hash, 2, "DUOFERN unknown msg: $msg";
+    Log3 $hash, 3, "DUOFERN unknown msg: $msg";
   }
   
   DoTrigger($def01->{NAME}, undef) if ($def01);

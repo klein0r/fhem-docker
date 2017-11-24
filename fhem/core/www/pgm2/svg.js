@@ -1,4 +1,5 @@
 "use strict";
+FW_version["svg.js"] = "$Id: svg.js 13579 2017-03-02 12:39:59Z rudolfkoenig $";
 
 if(!svgNS) {
   var svgNS = "http://www.w3.org/2000/svg";

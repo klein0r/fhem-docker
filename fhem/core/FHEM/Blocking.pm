@@ -1,5 +1,5 @@
 ##############################################
-# $Id: Blocking.pm 12648 2016-11-24 12:15:25Z rudolfkoenig $
+# $Id: Blocking.pm 15412 2017-11-09 14:34:29Z rudolfkoenig $
 package main;
 
 =pod
@@ -23,7 +23,7 @@ use IO::Socket::INET;
 sub BlockingCall($$@);
 sub BlockingExit();
 sub BlockingKill($);
-sub BlockingInformParent($;$$);
+sub BlockingInformParent($;$$$);
 sub BlockingStart(;$);
 
 our $BC_telnetDevice;
@@ -31,16 +31,23 @@ our %BC_hash;
 my $telnetClient;
 my $bc_pid = 0;
 
+use vars qw($BC_telnet); # set optionally by the user, Forum #68477
+
 sub
 BC_searchTelnet($)
 {
   my ($blockingFn) = @_;
 
+  if($BC_telnet) {
+    $BC_telnetDevice = $BC_telnet;
+    return;
+  }
+
   $BC_telnetDevice = undef;
   foreach my $d (sort keys %defs) { # 
     my $h = $defs{$d};
     next if(!$h->{TYPE} || $h->{TYPE} ne "telnet" || $h->{SNAME});
-    next if($attr{$d}{SSL} ||
+    next if(AttrVal($d, "SSL", undef) ||
             AttrVal($d, "allowfrom", "127.0.0.1") ne "127.0.0.1");
     next if($h->{DEF} !~ m/^\d+( global)?$/);
     next if($h->{DEF} =~ m/IPV6/);
@@ -67,8 +74,30 @@ BC_searchTelnet($)
 }
 
 sub
+BlockingInfo($$@)
+{
+  my @ret;
+  foreach my $h (values %BC_hash) {
+    next if($h->{terminated} || !$h->{pid});
+    my $fn  = (ref($h->{fn})  ? ref($h->{fn})  : $h->{fn});
+    my $arg = (ref($h->{arg}) ? ref($h->{arg}) : $h->{arg});
+    my $to  = ($h->{timeout}  ? $h->{timeout}  : "N/A");
+    my $conn= ($h->{telnet}   ? $h->{telnet}   : "N/A");
+    push @ret, "Pid:$h->{pid} Fn:$fn Arg:$arg Timeout:$to ConnectedVia:$conn";
+  }
+  push @ret, "No BlockingCall processes running currently" if(!@ret);
+  return join("\n", @ret);
+}
+
+sub
 BlockingCall($$@)
 {
+  my %hash = (
+    Fn  => "BlockingInfo",
+    Hlp => ",show info about processes started by BlockingCall"
+  );
+  $cmds{blockinginfo} = \%hash;
+
   my ($blockingFn, $arg, $finishFn, $timeout, $abortFn, $abortArg) = @_;
 
   my %h = ( pid=>'WAITING:', fn=>$blockingFn, arg=>$arg, finishFn=>$finishFn,
@@ -102,14 +131,21 @@ BlockingStart(;$)
       if($^O =~ m/Win/) {
         # MaxNr of concurrent forked processes @Win is 64, and must use wait as
         # $SIG{CHLD} = 'IGNORE' does not work.
-        wait;
+        wait if(!$h->{telnet} || !$defs{$h->{telnet}});
       } else {
         use POSIX ":sys_wait_h";
         waitpid(-1, WNOHANG); # Forum #58867
       }
-      if(!kill(0, $h->{pid})) {
+      if(!kill(0, $h->{pid}) &&
+         (!$h->{telnet} || !$defs{$h->{telnet}})) {
         $h->{pid} = "DEAD:$h->{pid}";
+        if(!$h->{terminated} && $h->{abortFn}) {
+          no strict "refs";
+          my $ret = &{$h->{abortFn}}($h->{abortArg},"Process died prematurely");
+          use strict "refs";
+        }
         delete($BC_hash{$bpid});
+        RemoveInternalTimer($h) if($h->{timeout});
       } else {
         $chld_alive++;
       }
@@ -118,6 +154,7 @@ BlockingStart(;$)
 
     if(!$h->{fn}) {     # Deleted by the module in finishFn?
       delete($BC_hash{$bpid});
+      RemoveInternalTimer($h) if($h->{timeout});
       next;
     }
 
@@ -149,6 +186,8 @@ BlockingStart(;$)
     }
 
     # Child here
+    BlockingInformParent("BlockingRegisterTelnet", "\$cl,$h->{bc_pid}", 1, 1)
+      if($h->{abortFn} && $^O !~ m/Win/);
     no strict "refs";
     my $ret = &{$h->{fn}}($h->{arg});
     use strict "refs";
@@ -164,9 +203,20 @@ BlockingStart(;$)
 }
 
 sub
-BlockingInformParent($;$$)
+BlockingRegisterTelnet($$)
 {
-  my ($informFn, $param, $waitForRead) = @_;
+  my ($cl,$idx) = @_;
+  return 0 if(ref($cl) ne "HASH" || !$cl->{NAME} || !$defs{$cl->{NAME}} ||
+              !$BC_hash{$idx});
+  $BC_hash{$idx}{telnet} = $cl->{NAME};
+  $defs{$cl->{NAME}}{BlockingCall} = $BC_hash{$idx}{fn};
+  return 1;
+}
+
+sub
+BlockingInformParent($;$$$)
+{
+  my ($informFn, $param, $waitForRead, $noEscape) = @_;
   my $ret = undef;
   $waitForRead = 1 if (!defined($waitForRead));
 	
@@ -181,12 +231,14 @@ BlockingInformParent($;$$)
   }
 
   if(defined($param)) {
-    if(ref($param) eq "ARRAY") {
-      $param = join(",", map { $_ =~ s/'/\\'/g; "'$_'" } @{$param});
+    if(!$noEscape) {
+      if(ref($param) eq "ARRAY") {
+        $param = join(",", map { $_ =~ s/'/\\'/g; "'$_'" } @{$param});
 
-    } else {
-      $param =~ s/'/\\'/g;
-      $param = "'$param'"
+      } else {
+        $param =~ s/'/\\'/g;
+        $param = "'$param'"
+      }
     }
   } else {
     $param = "";
@@ -220,12 +272,15 @@ BlockingKill($)
 
   return if($h->{terminated});
 
-  if($^O !~ m/Win/) {
+#  if($^O !~ m/Win/) {
     if($h->{pid} && $h->{pid} !~ m/:/ && kill(9, $h->{pid})) {
-      Log 1, "Timeout for $h->{fn} reached, terminated process $h->{pid}";
+      my $ll = (defined($h->{loglevel}) ? $h->{loglevel} : 1); # Forum #77057
+      Log $ll, "Timeout for $h->{fn} reached, terminated process $h->{pid}";
+      $h->{terminated} = 1;
       if($h->{abortFn}) {
         no strict "refs";
-        my $ret = &{$h->{abortFn}}($h->{abortArg});
+        my $ret = &{$h->{abortFn}}($h->{abortArg},
+                        "Timeout: process terminated");
         use strict "refs";
 
       } elsif($h->{finishFn}) {
@@ -234,10 +289,11 @@ BlockingKill($)
         use strict "refs";
 
       }
+      delete($BC_hash{$h->{bc_pid}});
       InternalTimer(gettimeofday()+1, "BlockingStart", \%BC_hash, 0)
-        if(kill(0, $h->{pid})); # Forum #58867
+        if(looks_like_number($h->{pid}) && kill(0, $h->{pid})); # Forum #58867
     }
-  }
+#  }
   BlockingStart();
 }
 

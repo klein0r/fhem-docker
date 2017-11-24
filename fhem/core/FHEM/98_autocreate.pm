@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_autocreate.pm 11984 2016-08-19 12:47:50Z rudolfkoenig $
+# $Id: 98_autocreate.pm 15377 2017-11-01 16:59:23Z rudolfkoenig $
 package main;
 
 use strict;
@@ -341,7 +341,7 @@ autocreate_Notify($$)
           my $fh = new IO::File ">>$hash->{currentlogfile}";
           $hash->{FH} = $fh;
         } else {
-          Log 1, "$oldfile or $hash->{currentfile}: $!";
+          Log 1, "$oldfile or $hash->{currentlogfile}: $!";
           close(IN); 
         }
       }
@@ -379,8 +379,7 @@ autocreate_Notify($$)
   }
 
   CommandSave(undef, undef) if(!$ret && $nrcreated && 
-                                AttrVal($me,"autosave",
-                                AttrVal("global","autosave",1)));
+                                AttrVal($me,"autosave", 1));
   return $ret;
 }
 
@@ -453,8 +452,8 @@ my @usbtable = (
       response  => "^V .* CU.*",
       define    => "CUL_PARAM CUL DEVICE\@9600 1PARAM34", },
 
-    { NAME      => "CUL",       # TuxRadio/RPi: CSM
-      matchList => ["ttySP(.*)", "ttyAMA(.*)", ],
+    { NAME      => "CUL",       # TuxRadio/RPi: CSM, SCC
+      matchList => ["ttySP(.+)", "ttyAMA(.+)", "ttyS(.)" ],
       DeviceName=> "DEVICE\@38400",
       flush     => "\n",
       request   => "V\n",
@@ -493,7 +492,7 @@ my @usbtable = (
 
     { NAME      => "ZWDongle",
       matchList => ["cu.PL2303-0000(.*)", "cu.usbmodem(.*)",
-                    "ttyUSB(.*)", "ttyACM(.*)" ],
+                    "ttyUSB(.*)", "ttyACM(.*)", "ttyAMA(.*)" ],
       DeviceName=> "DEVICE\@115200",
       request   => pack("H*", "01030020dc06"),   # GetStatus +ACK
       response  => "^\x06.*",

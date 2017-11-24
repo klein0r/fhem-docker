@@ -1,5 +1,5 @@
 
-# $Id: 37_plex.pm 13362 2017-02-08 18:47:04Z justme1968 $
+# $Id: 37_plex.pm 14601 2017-06-30 07:33:29Z justme1968 $
 
 #http://10.0.1.21:32400/music/:/transcode/generic.mp3?offset=0&format=mp3&audioCodec=libmp3lame&audioBitrate=320&audioSamples=44100&url=http%3A%2F%2F127.0.0.1%3A32400%2Flibrary%2Fparts%2F71116%2Ffile.mp3
 
@@ -828,7 +828,7 @@ plex_Set($$@)
       if( $hash->{'myPlex-servers'}{Server} ) {
         foreach my $entry (@{$hash->{'myPlex-servers'}{Server}}) {
           if( $entry->{localAddresses} eq $params[0] || $entry->{machineIdentifier} eq $params[0] ) {
-            Log 1, Dumper $entry;
+            #Log 1, Dumper $entry;
 
             my $define = "$entry->{machineIdentifier} plex $entry->{address}";
 
@@ -1246,9 +1246,9 @@ plex_makeImage($$$$)
 
 
 sub
-plex_mediaList2($$$$)
+plex_mediaList2($$$$;$)
 {
-  my ($hash, $type, $xml, $items) = @_;
+  my ($hash, $type, $xml, $items, $cmd) = @_;
 
   if( $items ) {
     if( 0 && !$xml->{sortAsc} ) {
@@ -1264,6 +1264,7 @@ plex_mediaList2($$$$)
 
   my $ret;
   if( $type eq 'Directory' ) {
+#Log 1, Dumper $items;
     $ret .= "\n" if( $ret );
     $ret .= "$type\n";
     $ret .= sprintf( "%-35s %-10s %s\n", 'key', 'type', 'title' );
@@ -1302,12 +1303,16 @@ plex_mediaList2($$$$)
         #$ret .= "  ($item->{year})" if( $item->{year} );
         $ret .= sprintf(": S%02iE%02i",$item->{parentIndex}, $item->{index} ) if( $item->{parentIndex} );
         $ret .= ")" if( $item->{grandparentTitle} );
-        $ret .= "\n";
       } else {
-        $ret .= plex_makeLink($hash,'detail',  $xml->{parentSection}, $item->{key}, sprintf( "%-35s %-10s     %s\n", $item->{key}, $item->{type}, $item->{title} ) );
+        $ret .= plex_makeLink($hash,'detail',  $xml->{parentSection}, $item->{key}, sprintf( "%-35s %-10s     %s", $item->{key}, $item->{type}, $item->{title} ) );
       }
-    }
 
+      if( $cmd && $cmd eq 'files'
+          && $item->{Media} && $item->{Media}[0]{Part}  ) {
+        $ret .= " ($item->{Media}[0]{Part}[0]{file})";
+      }
+      $ret .= "\n";
+    }
   }
 
   if( $type eq 'Track' ) {
@@ -1324,15 +1329,12 @@ plex_mediaList2($$$$)
 }
 
 sub
-plex_mediaList($$$)
+plex_mediaList($$$;$)
 {
-  my ($hash, $server, $xml) = @_;
+  my ($hash, $server, $xml, $cmd) = @_;
 
 #Log 1, Dumper $xml;
   return $xml if( ref($xml) ne 'HASH' );
-
-  my $token = $server->{accessToken};
-  $token = $hash->{token} if( !$token );
 
   $xml->{librarySectionTitle} = encode('UTF-8', $xml->{librarySectionTitle}) if( $xml->{librarySectionTitle} );
   $xml->{title} = encode('UTF-8', $xml->{title}) if( $xml->{title} );
@@ -1352,7 +1354,7 @@ plex_mediaList($$$)
 
   $ret .= plex_mediaList2( $hash, 'Directory', $xml, $xml->{Directory} ) if( $xml->{Directory} );
   $ret .= plex_mediaList2( $hash, 'Playlist', $xml, $xml->{Playlist} ) if( $xml->{Playlist} );
-  $ret .= plex_mediaList2( $hash, 'Video', $xml, $xml->{Video} ) if( $xml->{Video} );
+  $ret .= plex_mediaList2( $hash, 'Video', $xml, $xml->{Video}, $cmd ) if( $xml->{Video} );
   $ret .= plex_mediaList2( $hash, 'Track', $xml, $xml->{Track} ) if( $xml->{Track} );
 
   if( !$xml->{Directory} && !$xml->{Playlist} && !$xml->{Video} && !$xml->{Track} ) {
@@ -1368,9 +1370,6 @@ sub
 plex_mediaDetail2($$$$)
 {
   my ($hash, $server, $xml, $items) = @_;
-
-  my $token = $server->{accessToken};
-  $token = $hash->{token} if( !$token );
 
 #Log 1, Dumper $xml;
 
@@ -1501,13 +1500,10 @@ plex_mediaDetail($$$)
 
   return $xml if( ref($xml) ne 'HASH' );
 
-  my $token = $server->{accessToken};
-  $token = $hash->{token} if( !$token );
-
- $xml->{title} = encode('UTF-8', $xml->{title}) if( $xml->{title} );
- $xml->{title1} = encode('UTF-8', $xml->{title1}) if( $xml->{title1} );
- $xml->{title2} = encode('UTF-8', $xml->{title2}) if( $xml->{title2} );
- $xml->{summary} = encode('UTF-8', $xml->{summary}) if( $xml->{summary} );
+  $xml->{title} = encode('UTF-8', $xml->{title}) if( $xml->{title} );
+  $xml->{title1} = encode('UTF-8', $xml->{title1}) if( $xml->{title1} );
+  $xml->{title2} = encode('UTF-8', $xml->{title2}) if( $xml->{title2} );
+  $xml->{summary} = encode('UTF-8', $xml->{summary}) if( $xml->{summary} );
 
 #Log 1, Dumper $xml;
   my $ret = '';
@@ -1581,17 +1577,17 @@ plex_Get($$@)
       $param = '';
     }
 
-    if( $cmd eq 'sections' || $cmd eq 'ls' ) {
+    if( $cmd eq 'sections' || $cmd eq 'ls' || $cmd eq 'files' ) {
       $param = "/$param" if( $param && $param !~ '^/' );
       my $ret;
       if( $param =~ m'/playlists' ) {
         $ret = plex_sendApiCmd( $hash, "http://$ip:$entry->{port}$param", 'sections', $hash->{CL} || 1, $entry->{accessToken} );
 
       } elsif( $param =~ m'^/library' ) {
-        $ret = plex_sendApiCmd( $hash, "http://$ip:$entry->{port}$param", "sections:$param", $hash->{CL} || 1, $entry->{accessToken} );
+        $ret = plex_sendApiCmd( $hash, "http://$ip:$entry->{port}$param", "sections:$param $cmd", $hash->{CL} || 1, $entry->{accessToken} );
 
       } else {
-        $ret = plex_sendApiCmd( $hash, "http://$ip:$entry->{port}/library/sections$param", "sections:$param", $hash->{CL} || 1, $entry->{accessToken} );
+        $ret = plex_sendApiCmd( $hash, "http://$ip:$entry->{port}/library/sections$param", "sections:$param $cmd", $hash->{CL} || 1, $entry->{accessToken} );
       }
 
       return $ret;
@@ -1656,7 +1652,7 @@ plex_Get($$@)
 
     }
 
-    $list .= 'identity:noArg ls search sessions:noArg detail onDeck:noArg recentlyAdded:noArg playlists:noArg ';
+    $list .= 'identity:noArg ls files search sessions:noArg detail onDeck:noArg recentlyAdded:noArg playlists:noArg ';
     $list .= 'servers:noArg pin:noArg ' if( $list !~ m/\bservers\b/ );
 
   }
@@ -2128,6 +2124,7 @@ plex_addToPlaylist($$$$)
                 'X-Plex-Version' => '0.0', },
   };
   $param->{header}{'X-Plex-Token'} = $hash->{token} if( $hash->{token} );
+  $param->{header}{'X-Plex-Token'} = $server->{accessToken} if( $server->{accessToken} );
   if( my $entry = plex_entryOfIP($hash, 'client', $address) ) {
     $param->{header}{'X-Plex-Target-Client-Identifier'} = $entry->{machineIdentifier} if( $entry->{machineIdentifier} );
   }
@@ -2224,6 +2221,7 @@ plex_serverOf($$;$)
 
   if( !$entry && $only ) {
     if( my $mhash = $modules{plex}{defptr}{MASTER} ) {
+#Log 1, Dumper $mhash;
       my @keys = keys(%{$modules{plex}{defptr}{MASTER}{servers}});
       if( @keys == 1 ) {
         $entry = $modules{plex}{defptr}{MASTER}{servers}{$keys[0]};
@@ -2483,7 +2481,7 @@ plex_requestNotifications($$)
 
     my $ret = "GET /:/websockets/notifications HTTP/1.1\r\n";
     $ret .= plex_hash2header( {                       'Host' => "$server->{address}:$server->{port}",
-                                              'X-Plex-Token' => $hash->{token},
+                                              'X-Plex-Token' => $server->{accessToken}?$server->{accessToken}:$hash->{token},
                                                    'Upgrade' => 'websocket',
                                                 'Connection' => 'Upgrade',
                                                     'Pragma' => 'no-cache',
@@ -3709,12 +3707,13 @@ plex_parseHttpAnswer($$$)
            || $param->{key} eq 'playlists'
            || $param->{key} eq 'recentlyAdded'
            || $param->{key} eq 'search'
-           || $param->{key} =~ m'sections(:(.*))?' ) {
+           || $param->{key} =~ m'sections(:(\S*))?( (.*))?' ) {
     $handled = 1;
+    my $cmd = $4;
 
     $xml->{parentSection} = $2;
     my $server = plex_entryOfIP($hash, 'server', $param->{address});
-    my $ret = plex_mediaList( $hash, $server, $xml );
+    my $ret = plex_mediaList( $hash, $server, $xml, $cmd );
     if( $param->{cl} && $param->{cl}->{TYPE} eq 'FHEMWEB' ) {
       $ret =~ s/&/&amp;/g;
       $ret =~ s/'/&apos;/g;
@@ -4064,15 +4063,28 @@ Log 1, "!!!!!!!!!!";
 
         my $data = substr($hash->{buf}, $i, $len);
         $hash->{buf} = substr($hash->{buf},$i+$len);
+#Log 1, ">>>$data<<<";
 
-        if( $op == 0x01 ) {
+        if( $data eq '?' ) {
+          #ignore keepalive
+
+        } elsif( $op == 0x01 ) {
           my $obj = eval { decode_json($data) };
 
           if( $obj ) {
+            Log3 $pname, 5, "$pname: websocket data: ". Dumper $obj;
+
             my $phash = $hash->{phash};
             my $handled = 0;
 
-            if( $obj->{_elementType} eq 'NotificationContainer' ) {
+            if( $obj->{NotificationContainer} ) {
+              $obj = $obj->{NotificationContainer};
+              if( $obj->{type} eq 'update.statechange' ) {
+                $handled = 1;
+                Log3 $pname, 4, "$pname: update available $obj->{AutoUpdateNotification}[0]{fixed}";
+              }
+
+            } elsif( $obj->{_elementType} && $obj->{_elementType} eq 'NotificationContainer' ) {
               if( $obj->{type} eq 'playing' ) {
                 $handled = 1;
 
@@ -4142,7 +4154,11 @@ Log 1, "!!!!!!!!!!";
               }
             }
 
-            Log3 $pname, 4, "$pname: unhandled websocket text type: $obj->{type}: $data" if( !$handled );
+            if( $obj->{type} ) {
+              Log3 $pname, 4, "$pname: unhandled websocket text type: $obj->{type}: $data" if( !$handled );
+            } else {
+              Log3 $pname, 4, "$pname: unhandled websocket data: $data" if( !$handled );
+            }
 
           } else {
             Log3 $pname, 2, "$pname: unhandled websocket text $data";

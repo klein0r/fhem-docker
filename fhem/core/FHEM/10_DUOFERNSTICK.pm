@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_DUOFERNSTICK.pm 12786 2016-12-15 19:15:18Z telekatz $
+# $Id: 10_DUOFERNSTICK.pm 14082 2017-04-23 11:46:58Z Telekatz $
 
 package main;
 
@@ -532,7 +532,7 @@ DUOFERNSTICK_Notify($$)
     next if(!defined($s));
     my ($what,$who) = split(' ',$s);
     
-    if ($what && ($what =~ m/INITIALIZED/)) {
+    if ($what && ($what =~ m/^INITIALIZED$/)) {
       DUOFERNSTICK_DoInit($own);
     }
   }

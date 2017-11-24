@@ -2,7 +2,7 @@
 #
 # ControlPoint.pm
 #
-# $Id: ControlPoint.pm 10759 2016-02-07 20:00:12Z rleins $
+# $Id: ControlPoint.pm 14715 2017-07-14 10:39:57Z Reinerlein $
 #
 # Now (in this version) part of Fhem.
 #
@@ -62,9 +62,12 @@ sub new {
 	my $maxWait = $args{MaxWait} || 3;
 	%IGNOREIP = %{$args{IgnoreIP}};
 	%USEDONLYIP = %{$args{UsedOnlyIP}};
+	
+	my $reuseport = $args{ReusePort};
+	$reuseport = 0 if (!defined($reuseport));
 
 	# Create the socket on which search requests go out
-    $self->{_searchSocket} = IO::Socket::INET->new(Proto => 'udp', LocalPort => $searchPort) || croak("Error creating search socket: $!\n");
+    $self->{_searchSocket} = IO::Socket::INET->new(Proto => 'udp', LocalPort => $searchPort) || carp("Error creating search socket: $!\n");
 	setsockopt($self->{_searchSocket}, 
 			   IP_LEVEL,
 			   IP_MULTICAST_TTL,
@@ -73,16 +76,31 @@ sub new {
 
 	# Create the socket on which we'll listen for events to which we are
 	# subscribed.
-    $self->{_subscriptionSocket} = HTTP::Daemon->new(LocalPort => $subscriptionPort, Reuse=>1, Listen=>20) || croak("Error creating subscription socket: $!\n");
+    $self->{_subscriptionSocket} = HTTP::Daemon->new(LocalPort => $subscriptionPort, Reuse=>1, Listen=>20) || carp("Error creating subscription socket: $!\n");
 	$self->{_subscriptionURL} = $args{SubscriptionURL} || DEFAULT_SUBSCRIPTION_URL;
 	$self->{_subscriptionPort} = $self->{_subscriptionSocket}->sockport();;
 
 	# Create the socket on which we'll listen for SSDP Notifications.
-	$self->{_ssdpMulticastSocket} = IO::Socket::INET->new(
-													 Proto => 'udp',
-													 Reuse => 1,
-													 LocalPort => SSDP_PORT) ||
-	croak("Error creating SSDP multicast listen socket: $!\n");
+	# First try with ReusePort (if given as parameter)...
+	eval {
+		$self->{_ssdpMulticastSocket} = IO::Socket::INET->new(
+														 Proto => 'udp',
+														 Reuse => 1,
+														 ReusePort => $reuseport,
+														 LocalPort => SSDP_PORT) ||
+		croak("Error creating SSDP multicast listen socket: $!\n");
+	};
+	if ($@ =~ /Your vendor has not defined Socket macro SO_REUSEPORT/i) {
+		$self->{_ssdpMulticastSocket} = IO::Socket::INET->new(
+														 Proto => 'udp',
+														 Reuse => 1,
+														 LocalPort => SSDP_PORT) ||
+		croak("Error creating SSDP multicast listen socket: $!\n");
+	} elsif($@) {
+		# Weiterwerfen...
+		croak($@);
+	}
+	
 	my $ip_mreq = inet_aton(SSDP_IP) . INADDR_ANY;
 	setsockopt($self->{_ssdpMulticastSocket}, 
 			   IP_LEVEL,
@@ -306,7 +324,7 @@ sub _createDevice {
 													  {ControlPoint => $self});
 	} else {
 		carp('400-URL-Absolute-Error! Location: "'.$location.'", Content: "'.$response->content.'"') if ($response->code == 400);
-		carp("Loading device description failed with error: " . $response->code . " " . $response->message) if ($response->code != 200);
+		carp("Loading device description failed with error: " . $response->code . " " . $response->message . ' (Location: ' . $location . ')') if ($response->code != 200);
 	}
 	#pop(@LWP::Protocol::http::EXTRA_SOCK_OPTS);
 	@LWP::Protocol::http::EXTRA_SOCK_OPTS = @SOCK_OPTS_Backup;
@@ -400,7 +418,7 @@ sub _receiveSearchResponse {
                 last;
             }
 
-            if ($search->{_friendlyName} && $search->{_friendlyName}) {
+            if ($search->{_friendlyName} && $buf =~ $search->{_friendlyName}) {
                 $found = 1;
                 last;
             }
@@ -431,7 +449,10 @@ sub _receiveSSDPEvent {
 	my $buf = '';
 
 	my $peer = recv($socket, $buf, 2048, 0);
+	return if (!defined($peer));
+	
 	my @peerdata = unpack_sockaddr_in($peer);
+	return if (!@peerdata);
 	
 	return if (scalar(%USEDONLYIP) && (!$USEDONLYIP{inet_ntoa($peerdata[1])}));
 	return if ($IGNOREIP{inet_ntoa($peerdata[1])});
@@ -702,26 +723,27 @@ sub subscribe {
 		my $ua = LWP::UserAgent->new(timeout => 20);
 		my $response = $ua->request($request);
 
-		if ($response->is_success &&
-			$response->code == 200) {
-			my $sid = $response->header('SID');
-			$timeout = $response->header('Timeout');
-			if ($timeout =~ /^Second-(\d+)$/) {
-				$timeout = $1;
+		if ($response->is_success) {
+			if ($response->code == 200) {
+				my $sid = $response->header('SID');
+				$timeout = $response->header('Timeout');
+				if ($timeout =~ /^Second-(\d+)$/) {
+					$timeout = $1;
+				}
+	
+				my $subscription = UPnP::ControlPoint::Subscription->new(
+											   Service => $self,
+											   Callback => $callback,
+											   SID => $sid,
+											   Timeout => $timeout,
+											   EventSubURL => "$url");
+				$cp->addSubscription($subscription);
+				return $subscription;
+			} else {
+				carp("Subscription request successful but answered with error: " . $response->code . " " . $response->message);
 			}
-
-			my $subscription = UPnP::ControlPoint::Subscription->new(
-										   Service => $self,
-										   Callback => $callback,
-										   SID => $sid,
-										   Timeout => $timeout,
-										   EventSubURL => "$url");
-			$cp->addSubscription($subscription);
-			return $subscription;
-		} 
-		else {
-			carp("Subscription request failed with error: " . 
-				 $response->code . " " . $response->message);
+		} else {
+			carp("Subscription request failed with error: " . $response->code . " " . $response->message);
 		}
 	}
 
@@ -748,7 +770,7 @@ sub unsubscribe {
 	}
 	else {
 		if ($response->code != 412) {
-			croak("Unsubscription request failed with error: " . 
+			carp("Unsubscription request failed with error: " . 
 				 $response->code . " " . $response->message);
 		}
 	}
@@ -1050,7 +1072,7 @@ sub renew {
 		$self->{_startTime} = Time::HiRes::time();
 	}
 	else {
-		croak("Renewal of subscription failed with error: " . 
+		carp("Renewal of subscription failed with error: " . 
 			 $response->code . " " . $response->message);
 	}
 	

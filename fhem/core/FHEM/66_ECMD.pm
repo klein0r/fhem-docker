@@ -1,4 +1,4 @@
-# $Id: 66_ECMD.pm 13257 2017-01-28 15:43:00Z neubert $
+# $Id: 66_ECMD.pm 14495 2017-06-11 05:47:17Z neubert $
 
 ##############################################################################
 #
@@ -169,7 +169,7 @@ sub
 dq($) 
 {
   my ($s)= @_;
-  return defined($s) ? escapeLogLine($s) . " (" . oq($s) . ")" : "<nothing>";
+  return defined($s) ? ( $s eq "" ? "empty string" : escapeLogLine($s) . " (" . oq($s) . ")" ) : "<nothing>";
 }
 
 sub

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 15_CUL_EM.pm 12712 2016-12-04 10:08:23Z rudolfkoenig $
+# $Id: 15_CUL_EM.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
 package main;
 
 use strict;

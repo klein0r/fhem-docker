@@ -4,7 +4,7 @@
 #
 #  Copyright notice
 #
-#  (c) 2005-2015
+#  (c) 2005-2017
 #  Copyright: Rudolf Koenig (r dot koenig at koeniglich dot de)
 #  All rights reserved
 #
@@ -27,16 +27,18 @@
 #
 #  Homepage:  http://fhem.de
 #
-# $Id: fhem.pl 13447 2017-02-19 13:24:25Z rudolfkoenig $
+# $Id: fhem.pl 15482 2017-11-23 10:07:05Z rudolfkoenig $
 
 
 use strict;
 use warnings;
 use lib '.';
 use IO::Socket;
+use IO::Socket::INET;
 use Time::HiRes qw(gettimeofday);
 use Scalar::Util qw(looks_like_number);
 use POSIX;
+use File::Copy qw(copy);
 
 ##################################################
 # Forward declarations
@@ -48,6 +50,7 @@ sub AnalyzeInput($);
 sub AnalyzePerlCommand($$;$);
 sub AssignIoPort($;$);
 sub AttrVal($$$);
+sub AttrNum($$$;$);
 sub CallFn(@);
 sub CallInstanceFn(@);
 sub CheckDuplicate($$@);
@@ -57,18 +60,22 @@ sub Dispatch($$$);
 sub DoTrigger($$@);
 sub EvalSpecials($%);
 sub Each($$;$);
+sub FileDelete($);
 sub FileRead($);
 sub FileWrite($@);
 sub FmtDateTime($);
 sub FmtTime($);
 sub GetLogLevel(@);
 sub GetTimeSpec($);
+sub GetType($;$);
 sub GlobalAttr($$$$);
 sub HandleArchiving($;$);
 sub HandleTimeout();
 sub IOWrite($@);
 sub InternalTimer($$$;$);
 sub InternalVal($$$);
+sub InternalNum($$$;$);
+sub IsDevice($;$);
 sub IsDisabled($);
 sub IsDummy($);
 sub IsIgnored($);
@@ -80,7 +87,7 @@ sub OldTimestamp($);
 sub OldValue($);
 sub OpenLogfile($);
 sub PrintHash($$);
-sub ReadingsNum($$$);
+sub ReadingsNum($$$;$);
 sub ReadingsTimestamp($$$);
 sub ReadingsVal($$$);
 sub RefreshAuthList();
@@ -120,7 +127,7 @@ sub getUniqueId();
 sub latin1ToUtf8($);
 sub myrename($$$);
 sub notifyRegexpChanged($$);
-sub parseParams($;$);
+sub parseParams($;$$);
 sub perlSyntaxCheck($%);
 sub readingsBeginUpdate($);
 sub readingsBulkUpdate($$$@);
@@ -128,8 +135,13 @@ sub readingsEndUpdate($$);
 sub readingsSingleUpdate($$$$);
 sub redirectStdinStdErr();
 sub rejectDuplicate($$$);
+sub restoreDir_init();
+sub restoreDir_rmTree($);
+sub restoreDir_saveFile($$);
+sub restoreDir_mkDir($$$);
 sub setGlobalAttrBeforeFork($);
 sub setReadingsVal($$$$);
+sub toJSON($);
 sub utf8ToLatin1($);
 
 sub CommandAttr($$);
@@ -203,6 +215,7 @@ sub cfgDB_WriteFile($@);
 
 use vars qw($auth_refresh);
 use vars qw($cmdFromAnalyze);   # used by the warnings-sub
+use vars qw($lastWarningMsg);   # set by the warnings-sub
 use vars qw($cvsid);            # used in 98_version.pm
 use vars qw($devcount);         # Maximum device number, used for storing
 use vars qw($featurelevel); 
@@ -232,9 +245,11 @@ use vars qw(%value);            # Current values, see commandref.html
 use vars qw(@authenticate);     # List of authentication devices
 use vars qw(@authorize);        # List of authorization devices
 use vars qw(@structChangeHist); # Contains the last 10 structural changes
+use vars qw($haveInet6);        # Using INET6
+use vars qw(%prioQueues);       #
 
 $selectTimestamp = gettimeofday();
-$cvsid = '$Id: fhem.pl 13447 2017-02-19 13:24:25Z rudolfkoenig $';
+$cvsid = '$Id: fhem.pl 15482 2017-11-23 10:07:05Z rudolfkoenig $';
 
 my $AttrList = "alias comment:textField-long eventMap group room ".
                "suppressReading userReadings:textField-long ".
@@ -249,7 +264,7 @@ my $logopened = 0;              # logfile opened or using stdout
 my $namedef = "where <name> is a single device name, a list separated by komma (,) or a regexp. See the devspec section in the commandref.html for details.\n";
 my $rcvdquit;                   # Used for quit handling in init files
 my $readingsUpdateDelayTrigger; # needed internally
-my $sig_term = 0;               # if set to 1, terminate (saving the state)
+my $gotSig;                     # non-undef if got a signal
 my $wbName = ".WRITEBUFFER";    # Buffer-name for delayed writing via select
 my %comments;                   # Comments from the include files
 my %duplicate;                  # Pool of received msg for multi-fhz/cul setups
@@ -259,7 +274,7 @@ my %sleepers;                   # list of sleepers
 $init_done = 0;
 $lastDefChange = 0;
 $readytimeout = ($^O eq "MSWin32") ? 0.1 : 5.0;
-$featurelevel = 5.8;
+$featurelevel = 5.8; # see also GlobalAttr
 
 
 $modules{Global}{ORDER} = -1;
@@ -270,6 +285,7 @@ my @globalAttrList = qw(
   apiversion
   archivecmd
   archivedir
+  archivesort:timestamp,alphanum
   archiveCompress
   autoload_undefined_devices:1,0
   autosave:1,0
@@ -280,6 +296,7 @@ my @globalAttrList = qw(
   blockingCallMax
   commandref:modular,full
   configfile
+  dnsHostsFile
   dnsServer
   dupTimeout
   exclude_from_update
@@ -297,9 +314,11 @@ my @globalAttrList = qw(
   mseclog:1,0
   nofork:1,0
   nrarchive
-  perlSyntaxCheck
+  perlSyntaxCheck:0,1
   pidfilename
-  port
+  proxy
+  proxyAuth
+  proxyExclude
   restartDelay
   restoreDirs
   sendStatistics:onUpdate,manually,never
@@ -311,6 +330,7 @@ my @globalAttrList = qw(
   uniqueID
   updateInBackground:1,0
   updateNoFileCheck:1,0
+  useInet6:1,0
   version
 );
 use warnings 'qw';
@@ -392,6 +412,9 @@ $readingFnAttributes = "event-on-change-reading event-on-update-reading ".
 
 ###################################################
 # Start the program
+my $fhemdebug;
+$fhemdebug = shift @ARGV if($ARGV[0] eq "-d");
+
 if(int(@ARGV) < 1) {
   print "Usage:\n";
   print "as server: fhem configfile\n";
@@ -533,7 +556,8 @@ if(configDBUsed()) {
 }
 
 if($cfgRet) {
-  $attr{global}{motd} = "$cfgErrMsg\n$cfgRet";
+  $attr{global}{autosave} = 0;
+  $attr{global}{motd} = "$cfgErrMsg\n$cfgRet\nAutosave deactivated";
   Log 1, $cfgRet;
 
 } elsif($attr{global}{motd} && $attr{global}{motd} =~ m/^$cfgErrMsg/) {
@@ -548,14 +572,6 @@ if($pfn) {
   close(PID);
 }
 
-my $gp = $attr{global}{port};
-if($gp) {
-  Log 3, "Converting 'attr global port $gp' to 'define telnetPort telnet $gp'";
-  my $ret = CommandDefine(undef, "telnetPort telnet $gp");
-  Log 1, "$ret" if($ret);
-  delete($attr{global}{port});
-}
-
 my $sc_text = "SecurityCheck:";
 $attr{global}{motd} = "$sc_text\n\n"
         if(!$attr{global}{motd} || $attr{global}{motd} =~ m/^$sc_text/);
@@ -565,13 +581,18 @@ $lastDefChange = 1;
 
 foreach my $d (keys %defs) {
   if($defs{$d}{IODevMissing}) {
-    Log 3, "No I/O device found for $defs{$d}{NAME}";
+    if($defs{$d}{IODevName} && $defs{$defs{$d}{IODevName}}) {
+      $defs{$d}{IODev} = $defs{$defs{$d}{IODevName}};
+      delete $defs{$d}{IODevName};
+    } else {
+      Log 3, "No I/O device found for $defs{$d}{NAME}";
+    }
     delete $defs{$d}{IODevMissing};
   }
 }
 
-DoTrigger("global", "INITIALIZED", 1);
 $fhem_started = time;
+DoTrigger("global", "INITIALIZED", 1);
 
 $attr{global}{motd} .= "Running with root privileges."
         if($^O !~ m/Win/ && $<==0 && $attr{global}{motd} =~ m/^$sc_text/);
@@ -600,6 +621,7 @@ sub MAIN {MAIN:};               #Dummy
 
 
 my $errcount= 0;
+$gotSig = undef if($gotSig && $gotSig eq "HUP");
 while (1) {
   my ($rout,$rin, $wout,$win, $eout,$ein) = ('','', '','', '','');
 
@@ -624,7 +646,11 @@ while (1) {
   my $nfound = select($rout=$rin, $wout=$win, $eout=$ein, $timeout);
 
   $winService->{serviceCheck}->() if($winService->{serviceCheck});
-  CommandShutdown(undef, undef) if($sig_term);
+  if($gotSig) {
+    CommandShutdown(undef, undef) if($gotSig eq "TERM");
+    CommandRereadCfg(undef, "")   if($gotSig eq "HUP");
+    $gotSig = undef;
+  }
 
   if($nfound < 0) {
     my $err = int($!);
@@ -745,6 +771,26 @@ while (1) {
 
 ################################################
 sub
+IsDevice($;$)
+{
+  my $devname = shift;
+  my $devtype = shift;
+
+  return 1
+    if ( defined($devname)
+      && defined( $defs{$devname} )
+      && (!$devtype || $devtype eq "" ) );
+
+  return 1
+    if ( defined($devname)
+      && defined( $defs{$devname} )
+      && defined( $defs{$devname}{TYPE} )
+      && $defs{$devname}{TYPE} =~ m/^$devtype$/ );
+
+  return 0;
+}
+
+sub
 IsDummy($)
 {
   my $devname = shift;
@@ -778,11 +824,12 @@ IsDisabled($)
 
   my $dfi = $attr{$devname}{disabledForIntervals};
   if(defined($dfi)) {
+    $dfi =~ s/{([^\x7d]*)}/$cmdFromAnalyze=$1; eval $1/ge; # Forum #69787
     my ($sec,$min,$hour,$mday,$month,$year,$wday,$yday,$isdst) = localtime;
     my $dhms = sprintf("%s\@%02d:%02d:%02d", $wday, $hour, $min, $sec);
     foreach my $ft (split(" ", $dfi)) {
       my ($from, $to) = split("-", $ft);
-      if($from && $to) {
+      if(defined($from) && defined($to)) {
         $from = "$wday\@$from" if(index($from,"@") < 0);
         $to   = "$wday\@$to"   if(index($to,  "@") < 0);
         return 2 if($from le $dhms && $dhms le $to);
@@ -832,6 +879,16 @@ GetVerbose($)
     return $attr{global}{verbose};
 
   }
+}
+
+sub
+GetType($;$)
+{
+  my $devname = shift;
+  my $default = shift;
+
+  return $default unless ( IsDevice($devname) && $defs{$devname}{TYPE} );
+  return $defs{$devname}{TYPE};
 }
 
 
@@ -971,9 +1028,11 @@ AnalyzeCommandChain($$;$)
   my @saveCmdList = @cmdList;   # Needed for recursive calls
   @cmdList = split(";", $cmd);
   my $subcmd;
+  my $localEvalSpecials = $evalSpecials;
   while(defined($subcmd = shift @cmdList)) {
     $subcmd =~ s/SeMiCoLoN/;/g;
-    my $lret = AnalyzeCommand($c, $subcmd);
+    $evalSpecials = $localEvalSpecials;
+    my $lret = AnalyzeCommand($c, $subcmd, "ACC");
     push(@ret, $lret) if(defined($lret));
   }
   @cmdList = @saveCmdList;
@@ -1011,6 +1070,7 @@ AnalyzePerlCommand($$;$)
   }
   $month++;
   $year+=1900;
+  my $today = sprintf('%04d-%02d-%02d', $year,$month,$mday);
 
   if($evalSpecials) {
     $cmd = join("", map { my $n = substr($_,1); # ignore the %
@@ -1035,14 +1095,17 @@ AnalyzePerlCommand($$;$)
 sub
 AnalyzeCommand($$;$)
 {
-  my ($cl, $cmd) = @_; # third parmeter is deprecated
+  my ($cl, $cmd, $calledFromChain) = @_;
 
   $cmd = "" if(!defined($cmd)); # Forum #29963
   $cmd =~ s/^(\n|[ \t])*//;# Strip space or \n at the begginning
   $cmd =~ s/[ \t]*$//;
 
   Log 5, "Cmd: >$cmd<";
-  return undef if(!$cmd);
+  if(!$cmd) {
+    $evalSpecials = undef if(!$calledFromChain || $calledFromChain ne "ACC");
+    return undef;
+  }
 
   if($cmd =~ m/^{.*}$/s) {              # Perl code
     return AnalyzePerlCommand($cl, $cmd, 1);
@@ -1052,6 +1115,7 @@ AnalyzeCommand($$;$)
     return "Forbidden command $cmd." if($cl && !Authorized($cl,"cmd","shell"));
     if($evalSpecials) {
       map { $ENV{substr($_,1)} = $evalSpecials->{$_}; } keys %{$evalSpecials};
+      $evalSpecials = undef if(!$calledFromChain || $calledFromChain ne "ACC");
     }
     my $out = "";
     $out = ">> $currlogfile 2>&1" if($currlogfile ne "-" && $^O ne "MSWin32");
@@ -1063,39 +1127,50 @@ AnalyzeCommand($$;$)
   if($evalSpecials) {
     map { my $n = substr($_,1); my $v = $evalSpecials->{$_};
           $cmd =~ s/\$$n/$v/g; } keys %{$evalSpecials};
+    $evalSpecials = undef if(!$calledFromChain || $calledFromChain ne "ACC");
   }
   my ($fn, $param) = split("[ \t][ \t]*", $cmd, 2);
   return undef if(!$fn);
 
+
   #############
   # Search for abbreviation
-  if(!defined($cmds{$fn})) {
-    foreach my $f (sort keys %cmds) {
-      if(length($f) > length($fn) && lc(substr($f,0,length($fn))) eq lc($fn)) {
-        Log 5, "$fn => $f";
-        $fn = $f;
-        last;
+  sub
+  getAbbr($$)
+  {
+    my ($fn,$h) = @_;
+    my $lcfn = lc($fn);
+    my $fnlen = length($fn);
+    return $fn if(defined($h->{$fn}));
+    foreach my $f (sort keys %{$h}) {
+      if(length($f) >= $fnlen && lc(substr($f,0,$fnlen)) eq $lcfn) {
+        Log 5, "AnalyzeCommand: trying $f for $fn";
+        return $f;
       }
     }
+    return undef;
   }
+
+  my $lfn = getAbbr($fn,\%cmds);
+  $fn = $lfn if($lfn);
   $fn = $cmds{$fn}{ReplacedBy}
                 if(defined($cmds{$fn}) && defined($cmds{$fn}{ReplacedBy}));
 
-  return "Forbidden command $fn." if($cl && !Authorized($cl,"cmd",$fn));
-
   #############
-  # autoload commands.
-  my $lcfn = lc($fn);
-  $fn = $lcfn if(defined($cmds{$lcfn}));
-  if(!defined($cmds{$fn}) || !defined($cmds{$fn}{Fn})) {
+  # autoload command with ModuleName
+  if(!$cmds{$fn} || !defined($cmds{$fn}{Fn})) {
     my $modName;
-    map { $modName = $_ if($lcfn eq lc($_)); } keys %modules;
-    $modName = $cmds{$lcfn}{ModuleName}
-                        if($cmds{$lcfn} && $cmds{$lcfn}{ModuleName});
+    $modName = $cmds{$fn}{ModuleName} if($cmds{$fn} && $cmds{$fn}{ModuleName});
+    $modName = getAbbr($fn,\%modules) if(!$modName);
+
     LoadModule($modName) if($modName);
-    $fn = $lcfn if($cmds{$lcfn});
-    return "Unknown command $fn, try help." if(!$cmds{$fn} || !$cmds{$fn}{Fn});
+    my $lfn = getAbbr($fn,\%cmds);
+    $fn = $lfn if($lfn);
   }
+
+  return "Unknown command $fn, try help." if(!$cmds{$fn} || !$cmds{$fn}{Fn});
+
+  return "Forbidden command $fn." if($cl && !Authorized($cl,"cmd",$fn));
 
   if($cl && $cmds{$fn}{ClientFilter} &&
      $cl->{TYPE} !~ m/$cmds{$fn}{ClientFilter}/) {
@@ -1195,6 +1270,7 @@ devspec2array($;$)
 
         if($@) {
           Log 1, "devspec2array $name: $@";
+          stacktrace();
           return $name;
         }
       }
@@ -1497,10 +1573,19 @@ CommandSave($$)
     return "Last 10 structural changes:\n  ".join("\n  ", @structChangeHist);
   }
 
+  if(!$cl && !AttrVal("global", "autosave", 1)) { # Forum #78769
+    Log 4, "Skipping save, as autosave is disabled";
+    return;
+  }
+  my $restoreDir;
+  $restoreDir = restoreDir_init() if(!configDBUsed());
+
   @structChangeHist = ();
   DoTrigger("global", "SAVE", 1);
 
+  restoreDir_saveFile($restoreDir, $attr{global}{statefile});
   my $ret = WriteStatefile();
+
   return $ret if($ret);
   $ret = "";    # cfgDB_SaveState may return undef
 
@@ -1511,6 +1596,7 @@ CommandSave($$)
 
   $param = $attr{global}{configfile} if(!$param);
   return "No configfile attribute set and no argument specified" if(!$param);
+  restoreDir_saveFile($restoreDir, $param);
   if(!open(SFH, ">$param")) {
     return "Cannot open $param: $!";
   }
@@ -1537,6 +1623,7 @@ CommandSave($$)
     my $cfgfile = $h->{CFGFN} ? $h->{CFGFN} : "configfile";
     my $fh = $fh{$cfgfile};
     if(!$fh) {
+      restoreDir_saveFile($restoreDir, $cfgfile);
       if(!open($fh, ">$cfgfile")) {
         $ret .= "Cannot open $cfgfile: $!, ignoring its content\n";
         $fh{$cfgfile} = 1;
@@ -1612,13 +1699,41 @@ ReplaceSetMagic($$@)       # Forum #38276
   my $a = join(" ", @_);
   my $oa = $a;
 
-  $a =~ s/\[([a-z0-9._]+):([a-z0-9._-]+)(:d)?\]/{
-    my $x = $3 ? ReadingsNum($1,$2,"") : ReadingsVal($1,$2,"");
-    $x eq "" ? "[$1:$2".($3?$3:"")."]" : $x
-  }/egi;
+  sub
+  rsmVal($$$$$)
+  {
+    my ($all, $t, $d, $n, $s, $val) = @_;
+    my $hash = $defs{$d};
+    return $all if(!$hash);
+    if(!$t || $t eq "r:") {
+      my $r = $hash->{READINGS};
+      if($s && ($s eq ":t" || $s eq ":sec")) {
+        return $all if (!$r || !$r->{$n});
+        $val = $r->{$n}{TIME};
+        $val = time() - time_str2num($val) if($s eq ":sec");
+        return $val;
+      }
+      $val = $r->{$n}{VAL} if($r && $r->{$n});
+    }
+    $val = $hash->{$n}   if(!defined($val) && (!$t || $t eq "i:"));
+    $val = $attr{$d}{$n} if(!defined($val) && (!$t || $t eq "a:") && $attr{$d});
+    return $all if(!defined($val));
 
+    if($s && $s =~ /:d|:r|:i/ && $val =~ /(-?\d+(\.\d+)?)/) {
+      $val = $1;
+      $val = int($val) if ( $s eq ":i" );
+      $val = round($val, defined($1) ? $1 : 1) if($s =~ /^:r(\d)?/);
+    }
+    return $val;
+  }
+
+  $a =~s/(\[([ari]:)?([a-zA-Z\d._]+):([a-zA-Z\d._\/-]+)(:(t|sec|i|d|r|r\d))?\])/
+         rsmVal($1,$2,$3,$4,$5)/eg;
+
+  my $esDef = ($evalSpecials ? 1 : 0);
   $evalSpecials->{'%DEV'} = $hash->{NAME};
   $a =~ s/{\((.*?)\)}/AnalyzePerlCommand($hash->{CL},$1,1)/egs;
+  $evalSpecials = undef if(!$esDef);;
 
   return (undef, @_) if($oa eq $a);
   return (undef, split(/ /, $a, $nsplit));
@@ -1657,7 +1772,8 @@ DoSet(@)
   if(defined($hash->{".triggerUsed"}) && $hash->{".triggerUsed"} == 0) {
     shift @a;
     # set arg if the module did not triggered events
-    my $arg = join(" ", @a) if(!$hash->{CHANGED} || !int(@{$hash->{CHANGED}}));
+    my $arg;
+    $arg = join(" ", @a) if(!$hash->{CHANGED} || !int(@{$hash->{CHANGED}}));
     DoTrigger($dev, $arg, 0);
   }
   delete($hash->{".triggerUsed"});
@@ -1791,12 +1907,7 @@ CommandDefine($$)
                 if(int(@a) < 2);
   return "$name already defined, delete it first" if(defined($defs{$name}));
   return "Invalid characters in name (not A-Za-z0-9._): $name"
-                        if($name !~ m/^[a-z0-9.:_]*$/i);
-  if($name =~ m/:/) { # Forum #45788
-    my $msg = "unsupported character (:) in devicename $name";
-    return $msg if($init_done);
-    Log 3, "WARNING: $msg";
-  }
+                        if(!goodDeviceName($name));
 
   my $m = $a[1];
   if(!$modules{$m}) {                           # Perhaps just wrong case?
@@ -1823,6 +1934,7 @@ CommandDefine($$)
   $hash{NR}    = $devcount++;
   $hash{CFGFN} = $currcfgfile
         if($currcfgfile ne AttrVal("global", "configfile", ""));
+  $hash{CL}    = $cl;
 
   # If the device wants to issue initialization gets/sets, then it needs to be
   # in the global hash.
@@ -1836,6 +1948,7 @@ CommandDefine($$)
     delete $attr{$name};
 
   } else {
+    delete $hash{CL};
     $hash{TEMPORARY} = 1 if($temporary);
     foreach my $da (sort keys (%defaultattr)) {     # Default attributes
       CommandAttr($cl, "$name $da $defaultattr{$da}");
@@ -1869,10 +1982,12 @@ CommandModify($$)
 
   $hash->{OLDDEF} = $hash->{DEF};
   $hash->{DEF} = $a[1];
+  $hash->{CL} = $cl;
   my $ret = CallFn($a[0], "DefFn", $hash,
               $modules{$hash->{TYPE}}->{parseParams} ?
               parseParams("$a[0] $hash->{TYPE}".(defined($a[1]) ? " $a[1]":"")):
               "$a[0] $hash->{TYPE}".(defined($a[1]) ? " $a[1]" : ""));
+  delete $hash->{CL};
   if($ret) {
     $hash->{DEF} = $hash->{OLDDEF};
   } else {
@@ -2139,7 +2254,7 @@ CommandSetReading($$)
     if($featurelevel >= 5.7) {
       $hash->{CL} = $cl;
       ($err, @b) = ReplaceSetMagic($hash, 3, @a);
-      delete($hash->{CL});
+      delete $hash->{CL};
     }
     readingsSingleUpdate($defs{$sdev}, $b[1], $b[2], 1);
   }
@@ -2168,8 +2283,7 @@ PrintHash($$)
           $str .= sprintf("%*s %-10s %s\n", $lev," ",$c, $h->{$c}{NAME});
 
         } else {
-          $sstr .= sprintf("%*s %s:\n",
-                          $lev, " ", uc(substr($c,0,1)).lc(substr($c,1)));
+          $sstr .= sprintf("%*s %s:\n", $lev, " ", $c);
           $sstr .= PrintHash($h->{$c}, $lev+2);
         }
       } elsif(ref($h->{$c}) eq "ARRAY") {
@@ -2384,8 +2498,8 @@ CommandRename($$)
 
   return "Please define $old first" if(!defined($defs{$old}));
   return "$new already defined" if(defined($defs{$new}));
-  return "Invalid characters in name (not A-Za-z0-9.:_): $new"
-                        if($new !~ m/^[a-z0-9.:_]*$/i);
+  return "Invalid characters in name (not A-Za-z0-9._): $new"
+                        if(!goodDeviceName($new));
   return "Cannot rename global" if($old eq "global");
 
   %ntfyHash = ();
@@ -2463,8 +2577,10 @@ GlobalAttr($$$$)
   my ($type, $me, $name, $val) = @_;
 
   if($type eq "del") {
-    my %noDel = ( verbose=>1, modpath=>1, logfile=>1, featurelevel=>1 );
+    my %noDel = ( modpath=>1, verbose=>1, logfile=>1 );
     return "The global attribute $name cannot be deleted" if($noDel{$name});
+    $featurelevel = 5.8 if($name eq "featurelevel");
+    $haveInet6    = 0   if($name eq "useInet6"); # IPv6
     return undef;
   }
 
@@ -2541,6 +2657,15 @@ GlobalAttr($$$$)
       system("$^X $root/contrib/commandref_join.pl -noWarnings $out")
     } else {
       system("$^X $root/contrib/commandref_modular.pl $out");
+    }
+  }
+  elsif($name eq "useInet6") {
+    if($val || !defined($val)) {
+      eval { require IO::Socket::INET6; require Socket6; };
+      return $@ if($@);
+      $haveInet6 = 1;
+    } else {
+      $haveInet6 = 0;
     }
   }
 
@@ -2631,10 +2756,8 @@ CommandAttr($$)
       $hash->{'.userReadings'}= \@userReadings;
     } 
 
-    if($attrName eq "IODev" && (!$a[2] || !defined($defs{$a[2]}))) {
-      push @rets,"$sdev: unknown IODev $a[2] specified";
-      next;
-    }
+    $a[0] = $sdev;
+    my $oVal = ($attr{$sdev} ? $attr{$sdev}{$attrName} : "");
 
     if($attrName eq "eventMap") {
       delete $hash->{".eventMapHash"};
@@ -2647,14 +2770,38 @@ CommandAttr($$)
       }
     }
 
-    if($attrName eq "suppressReading") {
-      return "Argument must be a valid regexp" if(!$a[2] || $a[2] =~ /^\*/);
-      eval { "Hallo" =~ m/^$a[2]$/ };
-      return "Bad regexp: $@" if($@);
+    my %ra = (
+      "suppressReading"            => { s=>"\n" },
+      "event-on-update-reading"    => { s=>"," },
+      "event-on-change-reading"    => { s=>",", r=>":.*" },
+      "timestamp-on-change-reading"=> { s=>"," },
+      "event-min-interval"         => { s=>",", r=>";.*" },
+      "devStateIcon"               => { s=>" ", r=>":.*", p=>"^{.*}\$",
+                                  pv=>{"%name"=>1, "%state"=>1, "%type"=>1} },
+    );
+
+    if(defined($a[2]) && $ra{$attrName} && $init_done) {
+      my ($lval,$rp) = ($a[2], $ra{$attrName}{p});
+
+      if($rp && $lval =~ m/$rp/) {
+        my $err = perlSyntaxCheck($a[2], %{$ra{$attrName}{pv}});
+        return "attr $sdev $a[1]: $err" if($err);
+
+      } else {
+        for my $v (split($ra{$attrName}{s}, $lval)) {
+          $v =~ s/$ra{$attrName}{r}// if($ra{$attrName}{r});
+          my $err = "Argument $v for attr $sdev $a[1] is not a valid regexp";
+          return "$err: use .* instead of *" if($v =~ /^\*/); # no err in eval!?
+          eval { "Hallo" =~ m/^$v$/ };
+          return "$err: $@" if($@);
+        }
+      }
     }
 
-    $a[0] = $sdev;
-    my $oVal = ($attr{$sdev} ? $attr{$sdev}{$attrName} : "");
+    if($fhemdebug && $sdev eq "global") {
+      $a[2] = "-" if($attrName eq "logfile");
+      $a[2] = 5   if($attrName eq "verbose");
+    }
     $ret = CallFn($sdev, "AttrFn", "set", @a);
     if($ret) {
       push @rets, $ret;
@@ -2666,6 +2813,16 @@ CommandAttr($$)
     $attr{$sdev}{$attrName} = $val;
 
     if($attrName eq "IODev") {
+      if(!$a[2] || !defined($defs{$a[2]})) {
+        if($init_done) {
+          push @rets,"$sdev: unknown IODev $a[2] specified";
+        } else {
+          $hash->{IODevMissing} = 1;
+          $hash->{IODevName} = $a[2];
+        }
+        next;
+      }
+
       my $ioname = $a[2];
       $hash->{IODev} = $defs{$ioname};
       delete($defs{$ioname}{".clientArray"}); # Force a recompute
@@ -2725,8 +2882,6 @@ CommandSetstate($$)
     if($a[1] =~ m/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) +([^ ].*)$/s) {
       my ($tim, $nameval) =  ($1, $2);
       my ($sname, $sval) = split(" ", $nameval, 2);
-      (undef, $sval) = ReplaceEventMap($sdev, [$sdev, $sval], 0)
-                                if($attr{$sdev}{eventMap});
       $sval = "" if(!defined($sval));
       my $ret = CallFn($sdev, "StateFn", $d, $tim, $sname, $sval);
       if($ret) {
@@ -2736,7 +2891,7 @@ CommandSetstate($$)
 
       Log3 $d, 3, "WARNING: unsupported character in reading $sname ".
              "(not A-Za-z/\\d_\\.-), notify the $d->{TYPE} module maintainer."
-        if($sname !~ m/^[A-Za-z\d_\.\-\/]+$/ && $sname !~ m/^\./);
+        if(!goodReadingName($sname));
 
       if(!defined($d->{READINGS}{$sname}) ||
          !defined($d->{READINGS}{$sname}{TIME}) ||
@@ -2847,7 +3002,7 @@ CommandSleep($$)
 
   Log 4, "sleeping for $sec";
 
-  if(@cmdList && $sec && $init_done) {
+  if(@cmdList && $init_done) {
     my %h = (cmd          => join(";", @cmdList),
              evalSpecials => $evalSpecials,
              quiet        => $quiet,
@@ -2867,6 +3022,28 @@ CommandSleep($$)
   }
   return undef;
 }
+
+#####################################
+# Add a function to be executed after select returns. Only one function is
+# executed after select returns.
+# fn:   a function reference
+# arg:  function argument
+# nice: a number like in unix "nice". Smaller numbers mean higher priority.
+#       limited to [-20,19], default 0
+# returns the number of elements in the corrsponding queue
+sub
+PrioQueue_add($$;$)
+{
+  my ($fn, $arg, $nice) = @_;
+
+  $nice =   0 if(!defined($nice) || !looks_like_number($nice));
+  $nice = -20 if($nice <-20);
+  $nice =  19 if($nice > 19);
+  $nextat = 1;
+  $prioQueues{$nice} = [] if(!defined $prioQueues{$nice});
+  push(@{$prioQueues{$nice}},{fn=>$fn, arg=>$arg});
+};
+
 
 #####################################
 # Return the time to the next event (or undef if there is none)
@@ -2905,12 +3082,20 @@ HandleTimeout()
     }
   }
 
+  if(%prioQueues) {
+    my $nice = minNum(keys %prioQueues);
+    my $entry = shift(@{$prioQueues{$nice}});
+    delete $prioQueues{$nice} if(!@{$prioQueues{$nice}});
+    &{$entry->{fn}}($entry->{arg});
+    $nextat = 1 if(%prioQueues);
+  }
+ 
   if(!$nextat) {
     $selectTimestamp = $now;
     return undef;
   }
 
-  $now = gettimeofday(); # if some callbacks took longer 
+  $now = gettimeofday(); # if some callbacks took longer
   $selectTimestamp = $now;
 
   return ($now+ 0.01 < $nextat) ? ($nextat-$now) : 0.01;
@@ -2923,6 +3108,7 @@ InternalTimer($$$;$)
 {
   my ($tim, $fn, $arg, $waitIfInitNotDone) = @_;
 
+  $tim = 1 if(!$tim);
   if(!$init_done && $waitIfInitNotDone) {
     select(undef, undef, undef, $tim-gettimeofday());
     no strict "refs";
@@ -2970,11 +3156,10 @@ sub
 SignalHandling()
 {
   if($^O ne "MSWin32") {
-    $SIG{INT}  = sub { exit() };
-    $SIG{TERM} = sub { $sig_term = 1; };
+    $SIG{TERM} = sub { $gotSig = "TERM"; };
     $SIG{PIPE} = 'IGNORE';
     $SIG{CHLD} = 'IGNORE';
-    $SIG{HUP}  = sub { CommandRereadCfg(undef, "") };
+    $SIG{HUP}  = sub { $gotSig = "HUP"; };
     $SIG{ALRM} = sub { Log 1, "ALARM signal, blocking write?" };
     #$SIG{'XFSZ'} = sub { Log 1, "XFSZ signal" }; # to test with limit filesize 
   }
@@ -2982,6 +3167,7 @@ SignalHandling()
     my ($msg) = @_;
 
     return if($inWarnSub);
+    $lastWarningMsg = $msg;
     if(!$attr{global}{stacktrace} && $data{WARNING}{$msg}) {
       $data{WARNING}{$msg}++;
       return;
@@ -2990,7 +3176,7 @@ SignalHandling()
     $data{WARNING}{$msg}++;
     chomp($msg);
     Log 1, "PERL WARNING: $msg"; 
-    Log 3, "eval: $cmdFromAnalyze" if($cmdFromAnalyze && $msg =~ m/\(eval /);
+    Log 3, "eval: $cmdFromAnalyze" if($cmdFromAnalyze);
     stacktrace() if($attr{global}{stacktrace} &&
                     $msg !~ m/ redefined at /);
     $inWarnSub = 0;
@@ -3065,7 +3251,11 @@ EvalSpecials($%)
   # $EVENT will be replaced with the whole event string
   # $EVTPART<N> will be replaced with single words of an event
   my ($exec, %specials)= @_;
-  $exec = SemicolonEscape($exec);
+  if($specials{__UNIQUECMD__}) {
+    delete $specials{__UNIQUECMD__};
+  } else {
+    $exec = SemicolonEscape($exec);
+  }
 
   my $idx = 0;
   if(defined($specials{"%EVENT"})) {
@@ -3202,7 +3392,12 @@ DoTrigger($$@)
   }
 
   my $max = int(@{$hash->{CHANGED}});
-  return "" if(defined($attr{$dev}) && defined($attr{$dev}{do_not_notify}));
+  if(AttrVal($dev, "do_not_notify", 0)) {
+    delete($hash->{CHANGED});
+    delete($hash->{CHANGETIME});
+    delete($hash->{CHANGEDWITHSTATE});
+    return "";
+  }
   my $now = TimeNow();
 
   ################
@@ -3229,7 +3424,6 @@ DoTrigger($$@)
     ################
     # Inform
     if($hash->{CHANGED}) {    # It gets deleted sometimes (?)
-      $max = int(@{$hash->{CHANGED}}); # can be enriched in the notifies
       foreach my $c (keys %inform) {
         my $dc = $defs{$c};
         if(!$dc || $dc->{NR} != $inform{$c}{NR}) {
@@ -3243,11 +3437,13 @@ DoTrigger($$@)
           $tn .= sprintf(".%03d", $microseconds/1000);
         }
         my $re = $inform{$c}{regexp};
+        my $events = deviceEvents($hash, $inform{$c}{type} =~ m/WithState/);
+        $max = int(@{$events});
         for(my $i = 0; $i < $max; $i++) {
-          my $state = $hash->{CHANGED}[$i];
-          next if($re && !($dev =~ m/$re/ || "$dev:$state" =~ m/$re/));
+          my $event = $events->[$i];
+          next if($re && !($dev =~ m/$re/ || "$dev:$event" =~ m/$re/));
           addToWritebuffer($dc,($inform{$c}{type} eq "timer" ? "$tn " : "").
-                                "$hash->{TYPE} $dev $state\n");
+                                "$hash->{TYPE} $dev $event\n");
         }
       }
     }
@@ -3445,8 +3641,9 @@ HandleArchiving($;$)
   my @t = localtime;
   $dir = ResolveDateWildcards($dir, @t);
   return if(!opendir(DH, $dir));
-  my @files = sort { (stat("$dir/$a"))[9] cmp (stat("$dir/$b"))[9] } #66896
-              grep {/^$file$/} readdir(DH);
+  my @files = sort grep {/^$file$/} readdir(DH);
+  @files = sort { (stat("$dir/$a"))[9] cmp (stat("$dir/$b"))[9] } @files
+        if(AttrVal("global", "archivesort", "alphanum") eq "timestamp");
   closedir(DH);
 
   my $max = int(@files)-$nra;
@@ -3486,7 +3683,7 @@ Dispatch($$$)
 
   foreach my $m (@{$clientArray}) {
     # Module is not loaded or the message is not for this module
-    next if($dmsg !~ m/$modules{$m}{Match}/i);
+    next if(!$modules{$m} || $dmsg !~ m/$modules{$m}{Match}/i);
 
     if( my $ffn = $modules{$m}{FingerprintFn} ) {
       ($isdup, $idx) = CheckDuplicate($name, $dmsg, $ffn);
@@ -3501,7 +3698,8 @@ Dispatch($$$)
   }
 
   if(!int(@found) || !defined($found[0])) {
-    my $h = $hash->{MatchList}; $h = $module->{MatchList} if(!$h);
+    my $h = $hash->{MatchList};
+    $h = $module->{MatchList} if(!$h);
     if(defined($h)) {
       foreach my $m (sort keys %{$h}) {
         if($dmsg =~ m/$h->{$m}/) {
@@ -3709,11 +3907,13 @@ ReplaceEventMap($$$)
     # interpreted as the single possible value for a dropdown
     # Why is the .*= deleted?
     $defs{$dev}{".eventMapCmd"} = join(" ", grep { !/ / }
-                  map { $_ =~ s/.*?=//s; $_ =~ s/.*?://s; "$_:noArg" } @emList);
+                  map { $_ =~ s/.*?=//s; $_ =~ s/.*?://s; 
+                        $_ =~ m/:/ ? $_ : "$_:noArg" } @emList);
   }
 
-  my $dname = shift @{$str} if(!$dir);
-  my $nstr = join(" ", @{$str}) if(!$dir);
+  my ($dname, $nstr);
+  $dname = shift @{$str} if(!$dir);
+  $nstr = join(" ", @{$str}) if(!$dir);
 
   my $changed;
   foreach my $rv (@emList) {
@@ -3848,6 +4048,10 @@ setGlobalAttrBeforeFork($)
     my ($n,$v) = ($1,$2);
     $v =~ s/#.*//;
     $v =~ s/ .*$//;
+    if($fhemdebug) {
+      $v = "-" if($n eq "logfile");
+      $v = 5   if($n eq "verbose");
+    }
     $attr{global}{$n} = $v;
     GlobalAttr("set", "global", $n, $v);
   }
@@ -3869,6 +4073,16 @@ InternalVal($$$)
 }
 
 sub
+InternalNum($$$;$)
+{
+  my ($d,$n,$default,$round) = @_;
+  my $val = InternalVal($d,$n,$default);
+  $val = ($val =~ /(-?\d+(\.\d+)?)/ ? $1 : "");
+  $val = round($val,$round) if($round);
+  return $val;
+}
+
+sub
 ReadingsVal($$$)
 {
   my ($d,$n,$default) = @_;
@@ -3882,11 +4096,13 @@ ReadingsVal($$$)
 }
 
 sub
-ReadingsNum($$$)
+ReadingsNum($$$;$)
 {
-  my ($d,$n,$default) = @_;
+  my ($d,$n,$default,$round) = @_;
   my $val = ReadingsVal($d,$n,$default);
-  $val =~ s/[^-\.\d]//g;
+  return undef if(!defined($val));
+  $val = ($val =~ /(-?\d+(\.\d+)?)/ ? $1 : "");
+  $val = round($val,$round) if($round);
   return $val;
 }
 
@@ -3943,8 +4159,19 @@ sub
 AttrVal($$$)
 {
   my ($d,$n,$default) = @_;
-  return $attr{$d}{$n} if($d && defined($attr{$d}) && defined($attr{$d}{$n}));
+  return $attr{$d}{$n} if(defined($attr{$d}) && defined($attr{$d}{$n}));
   return $default;
+}
+
+sub
+AttrNum($$$;$)
+{
+  my ($d,$n,$default,$round) = @_;
+  my $val = AttrVal($d,$n,$default);
+  return undef if(!defined($val));
+  $val = ($val =~ /(-?\d+(\.\d+)?)/ ? $1 : "");
+  $val = round($val,$round) if($round);
+  return $val;
 }
 
 ################################################################
@@ -4059,7 +4286,10 @@ evalStateFormat($)
     # Substitute reading names with their values, leave the rest untouched.
     $st = $sr;
     my $r = $hash->{READINGS};
-    $st =~ s/\b([A-Za-z\d_\.-]+)\b/($r->{$1} ? $r->{$1}{VAL} : $1)/ge;
+    $st =~ s/\$name/$name/g;
+    (undef, $st) = ReplaceSetMagic($hash, 1, $st);
+    $st =~ s/\b([A-Za-z\d_\.-]+)\b/($r->{$1} ? $r->{$1}{VAL} : $1)/ge
+      if($st eq $sr);
 
   }
   $hash->{STATE} = ReplaceEventMap($name, $st, 1) if(defined($st));
@@ -4082,12 +4312,14 @@ readingsEndUpdate($$)
     foreach my $userReading (@{$hash->{'.userReadings'}}) {
 
       my $trigger = $userReading->{trigger};
+      my $reading= $userReading->{reading};
       if(defined($trigger)) {
-        my @fnd = grep { $_ && $_ =~ m/^$trigger$/ } @{$hash->{CHANGED}};
-        next if(!@fnd);
+        my ($trRead, $ownRead);
+        map { $trRead  = 1 if($_ && $_ =~ m/^$trigger$/);
+              $ownRead = 1 if($_ && $_ =~ m/^$reading:/); } @{$hash->{CHANGED}};
+        next if(!$trRead || $ownRead);
       }
 
-      my $reading= $userReading->{reading};
       my $modifier= $userReading->{modifier};
       my $perlCode= $userReading->{perlCode};
       my $oldvalue= $userReading->{value};
@@ -4103,19 +4335,25 @@ readingsEndUpdate($$)
         $value = "Error evaluating $name userReading $reading: $@";
         Log 1, $value;
         $result= $value;
+      } elsif(!defined($value)) {
+        $cmdFromAnalyze = $perlCode; # For the __WARN__ sub
+        warn("$name userReadings $reading evaluated to undef");
+        next;
       } elsif($modifier eq "none") {
         $result= $value;
       } elsif($modifier eq "difference") {
         $result= $value - $oldvalue if(defined($oldvalue));
       } elsif($modifier eq "differential") {
-        my $deltav= $value - $oldvalue if(defined($oldvalue));
-        my $deltat= $hash->{".updateTime"} - $oldt if(defined($oldt));
+        my ($deltav, $deltat);
+        $deltav = $value - $oldvalue if(defined($oldvalue));
+        $deltat = $hash->{".updateTime"} - $oldt if(defined($oldt));
         if(defined($deltav) && defined($deltat) && ($deltat>= 1.0)) {
           $result= $deltav/$deltat;
         }
       } elsif($modifier eq "integral") {
         if(defined($oldt) && defined($oldvalue)) {
-          my $deltat= $hash->{".updateTime"} - $oldt if(defined($oldt));
+          my $deltat;
+          $deltat = $hash->{".updateTime"} - $oldt if(defined($oldt));
           my $avgval= ($value + $oldvalue) / 2;
           $result = ReadingsVal($name,$reading,$value);
           if(defined($deltat) && $deltat>= 1.0) {
@@ -4458,6 +4696,34 @@ sub escapeLogLine($) {
 }
 
 sub
+toJSON($)
+{
+  my $val = shift;
+
+  if(not defined $val) {
+    return "null";
+
+  } elsif (not ref $val) {
+    $val =~ s/([\x00-\x1f\x22\x5c\x7f])/sprintf '\u%04x', ord($1)/ge;
+
+    return '"' . $val . '"';
+
+  } elsif (ref $val eq 'ARRAY') {
+    return '[' . join(',', map toJSON($_), @$val) . ']';
+
+  } elsif (ref $val eq 'HASH') {
+      return '{' . join(',', 
+                   map { toJSON($_).":".toJSON($val->{$_}) } 
+                   sort keys %$val) . '}';
+
+  } else {
+      return toJSON("toJSON: Cannot encode $val");
+
+  }
+}
+
+
+sub
 Debug($) {
   my $msg= shift;
   Log 1, "DEBUG>" . $msg;
@@ -4616,6 +4882,27 @@ FileWrite($@)
 }
 
 sub
+FileDelete($)
+{
+  my ($param) = @_;
+  my ($fileName, $forceType);
+  if(ref($param) eq "HASH") {
+    $fileName = $param->{FileName};
+    $forceType = $param->{ForceType};
+  } else {
+    $fileName = $param;
+  }
+  $forceType //= '';
+  if(configDBUsed() && lc($forceType) ne "file") {
+    my $ret = _cfgDB_Filedelete($fileName);
+    return ($ret ? undef : "$fileName: _cfgDB_Filedelete failed");
+  } else {
+    my $ret = unlink($fileName);
+    return ($ret ? undef : "$fileName: $!");
+  }
+}
+
+sub
 getUniqueId()
 {
   my ($err, $uniqueID) = getKeyValue("uniqueID");
@@ -4649,6 +4936,7 @@ getKeyValue($)
   return (undef, undef);
 }
 
+# Use an undefined value to delete the key
 sub
 setKeyValue($$)
 {
@@ -4721,6 +5009,8 @@ fhemFork()
   return 0;
 }
 
+# Return the next element from the string (list) for each consecutive call.
+# The index for the next call is stored in the device hash
 sub
 Each($$;$)      # can be used e.g. in at, Forum #40022
 {
@@ -4807,8 +5097,10 @@ perlSyntaxCheck($%)
   return undef if(!$psc || !$init_done);
 
   my ($arr, $hash) = parseParams($exec, ';');
+  $arr = [ $exec ] if(!@$arr); # temporary bugfix
   for my $cmd (@{$arr}) {
     next if($cmd !~ m/^\s*{/); # } for match
+    $specials{__UNIQUECMD__}=1;
     $cmd = EvalSpecials("{return undef; $cmd}", %specials);
     my $r = AnalyzePerlCommand(undef, $cmd);
     return $r if($r);
@@ -4818,10 +5110,11 @@ perlSyntaxCheck($%)
 
 #####################################
 sub
-parseParams($;$)
+parseParams($;$$)
 {
-  my($cmd, $separator) = @_;
-  $separator = ' ' if( !$separator );
+  my($cmd, $separator, $joiner) = @_;
+  $separator = ' ' if(!$separator);
+  $joiner = $separator if(!$joiner); # needed if separator is a regexp
   my(@a, %h);
 
   my @params;
@@ -4833,10 +5126,16 @@ parseParams($;$)
 
   while (@params) {
     my $param = shift(@params);
+    next if($param eq "");
     my ($key, $value) = split( '=', $param, 2 );
 
     if( !defined( $value ) ) {
       $value = $key;
+      $key = undef;
+
+    # the key can not start with a { -> it must be a perl expression # vim:}
+    } elsif( $key =~ m/^\s*{/ ) { # for vim: }
+      $value = $param;
       $key = undef;
     }
 
@@ -4844,7 +5143,7 @@ parseParams($;$)
     while( $param && $value =~ m/^('|")/ && $value !~ m/$1$/ ) {
       my $next = shift(@params);
       last if( !defined($next) );
-      $value .= $separator . $next;
+      $value .= $joiner . $next;
     }
     #remove matching ' or " from the start and end
     if( $value =~ m/^('|")/ && $value =~ m/$1$/ ) {
@@ -4852,7 +5151,7 @@ parseParams($;$)
     }
 
     #collect all parts until opening { and closing } are matched
-    if( $value =~ m/^{/ ) { # } for match
+    if( $value =~ m/^\s*{/ ) { # } for match
       my $count = 0;
       for my $i (0..length($value)-1) {
         my $c = substr($value, $i, 1);
@@ -4863,7 +5162,7 @@ parseParams($;$)
       while( $param && $count != 0 ) {
         my $next = shift(@params);
         last if( !defined($next) );
-        $value .= $separator . $next;
+        $value .= $joiner . $next;
 
         for my $i (0..length($next)-1) {
           my $c = substr($next, $i, 1);
@@ -4880,7 +5179,6 @@ parseParams($;$)
     }
 
   }
-
   return(\@a, \%h);
 }
 
@@ -4900,6 +5198,163 @@ getPawList($)
     }
   }
   return @dob;
+}
+
+sub
+goodDeviceName($)
+{
+  my ($name) = @_;
+  return ($name && $name =~ m/^[a-z0-9._]*$/i);
+}
+
+sub
+makeDeviceName($) # Convert non-valid characters to _
+{
+  my ($name) = @_;
+  $name = "UNDEFINED" if(!defined($name));
+  $name =~ s/[^a-z0-9._]/_/gi;
+  return $name;
+}
+
+sub
+goodReadingName($)
+{
+  my ($name) = @_;
+  return ($name && ($name =~ m/^[a-z0-9._\-\/]+$/i || $name =~ m/^\./));
+}
+
+sub
+makeReadingName($) # Convert non-valid characters to _
+{
+  my ($name) = @_;
+  $name = "UNDEFINED" if(!defined($name));
+  return $name if($name =~ m/^\./);
+  $name =~ s/[^a-z0-9._\-\/]/_/gi;
+  return $name;
+}
+
+sub
+computeAlignTime($$@)
+{
+  my ($timeSpec, $alignSpec, $triggertime) = @_; # triggertime is now if absent
+
+  my ($alErr, $alHr, $alMin, $alSec, undef) = GetTimeSpec($alignSpec);
+  return ("alignTime: $alErr", undef) if($alErr);
+
+  my ($tmErr, $hr, $min, $sec, undef) = GetTimeSpec($timeSpec);
+  return ("timeSpec: $tmErr", undef) if($alErr);
+
+  my $now = time();
+  my $alTime = ($alHr*60+$alMin)*60+$alSec-fhemTzOffset($now);
+  my $step = ($hr*60+$min)*60+$sec;
+  my $ttime = ($triggertime ? int($triggertime) : $now);
+  my $off = ($ttime % 86400) - 86400;
+  while($off < $alTime) {
+    $off += $step;
+  }
+  $ttime += ($alTime-$off);
+  $ttime += $step if($ttime < $now);
+  return (undef, $ttime);
+}
+
+############################
+my %restoreDir_dirs;
+sub
+restoreDir_mkDir($$$)
+{
+  my ($root, $dir, $isFile) = @_;
+  if($isFile) { # Delete the file Component
+    $dir =~ m,^(.*)/([^/]*)$,;
+    $dir = $1;
+  }
+  return if($restoreDir_dirs{$dir});
+  $restoreDir_dirs{$dir} = 1;
+  my @p = split("/", $dir);
+  for(my $i = 0; $i < int(@p); $i++) {
+    my $path = "$root/".join("/", @p[0..$i]);
+    if(!-d $path) {
+      mkdir $path;
+      Log 4, "MKDIR $root/".join("/", @p[0..$i]);
+    }
+  }
+}
+
+sub
+restoreDir_rmTree($)
+{
+  my ($dir) = @_;
+
+  my $dh;
+  if(!opendir($dh, $dir)) {
+    Log 1, "opendir $dir: $!";
+    return;
+  }
+  my @files = grep { $_ ne "." && $_ ne ".." } readdir($dh);
+  closedir($dh);
+
+  foreach my $f (@files) {
+    if(-d "$dir/$f") {
+      restoreDir_rmTree("$dir/$f");
+    } else {
+      Log 4, "rm $dir/$f";
+      if(!unlink("$dir/$f")) {
+        Log 1, "rm $dir/$f failed: $!";
+      }
+    }
+  }
+  Log 4, "rmdir $dir";
+  if(!rmdir($dir)) {
+    Log 1, "rmdir $dir failed: $!";
+  }
+}
+
+sub
+restoreDir_init()
+{
+  my $root = $attr{global}{modpath};
+
+  my $nDirs = AttrVal("global","restoreDirs", 3);
+  if($nDirs !~ m/^\d+$/ || $nDirs < 0) {
+    Log 1, "invalid restoreDirs value $nDirs, setting it to 3";
+    $nDirs = 3;
+  }
+  return "" if($nDirs == 0);
+
+  my $rdName = "restoreDir";
+  my @t = localtime;
+  my $restoreDir = sprintf("$rdName/%04d-%02d-%02d",
+                        $t[5]+1900, $t[4]+1, $t[3]);
+  Log 1, "MKDIR $restoreDir" if(!  -d "$root/restoreDir");
+  restoreDir_mkDir($root, $restoreDir, 0);
+
+  if(!opendir(DH, "$root/$rdName")) {
+    Log 1, "opendir $root/$rdName: $!";
+    return "";
+  }
+  my @oldDirs = sort grep { $_ !~ m/^\./ && $_ ne $restoreDir } readdir(DH);
+  closedir(DH);
+  while(int(@oldDirs) > $nDirs) {
+    my $dir = "$root/$rdName/". shift(@oldDirs);
+    next if($dir =~ m/$restoreDir/);    # Just in case
+    Log 1, "RMDIR: $dir";
+    restoreDir_rmTree($dir);
+  }
+    
+  return $restoreDir;
+}
+
+sub
+restoreDir_saveFile($$)
+{
+  my($restoreDir, $fName) = @_;
+
+  return if(!$restoreDir || !$fName);
+
+  my $root = $attr{global}{modpath};
+  restoreDir_mkDir($root, "$restoreDir/$fName", 1);
+  if(!copy($fName, "$root/$restoreDir/$fName")) {
+    log 1, "copy $fName $root/$restoreDir/$fName failed:$!";
+  }
 }
 
 1;

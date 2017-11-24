@@ -1,5 +1,5 @@
 ##############################################
-# $Id: DevIo.pm 12716 2016-12-05 09:11:31Z rudolfkoenig $
+# $Id: DevIo.pm 14933 2017-08-20 14:21:58Z rudolfkoenig $
 package main;
 
 sub DevIo_CloseDev($@);
@@ -9,7 +9,7 @@ sub DevIo_OpenDev($$$;$);
 sub DevIo_SetHwHandshake($);
 sub DevIo_SimpleRead($);
 sub DevIo_SimpleReadWithTimeout($$);
-sub DevIo_SimpleWrite($$$);
+sub DevIo_SimpleWrite($$$;$);
 sub DevIo_TimeoutRead($$);
 
 sub
@@ -64,7 +64,7 @@ DevIo_SimpleRead($)
   ###########
   # Lets' try again: Some drivers return len(0) on the first read...
   if(defined($buf) && length($buf) == 0) {
-    $buf = DevIo_SimpleReadWithTimeout($hash, 1);
+    $buf = DevIo_SimpleReadWithTimeout($hash, 0.01); # Forum #57806
   }
 
   if(!defined($buf) || length($buf) == 0) {
@@ -115,15 +115,16 @@ DevIo_TimeoutRead($$)
 ########################
 # Input is HEX, with header and CRC
 sub
-DevIo_SimpleWrite($$$)
+DevIo_SimpleWrite($$$;$)
 {
-  my ($hash, $msg, $type) = @_; # Type: 0:binary, 1:hex, 2:ASCII
+  my ($hash, $msg, $type, $addnl) = @_; # Type: 0:binary, 1:hex, 2:ASCII
   return if(!$hash);
 
   my $name = $hash->{NAME};
   Log3 ($name, 5, $type ? "SW: $msg" : "SW: ".unpack("H*",$msg));
 
   $msg = pack('H*', $msg) if($type && $type == 1);
+  $msg .= "\n" if($addnl);
   if($hash->{USBDev}){
     $hash->{USBDev}->write($msg);
 
@@ -353,7 +354,9 @@ DevIo_OpenDev($$$;$)
       return undef;     # no double callback: connect is running in bg now
 
     } else {
-      my $conn = IO::Socket::INET->new(PeerAddr => $dev, Timeout => $timeout);
+      my $conn = $haveInet6 ? 
+          IO::Socket::INET6->new(PeerAddr => $dev, Timeout => $timeout) :
+          IO::Socket::INET ->new(PeerAddr => $dev, Timeout => $timeout);
       return "" if(!&$doTcpTail($conn)); # no callback: no doCb
     }
 

@@ -1,5 +1,5 @@
 
-# $Id: 37_harmony.pm 13311 2017-02-02 16:35:54Z justme1968 $
+# $Id: 37_harmony.pm 15393 2017-11-05 11:06:17Z justme1968 $
 
 package main;
 
@@ -288,7 +288,8 @@ sub
 harmony_Set($$@)
 {
   my ($hash, $name, $cmd, @params) = @_;
-  my ($param, $param2) = @params;
+  my ($param_a, $param_h) = parseParams(\@params);
+  my ($param, $param2) = @{$param_a};
   #$cmd = lc( $cmd );
 
   my $list = "";
@@ -403,12 +404,17 @@ harmony_Set($$@)
       return "unknown command $param2" if( !$action );
     }
 
-    Log3 $name, 4, "$name: sending $action->{command} for ". harmony_labelOfDevice($hash, $action->{deviceId} );
+    my $duration = $param_h->{duration};
+    return "duration musst be numeric" if( defined($duration) && $duration !~ m/^([\d.-])+$/ );
+    $duration = 0.1 if( !$duration || $duration < 0 );
+    $duration = 5 if $duration > 5;
+
+    Log3 $name, 4, "$name: sending $action->{command} for ${duration}s for ". harmony_labelOfDevice($hash, $action->{deviceId} );
 
     my $payload = "status=press:action={'command'::'$action->{command}','type'::'$action->{type}','deviceId'::'$action->{deviceId}'}:timestamp=0";
     harmony_sendEngineRender($hash, "holdAction", $payload);
-    select(undef, undef, undef, (0.1));
-    $payload = "status=release:action={'command'::'$action->{command}','type'::'$action->{type}','deviceId'::'$action->{deviceId}'}:timestamp=100";
+    select(undef, undef, undef, ($duration));
+    $payload = "status=release:action={'command'::'$action->{command}','type'::'$action->{type}','deviceId'::'$action->{deviceId}'}:timestamp=".$duration*1000;
     harmony_sendEngineRender($hash, "holdAction", $payload);
 
     return undef;
@@ -502,8 +508,8 @@ harmony_Set($$@)
     return undef;
 
   } elsif( $cmd eq "reconnect" ) {
-    delete $hash->{helper}{UserAuthToken} if( $param eq "all" );
-    delete $hash->{identity} if( $param eq "all" );
+    delete $hash->{helper}{UserAuthToken} if( $param && $param eq "all" );
+    delete $hash->{identity} if( $param && $param eq "all" );
     harmony_connect($hash);
 
     return undef;
@@ -529,6 +535,19 @@ harmony_Set($$@)
   } elsif( $cmd eq "update" ) {
     harmony_sendIq($hash, "<oa xmlns='connect.logitech.com' mime='vnd.logtech.setup/vnd.logitech.firmware?update' token=''>format=json</oa>");
 
+    return undef;
+
+  } elsif( $cmd eq "active" ) {
+    return "can't activate disabled hub." if(AttrVal($name, "disable", undef));
+
+    $hash->{ConnectionState} = "Disconnected";
+    readingsSingleUpdate( $hash, "state", $hash->{ConnectionState}, 1 );
+    harmony_connect($hash);
+    return undef;
+
+  } elsif( $cmd eq "inactive" ) {
+    harmony_disconnect($hash);
+    readingsSingleUpdate($hash, "state", "inactive", 1);
     return undef;
 
   } elsif( $cmd eq "xxx" ) {
@@ -601,7 +620,7 @@ harmony_Set($$@)
 
   $list .= " channel" if( defined($hash->{currentActivityID}) && $hash->{currentActivityID} != -1 );
 
-  $list .= " command getConfig:noArg getCurrentActivity:noArg off:noArg reconnect:noArg sleeptimer sync:noArg text cursor:up,down,left,right,pageUp,pageDown,home,end special:previousTrack,nextTrack,stop,playPause,volumeUp,volumeDown,mute";
+  $list .= " command active:noArg inactive:noArg getConfig:noArg getCurrentActivity:noArg off:noArg reconnect:noArg sleeptimer sync:noArg text cursor:up,down,left,right,pageUp,pageDown,home,end special:previousTrack,nextTrack,stop,playPause,volumeUp,volumeDown,mute";
 
   $list .= " update:noArg" if( $hash->{hubUpdate} );
 
@@ -1216,7 +1235,7 @@ harmony_connect($)
   my ($hash) = @_;
   my $name = $hash->{NAME};
 
-  return if( AttrVal($hash->{NAME}, "disable", 0) );
+  return if( IsDisabled($name) );
 
   harmony_disconnect($hash);
 
@@ -1401,7 +1420,7 @@ harmony_autocreate($;$)
 
   #foreach my $d (keys %defs) {
   #  next if($defs{$d}{TYPE} ne "autocreate");
-  #  return undef if(AttrVal($defs{$d}{NAME},"disable",undef));
+  #  return undef if( IsDisabled($defs{$d}{NAME} ) );
   #}
 
   my $autocreated = 0;
@@ -1848,7 +1867,7 @@ harmony_decrypt($)
       switch to this activit and optionally switch to &lt;channel&gt;</li>
     <li>channel &lt;channel&gt;<br>
       switch to &lt;channel&gt; in the current activity</li>
-    <li>command [&lt;id&gt;|&ltname&gt;] &lt;command&gt;<br>
+    <li>command [&lt;id&gt;|&ltname&gt;] &lt;command&gt; [duration=&lt;duration&gt;]<br>
       send the given ir command for the current activity or for the given device</li>
     <li>getConfig<br>
       request the configuration from the hub</li>
@@ -1878,6 +1897,15 @@ harmony_decrypt($)
       of these devices will be updatet with the power state defined in these activites.</li>
     <li>update<br>
       triggers a firmware update. only available if a new firmware is available.</li>
+    <li>inactive<br>
+      inactivates the current device. note the slight difference to the 
+      disable attribute: using set inactive the state is automatically saved
+      to the statefile on shutdown, there is no explicit save necesary.<br>
+      this command is intended to be used by scripts to temporarily
+      deactivate the harmony device.<br>
+      the concurrent setting of the disable attribute is not recommended.</li>
+    <li>active<br>
+      activates the current device (see inactive).</li>
   </ul>
   The command, hidDevice, text, cursor and special commmands are also available for the autocreated devices. The &lt;id&gt;|&ltname&gt; paramter hast to be omitted.<br><br>
 

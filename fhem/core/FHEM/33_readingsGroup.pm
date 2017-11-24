@@ -1,4 +1,4 @@
-# $Id: 33_readingsGroup.pm 12774 2016-12-14 17:16:09Z justme1968 $
+# $Id: 33_readingsGroup.pm 15100 2017-09-19 21:21:27Z justme1968 $
 ##############################################################################
 #
 #     This file is part of fhem.
@@ -23,6 +23,15 @@ package main;
 use strict;
 use warnings;
 
+use vars qw(%modules);
+use vars qw(%defs);
+use vars qw(%attr);
+use vars qw($init_done);
+use vars qw($lastDefChange);
+sub Log($$);
+sub Log3($$$);
+
+use vars qw(%data);
 use vars qw($FW_ME);
 use vars qw($FW_wname);
 use vars qw($FW_subdir);
@@ -46,6 +55,8 @@ sub readingsGroup_Initialize($)
 
   $hash->{FW_detailFn}  = "readingsGroup_detailFn";
   $hash->{FW_summaryFn}  = "readingsGroup_detailFn";
+
+  $data{FWEXT}{"readingsGroup"}{SCRIPT} = "fhemweb_readingsGroup.js";
 
   $hash->{FW_atPageEnd} = 1;
 }
@@ -118,7 +129,7 @@ readingsGroup_updateDevices($;$)
           next if( IsIgnored($d) );
           next if( !defined($defs{$d}{$lattr}) );
           next if( $lattr ne 'IODev' && $defs{$d}{$lattr} !~ m/^$re$/);
-          next if( $lattr eq 'IODev' && $defs{$d}{$lattr}{NAME} !~ m/^$re$/);
+          next if( $lattr eq 'IODev' && $defs{$d}{$lattr}{NAME} && $defs{$d}{$lattr}{NAME} !~ m/^$re$/);
           $list{$d} = 1;
           push @devices, [$d,$device[1]];
         }
@@ -255,11 +266,14 @@ sub readingsGroup_Undefine($$)
 sub
 rgVal2Num($)
 {
-  my ($num) = @_;
+  my ($val) = @_;
 
-  $num =~ s/[^-\.\d]//g if( defined($num) );
+  return $val if( !defined($val) );
 
-  return $num;
+  #$val =~ s/[^-\.\d]//g if( defined($val) );
+  $val = ($val =~ /(-?\d+(\.\d+)?)/ ? $1 : "");
+
+  return $val;
 }
 
 sub
@@ -651,8 +665,11 @@ readingsGroup_2html($;$)
 {
   my($hash,$extPage) = @_;
   $hash = $defs{$hash} if( ref($hash) ne 'HASH' );
+
+  $FW_ME = "" if( !$FW_ME );
+  $FW_subdir = "" if( !$FW_subdir );
+
   return undef if( !$hash );
-  return undef if( !$FW_ME );
   return undef if( !$init_done );
 
   #if( $hash->{fhem}->{cached} && $hash->{fhem}->{lastDefChange} && $hash->{fhem}->{lastDefChange} == $lastDefChange ) {
@@ -770,6 +787,10 @@ readingsGroup_2html($;$)
       my $index = $1;
       my $regex = $list[$index];
 
+      if( $regex && $regex =~ m/^r:(.*)/ ) {
+        $regex = $1;
+      }
+
       my @l;
       foreach my $n (keys %{$h->{READINGS}}) {
         eval { $n =~ m/^$regex$/ };
@@ -829,6 +850,7 @@ readingsGroup_2html($;$)
       my $type;
       my $force_show = 0;
       my $calc;
+      my $format;
       if( $regex && $regex =~ m/^<(.*)>$/ ) {
         my $txt = $1;
         my $readings;
@@ -1002,14 +1024,27 @@ readingsGroup_2html($;$)
         $force_show = 0;
         $type = undef;
         $calc = undef;
+        $format = "";
         my $modifier = "";
-        if( $regex && $regex =~ m/^([+?!\$]*)(.*)/ ) {
-          $modifier = $1;
-          $regex = $2;
+        if( $regex ) {
+          if( $regex =~ m/^([ira]):(.*)/ ) {
+            $modifier = $1;
+            $regex = $2;
+          }
+
+          if( $regex =~ m/^([+?!\$]*)(.*)/ ) {
+            $modifier .= $1;
+            $regex = $2;
+          }
+
+          if( $regex =~ m/^(.*):(t|sec|i|d|r|r\d)$/ ) {
+            $regex = $1;
+            $format = $2;
+          }
         }
 
-        if( $modifier =~ m/\+/ ) {
-        } elsif( $modifier =~ m/\?/ ) {
+        if( $modifier =~ m/[i+]/ ) {
+        } elsif( $modifier =~ m/[a?]/ ) {
           $type = 'attr';
           $h = $attr{$name};
         } else {
@@ -1051,17 +1086,29 @@ readingsGroup_2html($;$)
         if(ref($val)) {
           next if( ref($val) ne "HASH" || !defined($val->{VAL}) );
           ($v, $t) = ($val->{VAL}, $val->{TIME});
-          $v = FW_htmlEscape($v);
+          if( $format eq 't' || $format eq 'sec' ) {
+            $v = $t;
+            $v = time() - time_str2num($v) if($format eq 'sec');
+          }
           $t = "" if(!$t);
           $t = "" if( $multi != 1 );
         } else {
-          $val = $n if( !$val && $force_show );
-          $v = FW_htmlEscape($val);
+          $v = $val;
+          $v = $n if( !$val && $force_show );
         }
+
+        if( $format =~ m/^[dir]/ ) {
+          $v = rgVal2Num($v);
+          $v = int($v) if( $format eq 'i' );
+          $v = round($v, defined($1) ? $1 : 1) if($format =~ /^r(\d)?/);
+        }
+
+        $v = FW_htmlEscape($v);
 
         my($informid,$devStateIcon);
         ($informid,$v,$devStateIcon) = readingsGroup_value2html($hash,$calc,$name,$name2,$n,$v,$cell_row,$cell_column,$type);
         next if( !defined($informid) );
+        #$informid = "informId=\"$d-item:$cell_row:$item\"" if( $format );
 
         my $cell_style0 = lookup2($hash->{helper}{cellStyle},$name,$n,$v,$cell_row,0);
         my $cell_style = lookup2($hash->{helper}{cellStyle},$name,$n,$v,$cell_row,$cell_column);
@@ -1183,6 +1230,7 @@ readingsGroup_Notify($$)
     readingsGroup_inithtml($hash);
     return undef;
   }
+  return if( !$init_done );
 
   return if( AttrVal($name,"disable", 0) > 0 );
 
@@ -1273,12 +1321,25 @@ readingsGroup_Notify($$)
           ++$item;
           next if( $reading eq "state" && !$show_state && (!defined($regex) || $regex ne "state") );
           my $modifier = "";
-          if( $regex && $regex =~ m/^([+?!\$]*)(.*)/ ) {
-            $modifier = $1;
-            $regex = $2;
+          my $format = "";
+          if( $regex  ) {
+            if( $regex =~ m/^([ira]):(.*)/ ) {
+              $modifier = $1;
+              $regex = $2;
+            }
+            if( $regex && $regex =~ m/^([+?!\$]*)(.*)/ ) {
+              $modifier = $1;
+              $regex = $2;
+            }
+            next if( $modifier =~ m/[i+]/ );
+            next if( $modifier =~ m/[a?]/ );
+
+            if( $regex =~ m/^(.*):(t|sec|i|d|r|r\d)$/ ) {
+              $regex = $1;
+              $format = $2;
+            }
           }
-          next if( $modifier =~ m/\+/ );
-          next if( $modifier =~ m/\?/ );
+
 
           my $calc = undef;
           if( $modifier =~ m/\$/ ) {
@@ -1321,9 +1382,17 @@ readingsGroup_Notify($$)
 
           next if( defined($regex) && $reading !~ m/^$regex$/);
 
-          my $value_style = lookup2($hash->{helper}{valueStyle},$n,$reading,$value);
-
           my $value = $value;
+          if( $format eq 't' || $format eq 'sec' ) {
+            $value = TimeNow();
+            $value = time() - time_str2num($value) if($format eq 'sec');
+          } elsif( $format =~ m/^[dir]/ ) {
+            $value = rgVal2Num($value);
+            $value = int($value) if( $format eq 'i' );
+            $value = round($value, defined($1) ? $1 : 1) if($format =~ /^r(\d)?/);
+          }
+
+          my $value_style = lookup2($hash->{helper}{valueStyle},$n,$reading,$value);
 
           my $value_orig = $value;
           if( my $value_format = $hash->{helper}{valueFormat} ) {
@@ -1658,6 +1727,15 @@ readingsGroup_Attr($$$;$)
       <li>If regex starts with a '?' it will be matched against the attributes of the device instead of the readings.</li>
       <li>If regex starts with a '!' the display of the value will be forced even if no reading with this name is available.</li>
       <li>If regex starts with a '$' the calculation with value columns and rows is possible.</li>
+      <li>The following <a href="#set">"set magic"</a> prefixes and suffixes can be used with regex:
+         <ul>
+           <li>You can use an i:, r: or a: prefix instead of + and ? analogue to the devspec filtering.</li>
+           <li>The suffix :d retrieves the first number.</li>
+           <li>The suffix :i retrieves the integer part of the first number.</li>
+           <li>The suffix :r&lt;n&gt; retrieves the first number and rounds it to &lt;n&gt; decimal places. If <n> is missing, then rounds it to one decimal place.</li>
+           <li>The suffix :t returns the timestamp (works only for readings).</li>
+           <li>The suffix :sec returns the number of seconds since the reading was set. probably not realy usefull with readingsGroups.</li>
+         </ul></li>
       <li>regex can be of the form &lt;regex&gt;@device to use readings from a different device.<br>
           if the device name part starts with a '!' the display will be foreced.
           use in conjunction with ! in front of the reading name.</li>

@@ -1,12 +1,12 @@
 #######################################################################
-# $Id: 95_holiday.pm 12908 2016-12-30 09:29:05Z rudolfkoenig $
+# $Id: 95_holiday.pm 15433 2017-11-15 09:51:10Z rudolfkoenig $
 package main;
 
 use strict;
 use warnings;
 use POSIX;
 
-sub holiday_refresh($;$);
+sub holiday_refresh($;$$);
 
 #####################################
 sub
@@ -16,6 +16,7 @@ holiday_Initialize($)
 
   $hash->{DefFn}    = "holiday_Define";
   $hash->{GetFn}    = "holiday_Get";
+  $hash->{SetFn}    = "holiday_Set";
   $hash->{UndefFn}  = "holiday_Undef";
   $hash->{AttrList} = $readingFnAttributes;
 }
@@ -27,7 +28,7 @@ holiday_Define($$)
 {
   my ($hash, $def) = @_;
 
-  return holiday_refresh($hash->{NAME}) if($init_done);
+  return holiday_refresh($hash->{NAME}, undef, 1) if($init_done);
   InternalTimer(gettimeofday()+1, "holiday_refresh", $hash->{NAME}, 0);
   return undef;
 }
@@ -41,11 +42,11 @@ holiday_Undef($$)
 }
 
 sub
-holiday_refresh($;$)
+holiday_refresh($;$$)
 {
-  my ($name, $fordate) = (@_);
+  my ($name, $fordate, $showAvailable) = (@_);
   my $hash = $defs{$name};
-  my $internal;
+  my $fromTimer=0;
 
   return if(!$hash);           # Just deleted
 
@@ -53,7 +54,7 @@ holiday_refresh($;$)
   my @lt = localtime($nt);
   my @fd;
   if(!$fordate) {
-    $internal = 1;
+    $fromTimer = 1;
     $fordate = sprintf("%02d-%02d", $lt[4]+1, $lt[3]);
     @fd = @lt;
   } else {
@@ -61,9 +62,38 @@ holiday_refresh($;$)
     @fd = localtime(mktime(1,1,1,$d,$m-1,$lt[5],0,0,-1));
   }
 
-  my $fname = $attr{global}{modpath} . "/FHEM/" . $hash->{NAME} . ".holiday";
-  my ($err, @holidayfile) = FileRead($fname);
-  return $err if($err);
+  Log3 $name, 5, "holiday_refresh $name called for $fordate ($fromTimer)";
+
+  my $dir = $attr{global}{modpath} . "/FHEM";
+  my ($err, @holidayfile) = FileRead("$dir/$name.holiday");
+  if($err) {
+    $dir = $attr{global}{modpath}."/FHEM/holiday";
+    ($err, @holidayfile) = FileRead("$dir/$name.holiday");
+    $hash->{READONLY} = 1;
+  } else {
+    $hash->{READONLY} = 0;
+  }
+
+  if($err) {
+    if($showAvailable) {
+      my @ret;
+      if(configDBUsed()) {
+        @ret = cfgDB_FW_fileList($dir,".*.holiday",@ret);
+        map { s/\.configDB$//;$_ } @ret;
+      } else {
+        if(opendir(DH, $dir)) {
+          @ret = grep { m/\.holiday$/ } readdir(DH);
+          closedir(DH);
+        }
+      }
+      $err .= "\nAvailable holiday files: ".
+              join(" ", map { s/.holiday//;$_ } @ret);
+    } else {
+      Log 1, "$name: $err";
+    }
+    return $err;
+  }
+  $hash->{HOLIDAYFILE} = "$dir/$name.holiday";
 
   my @foundList;
   foreach my $l (@holidayfile) {
@@ -145,7 +175,7 @@ holiday_refresh($;$)
       my $yday=$fd[7];
       # create time object of target date - mktime counts months and their
       # days from 0 instead of 1, so subtract 1 from each
-      my $tgt=mktime(0,0,1,$a[4]-1,$a[3]-1,$fd[5],0,0,-1);
+      my $tgt=mktime(0,0,1,$a[4],$a[3]-1,$fd[5],0,0,-1);
       my $tgtmin=$tgt;
       my $tgtmax=$tgt;
       my $weeksecs=7*24*60*60; # 7 days, 24 hours, 60 minutes, 60seconds each
@@ -176,13 +206,13 @@ holiday_refresh($;$)
   push @foundList, "none" if(!int(@foundList));
   my $found = join(", ", @foundList);
 
-  RemoveInternalTimer($name);
-  $nt -= ($lt[2]*3600+$lt[1]*60+$lt[0]);         # Midnight
-  $nt += 86400 + 2;                              # Tomorrow
-  $hash->{TRIGGERTIME} = $nt;
-  InternalTimer($nt, "holiday_refresh", $name, 0);
+  if($fromTimer) {
+    RemoveInternalTimer($name);
+    $nt -= ($lt[2]*3600+$lt[1]*60+$lt[0]);         # Midnight
+    $nt += 86400 + 2;                              # Tomorrow
+    $hash->{TRIGGERTIME} = $nt;
+    InternalTimer($nt, "holiday_refresh", $name, 0);
 
-  if($internal) {
     readingsBeginUpdate($hash);
     readingsBulkUpdate($hash, 'state', $found);
     readingsBulkUpdate($hash, 'yesterday', CommandGet(undef,"$name yesterday"));
@@ -192,6 +222,23 @@ holiday_refresh($;$)
   } else {
     return $found;
   }
+}
+
+sub
+holiday_Set($@)
+{
+  my ($hash, @a) = @_;
+
+  return "unknown argument $a[1], choose one of createPrivateCopy:noArg"
+      if($a[1] ne "createPrivateCopy");
+  return "Already a private version" if(!$hash->{READONLY});
+  my $fname = $attr{global}{modpath}."/FHEM/holiday/$hash->{NAME}.holiday";
+  my ($err, @holidayfile) = FileRead($fname);
+  return $err if($err);
+  $fname = $attr{global}{modpath}."/FHEM/$hash->{NAME}.holiday";
+  $err = FileWrite($fname, @holidayfile);
+  holiday_refresh($hash->{NAME});
+  return $err;
 }
 
 sub
@@ -267,7 +314,6 @@ western_easter($)
 1;
 
 =pod
-=item helper
 =item summary    define holidays in a local file
 =item summary_DE Urlaubs-/Feiertagskalender aus einer lokalen Datei
 =begin html
@@ -281,7 +327,11 @@ western_easter($)
     <code>define &lt;name&gt; holiday</code>
     <br><br>
     Define a set of holidays. The module will try to open the file
-    &lt;name&gt;.holiday in the <a href="#modpath">modpath</a>/FHEM directory.
+    &lt;name&gt;.holiday in the <a href="#modpath">modpath</a>/FHEM directory
+    first, then in the modpath/FHEM/holiday directory, the latter containing a
+    set of predefined files. The set will be shown if an error occures at the
+    time of the definietion.<br>
+
     If entries in the holiday file match the current day, then the STATE of
     this holiday instance displayed in the <a href="#list">list</a> command
     will be set to the corresponding values, else the state is set to the text
@@ -346,13 +396,20 @@ western_easter($)
           </ul>
           </li>
     </ul>
-    See also he.holiday in the contrib directory for official holidays in the
-    german country of Hessen, and by.holiday for the Bavarian definition.
   </ul>
   <br>
 
   <a name="holidayset"></a>
-  <b>Set</b> <ul>N/A</ul><br>
+  <b>Set</b>
+  <ul>
+    <li>createPrivateCopy<br>
+      <ul>
+        if the holiday file is opened from the FHEM/holiday directory (which is
+        refreshed by FHEM-update), then it is readonly, and should not be
+        modified. With createPrivateCopy the file will be copied to the FHEM
+        directory, where it can be modified.
+      </ul></li>
+  </ul><br>
 
   <a name="holidayget"></a>
   <b>Get</b>
@@ -385,9 +442,12 @@ western_easter($)
   <ul>
     <code>define &lt;name&gt; holiday</code>
     <br><br>
-    Definiert einen Satz mit Urlaubsinformationen. Das Modul versucht die Datei
-    &lt;name&gt;.holiday im Pfad <a href="#modpath">modpath</a>/FHEM zu
-    &ouml;ffnen.
+    Definiert einen Satz mit Urlaubsinformationen. Das Modul versucht die
+    Datei &lt;name&gt;.holiday erst in <a href="#modpath">modpath</a>/FHEM zu
+    &ouml;ffnen, und dann in modpath/FHEM/holiday, Letzteres enth&auml;lt eine
+    Liste von per FHEM-update verteilten Dateien f&uuml;r diverse
+    (Bundes-)L&auml;nder. Diese Liste wird bei einer Feherlmeldung angezeigt.
+
     Wenn Eintr&auml;ge im der Datei auf den aktuellen Tag passen wird der STATE
     der Holiday-Instanz die im <a href="#list">list</a> Befehl angezeigt wird
     auf die entsprechenden Werte gesetzt. Andernfalls ist der STATE auf den
@@ -457,13 +517,20 @@ western_easter($)
           </ul>
           </li>
     </ul>
-    Siehe auch he.holiday im contrib Verzeichnis f&uuml;r offizielle Feiertage
-    in den deutschen Bundesl&auml;ndern Hessen und by.holiday f&uuml;r Bayern.
   </ul>
   <br>
 
   <a name="holidayset"></a>
-  <b>Set</b> <ul>N/A</ul><br>
+  <b>Set</b>
+  <ul>
+    <li>createPrivateCopy<br>
+      <ul>
+        Falls die Datei in der FHEM/holiday Verzeichnis ge&ouml;ffnet wurde,
+        dann ist sie nicht beschreibbar, da dieses Verzeichnis mit FHEM
+        update aktualisiert wird. Mit createPrivateCopy kann eine private Kopie
+        im FHEM Verzeichnis erstellt werden.
+      </ul></li>
+  </ul><br>
 
   <a name="holidayget"></a>
   <b>Get</b>

@@ -1,5 +1,5 @@
 
-# $Id: 31_HUEDevice.pm 13229 2017-01-25 11:17:57Z justme1968 $
+# $Id: 31_HUEDevice.pm 15247 2017-10-13 19:18:21Z justme1968 $
 
 # "Hue Personal Wireless Lighting" is a trademark owned by Koninklijke Philips Electronics N.V.,
 # see www.meethue.com for more information.
@@ -34,6 +34,8 @@ my %hueModels = (
                                                  gamut => 'C',                      icon => 'hue_filled_white_and_color_e27_b22', },
   LCT011 => {name => 'Hue BR30'                 ,type => 'Extended color light'    ,subType => 'extcolordimmer',
                                                  gamut => 'C',                      icon => 'hue_filled_br30.svg', },
+  LCT012 => {name => 'Hue color candle'         ,type => 'Extended color light'    ,subType => 'extcolordimmer',
+                                                 gamut => 'C', },
   LCT014 => {name => 'Hue Bulb V3'              ,type => 'Extended color light'    ,subType => 'extcolordimmer',
                                                  gamut => 'C',                      icon => 'hue_filled_white_and_color_e27_b22', },
   LLC001 => {name => 'Living Colors G2'         ,type => 'Color light'             ,subType => 'colordimmer',
@@ -70,13 +72,19 @@ my %hueModels = (
                                                                                     icon => 'hue_filled_white_and_color_e27_b22', },
   LWB007 => {name => 'Hue Lux'                  ,type => 'Dimmable light'          ,subType => 'dimmer',
                                                                                     icon => 'hue_filled_white_and_color_e27_b22', },
-  LTW001 => {name => 'Hue A19 White Ambience',  ,type => 'Color temperature light' ,subType => 'ctdimmer',
+  LWB010 => {name => 'Hue Lux'                  ,type => 'Dimmable light'          ,subType => 'dimmer',
                                                                                     icon => 'hue_filled_white_and_color_e27_b22', },
-  LTW004 => {name => 'Hue A19 White Ambience',  ,type => 'Color temperature light' ,subType => 'ctdimmer',
+  LWB014 => {name => 'Hue Lux'                  ,type => 'Dimmable light'          ,subType => 'dimmer',
                                                                                     icon => 'hue_filled_white_and_color_e27_b22', },
-  LTW013 => {name => 'Hue GU10 White Ambience', ,type => 'Color temperature light' ,subType => 'ctdimmer',
+  LTW001 => {name => 'Hue A19 White Ambience'   ,type => 'Color temperature light' ,subType => 'ctdimmer',
+                                                                                    icon => 'hue_filled_white_and_color_e27_b22', },
+  LTW004 => {name => 'Hue A19 White Ambience'   ,type => 'Color temperature light' ,subType => 'ctdimmer', },
+
+  LTW012 => {name => 'Hue ambiance candle'      ,type => 'Color temperature light' ,subType => 'ctdimmer',
                                                                                     icon => 'hue_filled_gu10_par16', },
-  LTW014 => {name => 'Hue GU10 White Ambience', ,type => 'Color temperature light' ,subType => 'ctdimmer',
+  LTW013 => {name => 'Hue GU10 White Ambience'  ,type => 'Color temperature light' ,subType => 'ctdimmer',
+                                                                                    icon => 'hue_filled_gu10_par16', },
+  LTW014 => {name => 'Hue GU10 White Ambience'  ,type => 'Color temperature light' ,subType => 'ctdimmer',
                                                                                     icon => 'hue_filled_gu10_par16', },
   LLM001 => {name => 'Color Light Module'       ,type => 'Extended color light'    ,subType => 'extcolordimmer',
                                                  gamut => 'B', },
@@ -103,6 +111,7 @@ my %hueModels = (
  'Classic A60 TW'   => {name => 'LIGHTIFY Classic A60 tunable white'   ,type => 'Color temperature light' ,subType => 'ctdimmer', },
  'Classic B40 TW'   => {name => 'LIGHTIFY Classic B40 tunable white'   ,type => 'Color temperature light' ,subType => 'ctdimmer', },
  'PAR16 50 TW'      => {name => 'LIGHTIFY PAR16 50 tunable white'      ,type => 'Color temperature light' ,subType => 'ctdimmer', },
+ 'Classic A60'      => {name => 'LIGHTIFY Classic A60 dimmable light'  ,type => 'Dimmable Light'          ,subType => 'dimmer', },
  'Plug - LIGHTIFY'  => {name => 'LIGHTIFY Plug'                        ,type => 'On/Off plug-in unit '    ,subType => 'switch', },
  'Plug 01'          => {name => 'LIGHTIFY Plug'                        ,type => 'On/Off plug-in unit '    ,subType => 'switch', },
 
@@ -384,7 +393,10 @@ HUEDevice_SetParam($$@)
     $cmd = 'bri';
   }
 
-  $cmd = "off" if($cmd eq "pct" && $value == 0 );
+  if($cmd eq "pct" && $value == 0 ) {
+    $cmd = "off";
+    $value = $value2;
+  }
 
   if($cmd eq 'on') {
     $obj->{'on'}  = JSON::true;
@@ -646,6 +658,8 @@ HUEDevice_Set($@)
 
     my $id = $hash->{ID};
     $id = $1 if( $id =~ m/^S(\d.*)/ );
+
+    $hash->{".triggerUsed"} = 1;
 
     if( $cmd eq "statusRequest" ) {
       RemoveInternalTimer($hash);
@@ -1118,32 +1132,28 @@ HUEDevice_Parse($$)
         my $s = '';
         my $pct = -1;
         my $on = $state->{on}; $readings{on} = $hash->{helper}{onoff} if( !defined($on) );
-        if( $on )
-          {
-            $s = 'on';
-            $readings{onoff} = 1;
+        if( $on ) {
+          $s = 'on';
+          $readings{onoff} = 1;
 
-            if( !defined($readings{bri}) || AttrVal($name, 'subType', 'dimmer') eq 'switch' ) {
-                $pct = 100;
+          if( !defined($readings{bri}) || AttrVal($name, 'subType', 'dimmer') eq 'switch' ) {
+            $pct = 100;
 
-            } else {
-              $pct = int($readings{bri} * 99 / 254 + 1);
-              if( $pct > 0
-                  && $pct < 100  ) {
-                $s = $dim_values{int($pct/7)};
-              }
-              $s = 'off' if( $pct == 0 );
-
+          } else {
+            $pct = int($readings{bri} * 99 / 254 + 1);
+            if( $pct > 0
+                && $pct < 100  ) {
+              $s = $dim_values{int($pct/7)};
             }
+            $s = 'off' if( $pct == 0 );
           }
-        else
-          {
-            $on = 0;
-            $s = 'off';
-            $pct = 0;
+        } else {
+          $on = 0;
+          $s = 'off';
+          $pct = 0;
 
-            $readings{onoff} = 0;
-          }
+          $readings{onoff} = 0;
+        }
 
         $readings{pct} = $pct;
 
@@ -1200,10 +1210,12 @@ HUEDevice_Parse($$)
 
     my $lastupdated;
     if( my $state = $result->{state} ) {
-      return undef if( $state->{lastupdated} eq 'none' );
-
       $lastupdated = $state->{lastupdated};
-      substr( $lastupdated, 10, 1, ' ' );
+
+      return undef if( !$lastupdated );
+      return undef if( $lastupdated eq 'none' );
+
+      substr( $lastupdated, 10, 1, ' ' ) if($lastupdated);
 
       my $offset = 0;
       if( my $iohash = $hash->{IODev} ) {
@@ -1278,6 +1290,8 @@ HUEDevice_Parse($$)
       if( defined($hueModels{$attr{$name}{model}}{subType}) ) {
         $attr{$name}{subType} = $hueModels{$attr{$name}{model}}{subType};
 
+        HUEDeviceSetIcon($hash) if( $hash->{helper}{fromAutocreate} );
+
       } elsif( $attr{$name}{model} =~ m/TW$/ ) {
         $attr{$name}{subType} = 'ctdimmer';
 
@@ -1289,10 +1303,10 @@ HUEDevice_Parse($$)
 
       }
 
-      HUEDeviceSetIcon($hash) if( $hash->{helper}{fromAutocreate} );
       delete $hash->{helper}{fromAutocreate};
+    }
 
-    } elsif( $hash->{type} ) {
+    if( !defined($attr{$name}{subType}) && $hash->{type} ) {
       if( $hash->{type} eq "Extended color light" ) {
         $attr{$name}{subType} = 'extcolordimmer';
 

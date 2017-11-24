@@ -1,5 +1,5 @@
 
-# $Id: 39_alexa.pm 13436 2017-02-18 18:10:46Z justme1968 $
+# $Id: 39_alexa.pm 15047 2017-09-10 18:05:05Z justme1968 $
 
 package main;
 
@@ -8,6 +8,13 @@ use warnings;
 
 use JSON;
 use Data::Dumper;
+
+use vars qw(%modules);
+use vars qw(%defs);
+use vars qw(%attr);
+use vars qw($readingFnAttributes);
+sub Log($$);
+sub Log3($$$);
 
 sub
 alexa_Initialize($)
@@ -25,7 +32,9 @@ alexa_Initialize($)
   $hash->{AttrFn}   = "alexa_Attr";
   $hash->{AttrList} = "alexaMapping:textField-long alexaTypes:textField-long fhemIntents:textField-long ".
                       "articles prepositions ".
+                      "echoRooms:textField-long ".
                       "alexaConfirmationLevel:2,1,0 alexaStatusLevel:2,1 ".
+                      "skillId:textField ".
                       $readingFnAttributes;
 }
 
@@ -49,7 +58,7 @@ alexa_AttrDefaults($)
                                          "Saturation=verb=stelle,property=sättigung,valuePrefix=auf,values=AMAZON.NUMBER\n".
                                          "Saturation=verb=sättige,values=AMAZON.NUMBER\n\n".
 
-                                         "TargetPosition=verb=mach,articles=den,values=auf:100;zu:0\n".
+                                         "TargetPosition=verb=mach,articles=den;die,values=auf:100;zu:0\n".
                                          "TargetPosition=verb=stelle,valuePrefix=auf,values=AMAZON.NUMBER,valueSuffix=prozent\n\n".
 
                                          "TargetTemperature=verb=stelle,valuePrefix=auf,values=AMAZON.NUMBER,valueSuffix=grad\n\n".
@@ -64,6 +73,11 @@ alexa_AttrDefaults($)
                                        "light=licht,lampen\n".
                                        "blind=rolladen,rolläden,jalousie,jalousien,rollo,rollos" );
   }
+
+  if( !AttrVal( $name, 'echoRooms', undef ) ) {
+    CommandAttr(undef,"$name echoRooms #<deviceId>=<room>\n" );
+  }
+
 
   if( !AttrVal( $name, 'fhemIntents', undef ) ) {
     CommandAttr(undef,"$name fhemIntents #IntentName=<sample utterance>\n".
@@ -125,7 +139,7 @@ alexa_Set($$@)
 {
   my ($hash, $name, $cmd, @args) = @_;
 
-  my $list = "reload:noArg";
+  my $list = "reload:noArg skillId";
 
   if( $cmd eq 'reload' ) {
     $hash->{".triggerUsed"} = 1;
@@ -136,17 +150,53 @@ alexa_Set($$@)
     }
 
     return undef;
+  } elsif( $cmd eq 'execute' ) {
+    my ($intent,$applicationId) = split(':', shift @args, 2 );
+    return 'usage $cmd execute <intent> [json]' if( !$intent );
+
+    my $json = join(' ',@args);
+    my $decoded = eval { decode_json($json) };
+    if( $@ ) {
+      my $msg = "json error: $@ in $json";
+      Log3 $name, 2, "$name: $msg";
+      return $msg;
+    }
+    Log3 $name, 5, "$name: \"$json\" -> ". Dumper $decoded;
+
+    my $cmd = '{Log 1, "test"; return "result";}';
+    Log3 $name, 5, "$name: cmd: $cmd";
+
+    if( ref($decoded->{slots}) eq 'HASH' ) {
+      $hash->{active} = 1;
+      my $intent = $intent;
+      $intent = "$intent:$applicationId" if( $applicationId );
+      readingsSingleUpdate($hash, 'fhemIntent', $intent, 1 );
+      my $exec = EvalSpecials($cmd, %{$decoded->{slots}});
+      Log3 $name, 5, "$name: exec: $exec";
+      my $ret = AnalyzeCommandChain($hash, $exec);
+      Log3 $name, 5, "$name: ret ". ($ret?$ret:"undefined");
+      $hash->{active} = 0;
+
+      return $ret;
+    }
+
+    return undef;
+  } elsif( $cmd eq 'skillId' ) {
+
+    return CommandAttr(undef,"$name skillId $args[0]" );
   }
 
   return "Unknown argument $cmd, choose one of $list";
 }
+
+
 
 sub
 alexa_Get($$@)
 {
   my ($hash, $name, $cmd) = @_;
 
-  my $list = "customSlotTypes:noArg interactionModel:noArg";
+  my $list = "customSlotTypes:noArg interactionModel:noArg skillId:noArg";
 
   if( lc($cmd) eq 'customslottypes' ) {
     if( $hash->{CL} ) {
@@ -319,6 +369,7 @@ Log 1, Dumper $characteristicsOfIntent;
           $intents->{$intent} = 1;
 
           my $slots = [];
+          my $samples2 = [];
           push @{$slots}, { name => 'article', type => 'FHEM_article' };
           push @{$slots}, { name => 'Device', type => 'FHEM_Device' } if( !$mapping->{device} );
           push @{$slots}, { name => 'preposition', type => 'FHEM_preposition' };
@@ -378,12 +429,15 @@ Log 1, Dumper $characteristicsOfIntent;
                   $line .= " $mapping->{valueSuffix}" if( $mapping->{valueSuffix} );
                 }
 
+                push @{$samples2}, $line;
+
                 $samples .= "\n" if( $samples );
                 $samples .= $line;
               }
             }
           }
           push @{$schema->{intents}}, {intent => $intent, slots => $slots};
+          #push @{$schema->{intents}}, {intent => $intent, slots => $slots, samples => $samples2};
         }
 
         ++$i;
@@ -396,6 +450,8 @@ Log 1, Dumper $characteristicsOfIntent;
       foreach my $entry ( split( /\n/, $entries ) ) {
         next if( !$entry );
         next if( $entry =~ /^#/ );
+
+        my $slots = [];
 
         my ($intent, $remainder) = split( /:|=/, $entry, 2 );
         my @parts = split( /,/, $remainder );
@@ -411,22 +467,60 @@ Log 1, Dumper $characteristicsOfIntent;
           }
         } elsif( $intent =~ m/^{.*}$/ ) {
           $intent_name = 'FHEMperlCodeIntent';
+          my $nr = '';
           my $i = 1;
           while( defined($intents{$intent_name}) ) {
             if( $i < 26 ) {
-              $intent_name = "FHEMperlCodeIntent".chr(65+$i);
+              $nr = chr(65+$i);
             } else {
-              $intent_name = "FHEMperlCodeIntent".chr(64+int($i/26)).chr(65+$i%26);
+              $nr = chr(64+int($i/26)).chr(65+$i%26);
             }
             ++$i;
+            $intent_name = "FHEMperlCodeIntent$nr";
           }
+
+          my $slot_names = {};
+          my $u = $utterance;
+          while( $u =~ /\{(.*?)\}/g ) {
+            my $slot = $1;
+            my ($name, $values) = split( /:|=/, $slot, 2 );
+
+            my $slot_name = "${intent_name}_${name}";
+            next if( $slot_names->{$slot_name} );
+            $slot_names->{$slot_name} = 1;
+
+            if( $values ) {
+              if( $values && $values =~ /^AMAZON/ ) {
+                push @{$slots}, { name => $slot_name, type => $values };
+              } else {
+                push @{$slots}, { name => $slot_name, type => "${intent_name}_${name}_Value" };
+                $values =~ s/\+/ /g;
+                my @values = split(';', $values );
+                $types->{"${intent_name}_${name}_Value"} = \@values if( $values[0] );
+              }
+
+              $slot =~ s/\+/\\\+/g;
+              $utterance =~ s/\{$slot\}/\{$slot_name\}/;
+
+            } else {
+              push @{$slots}, { name => $name, type => "FHEM_$name" };
+
+            }
+          }
+
         }
         $intent_name =~ s/ //g;
         $intents{$intent_name} = $intent;
 
-        push @{$schema->{intents}}, {intent => $intent_name, };
+        if( @{$slots} ) {
+          push @{$schema->{intents}}, {intent => $intent_name, slots => $slots };
+        } else {
+          push @{$schema->{intents}}, {intent => $intent_name };
+        }
 
-        $samples .= "\n$intent_name $utterance";
+        foreach my $u ( split( '\|', $utterance ) ) {
+          $samples .= "\n$intent_name $u";
+        }
       }
       $samples .= "\n";
     }
@@ -484,6 +578,14 @@ Log 1, Dumper $characteristicsOfIntent;
            "get alexa interactionmodel\n";
 
     return undef;
+  } elsif( $cmd eq 'skillId' ) {
+    my $skillId = AttrVal($name, 'skillId', undef);
+
+    return 'no skillId set' if( !$skillId );
+
+    $skillId = alexa_decrypt( $skillId );
+
+    return "skillId: $skillId";
   }
 
   return "Unknown argument $cmd, choose one of $list";
@@ -515,6 +617,41 @@ Log 1, "!!!!!!!!!!";
 }
 
 sub
+alexa_encrypt($)
+{
+  my ($decoded) = @_;
+  my $key = getUniqueId();
+  my $encoded;
+
+  return $decoded if( $decoded =~ /^crypt:(.*)/ );
+
+  for my $char (split //, $decoded) {
+    my $encode = chop($key);
+    $encoded .= sprintf("%.2x",ord($char)^ord($encode));
+    $key = $encode.$key;
+  }
+
+  return 'crypt:'. $encoded;
+}
+sub
+alexa_decrypt($)
+{
+  my ($encoded) = @_;
+  my $key = getUniqueId();
+  my $decoded;
+
+  $encoded = $1 if( $encoded =~ /^crypt:(.*)/ );
+
+  for my $char (map { pack('C', hex($_)) } ($encoded =~ /(..)/g)) {
+    my $decode = chop($key);
+    $decoded .= chr(ord($char)^ord($decode));
+    $key = $decode.$key;
+  }
+
+  return $decoded;
+}
+
+sub
 alexa_Attr($$$)
 {
   my ($cmd, $name, $attrName, $attrVal) = @_;
@@ -523,15 +660,33 @@ alexa_Attr($$$)
 
   my $hash = $defs{$name};
   if( $attrName eq "disable" ) {
+  } elsif( $attrName eq 'skillId' ) {
+    if( $cmd eq "set" && $attrVal ) {
+
+      if( $attrVal =~ /^crypt:/ ) {
+        return;
+
+      } elsif( $attrVal !~ /(^amzn1\.ask\.skill\.[0-9a-f\-]+)|(^amzn1\.echo-sdk-ams\.app\.[0-9a-f\-]+)/ ) {
+        return "$attrVal is not a valid skill id";
+      }
+
+      $attrVal = alexa_encrypt($attrVal);
+
+      if( $orig ne $attrVal ) {
+        $attr{$name}{$attrName} = $attrVal;
+        return "stored obfuscated skillId";
+      }
+    }
   }
+
 
   if( $cmd eq 'set' ) {
 
   } else {
     delete $attr{$name}{$attrName};
 
-     RemoveInternalTimer($hash);
-     InternalTimer(gettimeofday(), "alexa_AttrDefaults", $hash, 0);
+    RemoveInternalTimer($hash);
+    InternalTimer(gettimeofday(), "alexa_AttrDefaults", $hash, 0);
   }
 
   return;
@@ -572,6 +727,8 @@ alexa_Attr($$$)
     <li>interactionModel<br>
       Get Intent Schema, non device specific Custom Slot Types and Sample Utterances for the Interaction Model
       configuration.</li>
+    <li>skillId<br>
+      shows the configured skillId.</li>
   </ul>
 
   <a name="alexa_Attr"></a>
@@ -589,11 +746,16 @@ alexa_Attr($$$)
       maps spoken commands to intents for certain characteristics.</li>
     <li>alexaTypes<br>
       maps spoken device types to ServiceClasses. eg: attr alexa alexaTypes light:licht,lampe,lampen blind:rolladen,jalousie,rollo Outlet:steckdose TemperatureSensor:thermometer LockMechanism:schloss OccupancySensor: anwesenheit</li>
+    <li>echoRooms<br>
+      maps echo devices to default rooms.</li>
     <li>fhemIntents<br>
       maps spoken commands directed to fhem as a whole (i.e. not to specific devices) to events from the alexa device.</li>
     <li>alexaConfirmationLevel<br>
       </li>
     <li>alexaStatusLevel<br>
+      </li>
+    <li>skillId<br>
+      skillId to use for automatic interaction model upload (not yet finished !!!)
       </li>
     Note: changes to attributes of the alexa device will automatically trigger a reconfiguration of
           alxea-fhem and there is no need to restart the service.

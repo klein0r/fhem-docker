@@ -1,4 +1,4 @@
-# $Id: 44_S7_Client.pm 12776 2016-12-14 18:09:08Z charlie71born $
+# $Id: 44_S7_Client.pm 14257 2017-05-12 16:39:44Z charlie71 $
 ##############################################
 
 use strict;
@@ -419,6 +419,14 @@ sub PutFloatAt {
 	return $self->setFloatAt( $Buffer, $index, $value );
 }
 
+
+#-----------------------------------------------------------------------------
+sub setRecvTimeout {
+
+	my ( $self, $newRecvTimeout ) = @_;
+	
+	$self->{RecvTimeout} = $newRecvTimeout;
+}
 #-----------------------------------------------------------------------------
 
 sub version {
@@ -426,6 +434,8 @@ sub version {
 }
 
 #-----------------------------------------------------------------------------
+
+
 
 sub getErrorStr {
 

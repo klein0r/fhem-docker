@@ -1,59 +1,18 @@
-################################################################################
-# $Id: 98_powerMap.pm 13338 2017-02-05 15:31:14Z loredo $
-##############################################################################
+###############################################################################
+# $Id: 98_powerMap.pm 14012 2017-04-17 13:09:41Z loredo $
 #
-#     98_powerMap.pm
-#     Original version by igami
-#
-#     Copyright by Julian Pawlowski
-#     e-mail: julian.pawlowski at gmail.com
-#
-#     This file is part of fhem.
-#
-#     Fhem is free software: you can redistribute it and/or modify
-#     it under the terms of the GNU General Public License as published by
-#     the Free Software Foundation, either version 2 of the License, or
-#     (at your option) any later version.
-#
-#     Fhem is distributed in the hope that it will be useful,
-#     but WITHOUT ANY WARRANTY; without even the implied warranty of
-#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#     GNU General Public License for more details.
-#
-#     You should have received a copy of the GNU General Public License
-#     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
-#
-################################################################################
 # TODO
 # - document how to include powerMap for other module maintainers
 #   (see 50_HP1000)
 #
-
 package main;
 use strict;
 use warnings;
+use Data::Dumper;
+
 use Unit;
 
-# forward declarations #########################################################
-sub powerMap_Initialize($);
-
-sub powerMap_Define($$);
-sub powerMap_Undefine($$);
-sub powerMap_Set($@);
-sub powerMap_Get($@);
-sub powerMap_Attr(@);
-sub powerMap_Notify($$);
-
-sub powerMap_AttrVal($$$$);
-sub powerMap_load($$;$$);
-sub powerMap_unload($$);
-sub powerMap_findPowerMaps($;$);
-sub powerMap_verifyEventChain($$$);
-sub powerMap_power($$$;$);
-sub powerMap_energy($$;$);
-sub powerMap_update($;$);
-
-# module hashes ################################################################
+# module hashes ###############################################################
 my %powerMap_tmpl = (
 
     # Format example for devices w/ model support:
@@ -540,7 +499,7 @@ my %powerMap_tmpl = (
     },
 );
 
-# initialize ###################################################################
+# initialize ##################################################################
 sub powerMap_Initialize($) {
     my ($hash) = @_;
     my $TYPE = "powerMap";
@@ -553,7 +512,7 @@ sub powerMap_Initialize($) {
     $hash->{NotifyFn} = $TYPE . "_Notify";
 
     $hash->{AttrList} =
-        "disable:1,0 "
+        "disable:1,0 disabledForIntervals do_not_notify:1,0 "
       . $TYPE
       . "_gridV:230,110 "
       . $TYPE
@@ -568,7 +527,7 @@ sub powerMap_Initialize($) {
     addToAttrList( $TYPE . ":textField-long" );
 }
 
-# regular Fn ###################################################################
+# regular Fn ##################################################################
 sub powerMap_Define($$) {
     my ( $hash, $def ) = @_;
     my ( $name, $type, $rest ) = split( /[\s]+/, $def, 3 );
@@ -747,7 +706,7 @@ sub powerMap_Notify($$) {
             next unless ( defined($event) );
 
             # initialize or terminate powerMap for each device
-            if ( $event =~ /^(INITIALIZED|SHUTDOWN)$/ ) {
+            if ( $event =~ /^(INITIALIZED|REREADCFG|SHUTDOWN)$/ ) {
                 foreach ( keys %{ powerMap_findPowerMaps( $name, ":PM_$1" ) } )
                 {
                     next
@@ -816,6 +775,8 @@ sub powerMap_Notify($$) {
                 # recalculate CHANGEDWITHSTATE
                 # for target device in deviceEvents()
                 $dev_hash->{CHANGEDWITHSTATE} = [];
+
+                last;
             }
         }
     }
@@ -845,45 +806,45 @@ sub powerMap_AttrVal($$$$) {
     # $defs{device}{TYPE}{attribute}
     return $defs{$d}{$TYPE}{$n}
       if ( $d
-        && defined( $defs{$d} )
+        && IsDevice($d)
         && defined( $defs{$d}{$TYPE} )
         && defined( $defs{$d}{$TYPE}{$n} ) );
 
     # $defs{device}{.TYPE}{attribute}
     return $defs{$d}{".$TYPE"}{$n}
       if ( $d
-        && defined( $defs{$d} )
+        && IsDevice($d)
         && defined( $defs{$d}{".$TYPE"} )
         && defined( $defs{$d}{".$TYPE"}{$n} ) );
 
     # $defs{device}{TYPE_attribute}
     return $defs{$d}{ $TYPE . "_" . $n }
       if ( $d
-        && defined( $defs{$d} )
+        && IsDevice($d)
         && defined( $defs{$d}{ $TYPE . "_" . $n } ) );
 
     # $defs{device}{attribute}
     return $defs{$d}{$n}
       if ( $d
-        && defined( $defs{$d} )
+        && IsDevice($d)
         && defined( $defs{$d}{$n} ) );
 
     # $defs{device}{.TYPE_attribute}
     return $defs{$d}{ "." . $TYPE . "_" . $n }
       if ( $d
-        && defined( $defs{$d} )
+        && IsDevice($d)
         && defined( $defs{$d}{ "." . $TYPE . "_" . $n } ) );
 
     # $defs{device}{.attribute}
     return $defs{$d}{".$n"}
       if ( $d
-        && defined( $defs{$d} )
+        && IsDevice($d)
         && defined( $defs{$d}{".$n"} ) );
 
     # module HASH
     #
 
-    my $t = $defs{$d}{TYPE};
+    my $t = GetType($d);
 
     # $modules{module}{TYPE}{attribute}
     return $modules{$t}{$TYPE}{$n}
@@ -1024,8 +985,7 @@ sub powerMap_findPowerMaps($;$) {
     # directly return any existing device specific definition
     if ( $dev && $dev !~ /^:/ ) {
         return {}
-          unless ( defined( $defs{$dev} )
-            && defined( $defs{$dev}{TYPE} ) );
+          unless ( IsDevice($dev) );
 
         return $defs{$dev}{powerMap}{map}
           if (
@@ -1336,6 +1296,8 @@ sub powerMap_verifyEventChain($$$) {
     return 1;
 }
 
+sub powerMap_power($$$;$);
+
 sub powerMap_power($$$;$) {
     my ( $name, $dev, $event, $loop ) = @_;
     my $hash     = $defs{$name};
@@ -1347,8 +1309,7 @@ sub powerMap_power($$$;$) {
 
     if ( $event =~ /^([A-Za-z\d_\.\-\/]+):\s+(.*)$/ ) {
         my ( $reading, $val ) = ( $1, $2 );
-        my $num = $val;
-        $num =~ s/[^-\.\d]//g;
+        my $num = ( $val =~ /(-?\d+(\.\d+)?)/ ? $1 : $val );
 
         my $valueAliases = {
             initialized  => '0',
@@ -1579,7 +1540,7 @@ sub powerMap_update($;$) {
 
 1;
 
-# commandref ###################################################################
+# commandref ##################################################################
 
 =pod
 =item helper

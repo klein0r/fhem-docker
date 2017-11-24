@@ -1,5 +1,5 @@
 ##############################################
-# $Id: FritzBoxUtils.pm 6574 2014-09-19 17:32:48Z rudolfkoenig $
+# $Id: FritzBoxUtils.pm 14541 2017-06-19 09:13:10Z rudolfkoenig $
 package main;
 
 use strict;
@@ -18,7 +18,7 @@ FB_doCheckPW($$$)
   my $data = GetFileFromURL("http://$host/login_sid.lua", undef, undef, 1);
   return undef if(!$data);
 
-  my $chl;
+  my $chl="";
   $chl = $1 if($data =~ /<Challenge>(\w+)<\/Challenge>/i);
   my $chlAnsw .= "$chl-$pw";
   $chlAnsw =~ s/(.)/$1.chr(0)/eg; # works probably only with ascii

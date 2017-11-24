@@ -1,4 +1,3 @@
-##############################################
 # From dancer0705
 #
 # Receive temperature sensor
@@ -32,8 +31,14 @@
 # Free Software Foundation, Inc., 
 # 51 Franklin St, Fifth Floor, Boston, MA 02110, USA
 #
-# $Id: 14_CUL_TCM97001.pm 12994 2017-01-07 07:49:53Z bjoernh $
+# $Id: 14_CUL_TCM97001.pm 15367 2017-10-31 17:44:02Z bjoernh $
 #
+#
+# 14.06.2017 W155(TCM21...) wind/rain    pejonp
+# 25.06.2017 W155(TCM21...) wind/rain    pejonp
+# 04.07.2017 PFR-130        rain         pejonp
+# 04.07.2017 TFA 30.3161    temp/rain    pejonp
+# 22.10.2017 W174           rain         elektron-bbs/HomeAutoUser
 ##############################################
 
 package main;
@@ -57,11 +62,13 @@ my %models = (
     "NC_WS"       => 'NC_WS',
     "GT_WT_02"    => 'GT_WT_02',
     "AURIOL"      => 'AURIOL',
+    "PFR_130"      => 'PFR_130',
     "Type1"       => 'Type1',
     "Mebus"       => 'Mebus',
     "Eurochron"   => 'Eurochron',
     "KW9010"      => 'KW9010',
     "Unknown"     => 'Unknown',
+    "W174"        => 'W174',
 );
 
 sub
@@ -91,9 +98,11 @@ CUL_TCM97001_Initialize($)
             "GT_WT_02.*" => {  ATTR => "event-min-interval:.*:300 event-on-change-reading:.*", GPLOT => "temp4hum4:Temp/Hum,", FILTER => "%NAME", autocreateThreshold => "2:180"}, 
             "Type1.*" => {  ATTR => "event-min-interval:.*:300 event-on-change-reading:.*", GPLOT => "temp4hum4:Temp/Hum,", FILTER => "%NAME", autocreateThreshold => "2:180"}, 
             "Rubicson.*" => {  ATTR => "event-min-interval:.*:300 event-on-change-reading:.*", GPLOT => "temp4hum4:Temp/Hum,", FILTER => "%NAME", autocreateThreshold => "2:180"},    
-            "AURIOL.*" => {  ATTR => "event-min-interval:.*:300 event-on-change-reading:.*", GPLOT => "temp4hum4:Temp/Hum,", FILTER => "%NAME", autocreateThreshold => "2:180"},  
+            "AURIOL.*" => {  ATTR => "event-min-interval:.*:300 event-on-change-reading:.*", GPLOT => "temp4hum4:Temp/Hum,", FILTER => "%NAME", autocreateThreshold => "2:180"},
+            "PFR_130.*" => {  ATTR => "event-min-interval:.*:300 event-on-change-reading:.*", GPLOT => "temp4hum4:Temp/Hum,", FILTER => "%NAME", autocreateThreshold => "2:180"}, 
             "KW9010.*" => {  ATTR => "event-min-interval:.*:300 event-on-change-reading:.*", GPLOT => "temp4hum4:Temp/Hum,", FILTER => "%NAME", autocreateThreshold => "2:180"},      
             "TCM97001.*" => {  ATTR => "event-on-change-reading:.*", GPLOT => "temp4hum4:Temp/Hum,", FILTER => "%NAME", autocreateThreshold => "2:340"},
+            "W174.*" => {  ATTR => "event-min-interval:.*:300 event-on-change-reading:.*", GPLOT => "rain4:Rain,", FILTER => "%NAME", autocreateThreshold => "2:180"},      
             "Unknown_.*" => { autocreateThreshold => "2:10"}
         };
 }
@@ -129,6 +138,30 @@ CUL_TCM97001_Undef($$)
   return undef;
 }
 
+### inserted by elektron-bbs for rain gauge Ventus W174
+# Checksum for Rain Gauge VENTUS W174 Protocol Auriol
+# n8 = ( 0x7 + n0 + n1 + n2 + n3 + n4 + n5 + n6 + n7 ) & 0xf
+sub checksum_W174 {
+  my $msg = shift;
+  Log3 "CUL_TCM97001: ", 4 , "CUL_TCM97001: W174 checksum calc for: $msg";
+  my @a = split("", $msg);
+  my $bitReverse = undef;
+  my $x = undef;
+  foreach $x (@a) {
+     my $bin3=sprintf("%04b",hex($x));
+    $bitReverse = $bitReverse . reverse($bin3); 
+  }
+  my $hexReverse = unpack("H*", pack ("B*", $bitReverse));
+  my @aReverse = split("", $hexReverse);                      # Split reversed a again
+  my $CRC = (7 + hex($aReverse[0])+hex($aReverse[1])+hex($aReverse[2])+hex($aReverse[3])+hex($aReverse[4])+hex($aReverse[5])+hex($aReverse[6])+hex($aReverse[7])) & 15;
+  if ($CRC == hex($aReverse[8])) {
+      Log3 "CUL_TCM97001: ", 4 , "CUL_TCM97001: W174 checksum ok $CRC == ".hex($aReverse[8]);
+      return TRUE;
+  } else {
+      return FALSE;
+  }
+}
+
 #
 # CRC Check for TCM 21....
 #
@@ -152,6 +185,48 @@ sub checkCRC {
       return TRUE;
   }
   return FALSE;
+}
+#
+# CRC 4 check for PFR-130
+# xor 4 bits of nibble 0 to 7
+#
+sub checkCRC4 {
+  my $msg = shift;
+  my @a = split("", $msg);
+  if(scalar(@a)<9){
+    Log3 "checkCRC4", 5, "CUL_TCM97001 failed for msg=($msg) length<9";
+    return FALSE;
+  }
+  # xor nibbles 0 to 7 and compare to n8, if more nibble they might have been added to fill gap
+  my $CRC = ( (hex($a[0])) ^ (hex($a[1])) ^ (hex($a[2])) ^ (hex($a[3])) ^ 
+             (hex($a[4])) ^ (hex($a[5])) ^ (hex($a[6])) ^ (hex($a[7])) );
+  if ($CRC ==  (hex($a[8]))) {
+    Log3 "checkCRC4", 5, "CUL_TCM97001 OK for msg=($msg)";
+    return TRUE;
+  }
+  Log3 "checkCRC4", 5, "CUL_TCM97001 FAILED for msg=($msg)";
+  return FALSE;
+}
+#
+# CRC 4 check for PFR-130
+# xor 4 bits of nibble 0 to 7
+#
+
+sub isRain {
+  my $msg = shift;
+  my @a = split("", $msg);
+  if(scalar(@a)<9){
+    Log3 "isRain", 5, "isRain: CUL_TCM97001 failed for msg=($msg) length<9";
+    return FALSE;
+  }
+  # if bit 0 of nibble 2 is 1 then this is no rain data
+  my $isRainData = ( (hex($a[2]) & 1) );
+  if ($isRainData == 1) {
+    Log3 "isRain", 5, "isRain: CUL_TCM97001 for msg=($msg) = FALSE";
+    return FALSE;
+  }
+  Log3 "isRain", 5, "isRain: CUL_TCM97001 for msg=($msg) = TRUE";
+  return TRUE;
 }
 
 #
@@ -201,7 +276,7 @@ sub checkCRC_Mebus {
 
 #
 # CRC Check for GT_WT_02
-#
+### edited by elektron-bbs for GT_WT_02
 sub checkCRC_GTWT02 {
   my $msg = shift;
   my @a = split("", $msg);
@@ -210,7 +285,7 @@ sub checkCRC_GTWT02 {
 #  my $CRC = (hex($a[0])+hex($a[1])+hex($a[2])+hex($a[3])
 #            +hex($a[4])+hex($a[5])+hex($a[6])+hex($a[7])) -1;
   my $CRCCHECKVAL= (hex($a[7].$a[8].$a[9]) & 0x1F8) >> 3; 
-  if ($CRC == $CRCCHECKVAL) {
+  if ($CRC  % 64 == $CRCCHECKVAL) {
       return TRUE;
   }
   return FALSE;
@@ -314,6 +389,21 @@ CUL_TCM97001_Parse($$)
   my $temp = undef;
   my $humidity=undef;  
   my $channel = undef;
+  # für zusätzliche Sensoren
+  my @winddir_name=("N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW");
+  my $windSpeed = 0;
+  my $windDirection = 0  ;
+  my $windDirectionText = "N";
+  my $windgrad = 0  ;
+  my $windGuest = 0;
+  my $rain = 0;
+  my $haswindspeed = FALSE;
+  my $haswind = FALSE;
+  my $hasrain = FALSE;
+  my $rainticks = undef;
+  my $rainMM = undef;
+  
+  
 
   my $longids = AttrVal($hash->{NAME},'longids',1);
 
@@ -702,6 +792,83 @@ CUL_TCM97001_Parse($$)
           $name = "Unknown";
         }
     }
+
+		### inserted by elektron-bbs for rain gauge Ventus W174
+		if (checksum_W174($msg) == TRUE && ($readedModel eq "Unknown" || $readedModel eq "W174")) {
+   	   # VENTUS W174 Rain gauge
+   	   # Documentation also at http://www.tfd.hu/tfdhu/files/wsprotocol/auriol_protocol_v20.pdf
+			# send interval 36 seconds
+   	   # * Format for Rain
+   	   # *   AAAAAAAA vXXB CCCC DDDD DDDD DDDD DDDD EEEE FFFF FFFF 
+   	   # *   RC            Type Rain                Checksum
+   	   # *   A = Rolling Code /Device ID
+   	   # *   B = Message type (xyyx = NON temp/humidity data if yy = '11')
+   	   # *   v = 0: Sensor's battery voltage is normal, 1: Battery voltage is below ~2.6 V.
+   	   # *  XX = 11: Non temperature/humidity data. All other type data packets have this value in this field.
+   	   # *   C = fixed to 1100 for rain gauge
+   	   # *   D = Rain (bitvalue * 0.25 mm)
+   	   # *   E = Checksum
+   	   # *   F = 0000 0000 (W174!!!)
+			my @a = split("", $msg);
+         my $bitReverse = undef;
+         my $bitUnreverse = undef;
+         my $x = undef;
+         my $bin3;
+			foreach $x (@a) {
+            $bin3=sprintf("%024b",hex($x));
+            $bitReverse = $bitReverse . substr(reverse($bin3),0,4); 
+            $bitUnreverse = $bitUnreverse . sprintf( "%b", hex( substr($bin3,0,4) ) );
+         }
+         my $hexReverse = unpack("H*", pack ("B*", $bitReverse));
+         my @aReverse = split("", $hexReverse);							# Split reversed a again
+         Log3 $hash,5, "CUL_TCM97001: $name original-msg: $msg , reversed nibbles: $hexReverse";
+         Log3 $hash,5, "CUL_TCM97001: $name nibble 2: $aReverse[2] , nibble 3: $aReverse[3]";
+         # Nibble 2 must be x110 for rain gauge 
+         # Nibble 3 must be 0x03 for rain gauge
+         if ((hex($aReverse[2]) >> 1) == 3 && $aReverse[3] == 0x03) {
+            Log3 $hash,4, "CUL_TCM97001: $name detected rain gauge message ok";
+            $batbit = $aReverse[2] & 0b0001;									# Bat bit normal=0, low=1
+            Log3 $hash,4, "CUL_TCM97001: $name battery bit: $batbit";
+            $batbit = ~$batbit & 0x1; 												# Bat bit negation
+            $hasbatcheck = TRUE;
+            my $rainticks = hex($aReverse[4]) + hex($aReverse[5]) * 16 + hex($aReverse[6]) * 256 + hex($aReverse[7]) * 4096;
+            Log3 $hash,5, "CUL_TCM97001: $name rain gauge swing count: $rainticks";
+            $rain = ($rainticks + ($rainticks & 1)) / 4;			# 1 tick = 0,5 l/qm
+            $model="W174";
+            $hasrain = TRUE;
+            # Sanity check 
+            if($def) {
+			   $def = $modules{CUL_TCM97001}{defptr}{$deviceCode};
+			   my $hash = $def;
+               my $timeSinceLastUpdate = ReadingsAge($hash->{NAME}, "state", 0);
+               $name = $def->{NAME};
+               if (defined($hash->{READINGS}{rain}{VAL})) {
+                  my $diffRain = 0;
+                  my $oldRain = $hash->{READINGS}{rain}{VAL};
+                  if ($rain > $oldRain) {
+                     $diffRain = ($rain - $oldRain);
+                  } else {
+                     $diffRain = ($oldRain - $rain);
+                  }
+                  $diffRain = sprintf("%.1f", $diffRain);				
+                  Log3 $hash, 4, "CUL_TCM97001: $name old rain $oldRain, age $timeSinceLastUpdate, new rain $rain, diff rain $diffRain";
+                  my $maxDiffRain = $timeSinceLastUpdate / 60 + 1; 							# 1.0 Liter/Minute + 1.0 
+                  $maxDiffRain = sprintf("%.1f", $maxDiffRain + 0.05);						# round 0.1
+                  Log3 $hash, 4, "CUL_TCM97001: $name max difference rain $maxDiffRain l";
+                  if ($diffRain > $maxDiffRain) {
+                     Log3 $hash, 3, "CUL_TCM97001: $name ERROR - Rain diff too large (old $oldRain, new $rain, diff $diffRain)";
+                     return "";
+                  }
+               }
+            } else {
+               Log3 $name, 2, "CUL_TCM97001 Unknown device $deviceCode, please define it";
+               return "UNDEFINED $model" . substr($deviceCode, rindex($deviceCode,"_")) . " CUL_TCM97001 $deviceCode"; 
+            }
+            Log3 $hash,4, "CUL_TCM97001: $name rain total: $rain l/qm";
+            $readedModel=$model;
+				$packageOK = TRUE;
+			}
+		}
     
     if (checkCRC($msg) == TRUE && ($readedModel eq "Unknown" || $readedModel eq "TCM21....")) {
         # Long with tmp
@@ -712,18 +879,81 @@ CUL_TCM97001_Parse($$)
         # C Bit 1 Battery
         # D+E+F Temp 
         # G+H Hum
-        # I CRC
+        # I CRC    
+	#/* Documentation also at http://www.tfd.hu/tfdhu/files/wsprotocol/auriol_protocol_v20.pdf
+	# * Message Format: (9 nibbles, 36 bits):
+	# * Please note that bytes need to be reversed before processing!
+	# *
+	# * Format for Temperature Humidity
+	# *   AAAAAAAA BBBB CCCC CCCC CCCC DDDDDDDD EEEE
+	# *   RC       Type Temperature___ Humidity Checksum
+	# *   A = Rolling Code / Device ID
+	# *       Device ID: AAAABBAA BB is used for channel, base channel is 01
+	# *       When channel selector is used, channel can be 10 (2) and 11 (3)
+	# *   B = Message type (xyyz = temp/humidity if yy <> '11') else wind/rain sensor
+	# *       x indicates battery status (0 normal, 1 voltage is below ~2.6 V)
+	# *       z 0 indicates regular transmission, 1 indicates requested by pushbutton
+	# *   C = Temperature (two's complement)
+	# *   D = Humidity BCD format
+	# *   E = Checksum
+	# *
+	# * Format for Rain
+	# *   AAAAAAAA BBBB CCCC DDDD DDDD DDDD DDDD EEEE
+	# *   RC       Type      Rain                Checksum
+	# *   A = Rolling Code /Device ID
+	# *   B = Message type (xyyx = NON temp/humidity data if yy = '11')
+	# *   C = fixed to 1100   (C)
+	# *   D = Rain (bitvalue * 0.25 mm)
+	# *   E = Checksum
+	# *
+	# * Format for Windspeed
+	# *   AAAAAAAA BBBB CCCC CCCC CCCC DDDDDDDD EEEE
+	# *   RC       Type                Windspd  Checksum
+	# *   A = Rolling Code
+	# *   B = Message type (xyyx = NON temp/humidity data if yy = '11')
+	# *   C = Fixed to 1000 0000 0000   (8)
+	# *   D = Windspeed  (bitvalue * 0.2 m/s, correction for webapp = 3600/1000 * 0.2 * 100 = 72)
+	# *   E = Checksum
+	# *
+	# * Format for Winddirection & Windgust
+	# *   AAAAAAAA BBBB CCCD DDDD DDDD EEEEEEEE FFFF
+	# *   RC       Type      Winddir   Windgust Checksum
+	# *   A = Rolling Code
+	# *   B = Message type (xyyx = NON temp/humidity data if yy = '11')
+	# *   C = Fixed to 111  (E)
+	# *   D = Wind direction
+	# *   E = Windgust (bitvalue * 0.2 m/s, correction for webapp = 3600/1000 * 0.2 * 100 = 72)
+	# *   F = Checksum
+	# *********************************************************************************************
+	# */                                                                         
         my @a = split("", $msg);
         my $bitReverse = undef;
+        my $bitUnreverse = undef;
         my $x = undef;
+        my $bin3;
+               
         foreach $x (@a) {
-           my $bin3=sprintf("%024b",hex($x));
+           $bin3=sprintf("%024b",hex($x));
            $bitReverse = $bitReverse . substr(reverse($bin3),0,4); 
+           $bitUnreverse = $bitUnreverse . sprintf( "%b", hex( substr($bin3,0,4) ) );
         }
         my $hexReverse = unpack("H*", pack ("B*", $bitReverse));
 
         #Split reversed a again
         my @aReverse = split("", $hexReverse);
+        Log3 $hash,4, "CUL_TCM97001 hex:$hexReverse  msg:$msg aR:@aReverse ";
+        
+        #  Message type (xyyz = temp/humidity if yy <> '11') else wind/rain sensor
+        #  Message type (xyyx = NON temp/humidity data if yy = '11')
+        $msgtype = substr(sprintf( "%04b", hex( substr( $msg,2,1))),1,2);
+        Log3 $hash,4, "CUL_TCM97001 nib2:$msgtype aRev: $aReverse[2]";
+        
+        $msgtype = substr(sprintf( "%04b", hex( $aReverse[2])),1,2);
+        Log3 $hash,4, "CUL_TCM97001 nib2R:$msgtype hexR: $hexReverse";
+
+
+        if ( $msgtype ne "11") {
+        Log3 $hash,4, "CUL_TCM97001 Temp/Hum Msgype: $msgtype nib3:$aReverse[3] ";
 
         if (hex($aReverse[5]) > 3) {
            # negative temp
@@ -734,15 +964,40 @@ CUL_TCM97001_Parse($$)
            # positive temp
            $temp = (hex($aReverse[3]) + hex($aReverse[4]) * 16 + hex($aReverse[5]) * 256)/10;
         }
+       
         $humidity = hex($aReverse[7]).hex($aReverse[6]);
-        
+        $hashumidity = TRUE;   
+         
+        } else {
+        # Wind/Rain/Guest
+        Log3 $hash,4, "CUL_TCM97001 Wind/Rain/Guest Msgype: $msgtype nib3:$aReverse[3] ";
+          #   C = Fixed to 1000 0000 0000  Reverse 0001 0000 0000
+          if ((hex($aReverse[3])== 0x1) && (hex($aReverse[4])== 0x0)) { # Windspeed
+              $windSpeed = hex($aReverse[6]) + hex($aReverse[7]);
+              $haswindspeed = TRUE;
+              Log3 $hash,4, "CUL_TCM97001 windSpeed: $windSpeed ";
+             }
+             
+          if ((hex($aReverse[3])== 0xF)) { # Windguest    Reverse 
+              $windGuest = hex($aReverse[6]) + hex($aReverse[7]);
+              $windDirection =  hex($aReverse[4]) + hex($aReverse[5]) ;
+              $windDirectionText = $winddir_name[$windDirection];
+              $haswind = TRUE;
+              Log3 $hash,4, "CUL_TCM97001 windGuest: $windGuest ";
+             }
+          if ((hex($aReverse[3])== 0x3)) { # Rain
+              $rain = (hex($aReverse[4]) + hex($aReverse[5]) + hex($aReverse[6]) + hex($aReverse[7])) * 0.25;
+              $hasrain = TRUE;
+              Log3 $hash,4, "CUL_TCM97001 rain: $rain ";
+             }      
+        }
 
-        if (checkValues($temp, $humidity)) {
+       
+        #if (checkValues($temp, $humidity)) {
+        if (1) {
             $batbit = (hex($a[2]) & 0x8) >> 3;
-            #$mode = (hex($a[2]) & 0x4) >> 2; 
-            
+            #$mode = (hex($a[2]) & 0x4) >> 2;
             $model="TCM21....";
-            
             if ($deviceCode ne $idType1)  # new naming convention
          	{	
          	    if ( $enableLongIDs == TRUE || (($longids != "0") && ($longids eq "1" || $longids eq "ALL" || (",$longids," =~ m/,$model,/))))
@@ -761,30 +1016,33 @@ CUL_TCM97001_Parse($$)
                 Log3 $name, 2, "CUL_TCM97001 Unknown device $deviceCode, please define it";
                 return "UNDEFINED $model" . substr($deviceCode, rindex($deviceCode,"_")) . " CUL_TCM97001 $deviceCode"; 
             }
-            $hashumidity = TRUE;    
             $packageOK = TRUE;
             $hasbatcheck = TRUE;
-            
             $readedModel=$model;
         } else {
             $name = "Unknown";
         }
+        
     } 
     
     
 
     if (checkCRC_GTWT02($msg) == TRUE && ($readedModel eq "GT_WT_02" || $readedModel eq "Type1" || $readedModel eq "Unknown")
         || checkCRC_Type1($msg) == TRUE && ($readedModel eq "Type1" || $readedModel eq "GT_WT_02" || $readedModel eq "Unknown")) {
-      #    F    F    0    0    F    9    5    5    F   
+
+		### edited by elektron-bbs for Checksum
+		#http://www.ludwich.de/ludwich/Temperatur.html
+		#https://github.com/merbanan/rtl_433/issues/117
+		#    F    F    0    0    F    9    5    5    F   
         # 1111 1111 0000 0000 1111 1001 0101 0101 1111 
         #    A    B    C    D    E    F    G    H    I 
         # A+B = Zufällige Code wechelt beim Batteriewechsel
         # C Bit 4 Battery, 3 Manual, 2+1 Channel
         # D+E+F Temperatur, wenn es negativ wird muss man negieren und dann 1 addieren, wie im ersten Post beschrieben.
         # G+H Hum - bit 0-7 
-        # I CRC?
+        # I CRC
       #$def = $modules{CUL_TCM97001}{defptr}{$idType3};
-      
+		
       $temp    = (hex($a[3].$a[4].$a[5])) & 0x3FF;  
       my $negative    = (hex($a[3])) & 0xC; 
       if ($negative == 0xC) {
@@ -1030,7 +1288,149 @@ CUL_TCM97001_Parse($$)
       }
     }
 
+      if ( (checkCRC4($msg) == TRUE) && (isRain($msg)==TRUE) &&($readedModel eq "PFR_130" || $readedModel eq "Unknown")) {
+      # Implementation from Femduino
+      # Pollin PFR_130)
+      # nibbles n2, n6 and n7 hold the Rain fall ticks
+      #                /--------------------------------- Channel, changes after every battery change      
+      #               /           / ------------------------ Battery state 0 == Ok      
+      #              /           / /------------------------ ??Battery changed, Sync startet      
+      #             /           / /  ----------------------- n2 lower two bits ->rain ticks      
+      #            /           / / /    /------------------- neg Temp: if 1 then temp = temp - 4096
+      #           /           / / /    /-------------------- 12 Bit Temperature
+      #          /           / / /    /               /----- n6,n7 rain ticks 8 bit (n2 & 0x03 n6 n7) 
+      #         /           / / /    /               /       /---- n8, CRC (xor n0 to n7)
+      #         0101 0101  1 0 00   0001 0000 1011  11000100 xxxx
+      # Bit     0          8 9 10   12              24       32
+      $def = $modules{CUL_TCM97001}{defptr}{$idType1};
+      if($def) {
+        $name = $def->{NAME};
+      } 
+      $temp    = (hex($a[3].$a[4].$a[5])) & 0x7FF;  
+      my $negative    = (hex($a[3])) & 0x8; 
+      if ($negative == 0x8) {
+        $temp = (~$temp & 0x07FF) + 1;
+        $temp = -$temp;
+      }
+      $temp = $temp / 10;
+      Log3 $name, 5, "CUL_TCM97001: PFR_130 Temp=$temp";
+        
+      # rain values Pollin PFR_130      
+      $rainticks = (hex($a[2].$a[6].$a[7])) & 0x3FF; #mask n2 n6 n7 for rain ticks
+      Log3 $name, 5, "CUL_TCM97001: PFR_130 rainticks=$rainticks";
+      $rainMM = $rainticks / 25 * .5; # rain height in mm/qm, verified against sensor receiver display
+      Log3 $name, 5, "CUL_TCM97001: PFR_130 rain mm=$rainMM";
+      
+      if (checkValues($temp, 50)) {
+        $batbit = (hex($a[2]) & 0x8) >> 3; # in auriol_protocol_v20.pdf bat bit is n2 & 0x08, same
+        $batbit = ~$batbit & 0x1; # Bat bit umdrehen
+        $mode   = (hex($a[2]) & 0x4) >> 2; # in auriol_protocol_v20.pdf mode is: n2 & 0x01, different
 
+        $trend = (hex($a[7]) & 0x3); # in auriol_protocol_v20.pdf there is no trend bit
+        $model="PFR_130";
+        my $deviceCode;
+     
+     	if (!defined($modules{CUL_TCM97001}{defptr}{$idType1}))
+     	{	
+          if ( $enableLongIDs == TRUE || (($longids != "0") && ($longids eq "1" || $longids eq "ALL" || (",$longids," =~ m/,$model,/))))
+          	{
+	             $deviceCode="CUL_TCM97001_".$idType1;
+	             Log3 $hash,4, "CUL_TCM97001 using longid: $longids model: $model";
+           	} else {
+	             $deviceCode="CUL_TCM97001_" . $model . "_" . $channel;
+           	}
+     	}  else  {  # Fallback for already defined devices use old naming convention
+     		$deviceCode=$idType1;
+     	}     
+      
+      	$def = $modules{CUL_TCM97001}{defptr}{$deviceCode};
+      	if($def) {
+       	 $name = $def->{NAME};
+      	} 
+      	      	
+        if(!$def) {
+          Log3 $name, 2, "CUL_TCM97001 Unknown device $deviceCode, please define it";
+          return "UNDEFINED $model" . substr($deviceCode, rindex($deviceCode,"_")) . " CUL_TCM97001 $deviceCode"; 
+        }
+
+        $hasbatcheck = TRUE;
+        $hastrend = TRUE;     
+        $packageOK = TRUE;
+        $hasmode = TRUE;
+        
+        $readedModel=$model;
+      } else {
+          $name = "Unknown";
+      }
+    }
+
+    if ( (isRain($msg)!=TRUE) && ($readedModel eq "AURIOL" || $readedModel eq "Unknown") && ($readedModel ne "PFR_130")) {
+      # Implementation from Femduino
+      # AURIOL (Lidl Version: 09/2013)
+      #                /--------------------------------- Channel, changes after every battery change      
+      #               /           / ------------------------ Battery state 1 == Ok      
+      #              /           / /------------------------ Battery changed, Sync startet      
+      #             /           / /  ----------------------- Unknown      
+      #            /           / / /    /--------------------- neg Temp: if 1 then temp = temp - 4096
+      #           /           / / /    /---------------------- 12 Bit Temperature
+      #          /           / / /    /               /---------- ??? CRC 
+      #         /           / / /    /               /       /---- Trend 10 == rising, 01 == falling
+      #         0101 0101  1 0 00   0001 0000 1011  1100  01 00
+      # Bit     0          8 9 10   12              24       30
+      $def = $modules{CUL_TCM97001}{defptr}{$idType1};
+      if($def) {
+        $name = $def->{NAME};
+      } 
+      $temp    = (hex($a[3].$a[4].$a[5])) & 0x7FF;  
+      my $negative    = (hex($a[3])) & 0x8; 
+      if ($negative == 0x8) {
+        $temp = (~$temp & 0x07FF) + 1;
+        $temp = -$temp;
+      }
+      $temp = $temp / 10;
+
+      if (checkValues($temp, 50)) {
+        $batbit = (hex($a[2]) & 0x8) >> 3;
+        $batbit = ~$batbit & 0x1; # Bat bit umdrehen
+        $mode   = (hex($a[2]) & 0x4) >> 2;
+
+        $trend = (hex($a[7]) & 0x3);
+        $model="AURIOL";
+        my $deviceCode;
+     
+     	if (!defined($modules{CUL_TCM97001}{defptr}{$idType1}))
+     	{	
+		  	if ( $enableLongIDs == TRUE || (($longids != "0") && ($longids eq "1" || $longids eq "ALL" || (",$longids," =~ m/,$model,/))))
+          	{
+	             $deviceCode="CUL_TCM97001_".$idType1;
+	             Log3 $hash,4, "CUL_TCM97001 using longid: $longids model: $model";
+           	} else {
+	             $deviceCode="CUL_TCM97001_" . $model . "_" . $channel;
+           	}
+     	}  else  {  # Fallback for already defined devices use old naming convention
+     		$deviceCode=$idType1;
+     	}     
+      
+      	$def = $modules{CUL_TCM97001}{defptr}{$deviceCode};
+      	if($def) {
+       	 $name = $def->{NAME};
+      	} 
+      	      	
+        if(!$def) {
+          Log3 $name, 2, "CUL_TCM97001 Unknown device $deviceCode, please define it";
+          return "UNDEFINED $model" . substr($deviceCode, rindex($deviceCode,"_")) . " CUL_TCM97001 $deviceCode"; 
+        }
+
+        $hasbatcheck = TRUE;
+        $hastrend = TRUE;     
+        $packageOK = TRUE;
+        $hasmode = TRUE;
+        
+        $readedModel=$model;
+      } else {
+          $name = "Unknown";
+      }
+    }
 
     
     #if (($readedModel eq "Unknown" || $readedModel eq "KW9010")) {
@@ -1064,6 +1464,7 @@ CUL_TCM97001_Parse($$)
         Log3 $hash, 5 , "KW9010 CRC Matched: ($bitReverse)";
         
         my $hexReverse = unpack("H*", pack ("B*", $bitReverse));
+        Log3 $hash, 5 , "KW9010 CRC Hex Matched: $hexReverse";
 
         #Split reversed a again
         my @aReverse = split("", $hexReverse);
@@ -1080,7 +1481,8 @@ CUL_TCM97001_Parse($$)
         $humidity = hex($aReverse[7].$aReverse[6]) - 156;
         
 
-        if (checkValues($temp, $humidity)) {
+        #if (checkValues($temp, $humidity)) {
+        if (1) {
             Log3 $hash, 5 , "KW9010 values are matching";
             
             $batbit = (hex($a[2]) & 0x8) >> 3;
@@ -1127,11 +1529,20 @@ CUL_TCM97001_Parse($$)
   
   
   if ($packageOK == TRUE) {
+    # save lastT, calc rainMM sum for day and hour
+    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+    my $lastDay=$mday;
+    my $lastHour=$hour;
+    my $rainSumDay=0;
+    my $rainSumHour=0;
+   
     if($def) {
       $def->{lastT} = $now;
     }
     readingsBeginUpdate($def);
     my ($val, $valH, $state);
+    
+	if (defined($temp)) {
     $msgtype = "temperature";
     $val = sprintf("%2.1f", ($temp) );
     $state="T: $val";
@@ -1146,17 +1557,106 @@ CUL_TCM97001_Parse($$)
 #         }
 #      } 
 #    }
+    }
+    if ($model eq "PFR_130") {
+      $lastDay = ReadingsVal($name, "lastDay", $lastDay);
+      $lastHour = ReadingsVal($name, "lastHour", $lastHour);
+      $rainSumDay=ReadingsVal($name, "RainD", $rainSumDay);
+      $rainSumHour=ReadingsVal($name, "RainH", $rainSumHour);
+      
+      $msgtype = "temperature";
+      $val = sprintf("%2.1f", ($temp) );
+      $state="T: $val";
+      Log3 $name, 5, "CUL_TCM97001 1. $lastDay : $lastHour : $rainSumDay : $rainSumHour";
+      #rain Pollin PFR-130
+      if($mday==$lastDay){
+         #same day add rainMM
+         $rainSumDay+=$rainMM;
+      }else {
+         #new day, start over
+         $rainSumDay=$rainMM;
+      } 
+      if($hour==$lastHour){
+         $rainSumHour+=$rainMM;
+      }else{
+	 $rainSumHour=$rainMM;
+      }
+      
+      readingsBulkUpdate($def, "lastDay", $lastDay );
+      readingsBulkUpdate($def, "lastHour", $lastHour );
+      readingsBulkUpdate($def, "RainD", $rainSumDay );
+      readingsBulkUpdate($def, "RainH", $rainSumHour );
+      
+      Log3 $name, 5, "CUL_TCM97001 2. $lastDay : $lastHour : $rainSumDay : $rainSumHour";
+      $state="$state RainH: $rainSumHour RainD: $rainSumDay R: $rainticks Rmm: $rainMM";
+      Log3 $name, 5, "CUL_TCM97001 $msgtype $name $id3 state: $state"; 
+
+   } else {
+		### edited by elektron-bbs
+		# W174 has no temperature
+		if ($model ne "W174") {
+        $msgtype = "temperature";
+        $val = sprintf("%2.1f", ($temp) );
+        $state="T: $val";
+#    if ($hashumidity == TRUE) {
+#      if ($model eq "Prologue") {
+#         # plausibility check 
+#         my $oldhumidity = ReadingsVal($name, "humidity", "unknown");
+#         if ($oldhumidity eq "unknown" || ($humidity+15 > $oldhumidity && $humidity-15 < $oldhumidity)) {
+#            $hashumidity = TRUE;
+#         } else {
+#            $hashumidity = FALSE;
+#         }
+#      } 
+#    }
+    }
+   }
+
+
+        
+      #zusätzlich Daten für Wetterstation
+      if ($hasrain == TRUE) {
+         ### inserted by elektron-bbs
+         #my $rain_old = ReadingsVal($name, "rain", "unknown");
+         my $rain_old = ReadingsVal($name, "rain", 0);
+         if ($rain != $rain_old) {
+            readingsBulkUpdate($def, "israining", "yes");
+         } else {
+            readingsBulkUpdate($def, "israining", "no");
+         }
+         readingsBulkUpdate($def, "rain", $rain );
+         $state = "R: $rain";
+         $hasrain = FALSE;
+      }
+     
+      if ($haswind == TRUE) {
+          readingsBulkUpdate($def, "windGust", $windGuest );
+          readingsBulkUpdate($def, "windDirection", $windDirection );
+          #readingsBulkUpdate($def, "windDirectionDegree", $windDirection * 360 / 16);     
+          readingsBulkUpdate($def, "windDirectionText", $windDirectionText );
+          $state = "Wg: $windGuest "." Wd: $windDirectionText ";
+          $haswind = FALSE;
+      }
+      
+      if ($haswindspeed == TRUE) {
+          readingsBulkUpdate($def, "windSpeed", $windSpeed );
+          $state = "Ws: $windSpeed ";
+          $haswindspeed = FALSE;
+      }
+   
+
     if ($hashumidity == TRUE) {
       $msgtypeH = "humidity";
       $valH = $humidity;
       $state="$state H: $valH";
       Log3 $name, 4, "CUL_TCM97001 $msgtype $name $id3 T: $val H: $valH"; 
     } else {
-      Log3 $name, 4, "CUL_TCM97001 $msgtype $name $id3 T: $val";
+      $msgtype = "other";
+      Log3 $name, 4, "CUL_TCM97001 $msgtype $name $id3";
+      #Log3 $name, 4, "CUL_TCM97001 $msgtype $name $id3 ";
     }
 
     
-
 
     if($hastrend) {
       my $readTrend = ReadingsVal($name, "trend", "unknown");
@@ -1329,7 +1829,7 @@ CUL_TCM97001_Parse($$)
 <a name="CUL_TCM97001"></a>
 <h3>CUL_TCM97001</h3>
 <ul>
-  Das CUL_TCM97001 Module verarbeitet von einem IO Gerät (CUL, CUN, SIGNALDuino, etc.) empfangene Nachrichten von Temperatur-Sensoren.<br>
+  Das CUL_TCM97001 Module verarbeitet von einem IO Gerät (CUL, CUN, SIGNALDuino, etc.) empfangene Nachrichten von Temperatur \ Wind \ Rain - Sensoren.<br>
   <br>
   <b>Unterstütze Modelle:</b>
   <ul>
@@ -1343,6 +1843,9 @@ CUL_TCM97001_Parse($$)
     <li>AURIOL</li>
     <li>Eurochron</li>
     <li>KW9010</li>
+    <li>W155 (wind/rain)</li>
+    <li>PFR-130 (rain)</li>
+    <li>W174 (rain)</li>
   </ul>
   <br>
   Neu empfangene Sensoren werden in der fhem Kategory CUL_TCM97001 per autocreate angelegt.
@@ -1362,6 +1865,8 @@ CUL_TCM97001_Parse($$)
      <li>battery: Der Batteriestatus: low oder ok (falls verfügbar)</li>
      <li>channel: Kanalnummer (falls verfügbar)</li>
      <li>trend: Der Temperaturtrend (falls verfügbar)</li>
+	 <li>israining: Aussage Regen zwichen zwei Messungen (falls verfügbar)</li>
+	 <li>rain: Der Regenwert, eine fortlaufende Zahl bis zum Batteriewechsel (falls verfügbar)</li>
   </ul>
   <br>
   <b>Attribute</b>
@@ -1372,7 +1877,7 @@ CUL_TCM97001_Parse($$)
       </li>
     <li><a href="#do_not_notify">do_not_notify</a></li>
     <li><a href="#ignore">ignore</a></li>
-    <li><a href="#model">model</a> (TCM97..., ABS700, TCM21...., Prologue, Rubicson, NC_WS, GT_WT_02, AURIOL, KW9010, Unknown)</li>
+    <li><a href="#model">model</a> (ABS700, AURIOL, GT_WT_02, KW9010, NC_WS, PFR-130, Prologue, Rubicson, TCM21...., TCM97…, Unknown, W174)</li>
     <li><a href="#showtime">showtime</a></li>
     <li><a href="#readingFnAttributes">readingFnAttributes</a></li>
   </ul>

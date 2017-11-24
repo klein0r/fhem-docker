@@ -2,14 +2,17 @@
 #
 # BOSEST.pm (c) by Dominik Karall, 2016-2017
 # dominik karall at gmail dot com
-# $Id: 98_BOSEST.pm 13274 2017-01-29 17:45:23Z dominik $
+# $Id: 98_BOSEST.pm 14882 2017-08-12 12:44:25Z dominik $
 #
 # FHEM module to communicate with BOSE SoundTouch system
 # API as defined in BOSE SoundTouchAPI_WebServices_v1.0.1.pdf
 #
-# Version: 2.1.0
+# Version: 2.1.1
 #
 #############################################################
+#
+# v2.1.1 - 20170812
+# - CHANGE:  changed reading name type to model
 #
 # v2.1.0 - 20170129
 # - NEW REQUIREMENT: TTS: sox, libsox-fmt-mp3 (only required for TTS)
@@ -331,7 +334,7 @@ sub BOSEST_Define($$) {
     $hash->{helper}{supportedBassCmds} = "";
     
     if (int(@a) < 3) {
-        Log3 $hash, 3, "BOSEST: BOSE SoundTouch v2.1.0";
+        Log3 $hash, 3, "BOSEST: BOSE SoundTouch v2.1.1";
         #start discovery process 30s delayed
         InternalTimer(gettimeofday()+30, "BOSEST_startDiscoveryProcess", $hash, 0);
         
@@ -1826,7 +1829,7 @@ sub BOSEST_parseAndUpdateInfo($$) {
     $info->{name} = Encode::encode('UTF-8', $info->{name});
 	readingsBeginUpdate($hash);
     BOSEST_XMLUpdate($hash, "deviceName", $info->{name});
-    BOSEST_XMLUpdate($hash, "type", $info->{type});
+    BOSEST_XMLUpdate($hash, "model", $info->{type});
     BOSEST_XMLUpdate($hash, "deviceID", $info->{deviceID});
     BOSEST_XMLUpdate($hash, "softwareVersion", $info->{components}->{component}[0]->{softwareVersion});
 	readingsEndUpdate($hash, 1);
@@ -2057,6 +2060,7 @@ sub BOSEST_finishedDiscovery($) {
     
     #start discovery again after 67s
     InternalTimer(gettimeofday()+67, "BOSEST_startDiscoveryProcess", $hash, 1);
+    Log3 $hash, 5, "BOSEST: finished discovery";
 
     for($i = 1; $i < @commands; $i = $i+2) {
         my $command = $commands[$i];
@@ -2306,9 +2310,11 @@ sub BOSEST_checkWebSocketConnection($) {
     my ($hash) = @_;
     if(defined($hash->{helper}{bosewebsocket})) {
         #run mojo loop not longer than 0.5ms
+        Log3 $hash, 5, "BOSEST: run mojo loop";
         my $id = Mojo::IOLoop->timer(0.0005 => sub {});
         Mojo::IOLoop->one_tick;
         Mojo::IOLoop->remove($id);
+        Log3 $hash, 5, "BOSEST: finished mojo loop";
     }
     
     InternalTimer(gettimeofday()+0.7, "BOSEST_checkWebSocketConnection", $hash, 1);

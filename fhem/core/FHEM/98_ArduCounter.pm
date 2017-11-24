@@ -1,6 +1,6 @@
 ############################################################################
-# $Id: 98_ArduCounter.pm 13345 2017-02-06 18:22:20Z StefanStrobel $
-# fhem Modul für Impulszähler auf Basis von Arduino mit ArduCounter Sketch
+# $Id: 98_ArduCounter.pm 15148 2017-09-28 18:10:35Z StefanStrobel $
+# fhem Modul fÃ¼r ImpulszÃ¤hler auf Basis von Arduino mit ArduCounter Sketch
 #   
 #     This file is part of fhem.
 # 
@@ -41,8 +41,13 @@
 #   2017-01-02  modification for sketch 1.7, monitor clock drift difference between ardino and Fhem
 #   2017-01-04  some more beatification in logging
 #   2017-01-06  avoid reopening when disable=0 is set during startup
-
+#   2017-02-06  Doku korrigiert
+#   2017-02-18  fixed a bug that caused a missing open when the device is defined while fhem is already initialized
+#   2017-05-09  fixed character encoding for documentation text
+#   2017-09-24  interpolation of lost impulses during fhem restart / arduino reset
+#
 # ideas / todo:
+# 
 
 
 
@@ -62,7 +67,7 @@ my %ArduCounter_gets = (
     "info"  =>  ""
 );
 
-my $ArduCounter_Version = '4.5 - 6.1.2017';
+my $ArduCounter_Version = '4.8 - 24.9.2017';
 
 #
 # FHEM module intitialisation
@@ -88,6 +93,7 @@ sub ArduCounter_Initialize($)
         "factor " .
         "readingNameCount[0-9]+ " .
         "readingNamePower[0-9]+ " .
+        "readingNameLongCount[0-9]+ " .
         "readingFactor[0-9]+ " .
         "readingStartTime[0-9]+ " .
         "verboseReadings[0-9]+ " .
@@ -114,7 +120,12 @@ sub ArduCounter_Define($$)
     my $name = $a[0];
     my $dev  = $a[2];
     
-    $dev .= '@38400' if ($dev !~ /.+@[0-9]+/);
+    if ($dev !~ /.+@([0-9]+)/) {
+        $dev .= '@38400';
+    } else {
+        Log3 $name, 3, "$name: Warning: connection speed $1 is not the default for the ArduCounter firmware"
+            if ($1 != 38400);
+    }
     $hash->{buffer}        = "";
     $hash->{DeviceName}    = $dev;
     $hash->{VersionModule} = $ArduCounter_Version;
@@ -126,6 +137,10 @@ sub ArduCounter_Define($$)
     if(!defined($attr{$name}{'flashCommand'})) {
         #$attr{$name}{'flashCommand'} = 'avrdude -p atmega328P -b 57600 -c arduino -P [PORT] -D -U flash:w:[HEXFILE] 2>[LOGFILE]';
         $attr{$name}{'flashCommand'} = 'avrdude -p atmega328P -c arduino -P [PORT] -D -U flash:w:[HEXFILE] 2>[LOGFILE]';
+    }
+    
+    if ($init_done) {
+        ArduCounter_Open($hash);
     }
     return;
 }
@@ -161,7 +176,26 @@ sub ArduCounter_Undef($$)
 
 
 ########################################################
-# Notify for INITIALIZED 
+# Open Device
+sub ArduCounter_Open($)
+{
+    my ($hash) = @_;
+    my $name   = $hash->{NAME};
+
+    DevIo_OpenDev($hash, 0, 0);    
+    if ($hash->{FD}) {  
+        my $now = gettimeofday();
+        my $hdl = AttrVal($name, "helloSendDelay", 3);
+        # send hello if device doesn't say "Started" withing $hdl seconds
+        RemoveInternalTimer ("sendHello:$name");
+        InternalTimer($now+$hdl, "ArduCounter_SendHello", "sendHello:$name", 0);    
+    }
+}
+
+
+########################################################
+# Notify for INITIALIZED or Modified 
+# -> Open connection to device
 sub ArduCounter_Notify($$)
 {
     my ($hash, $source) = @_;
@@ -181,12 +215,7 @@ sub ArduCounter_Notify($$)
     }   
 
     Log3 $name, 5, "$name: Notify called with events: @{$events}, open device and set timer to send hello to device";
-    DevIo_OpenDev( $hash, 0, 0);    
-
-    my $now = gettimeofday();
-    RemoveInternalTimer ("sendHello:$name");
-    my $helloDelay = AttrVal($name, "helloSendDelay", 3);
-    InternalTimer($now+$helloDelay, "ArduCounter_SendHello", "sendHello:$name", 0);
+    ArduCounter_Open($hash);    
 }
 
 
@@ -211,20 +240,21 @@ sub ArduCounter_Write ($$)
 
 #######################################
 # Aufruf aus InternalTimer
+# send "h" to ask for "Hello" since device didn't say "Started" so fae - maybe it's still counting ...
 sub ArduCounter_SendHello($)
 {
     my $param = shift;
     my (undef,$name) = split(':',$param);
     my $hash = $defs{$name};
-    my $now  = gettimeofday();
     
     Log3 $name, 3, "$name: sending h(ello) to device to ask for version";
     return if (!ArduCounter_Write( $hash, "h"));
 
-    $hash->{WaitForHello} = 1;
+    my $now = gettimeofday();
+    my $hwt = AttrVal($name, "helloWaitTime ", 3);
     RemoveInternalTimer ("hwait:$name");
-    my $helloWait= AttrVal($name, "helloWaitTime ", 3);
-    InternalTimer($now+$helloWait, "ArduCounter_HelloTimeout", "hwait:$name", 0);
+    InternalTimer($now+$hwt, "ArduCounter_HelloTimeout", "hwait:$name", 0);
+    $hash->{WaitForHello} = 1;
 }
 
 
@@ -235,7 +265,7 @@ sub ArduCounter_HelloTimeout($)
     my $param = shift;
     my (undef,$name) = split(':',$param);
     my $hash = $defs{$name};
-    Log3 $name, 3, "$name: device didn't reply to h(ello). Is the right sketch flashed?";
+    Log3 $name, 3, "$name: device didn't reply to h(ello). Is the right sketch flashed? Is speed set to 38400?";
     delete $hash->{WaitForHello};
 }
 
@@ -313,11 +343,7 @@ sub ArduCounter_Attr(@)
                 return;
             } else {
                 Log3 $name, 3, "$name: disable attribute cleared";
-                DevIo_OpenDev( $hash, 0, 0) if ($hash->{Initialized});
-                my $now = gettimeofday();
-                RemoveInternalTimer ("sendHello:$name");
-                my $helloDelay = AttrVal($name, "helloSendDelay", 1);
-                InternalTimer($now+$helloDelay, "ArduCounter_SendHello", "sendHello:$name", 0);
+                ArduCounter_Open($hash) if ($init_done);    # only if fhem is initialized
             }
         }       
         
@@ -330,7 +356,7 @@ sub ArduCounter_Attr(@)
                 my $vgl = $1;           # attribute name in list - probably a regex
                 my $opt = $2;           # attribute hint in list
                 if ($aName =~ $vgl) {   # yes - the name in the list now matches as regex
-                    # $aName ist eine Ausprägung eines wildcard attrs
+                    # $aName ist eine AusprÃ¤gung eines wildcard attrs
                     addToDevAttrList($name, "$aName" . $opt);    # create userattr with hint to allow changing by click in fhemweb
                     if ($opt) {
                         # remove old entries without hint
@@ -363,16 +389,17 @@ sub ArduCounter_Attr(@)
                 return "Invalid pin name $aName";
             }
             my $pin = $1;
-            # this cannot come from fhem.cfg and waiting for initialized doesnt help so send it
-            ArduCounter_Write( $hash, "${pin}d");
+
+            if ($hash->{Initialized}) {     # did device already report its version?
+                ArduCounter_Write( $hash, "${pin}d");
+            } else {
+                Log3 $name, 5, "$name: pin config can not be deleted since device is not initialized yet";
+                return "device is not initialized yet";
+            }
 
         } elsif ($aName eq 'disable') {
-            Log3 $name, 3, "$name: disable attribute removed";                      
-            DevIo_OpenDev( $hash, 0, 0) if ($hash->{Initialized});
-            my $now = gettimeofday();
-            RemoveInternalTimer ("sendHello:$name");
-            my $helloDelay = AttrVal($name, "helloSendDelay", 1);
-            InternalTimer($now+$helloDelay, "ArduCounter_SendHello", "sendHello:$name", 0);
+            Log3 $name, 3, "$name: disable attribute removed";    
+            ArduCounter_Open($hash) if ($hash->{$init_done});       # if fhem is initialized
         }
     }
     return undef;
@@ -471,6 +498,7 @@ sub ArduCounter_Set($@)
             }
             DevIo_OpenDev($hash, 0, 0);
             $log .= "$name opened\n";
+            delete $hash->{Initialized};
         }
         return $log;
     }
@@ -525,6 +553,9 @@ sub ArduCounter_HandleVersion($$)
         if ($version < "1.7") {
             $version .= " - not compatible with this Module version - please flash new sketch";
             Log3 $name, 3, "$name: device reported outdated Arducounter Firmware - please update!";
+            delete $hash->{Initialized};
+        } else {
+            $hash->{Initialized} = 1;   # now device is initialized
         }
         $hash->{VersionFirmware} = $version;
         Log3 $name, 4, "$name: device reported firmware $version";
@@ -540,10 +571,13 @@ sub ArduCounter_Parse($)
     my $retStr = "";
     
     my @lines = split /\n/, $hash->{buffer};
+    my $now   = gettimeofday();
+    
     foreach my $line (@lines) {
         # Log3 $name, 5, "$name: Parse line: $line";
         if ($line =~ 'R([\d]+) C([\d]+) D([\d]+) T([\d]+)( N[\d]+)?( X[\d]+)?( F[\d]+)?(L [\d]+)?( A[\d]+)?')
         {
+            # new count is beeing reported
             my $pin    = $1;
             my $count  = $2;
             my $diff   = $3;
@@ -555,12 +589,12 @@ sub ArduCounter_Parse($)
             my $avgLen = ($9 ? substr($9, 2) : "");
             
             my $factor = AttrVal($name, "readingFactor$pin", AttrVal($name, "factor", 1000));
-            my $rcname = AttrVal($name, "readingNameCount$pin", "pin$pin");
-            my $rpname = AttrVal($name, "readingNamePower$pin", "power$pin");
-            my $lName  = AttrVal($name, "readingNamePower$pin", AttrVal($name, "readingNameCount$pin", "pin$pin"));
+            my $rcname = AttrVal($name, "readingNameCount$pin", "pin$pin");         # internal count reading name
+            my $rlname = AttrVal($name, "readingNameLongCount$pin", "long$pin");    # long count - continues after reset, interpolates 
+            my $rpname = AttrVal($name, "readingNamePower$pin", "power$pin");       # power reading name
+            my $lName  = AttrVal($name, "readingNamePower$pin", AttrVal($name, "readingNameCount$pin", "pin$pin")); # for logging
             
             my $chIdx  = 0;         
-            my $now    = gettimeofday();
             my $sTime  = $now - $time/1000;   # start of observation interval (~first pulse)
             my $fSTime = FmtDateTime($sTime); # formatted
             my $fSdTim = FmtTime($sTime);     # only time formatted 
@@ -568,10 +602,44 @@ sub ArduCounter_Parse($)
             my $eTime  = $now;                # now / end of observation interval
             my $fETime = FmtDateTime($eTime); # formatted
             my $fEdTim = FmtTime($eTime);     # only time formatted 
+            
+            if (!$time || !$factor) {
+                Log3 $name, 3, "$name: Pin $pin ($lName) skip line because time or factor is 0: $line";
+                next;
+            }
             my $power  = sprintf ("%.3f", ($time ? $diff/$time/1000*3600*$factor : 0));
+            my $longCount;
 
             
-            Log3 $name, 4, "$name: Pin $pin ($lName) count $count (diff $diff) in " .
+            
+            if (AttrVal($name, "verboseReadings$pin", 0)) {
+                $longCount = ReadingsVal($name, $rlname, 0);        # alter long count Wert im Reading
+                if (!$hash->{CounterInterpolated}{$pin} && $hash->{CounterResetTime}) {
+                    my $lastCountTime = ReadingsTimestamp ($name, $rlname, 0);  # last time this reading was set
+                    my $lastCountTNum = time_str2num($lastCountTime);
+                    my $offlineTime   = sprintf ("%.2f", $hash->{CounterResetTime} - $lastCountTNum);
+                    
+                    my $lastInterval = ReadingsVal ($name, "timeDiff$pin", 0);
+                    my $lastCDiff    = ReadingsVal ($name, "countDiff$pin", 0);
+                    
+                    my $lastRatio = $lastCDiff / $lastInterval;
+                    my $curRatio  = $diff / $time;
+                    my $intRatio  = 1000 * ($lastRatio + $curRatio) / 2;
+                    my $interpolationCount = int($offlineTime * $intRatio) + 1;     # add one that gets lost as start of new interval
+                    
+                    if ($lastCountTime && $lastInterval && $lastCDiff) {
+                        Log3 $name, 4, "$name: interpolation after counter reset for pin $pin ($lName): offline $offlineTime secs, $interpolationCount estimated pulses (before $lastCDiff in $lastInterval ms, now $diff in $time ms, avg ratio $intRatio p/s)";
+                        Log3 $name, 4, "$name: adding interpolated $interpolationCount and $diff to long count $longCount";
+                        $longCount += $interpolationCount;
+                    } else {
+                        Log3 $name, 4, "$name: interpolation for pin $pin ($lName) not possible - no historic data";
+                    }
+                    $hash->{CounterInterpolated}{$pin} = 1;
+                }
+                $longCount += $diff;
+            }
+            
+            Log3 $name, 4, "$name: Pin $pin ($lName) count $count longCount $longCount (diff $diff) in " .
                 sprintf("%.3f", $time/1000) . "s" .
                 ((defined($reject) && $reject ne "") ? ", reject $reject" : "") .
                 ($avgLen ? ", Avg Len ${avgLen}ms" : "") .
@@ -583,19 +651,22 @@ sub ArduCounter_Parse($)
             
             readingsBeginUpdate($hash);            
             if (AttrVal($name, "readingStartTime$pin", 0)) {
-                $hash->{".updateTime"}      = $sTime;
-                $hash->{".updateTimestamp"} = $fSTime;
                 Log3 $name, 5, "$name: readingStartTime$pin specified: setting reading timestamp to $fSdTim";
                 Log3 $name, 5, "$name: set readings $rpname to $power, timeDiff$pin to $time and countDiff$pin to $diff";
+
+                $hash->{".updateTime"}      = $sTime;
+                $hash->{".updateTimestamp"} = $fSTime;
                 readingsBulkUpdate($hash, $rpname, $power) if ($time);
                 $hash->{CHANGETIME}[$chIdx++] = $fSTime;                        # Intervall start
+
                 $hash->{".updateTime"}      = $eTime;
                 $hash->{".updateTimestamp"} = $fETime;
-
                 readingsBulkUpdate($hash, $rcname, $count);
                 $hash->{CHANGETIME}[$chIdx++] = $fETime;          
-                
+
                 if (AttrVal($name, "verboseReadings$pin", 0)) {
+                    readingsBulkUpdate($hash, $rlname, $longCount);
+                    $hash->{CHANGETIME}[$chIdx++] = $fETime;                          
                     readingsBulkUpdate($hash, "timeDiff$pin", $time);
                     $hash->{CHANGETIME}[$chIdx++] = $fETime;
                     readingsBulkUpdate($hash, "countDiff$pin", $diff);
@@ -610,9 +681,10 @@ sub ArduCounter_Parse($)
             } else {
                 Log3 $name, 5, "$name: set readings $rpname to $power, timeDiff$pin to $time and countDiff$pin to $diff";
                 readingsBulkUpdate($hash, $rpname, $power) if ($time);
-                $eTime = time_str2num(ReadingsTimestamp ($name, $rpname, 0));
+                #$eTime = time_str2num(ReadingsTimestamp ($name, $rpname, 0));
                 readingsBulkUpdate($hash, $rcname, $count);
                 if (AttrVal($name, "verboseReadings$pin", 0)) {
+                    readingsBulkUpdate($hash, $rlname, $longCount);
                     readingsBulkUpdate($hash, "timeDiff$pin", $time);
                     readingsBulkUpdate($hash, "countDiff$pin", $diff);
                     readingsBulkUpdate($hash, "lastMsg$pin", $line);        
@@ -647,45 +719,46 @@ sub ArduCounter_Parse($)
                 "s in " . sprintf("%.3f", $drTime) . "s" .
                 ($drTime > 0 ? ", " . sprintf("%.2f", $hash->{'.Drift2'} / $drTime * 100) . "%" : "");
                 
-            if (!$hash->{Initialized}) {
-                Log3 $name, 3, "$name: device reported count";
-                if (!$hash->{WaitForHello}) {
+            if (!$hash->{Initialized}) {                    # device has not sent Started / hello yet
+                Log3 $name, 3, "$name: device is still counting";
+                if (!$hash->{WaitForHello}) {               # if hello has not already been sent, send it now
                     ArduCounter_SendHello("direct:$name");
                 }
-                $hash->{Initialized} = 1;
-                RemoveInternalTimer ("sendHello:$name");
+                RemoveInternalTimer ("sendHello:$name");    # don't send hello again
             }
             
-        } elsif ($line =~ /ArduCounter V([\d\.]+).?Hello/) {        # response to h(ello)
+        } elsif ($line =~ /ArduCounter V([\d\.]+).?Hello/) {    # response to h(ello)
             Log3 $name, 3, "$name: device replied to hello, V$1";
             ArduCounter_HandleVersion($hash, $line);
-            $hash->{Initialized} = 1;
-            ArduCounter_ConfigureDevice($hash) if ($hash->{WaitForHello});
-            
+            if ($hash->{Initialized}) {     
+                ArduCounter_ConfigureDevice($hash)              # send pin configuration
+            }
             delete $hash->{WaitForHello};
             RemoveInternalTimer ("hwait:$name");
             RemoveInternalTimer ("sendHello:$name");
             
-        } elsif ($line =~ /Status: ArduCounter V([\d\.]+)/) {       # response to s(how)
+        } elsif ($line =~ /Status: ArduCounter V([\d\.]+)/) {   # response to s(how)
             $retStr .= "\n" if ($retStr);
             $retStr .= $line;
             ArduCounter_HandleVersion($hash, $line);
             
-            #todo: remove here?
             delete $hash->{WaitForHello};
             RemoveInternalTimer ("hwait:$name");        # dont wait for hello reply if already sent
             RemoveInternalTimer ("sendHello:$name");    # Hello not needed anymore if not sent yet
             
             
-        } elsif ($line =~ /ArduCounter V([\d\.]+).?Started/) {      # setup message
+        } elsif ($line =~ /ArduCounter V([\d\.]+).?Started/) {  # setup message
             Log3 $name, 3, "$name: device sent setup message, V$1";
             ArduCounter_HandleVersion($hash, $line);
-            $hash->{Initialized} = 1;
-            ArduCounter_ConfigureDevice($hash);
-            
+            if ($hash->{Initialized}) {     
+                ArduCounter_ConfigureDevice($hash)              # send pin configuration
+            }
             delete $hash->{WaitForHello};
             RemoveInternalTimer ("hwait:$name");        # dont wait for hello reply if already sent
             RemoveInternalTimer ("sendHello:$name");    # Hello not needed anymore if not sent yet
+
+            $hash->{CounterResetTime} = $now;
+            delete $hash->{CounterInterpolated};
          
         } elsif ($line =~ /V([\d\.]+).?Setup done/) {      # old setup message 
             Log3 $name, 3, "$name: device is flashed with an old and incompatible firmware : $1";
@@ -821,13 +894,14 @@ sub ArduCounter_Ready($)
     # try to reopen if state is disconnected  
     if ( $hash->{STATE} eq "disconnected" ) {
         #Log3 $name, 3, "$name: ReadyFN tries to open";     # debug
+        delete $hash->{Initialized};
         DevIo_OpenDev( $hash, 1, undef );
-        if ($hash->{FD} && !$hash->{Initialized}) {
-            Log3 $name, 3, "$name: device not initialized yet, set timer to send h(ello";
+        if ($hash->{FD}) {
+            Log3 $name, 3, "$name: device maybe not initialized yet, set timer to send h(ello";
             my $now = gettimeofday();
+            my $hdl = AttrVal($name, "helloSendDelay", 3);
             RemoveInternalTimer ("sendHello:$name");
-            my $helloDelay = AttrVal($name, "helloSendDelay", 3);
-            InternalTimer($now+$helloDelay, "ArduCounter_SendHello", "sendHello:$name", 0);
+            InternalTimer($now+$hdl, "ArduCounter_SendHello", "sendHello:$name", 0);
         }
         return;
     }
@@ -847,7 +921,7 @@ sub ArduCounter_Ready($)
 =pod
 =item device
 =item summary Module for consumption counter based on an arduino with the ArduCounter sketch
-=item summary_DE Modul für Strom / Wasserzähler auf Arduino-Basis mit ArduCounter Sketch
+=item summary_DE Modul fÃ¼r Strom / WasserzÃ¤hler auf Arduino-Basis mit ArduCounter Sketch
 =begin html
 
 <a name="ArduCounter"></a>
@@ -862,7 +936,8 @@ sub ArduCounter_Ready($)
     <ul>
         <br>
         <li>
-            This module requires an Arduino uno, nano, Jeenode or similar device running the ArduCounter sketch provided with this module
+            This module requires an Arduino uno, nano, Jeenode or similar device running the ArduCounter sketch provided with this module<br>
+            In order to flash an arduino board with the corresponding ArduCounter firmware, avrdude needs to be installed.
         </li>
     </ul>
     <br>
@@ -975,6 +1050,8 @@ sub ArduCounter_Ready($)
             
         <li><b>readingNameCount[0-9]+</b></li> 
             Change the name of the counter reading pinX to something more meaningful.
+        <li><b>readingNameLongCount[0-9]+</b></li> 
+            Change the name of the long counter reading longX (only created when verboseReadingsX is set to 1) to something more meaningful.
         <li><b>readingNamePower[0-9]+</b></li> 
             Change the name of the power reading powerX to something more meaningful.
         <li><b>readingFactor[0-9]+</b></li> 
@@ -992,7 +1069,8 @@ sub ArduCounter_Ready($)
             the current count at this pin
         <li><b>power.*</b></li> 
             the current calculated power at this pin
-		Most reading names can be customized with attribues and many more readings can be generated by setting the attribute verboseReadings[0-9]+ to 1.
+        Most reading names can be customized with attribues and many more readings can be generated by setting the attribute verboseReadings[0-9]+ to 1.<br>
+        This includes the "long count" reading which keeps on counting up after fhem restarts whereas the pin.* count is only a temporary internal count that starts at 0 when the arduino board  starts.
     </ul>
     <br>
 </ul>

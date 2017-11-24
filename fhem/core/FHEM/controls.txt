@@ -1,0 +1,3 @@
+http://fhem.de/fhemupdate/controls_fhem.txt
+https://raw.githubusercontent.com/klein0r/fhem-style-haus-automatisierung/version-2/controls_ha_theme.txt
+https://raw.githubusercontent.com/knowthelist/fhem-tablet-ui/master/controls_fhemtabletui.txt

@@ -1,6 +1,9 @@
+"use strict";
+FW_version["console.js"] = "$Id: console.js 14668 2017-07-08 12:06:55Z rudolfkoenig $";
+
 var consConn;
 
-var consFilter, oldFilter;
+var consFilter, oldFilter, consFType="";
 var consLastIndex = 0;
 var withLog = 0;
 var mustScroll = 1;
@@ -8,16 +11,28 @@ var mustScroll = 1;
 log("Console is opening");
 
 function
+cons_closeConn()
+{
+  if(!consConn)
+    return;
+  if(typeof consConn.close ==  "function")
+    consConn.close();
+  else if(typeof consConn.abort ==  "function")
+    consConn.abort();
+  consConn = undefined;
+}
+
+function
 consUpdate(evt)
 {
   var errstr = "Connection lost, trying a reconnect every 5 seconds.";
   var new_content = "";
 
-  if(typeof WebSocket == "function" && evt && evt.target instanceof WebSocket) {
+  if((typeof WebSocket == "function" || typeof WebSocket == "object") && evt &&
+     evt.target instanceof WebSocket) {
     if(evt.type == 'close') {
       FW_errmsg(errstr, 4900);
-      consConn.close();
-      consConn = undefined;
+      cons_closeConn();
       setTimeout(consFill, 5000);
       return;
     }
@@ -58,27 +73,22 @@ consFill()
 {
   FW_errmsg("");
 
-  if(FW_pollConn) {
-    if($("body").attr("longpoll") == "websocket") {
-      FW_pollConn.onclose = undefined;
-      FW_pollConn.close();
-    } else {
-      FW_pollConn.onreadystatechange = undefined;
-      FW_pollConn.abort();
-    }
-    FW_pollConn = undefined;
-  }
+  if(FW_pollConn)
+    FW_closeConn();
 
   var query = "?XHR=1"+
-       "&inform=type=raw;withLog="+withLog+";filter="+consFilter+
+       "&inform=type=raw;withLog="+withLog+";filter="+
+       encodeURIComponent(consFilter)+consFType+
        "&timestamp="+new Date().getTime();
   query = addcsrf(query);
 
+  var loc = (""+location).replace(/\?.*/,"");
   if($("body").attr("longpoll") == "websocket") {
     if(consConn) {
       consConn.close();
     }
-    consConn = new WebSocket((location+query).replace(/^http/i, "ws"));
+    consConn = new WebSocket(loc.replace(/[&?].*/,'')
+                                .replace(/^http/i, "ws")+query);
     consConn.onclose = 
     consConn.onerror = 
     consConn.onmessage = consUpdate;
@@ -89,7 +99,7 @@ consFill()
       consConn.abort();
     }
     consConn = new XMLHttpRequest();
-    consConn.open("GET", location.pathname+query, true);
+    consConn.open("GET", loc+query, true);
     consConn.onreadystatechange = consUpdate;
     consConn.send(null);
 
@@ -122,11 +132,16 @@ consStart()
   $("#eventFilter").click(function(evt){  // Event-Filter Dialog
     $('body').append(
       '<div id="evtfilterdlg">'+
-        '<div>Filter:</div><br>'+
-        '<div><input id="filtertext" value="'+consFilter+'"></div>'+
+        '<div>Filter (Regexp):</div><br>'+
+        '<div><input id="filtertext" value="'+consFilter+'"></div><br>'+
+        '<div>'+
+          '<input id="f" type="radio" name="x"> Match the whole line</br>'+
+          '<input id="n" type="radio" name="x"> Notify-Type: deviceName:event'+
+        '</div>'+
       '</div>');
+    $("#evtfilterdlg input#"+(consFType=="" ? "f" : "n")).prop("checked",true);
 
-    $('#evtfilterdlg').dialog({ modal:true,
+    $('#evtfilterdlg').dialog({ modal:true, width:'auto',
       position:{ my: "left top", at: "right bottom",
                  of: this, collision: "flipfit" },
       close:function(){$('#evtfilterdlg').remove();},
@@ -140,6 +155,8 @@ consStart()
             return FW_okDialog(e);
           }
           consFilter = val ? val : ".*";
+          consFType= ($("#evtfilterdlg input#n").is(":checked")) ?
+                                ";filterType=notify" : "";
           $(this).dialog('close');
           $("a#eventFilter").html(consFilter);
           consFill();
@@ -183,7 +200,8 @@ consAddRegexpPart()
     "FileLog":{ modify:    "set modDev addRegexpPart evtDev event",
                 createArg: "./log/modDev.log evtDev:event" },
     "watchdog":{createArg: "evtDev:event 00:15 SAME {}" },
-    "sequence":{createArg: "evtDev:event 00:15 evtDev:event" }
+    "sequence":{createArg: "evtDev:event 00:15 evtDev:event" },
+    "DOIF":{createArg: "([evtDev:\"^event$\"]) ()" }
   };
 
   var modDev, devList, devHash = {};

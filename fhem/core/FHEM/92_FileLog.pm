@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 92_FileLog.pm 13393 2017-02-11 21:28:23Z rudolfkoenig $
+# $Id: 92_FileLog.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
 package main;
 
 use strict;
@@ -115,7 +115,7 @@ FileLog_Define($@)
   $hash->{logfile} = $a[2];
   $hash->{currentlogfile} = $f;
   $hash->{STATE} = "active";
-  notifyRegexpChanged($hash, $a[3]);
+  InternalTimer(0, sub(){  notifyRegexpChanged($hash, $a[3]); }, $hash);
 
   return undef;
 }
@@ -276,6 +276,7 @@ FileLog_Set($@)
       $fh->close();
       if($cmd eq "clear") {
         $fh = new IO::File(">$cn");
+        setReadingsVal($hash, "linesInTheFile", 0, TimeNow());
       } else {
         $fh = new IO::File(">>$cn");
       }

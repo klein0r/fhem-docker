@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_telnet.pm 13443 2017-02-19 12:51:22Z rudolfkoenig $
+# $Id: 98_telnet.pm 15006 2017-09-05 09:37:33Z rudolfkoenig $
 
 # Note: this is not really a telnet server, but a TCP server with slight telnet
 # features (disable echo on password)
@@ -33,7 +33,8 @@ telnet_Initialize($)
 
   $cmds{inform} = { Fn=>"CommandTelnetInform",
           ClientFilter => "telnet",
-          Hlp=>"{on|off|log|raw|timer|status},echo all events to this client" };
+          Hlp=>"{on|onWithState|off|log|raw|timer|status},".
+                        "echo all events to this client" };
 }
 
 sub
@@ -376,8 +377,8 @@ CommandTelnetInform($$)
   return if(!$cl);
   my $name = $cl->{NAME};
 
-  return "Usage: inform {on|off|raw|timer|log|status} [regexp]"
-        if($param !~ m/^(on|off|raw|timer|log|status)/);
+  return "Usage: inform {on|onWithState|off|raw|timer|log|status} [regexp]"
+        if($param !~ m/^(on|onWithState|off|raw|timer|log|status)/);
 
   if($param eq "status") {
     my $i = $inform{$name};
@@ -513,8 +514,16 @@ telnet_ActivateInform($)
 
     <a name="allowfrom"></a>
     <li>allowfrom<br>
-        Regexp of allowed ip-addresses or hostnames. If set,
-        only connections from these addresses are allowed.
+        Regexp of allowed ip-addresses or hostnames. If set, only connections
+        from these addresses are allowed.<br>
+        NOTE: if this attribute is not defined and there is no valid allowed
+        device defined for the telnet/FHEMWEB instance and the client tries to
+        connect from a non-local net, then the connection is refused. Following
+        is considered a local net:<br>
+        <ul>
+          IPV4: 127/8, 10/8, 192.168/16, 172.16/10, 169.254/16<br>
+          IPV6: ::1, fe80/10<br>
+        </ul>
         </li><br>
 
     <a name="connectTimeout"></a>
@@ -645,7 +654,15 @@ telnet_ActivateInform($)
     <li>allowfrom<br>
         Regexp der erlaubten IP-Adressen oder Hostnamen. Wenn dieses Attribut
         gesetzt wurde, werden ausschlie&szlig;lich Verbindungen von diesen
-        Adressen akzeptiert.
+        Adressen akzeptiert.<br>
+        Achtung: falls allowfrom nicht gesetzt ist, und keine g&uuml;tige
+        allowed Instanz definiert ist, und die Gegenstelle eine nicht lokale
+        Adresse hat, dann wird die Verbindung abgewiesen. Folgende Adressen
+        werden als local betrachtet:
+        <ul>
+          IPV4: 127/8, 10/8, 192.168/16, 172.16/10, 169.254/16<br>
+          IPV6: ::1, fe80/10<br>
+        </ul>
         </li><br>
 
     <a name="connectTimeout"></a>

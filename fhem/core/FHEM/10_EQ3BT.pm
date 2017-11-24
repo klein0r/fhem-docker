@@ -2,13 +2,21 @@
 #
 # EQ3BT.pm (c) by Dominik Karall, 2016-2017
 # dominik karall at gmail dot com
-# $Id: 10_EQ3BT.pm 13274 2017-01-29 17:45:23Z dominik $
+# $Id: 10_EQ3BT.pm 15447 2017-11-18 19:48:43Z dominik $
 #
 # FHEM module to communicate with EQ-3 Bluetooth thermostats
 #
-# Version: 2.0.0
+# Version: 2.0.2
 #
 #############################################################
+#
+# v2.0.2 - 20171118
+# - FEATURE: support remote bluetooth interfaces via SSH (thx@Cooltux!)
+#
+# v2.0.1 - 20170204
+# - BUGFIX:  fix lastChangeBy
+# - BUGFIX:  fix retry of updateStatus, updateSystemInformation
+#            if it BlockingCall timeouts
 #
 # v2.0.0 - 20170129
 # - FEATURE: use all available bluetooth interfaces to communicate
@@ -142,7 +150,8 @@ sub EQ3BT_Initialize($) {
     $hash->{GetFn}    = 'EQ3BT_Get';
     $hash->{SetFn}    = 'EQ3BT_Set';
     $hash->{AttrFn}   = 'EQ3BT_Attribute';
-    $hash->{AttrList}  = $readingFnAttributes;
+    $hash->{AttrList}  = 'sshHost '.
+                            $readingFnAttributes;
     
     return undef;
 }
@@ -153,16 +162,21 @@ sub EQ3BT_Define($$) {
     my @a = split("[ \t]+", $def);
     my $name = $a[0];
     my $mac;
+    my $sshHost;
     
     $hash->{STATE} = "initialized";
-    $hash->{VERSION} = "2.0.0";
+    $hash->{VERSION} = "2.0.2";
     Log3 $hash, 3, "EQ3BT: EQ-3 Bluetooth Thermostat ".$hash->{VERSION};
     
-    if (int(@a) > 3) {
-        return 'EQ3BT: Wrong syntax, must be define <name> EQ3BT <mac address>';
+    if (int(@a) > 4) {
+        return 'EQ3BT: Wrong syntax, must be define <name> EQ3BT <mac address> "<sshHost-IP>"';
     } elsif(int(@a) == 3) {
         $mac = $a[2];
         $hash->{MAC} = $a[2];
+    } elsif(int(@a) == 4) {
+        $mac = $a[2];
+        $hash->{MAC} = $a[2];
+        $attr{$name}{sshHost} = $a[3];
     }
     
     EQ3BT_updateHciDevicelist($hash);
@@ -178,9 +192,18 @@ sub EQ3BT_Define($$) {
 
 sub EQ3BT_updateHciDevicelist {
     my ($hash) = @_;
+    my $name    = $hash->{NAME};
     #check for hciX devices
     $hash->{helper}{hcidevices} = ();
-    my @btDevices = split("\n", qx(hcitool dev));
+    my @btDevices;
+    my $sshHost     = AttrVal($name,"sshHost","none");
+    
+    if( $sshHost ne 'none' ) {
+        @btDevices = split("\n", qx(ssh $sshHost 'hcitool dev'));
+    } else {
+        @btDevices = split("\n", qx(hcitool dev));
+    }
+    
     foreach my $btDevLine (@btDevices) {
         if($btDevLine =~ /hci(.)/) {
             push(@{$hash->{helper}{hcidevices}}, $1);
@@ -194,8 +217,13 @@ sub EQ3BT_updateHciDevicelist {
 sub EQ3BT_pairDevice {
     my ($string) = @_;
     my ($name, $mac) = split("\\|", $string);
+    my $sshHost     = AttrVal($name,"sshHost","none");
 
-    qx(echo "pair $mac\\n";sleep 7;echo "trust $mac\\ndisconnect $mac\\n";sleep 2; echo "quit\\n" | bluetoothctl);
+    if( $sshHost ne 'none' ) {
+        qx(ssh $sshHost 'echo "pair $mac\\n";sleep 7;echo "trust $mac\\ndisconnect $mac\\n";sleep 2; echo "quit\\n" | bluetoothctl');
+    } else {
+        qx(echo "pair $mac\\n";sleep 7;echo "trust $mac\\ndisconnect $mac\\n";sleep 2; echo "quit\\n" | bluetoothctl);
+    }
 
     return $name;
 }
@@ -294,7 +322,7 @@ sub EQ3BT_setResetConsumption {
 sub EQ3BT_updateSystemInformation {
     my ($hash) = @_;
     my $name = $hash->{NAME};
-    $hash->{helper}{RUNNING_PID} = BlockingCall("EQ3BT_execGatttool", $name."|".$hash->{MAC}."|updateSystemInformation|0x0411|00|listen", "EQ3BT_processGatttoolResult", 300, "EQ3BT_killGatttool", $hash);
+    $hash->{helper}{RUNNING_PID} = BlockingCall("EQ3BT_execGatttool", $name."|".$hash->{MAC}."|updateSystemInformation|0x0411|00|listen", "EQ3BT_processGatttoolResult", 300, "EQ3BT_updateSystemInformationFailed", $hash);
 }
 
 sub EQ3BT_updateSystemInformationSuccessful {
@@ -319,7 +347,7 @@ sub EQ3BT_updateSystemInformationFailed {
 sub EQ3BT_updateStatus {
     my ($hash) = @_;
     my $name = $hash->{NAME};
-    $hash->{helper}{RUNNING_PID} = BlockingCall("EQ3BT_execGatttool", $name."|".$hash->{MAC}."|updateStatus|0x0411|03|listen", "EQ3BT_processGatttoolResult", 300, "EQ3BT_killGatttool", $hash);
+    $hash->{helper}{RUNNING_PID} = BlockingCall("EQ3BT_execGatttool", $name."|".$hash->{MAC}."|updateStatus|0x0411|03|listen", "EQ3BT_processGatttoolResult", 300, "EQ3BT_updateStatusFailed", $hash);
 }
 
 sub EQ3BT_updateStatusSuccessful {
@@ -471,6 +499,8 @@ sub EQ3BT_execGatttool($) {
     
     if(-x $gatttool) {
         my $gtResult;
+        my $cmd;
+        my $sshHost     = AttrVal($name,"sshHost","none");
 
         while($wait) {
             my $grepGatttool = qx(ps ax| grep -E \'gatttool -b $mac\' | grep -v grep);
@@ -490,13 +520,23 @@ sub EQ3BT_execGatttool($) {
         }
 
         my $hciDevice = "hci".$hash->{helper}{hcidevices}[$hash->{helper}{currenthcidevice}];
-        my $cmd = "gatttool -b $mac -i $hciDevice --char-write-req --handle=$handle --value=$value";
+        #my $cmd = "gatttool -b $mac -i $hciDevice --char-write-req --handle=$handle --value=$value";
+        if( $sshHost ne 'none' ) {
+            $cmd = "ssh $sshHost 'gatttool -b $mac -i $hciDevice --char-write-req --handle=$handle --value=$value";
+        } else {
+            $cmd = "gatttool -b $mac -i $hciDevice --char-write-req --handle=$handle --value=$value";
+        }
+        
         if(defined($listen) && $listen eq "listen") {
             $cmd = "timeout 15 ".$cmd." --listen";
         }
         
         #redirect stderr to stdout
-        $cmd .= " 2>&1";
+        if( $sshHost ne 'none' ) {
+            $cmd .= " 2>&1'";
+        } else {
+            $cmd .= " 2>&1";
+        }
 
         Log3 $name, 5, "EQ3BT ($name): $cmd";
         $gtResult = qx($cmd);
@@ -663,12 +703,12 @@ sub EQ3BT_processNotification {
 
         readingsSingleUpdate($hash, "valvePosition", $pct, 1);
         #changes below this line will set lastchangeby
-        readingsSingleUpdate($hash, "windowOpen", $wndOpen, 1);
-        readingsSingleUpdate($hash, "ecoMode", $eco, 1);
-        readingsSingleUpdate($hash, "battery", $batteryStr, 1);
-        readingsSingleUpdate($hash, "boost", $isBoost, 1);
-        readingsSingleUpdate($hash, "mode", $modeStr, 1);
-        readingsSingleUpdate($hash, "desiredTemperature", sprintf("%.1f", $temp), 1);
+        EQ3BT_readingsSingleUpdateIfChanged($hash, "windowOpen", $wndOpen, 1);
+        EQ3BT_readingsSingleUpdateIfChanged($hash, "ecoMode", $eco, 1);
+        EQ3BT_readingsSingleUpdateIfChanged($hash, "battery", $batteryStr, 1);
+        EQ3BT_readingsSingleUpdateIfChanged($hash, "boost", $isBoost, 1);
+        EQ3BT_readingsSingleUpdateIfChanged($hash, "mode", $modeStr, 1);
+        EQ3BT_readingsSingleUpdateIfChanged($hash, "desiredTemperature", sprintf("%.1f", $temp), 1);
     }
     
     return undef;
@@ -782,6 +822,13 @@ sub EQ3BT_Get($$) {
            <code>n/a</code>
         </ul>
         <br>
+        
+    <a name="EQ3BTattr" id="EQ3BTattr"></a>
+        <b>attr</b>
+        <ul>
+            <li>sshHost - FQD-Name or IP of ssh remote system / you must configure your ssh system for certificate authentication. For better handling you can config ssh Client with .ssh/config file</li>
+        </ul>
+    <br>
 
 </ul>
 

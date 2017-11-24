@@ -1,4 +1,4 @@
-# $Id: 73_km200.pm 12391 2016-10-21 07:02:31Z sailor-fhem $
+# $Id: 73_km200.pm 14221 2017-05-08 10:55:47Z Sailor $
 ########################################################################################################################
 #
 #     73_km200.pm
@@ -1777,14 +1777,15 @@ sub km200_GetSingleService($)
 				my $TempErrorList    = "";
 				
 				### Sort list by timestamps descending
-				my @TempSortedErrorList =  sort { $b->{t} <=> $a->{t} } @{ $json->{values} };
-
+				my @TempSortedErrorList =  sort { $b->{t} cmp $a->{t} } @{ $json->{values} };
+#				my @TempSortedErrorList =  @{ $json->{values} } ;
+			
 				### For every notification do
 				foreach my $item (@TempSortedErrorList)
 				{					
 					### Create message string with fixed blocksize
 					my $TempTime      = $item->{t};
-					   $TempTime      =~ s/^(.+)$/sprintf("%s%s", $1, ' 'x(20-length($1)))/e;
+					if ($TempTime) {$TempTime      =~ s/^(.+)$/sprintf("%s%s", $1, ' 'x(20-length($1)))/e;}
 					my $TempErrorCode = $item->{dcd};
 					   $TempErrorCode =~ s/^(.+)$/sprintf("%s%s", $1, ' 'x(3 -length($1)))/e;
 					my $TempAddCode   = $item->{ccd};    
@@ -2331,10 +2332,9 @@ sub km200_ParseHttpResponseInit($)
 			
 			### Sort list by timestamps descending
 			my $TempServiceIndex = 0;
-#			my @TempSortedErrorList =  sort { $b->{t} <=> $a->{t} } @{ $json->{values} };
-			my @TempSortedErrorList =  sort ( @{ $json->{values} } );
-
-
+			my @TempSortedErrorList =  sort { $b->{t} cmp $a->{t} } @{ $json->{values} };
+#			my @TempSortedErrorList =  @{ $json->{values} };
+			
 			foreach my $item (@TempSortedErrorList)
 			{
 				### Increment Service-Index
@@ -2342,7 +2342,7 @@ sub km200_ParseHttpResponseInit($)
 				
 				### Create message string with fixed blocksize
 				my $TempTime      = $item->{t};
-				   $TempTime      =~ s/^(.+)$/sprintf("%s%s", $1, ' 'x(20-length($1)))/e;
+				if ($TempTime) {$TempTime =~ s/^(.+)$/sprintf("%s%s", $1, ' 'x(20-length($1)))/e;} 
 				my $TempErrorCode = $item->{dcd};
 				   $TempErrorCode =~ s/^(.+)$/sprintf("%s%s", $1, ' 'x(3 -length($1)))/e;
 				my $TempAddCode   = $item->{ccd};    
@@ -2829,10 +2829,9 @@ sub km200_ParseHttpResponseDyn($)
 			my $TempServiceIndex = 0;
 
 			### Sort list by timestamps descending
-#			my @TempSortedErrorList =  sort { $b->{t} <=> $a->{t} } @{ $json->{values} };
-			my @TempSortedErrorList =  sort ( @{ $json->{values} } );
-
-
+			my @TempSortedErrorList =  sort { $b->{t} cmp $a->{t} } @{ $json->{values} };
+#			my @TempSortedErrorList =  @{ $json->{values} } ;
+			
 			### For every notification do
 			foreach my $item (@TempSortedErrorList)
 			{
@@ -2841,7 +2840,7 @@ sub km200_ParseHttpResponseDyn($)
 				
 				### Create message string with fixed blocksize
 				my $TempTime      = $item->{t};
-				   $TempTime      =~ s/^(.+)$/sprintf("%s%s", $1, ' 'x(20-length($1)))/e;
+				if ($TempTime) {$TempTime      =~ s/^(.+)$/sprintf("%s%s", $1, ' 'x(20-length($1)))/e;}
 				my $TempErrorCode = $item->{dcd};
 				   $TempErrorCode =~ s/^(.+)$/sprintf("%s%s", $1, ' 'x(3 -length($1)))/e;
 				my $TempAddCode   = $item->{ccd};    

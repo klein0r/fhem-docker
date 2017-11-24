@@ -1,5 +1,5 @@
 ##############################################
-# $Id: TcpServerUtils.pm 11908 2016-08-06 15:09:55Z rudolfkoenig $
+# $Id: TcpServerUtils.pm 14862 2017-08-07 15:16:03Z rudolfkoenig $
 
 package main;
 use strict;
@@ -24,9 +24,11 @@ TcpServer_Open($$$)
     }
   }
 
+  my $lh = ($global ? ($global eq "global"? undef : $global) :
+                      ($hash->{IPV6} ? "::1" : "127.0.0.1"));
   my @opts = (
     Domain    => ($hash->{IPV6} ? AF_INET6() : AF_UNSPEC), # Linux bug
-    LocalHost => ($global ? ($global eq "global"? undef:$global) : "127.0.0.1"),
+    LocalHost => $lh,
     LocalPort => $port,
     Listen    => 10,
     Blocking  => ($^O =~ /Win/ ? 1 : 0), # Needed for .WRITEBUFFER@darwin
@@ -70,6 +72,24 @@ TcpServer_Accept($$)
                 inet_ntoa($iaddr);
 
   my $af = $attr{$name}{allowfrom};
+  if(!$af) {
+    my $re ="^(::ffff:)?(127|192.168|172.(1[6-9]|2[0-9]|3[01])|10|169.254)\\.|".
+            "^(f[cde]|::1)";
+    if($caddr !~ m/$re/) {
+      my %empty;
+      $hash->{SNAME} = $hash->{NAME};
+      my $auth = Authenticate($hash, \%empty);
+      delete $hash->{SNAME};
+      if($auth == 0) {
+        Log3 $name, 1,
+             "Connection refused from the non-local address $caddr:$port, ".
+             "as there is no working allowed instance defined for it";
+        close($clientinfo[0]);
+        return undef;
+      }
+    }
+  }
+
   if($af) {
     if($caddr !~ m/$af/) {
       my $hostname = gethostbyaddr($iaddr, AF_INET);
@@ -105,7 +125,7 @@ TcpServer_Accept($$)
       && $err ne "Socket is not connected") {
       $err = "" if(!$err);
       $err .= " ".($SSL_ERROR ? $SSL_ERROR : IO::Socket::SSL::errstr());
-      Log3 $name, 1, "$type SSL/HTTPS error: $err"
+      Log3 $name, 1, "$type SSL/HTTPS error: $err (peer: $caddr)"
         if($err !~ m/error:00000000:lib.0.:func.0.:reason.0./); #Forum 56364
       close($clientinfo[0]);
       return undef;
@@ -151,9 +171,9 @@ TcpServer_SetSSL($)
 
 
 sub
-TcpServer_Close($)
+TcpServer_Close($@)
 {
-  my ($hash) = @_;
+  my ($hash, $dodel) = @_;
   my $name = $hash->{NAME};
 
   if(defined($hash->{CD})) { # Clients
@@ -161,6 +181,8 @@ TcpServer_Close($)
     delete($hash->{CD}); 
     delete($selectlist{$name});
     delete($hash->{FD});  # Avoid Read->Close->Write
+    delete $attr{$name} if($dodel);
+    delete $defs{$name} if($dodel);
   }
   if(defined($hash->{SERVERSOCKET})) {          # Server
     close($hash->{SERVERSOCKET});

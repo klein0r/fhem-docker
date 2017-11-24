@@ -1,4 +1,4 @@
-# $Id: 71_YAMAHA_AVR.pm 12919 2016-12-31 10:15:59Z markusbloch $
+# $Id: 71_YAMAHA_AVR.pm 15417 2017-11-10 20:03:22Z markusbloch $
 ##############################################################################
 #
 #     71_YAMAHA_AVR.pm
@@ -57,9 +57,11 @@ YAMAHA_AVR_Initialize($)
   $hash->{AttrList}  = "do_not_notify:0,1 ".
                        "disable:0,1 ".
                        "disabledForIntervals ".
-                       "request-timeout:1,2,3,4,5 ".
+                       "request-timeout:1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20 ".
+                       "radioTitleDelimiter ".
                        "model ".
                        "volumeSteps:1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20 ".
+                       "volumeMax ".
                        "volume-smooth-change:0,1 ".
                        "volume-smooth-steps:1,2,3,4,5,6,7,8,9,10 ".
                        $readingFnAttributes;
@@ -179,13 +181,30 @@ YAMAHA_AVR_GetStatus($;$)
     
     YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"GET\"><$zone><Basic_Status>GetParam</Basic_Status></$zone></YAMAHA_AV>", "statusRequest", "basicStatus");
 
-    if($hash->{ACTIVE_ZONE} eq "mainzone" and (!exists($hash->{helper}{SUPPORT_PARTY_MODE}) or (exists($hash->{helper}{SUPPORT_PARTY_MODE}) and $hash->{helper}{SUPPORT_PARTY_MODE})))
+    if($hash->{ACTIVE_ZONE} eq "mainzone" and (!exists($hash->{helper}{SUPPORT_PARTY_MODE}) or $hash->{helper}{SUPPORT_PARTY_MODE}))
     {
         YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"GET\"><System><Party_Mode><Mode>GetParam</Mode></Party_Mode></System></YAMAHA_AV>", "statusRequest", "partyModeStatus", {options => {can_fail => 1}});
     }
-    elsif($hash->{ACTIVE_ZONE} ne "mainzone" and (!exists($hash->{helper}{SUPPORT_PARTY_MODE}) or (exists($hash->{helper}{SUPPORT_PARTY_MODE}) and $hash->{helper}{SUPPORT_PARTY_MODE})))
+    elsif($hash->{ACTIVE_ZONE} ne "mainzone" and (!exists($hash->{helper}{SUPPORT_PARTY_MODE}) or $hash->{helper}{SUPPORT_PARTY_MODE}))
     {
         YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"GET\"><System><Party_Mode><Target_Zone>GetParam</Target_Zone></Party_Mode></System></YAMAHA_AV>", "statusRequest", "partyModeZones", {options => {can_fail => 1}});
+    }
+    
+    if($hash->{ACTIVE_ZONE} eq "mainzone" and (!exists($hash->{helper}{SUPPORT_SURROUND_DECODER}) or $hash->{helper}{SUPPORT_SURROUND_DECODER}))
+    {
+        YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"GET\"><$zone><Surround><Sound_Program_Param><SUR_DECODE>GetParam</SUR_DECODE></Sound_Program_Param></Surround></$zone></YAMAHA_AV>", "statusRequest", "surroundDecoder", {options => {can_fail => 1}});
+    }
+   
+    if($hash->{ACTIVE_ZONE} eq "mainzone" and (!exists($hash->{helper}{SUPPORT_DISPLAY_BRIGHTNESS}) or $hash->{helper}{SUPPORT_DISPLAY_BRIGHTNESS}))
+    {
+        if(YAMAHA_AVR_isModel_DSP($hash))
+        {
+            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"GET\"><System><Display><FL>GetParam</FL></Display></System></YAMAHA_AV>", "statusRequest", "displayBrightness", {options => {can_fail => 1}});
+        }
+        else
+        {
+            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"GET\"><System><Misc><Display><FL>GetParam</FL></Display></Misc></System></YAMAHA_AV>", "statusRequest", "displayBrightness", {options => {can_fail => 1}});
+        }
     }
     
     if(!exists($hash->{helper}{SUPPORT_TONE_STATUS}) or (exists($hash->{helper}{SUPPORT_TONE_STATUS}) and exists($hash->{MODEL}) and $hash->{helper}{SUPPORT_TONE_STATUS}))
@@ -223,6 +242,12 @@ YAMAHA_AVR_GetStatus($;$)
         }
     }
     
+    # check hdmi output state, if supported
+    if($hash->{ACTIVE_ZONE} eq "mainzone" and $hash->{helper}{SUPPORT_HDMI_OUT})
+    {
+        YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"GET\"><System><Sound_Video><HDMI><Output><OUT_1>GetParam</OUT_1></Output></HDMI></Sound_Video></System></YAMAHA_AV>", "statusRequest", "hdmiOut1", {options => {can_fail => 1}});
+        YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"GET\"><System><Sound_Video><HDMI><Output><OUT_2>GetParam</OUT_2></Output></HDMI></Sound_Video></System></YAMAHA_AV>", "statusRequest", "hdmiOut2", {options => {can_fail => 1}});
+    }
     
     YAMAHA_AVR_ResetTimer($hash) unless($local == 1);
     
@@ -285,6 +310,8 @@ YAMAHA_AVR_Set($@)
     my $dsp_modes_piped = defined($hash->{helper}{DSP_MODES}) ? YAMAHA_AVR_Param2Fhem(lc($hash->{helper}{DSP_MODES}), 0) : "" ;
     my $dsp_modes_comma = defined($hash->{helper}{DSP_MODES}) ? YAMAHA_AVR_Param2Fhem(lc($hash->{helper}{DSP_MODES}), 1) : "" ;
     
+    my $decoders_piped = defined($hash->{helper}{SURROUND_DECODERS}) ? YAMAHA_AVR_Param2Fhem(lc($hash->{helper}{SURROUND_DECODERS}), 0) : "" ;
+    my $decoders_comma = defined($hash->{helper}{SURROUND_DECODERS}) ? YAMAHA_AVR_Param2Fhem(lc($hash->{helper}{SURROUND_DECODERS}), 1) : "" ;
        
     return "No Argument given" if(!defined($a[1]));     
     
@@ -298,17 +325,31 @@ YAMAHA_AVR_Set($@)
                                                           "mute:on,off,toggle ".
                                                           "remoteControl:setup,up,down,left,right,return,option,display,tunerPresetUp,tunerPresetDown,enter ".
                                                           (exists($hash->{helper}{SCENES}) ? "scene:".$scenes_comma." " : "").
-                                                          ((exists($hash->{ACTIVE_ZONE}) and $hash->{ACTIVE_ZONE} eq "mainzone") ? "straight:on,off 3dCinemaDsp:off,auto adaptiveDrc:off,auto ".
-                                                          (exists($hash->{helper}{DIRECT_TAG}) ? "direct:on,off " : "").
-                                                          (exists($hash->{helper}{DSP_MODES}) ? "dsp:".$dsp_modes_comma." " : "")."enhancer:on,off " : "").
-                                                          (exists($hash->{helper}{CURRENT_INPUT_TAG}) ? "navigateListMenu play:noArg pause:noArg stop:noArg skip:reverse,forward preset:1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40 presetUp:noArg presetDown:noArg ".
-                                                          (($hash->{helper}{SUPPORT_SHUFFLE_REPEAT}) ? "shuffle:on,off repeat:off,one,all " : "") : "").
+                                                          ((exists($hash->{ACTIVE_ZONE}) and $hash->{ACTIVE_ZONE} eq "mainzone") ? 
+                                                            "straight:on,off 3dCinemaDsp:off,auto adaptiveDrc:off,auto ".
+                                                            (exists($hash->{helper}{DIRECT_TAG}) ? "direct:on,off " : "").
+                                                            (exists($hash->{helper}{SURROUND_DECODERS}) ? "surroundDecoder:".$decoders_comma." " : "").
+                                                            ($hash->{helper}{SUPPORT_DISPLAY_BRIGHTNESS} ? "displayBrightness:slider,-4,1,0 " : "").
+                                                            (exists($hash->{helper}{DSP_MODES}) ? "dsp:".$dsp_modes_comma." " : "").
+                                                            "enhancer:on,off ".
+                                                            ($hash->{helper}{SUPPORT_HDMI_OUT} ? "hdmiOut1:on,off hdmiOut2:on,off " : "")
+                                                          :"").
+                                                          (exists($hash->{helper}{CURRENT_INPUT_TAG}) ? 
+                                                            "navigateListMenu play:noArg pause:noArg stop:noArg skip:reverse,forward ".
+                                                            "preset:1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40 ".
+                                                            "presetUp:noArg presetDown:noArg ".
+                                                            (($hash->{helper}{SUPPORT_SHUFFLE_REPEAT}) ? "shuffle:on,off repeat:off,one,all " : "") 
+                                                          :"").
                                                           "sleep:off,30min,60min,90min,120min,last ".
                                                           (($hash->{helper}{SUPPORT_TONE_STATUS} and exists($hash->{ACTIVE_ZONE}) and $hash->{ACTIVE_ZONE} eq "mainzone") ? "bass:slider,-6,0.5,6 treble:slider,-6,0.5,6 " : "").
                                                           (($hash->{helper}{SUPPORT_TONE_STATUS} and exists($hash->{ACTIVE_ZONE}) and ($hash->{ACTIVE_ZONE} ne "mainzone") and YAMAHA_AVR_isModel_DSP($hash)) ? "bass:slider,-10,1,10 treble:slider,-10,1,10 " : "").
                                                           (($hash->{helper}{SUPPORT_TONE_STATUS} and exists($hash->{ACTIVE_ZONE}) and ($hash->{ACTIVE_ZONE} ne "mainzone") and not YAMAHA_AVR_isModel_DSP($hash)) ? "bass:slider,-10,2,10 treble:slider,-10,2,10 " : "").
-                                                          (($hash->{helper}{SUPPORT_PARTY_MODE}) ? "partyMode:on,off " : "").
+                                                          ($hash->{helper}{SUPPORT_PARTY_MODE} ? "partyMode:on,off " : "").
+                                                          ($hash->{helper}{SUPPORT_EXTRA_BASS} ? "extraBass:off,auto " : "").
+                                                          ($hash->{helper}{SUPPORT_YPAO_VOLUME} ? "ypaoVolume:off,auto " : "").
+                                                          
                                                           "tunerFrequency ".
+                                                          "displayBrightness:slider,-4,1,0 ".
                                                           "statusRequest:noArg";
                            
     # number of seconds to wait after on/off was executed (DSP based: 3 sec, other models: 2 sec)
@@ -416,19 +457,19 @@ YAMAHA_AVR_Set($@)
     {
         my $target_volume;
         
-        if($what eq "volume" and defined($a[2]) and $a[2] =~ /^\d{1,3}$/ and $a[2] >= 0 &&  $a[2] <= 100)
+        if($what eq "volume" and defined($a[2]) and $a[2] =~ /^\d{1,3}(?:\.\d+)?$/ and $a[2] >= 0 &&  $a[2] <= 100)
         {
-            $target_volume = YAMAHA_AVR_volume_rel2abs($a[2]);
+            $target_volume = YAMAHA_AVR_volume_rel2abs(int($a[2]));
         }
         elsif($what eq "volumeDown" and defined(ReadingsVal($name, "volume", undef)))
         {
-            $target_volume = YAMAHA_AVR_volume_rel2abs(ReadingsVal($name, "volume", -45) - ((defined($a[2]) and $a[2] =~ /^\d+$/) ? $a[2] : AttrVal($hash->{NAME}, "volumeSteps",5)));
+            $target_volume = YAMAHA_AVR_volume_rel2abs(ReadingsVal($name, "volume", -45) - ((defined($a[2]) and $a[2] =~ /^\d+(?:\.\d+)?$/) ? int($a[2]) : AttrVal($hash->{NAME}, "volumeSteps",5)));
         }
         elsif($what eq "volumeUp" and defined(ReadingsVal($name, "volume", undef)))
         {
-            $target_volume = YAMAHA_AVR_volume_rel2abs(ReadingsVal($name, "volume", -45) + ((defined($a[2]) and $a[2] =~ /^\d+$/) ? $a[2] : AttrVal($hash->{NAME}, "volumeSteps",5)));
+            $target_volume = YAMAHA_AVR_volume_rel2abs(ReadingsVal($name, "volume", -45) + ((defined($a[2]) and $a[2] =~ /^\d+(?:\.\d+)?$/) ? int($a[2]) : AttrVal($hash->{NAME}, "volumeSteps",5)));
         }
-        elsif(defined($a[2]) and $a[2] =~ /^-?\d+(?:\.\d)?$/)
+        elsif($what eq "volumeStraight" and defined($a[2]) and $a[2] =~ /^-?\d+(?:\.\d+)?$/)
         {
             $target_volume = $a[2];
         }
@@ -436,10 +477,18 @@ YAMAHA_AVR_Set($@)
         {
             return $usage;
         }
+        
+        if($target_volume > YAMAHA_AVR_volume_rel2abs(AttrVal($name, "volumeMax","100")))
+        {
+            $target_volume = YAMAHA_AVR_volume_rel2abs(AttrVal($name, "volumeMax","100"));
+        }
          
         # if lower than minimum (-80.5) or higher than max (16.5) set target volume to the corresponding boundary
         $target_volume = -80.5 if(defined($target_volume) and $target_volume < -80.5);
         $target_volume = 16.5 if(defined($target_volume) and $target_volume > 16.5);
+        
+        # ensure $target_volume mod 0.5 == 0
+        $target_volume = int($target_volume / 0.5) * 0.5;
         
         Log3 $name, 4, "YAMAHA_AVR ($name) - new target volume: $target_volume";
         
@@ -905,6 +954,118 @@ YAMAHA_AVR_Set($@)
             return "invalid tuner frequency value: ".$a[2];
         }
     }
+    elsif($what eq "surroundDecoder")
+    {
+        if(defined($a[2]))
+        {
+            if(not $decoders_piped eq "")
+            {
+                if($a[2] =~ /^($decoders_piped)$/)
+                {
+                    my $command = YAMAHA_AVR_getParamName($hash, $a[2],$hash->{helper}{SURROUND_DECODERS});
+                    
+                    if(defined($command) and length($command) > 0)
+                    {
+                        YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"PUT\"><$zone><Surround><Sound_Program_Param><SUR_DECODE><Decoder_Type>$command</Decoder_Type></SUR_DECODE></Sound_Program_Param></Surround></$zone></YAMAHA_AV>", $what, $a[2]);
+                    }
+                    else
+                    {
+                        return "invalid surround decoder: ".$a[2];
+                    }
+                }
+                else
+                {
+                    return $usage;
+                }
+            }
+            else
+            {
+                return "No surround decoders are avaible. Please try an statusUpdate.";
+            }
+        }
+        else
+        {
+            return (($decoders_piped eq "") ? "No surround decoders are available. Please try an statusUpdate." : "No surround decoder was given");
+        }
+    }
+    elsif($what eq "displayBrightness")
+    {
+        if($a[2] =~ /^-?\d+$/ and $a[2] >= -4 and $a[2] <= 0)
+        {
+            if(YAMAHA_AVR_isModel_DSP($hash))
+            {
+                YAMAHA_AVR_SendCommand($hash,"<YAMAHA_AV cmd=\"PUT\"><System><Display><FL><Dimmer><Val>".$a[2]."</Val><Exp>0</Exp><Unit></Unit></Dimmer></FL></Display></System></YAMAHA_AV>", $what, $a[2]);
+            }
+            else 
+            {
+                YAMAHA_AVR_SendCommand($hash,"<YAMAHA_AV cmd=\"PUT\"><System><Misc><Display><FL><Dimmer>".$a[2]."</Dimmer></FL></Display></Misc></System></YAMAHA_AV>", $what, $a[2]);
+            }
+        }
+        else
+        {
+            return "invalid tuner frequency value: ".$a[2];
+        }
+    }
+    elsif($what eq "ypaoVolume" and defined($a[2]))
+    {
+        if($a[2] eq "auto")
+        {
+            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"PUT\"><$zone><Sound_Video><YPAO_Volume>Auto</YPAO_Volume></Sound_Video></$zone></YAMAHA_AV>", $what, $a[2]);
+        }
+        elsif($a[2] eq "off")
+        {
+            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"PUT\"><$zone><Sound_Video><YPAO_Volume>Off</YPAO_Volume></Sound_Video></$zone></YAMAHA_AV>", $what, $a[2]);
+        }
+        else
+        {
+            return $usage;
+        }
+    }
+    elsif($what eq "extraBass" and defined($a[2]))
+    {
+        if($a[2] eq "auto")
+        {
+            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"PUT\"><$zone><Sound_Video><Extra_Bass>Auto</Extra_Bass></Sound_Video></$zone></YAMAHA_AV>", $what, $a[2]);
+        }
+        elsif($a[2] eq "off")
+        {
+            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"PUT\"><$zone><Sound_Video><Extra_Bass>Off</Extra_Bass></Sound_Video></$zone></YAMAHA_AV>", $what, $a[2]);
+        }
+        else
+        {
+            return $usage;
+        }
+    }
+    elsif($what eq "hdmiOut1" and defined($a[2]))
+    {
+        if($a[2] eq "on")
+        {
+            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"PUT\"><System><Sound_Video><HDMI><Output><OUT_1>On</OUT_1></Output></HDMI></Sound_Video></System></YAMAHA_AV>", $what, $a[2]);
+        }
+        elsif($a[2] eq "off")
+        {
+            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"PUT\"><System><Sound_Video><HDMI><Output><OUT_1>Off</OUT_1></Output></HDMI></Sound_Video></System></YAMAHA_AV>", $what, $a[2]);
+        }
+        else
+        {
+            return $usage;
+        }
+    }
+    elsif($what eq "hdmiOut2" and defined($a[2]))
+    {
+        if($a[2] eq "on")
+        {
+            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"PUT\"><System><Sound_Video><HDMI><Output><OUT_2>On</OUT_2></Output></HDMI></Sound_Video></System></YAMAHA_AV>", $what, $a[2]);
+        }
+        elsif($a[2] eq "off")
+        {
+            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"PUT\"><System><Sound_Video><HDMI><Output><OUT_2>Off</OUT_2></Output></HDMI></Sound_Video></System></YAMAHA_AV>", $what, $a[2]);
+        }
+        else
+        {
+            return $usage;
+        }
+    }
     elsif($what eq "statusRequest")
     {
         YAMAHA_AVR_GetStatus($hash, 1);
@@ -919,14 +1080,39 @@ YAMAHA_AVR_Set($@)
 sub
 YAMAHA_AVR_Attr(@)
 {
-    my @a = @_;
-    my $hash = $defs{$a[1]};
+    my ($cmd, $name, $attr, $val) = @_;
+    
+    my $hash = $defs{$name};
 
-    if($a[2] eq "disable")
+    return unless($hash);
+    
+    if($attr eq "disable")
     {
         # Start/Stop Timer according to new disabled-Value
         YAMAHA_AVR_ResetTimer($hash, 1);
     }
+    
+    if($cmd eq "set")
+    {
+        if($attr =~ /^(?:volumeMax|volumeSteps)$/)
+        {
+            if($val !~ /^\d+$/)
+            {
+                return "invalid attribute value for attribute $attr: $val";
+            }
+            
+            if($attr eq "volumeMax" and ($val < 0 or $val > 100))
+            {
+                return "value is out of range (0-100) for attribute $attr: $val";
+            }
+            
+            if($attr eq "volumeSteps" and ($val < 1))
+            {
+                return "value is out of range (1-*) for attribute $attr: $val";
+            }
+        }
+    }
+ 
 
     return undef;
 }
@@ -970,17 +1156,19 @@ YAMAHA_AVR_Undefine($$)
 # following option values can be used to control the execution of the command:
 #
 #   {
-#      unless_in_queue => don't insert the command if an equivalent command already exists in the queue. (flag: 0,1 - default: 0)
-#      priority        => integer value of priority. lower values will be executed before higher values in the appropriate order. (integer value - default value: 3)
-#      at_first        => insert the command at the beginning of the queue, not at the end. (flag: 0,1 - default: 0)
-#      not_before      => don't execute the command before the given Unix timestamp is reached (integer/float value)
-#      can_fail        => the request can return an error. If this flag is set, don't treat this as an communication error, ignore it instead. (flag: 0,1 - default: 0)
-#      no_playinfo     => (only relevant for "statusRequest basicStatus") - don't retrieve extended playback information, after receiving a successful response (flag: 0,1 - default: 0)
-#      init            => (only relevant for navigateListMenu) - marks the initial request to obtain the current menu level (flag: 0,1 - default: 0)
-#      last_layer      => (only relevant for navigateListMenu) - the menu layer that was reached within the last request (integer value)
-#      item_selected   => (only relevant for navigateListMenu) - is set, when the final item is going to be selected with the current request. (flag: 0,1 - default: 0)
-#      volume_target   => (only relevant for volume) - the target volume, that should be reached by smoothing. (float value)
-#      volume_diff     => (only relevant for volume) - the volume difference between each step to reach the target volume (float value)
+#      unless_in_queue     => don't insert the command if an equivalent command already exists in the queue. (flag: 0,1 - default: 0)
+#      priority            => integer value of priority. lower values will be executed before higher values in the appropriate order. (integer value - default value: 3)
+#      at_first            => insert the command at the beginning of the queue, not at the end. (flag: 0,1 - default: 0)
+#      not_before          => don't execute the command before the given Unix timestamp is reached (integer/float value)
+#      wait_after_response => wait the given number of seconds before processing further queue commands (integer/float value)
+#      can_fail            => the request can return an error. If this flag is set, don't treat this as an communication error, ignore it instead. (flag: 0,1 - default: 0)
+#      no_playinfo         => (only relevant for "statusRequest basicStatus") - don't retrieve extended playback information, after receiving a successful response (flag: 0,1 - default: 0)
+#      init                => (only relevant for navigateListMenu) - marks the initial request to obtain the current menu level (flag: 0,1 - default: 0)
+#      last_layer          => (only relevant for navigateListMenu) - the menu layer that was reached within the last request (integer value)
+#      item_selected       => (only relevant for navigateListMenu) - is set, when the final item is going to be selected with the current request. (flag: 0,1 - default: 0)
+#      volume_target       => (only relevant for volume) - the target volume, that should be reached by smoothing. (float value)
+#      volume_diff         => (only relevant for volume) - the volume difference between each step to reach the target volume (float value)
+#      input_tag           => (only relevant for "statusRequest playInfo") - contains the input tag name when requesting playInfo
 #   }
 #
 
@@ -1065,7 +1253,7 @@ YAMAHA_AVR_HandleCmdQueue($)
         Log3 $name, 5, "YAMAHA_AVR ($name) - no commands currently running, but queue has pending commands. preparing new request";
         my $params =  {
                         url        => "http://".$address."/YamahaRemoteControl/ctrl",
-                        timeout    => AttrVal($name, "request-timeout", 4),
+                        timeout    => AttrVal($name, "request-timeout", 10),
                         noshutdown => 1, 
                         keepalive => 0,
                         httpversion => "1.1",
@@ -1232,6 +1420,18 @@ YAMAHA_AVR_ParseResponse($$$)
             elsif($arg eq "partyModeStatus" or $arg eq "partyModeZones")
             {
                 $hash->{helper}{SUPPORT_PARTY_MODE} = 0;
+            }
+            elsif($arg eq "surroundDecoder")
+            {
+                $hash->{helper}{SUPPORT_SURROUND_DECODER} = 0;
+            }
+            elsif($arg eq "displayBrightness")
+            {
+                $hash->{helper}{SUPPORT_DISPLAY_BRIGHTNESS} = 0;
+            }
+            elsif($arg eq "hdmiOut1" or $arg eq "hdmiOut2")
+            {
+                $hash->{helper}{SUPPORT_HDMI_OUT} = 0;
             }
         }
     }
@@ -1481,7 +1681,7 @@ YAMAHA_AVR_ParseResponse($$$)
                 {
                     readingsBulkUpdate($hash, "input", YAMAHA_AVR_Param2Fhem(lc($1), 0));
                     
-                    if($data =~ /<Src_Name>(.+?)<\/Src_Name>/)
+                    if($data =~ /<Power>On<\/Power>/ and $data =~ /<Src_Name>(.+?)<\/Src_Name>/)
                     {
                         $hash->{helper}{LAST_INPUT_TAG} = $hash->{helper}{CURRENT_INPUT_TAG} if(exists($hash->{helper}{CURRENT_INPUT_TAG}));
                         $hash->{helper}{CURRENT_INPUT_TAG} = $1;
@@ -1490,7 +1690,7 @@ YAMAHA_AVR_ParseResponse($$$)
                         {
                             Log3 $name, 4, "YAMAHA_AVR ($name) - check for extended input informations on <$1>";
                         
-                            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"GET\"><$1><Play_Info>GetParam</Play_Info></$1></YAMAHA_AV>", "statusRequest", "playInfo", {options => {can_fail => 1}});
+                            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"GET\"><$1><Play_Info>GetParam</Play_Info></$1></YAMAHA_AV>", "statusRequest", "playInfo", {options => {can_fail => 1, input_tag => $1}});
                             
                             if(!exists($hash->{helper}{LAST_INPUT_TAG}) or ($hash->{helper}{LAST_INPUT_TAG} ne $hash->{helper}{CURRENT_INPUT_TAG}) or $hash->{helper}{SUPPORT_SHUFFLE_REPEAT})
                             {
@@ -1514,6 +1714,7 @@ YAMAHA_AVR_ParseResponse($$$)
                         readingsBulkUpdateIfChanged($hash, "currentStation", "");
                         readingsBulkUpdateIfChanged($hash, "currentStationFrequency","");
                         readingsBulkUpdateIfChanged($hash, "currentArtist", "");
+                        readingsBulkUpdateIfChanged($hash, "playStatus", "stopped");
                     }
                 }
                 
@@ -1579,6 +1780,26 @@ YAMAHA_AVR_ParseResponse($$$)
                 {
                     delete($hash->{helper}{DIRECT_TAG}) if(exists($hash->{helper}{DIRECT_TAG}));
                 }
+                
+                if($data =~ /<Sound_Video>.*?<YPAO_Volume>(.+?)<\/YPAO_Volume>.*?<\/Sound_Video>/)
+                {
+                    readingsBulkUpdate($hash, "ypaoVolume", lc($1));
+                    $hash->{helper}{SUPPORT_YPAO_VOLUME} = 1;
+                }
+                else
+                {
+                    $hash->{helper}{SUPPORT_YPAO_VOLUME} = 0;
+                }
+
+                if($data =~ /<Sound_Video>.*?<Extra_Bass>(.+?)<\/Extra_Bass>.*?<\/Sound_Video>/)
+                {
+                    $hash->{helper}{SUPPORT_EXTRA_BASS} = 1;
+                    readingsBulkUpdate($hash, "extraBass", lc($1));
+                }
+                else
+                {
+                    $hash->{helper}{SUPPORT_EXTRA_BASS} = 0;
+                }
             }
             elsif($arg eq "playInfo")
             {
@@ -1596,6 +1817,10 @@ YAMAHA_AVR_ParseResponse($$$)
                     readingsBulkUpdate($hash, "currentStation", YAMAHA_AVR_html2txt($1));
                 }
                 elsif($data =~ /<Meta_Info>.*?<Program_Service>(.+?)<\/Program_Service>.*?<\/Meta_Info>/)
+                {
+                    readingsBulkUpdate($hash, "currentStation", YAMAHA_AVR_html2txt($1));
+                }
+                elsif($data =~ /<DAB>.*?<Meta_Info>.*?<Service_Label>(.+?)<\/Service_Label>.*?<\/Meta_Info>.*?<\/DAB>/)
                 {
                     readingsBulkUpdate($hash, "currentStation", YAMAHA_AVR_html2txt($1));
                 }
@@ -1626,13 +1851,17 @@ YAMAHA_AVR_ParseResponse($$$)
                 {
                     readingsBulkUpdate($hash, "currentTitle", YAMAHA_AVR_html2txt($1));
                 }
+                elsif($data =~ /<Meta_Info>.*?<Track>(.+?)<\/Track>.*?<\/Meta_Info>/)
+                {
+                    readingsBulkUpdate($hash, "currentTitle", YAMAHA_AVR_html2txt($1));
+                }
                 elsif($data =~ /<Meta_Info>.*?<Radio_Text_A>(.+?)<\/Radio_Text_A>.*?<\/Meta_Info>/)    
                 {        
                     my $tmp = $1;
                     
                     if($data =~ /<Meta_Info>.*?<Radio_Text_A>(.+?)<\/Radio_Text_A>.*?<Radio_Text_B>(.+?)<\/Radio_Text_B>.*?<\/Meta_Info>/)    
-                    {                                            
-                        readingsBulkUpdate($hash, "currentTitle", YAMAHA_AVR_html2txt($1." ".$2));        
+                    {                                                                   
+                        readingsBulkUpdate($hash, "currentTitle", YAMAHA_AVR_html2txt(trim($1)." ".trim($2)));        
                     }    
                     else
                     {
@@ -1643,22 +1872,32 @@ YAMAHA_AVR_ParseResponse($$$)
                 {         
                     readingsBulkUpdate($hash, "currentTitle", YAMAHA_AVR_html2txt($1));        
                 }    
+                elsif($data =~ /<DAB>.*?<DLS>(.+?)<\/DLS>.*?<\/DAB>/)
+                {         
+                    readingsBulkUpdate($hash, "currentTitle", YAMAHA_AVR_html2txt($1));        
+                } 
                 else
                 {
                     readingsBulkUpdateIfChanged($hash, "currentTitle", "");
                 }
-                
+
                 if($data =~ /<Playback_Info>(.+?)<\/Playback_Info>/)
                 {
-                    readingsBulkUpdate($hash, "playStatus", lc($1));
+                    readingsBulkUpdate($hash, "playStatus", "stopped") if($1 eq "Stop");
+                    readingsBulkUpdate($hash, "playStatus", "playing") if($1 eq "Play");
+                    readingsBulkUpdate($hash, "playStatus", "paused") if($1 eq "Pause");
+                }
+                elsif($options->{input_tag} eq "Tuner")
+                {
+                    readingsBulkUpdate($hash, "playStatus", "playing");
                 }
                 
-                if($data =~ /<Tuning>.*?<Freq><Current><Val>(\d+?)<\/Val><Exp>(\d+?)<\/Exp><Unit>(.*?)<\/Unit><\/Current>.*?<\/Tuning>/ or (YAMAHA_AVR_isModel_DSP($hash) and $data =~ /<Tuning>.*?<Freq><Val>(\d+?)<\/Val><Exp>(\d+?)<\/Exp><Unit>(.*?)<\/Unit><\/Freq>.*?<\/Tuning>/))
+                if($data =~ /<Tuning>.*?<Freq>(?:<Current>)?<Val>(\d+?)<\/Val><Exp>(\d+?)<\/Exp><Unit>(.*?)<\/Unit>(?:<\/Current>)?.*<\/Tuning>/ or $data =~ /<DAB>.*?<Signal_Info>.*?<Freq><Val>(\d+?)<\/Val><Exp>(\d+?)<\/Exp><Unit>(.*?)<\/Unit><\/Freq>.*<\/Signal_Info>.*<\/DAB>/ or(YAMAHA_AVR_isModel_DSP($hash) and $data =~ /<Tuning>.*?<Freq><Val>(\d+?)<\/Val><Exp>(\d+?)<\/Exp><Unit>(.*?)<\/Unit><\/Freq>.*?<\/Tuning>/))
                 {
                     readingsBulkUpdate($hash, "currentStationFrequency", sprintf("%.$2f", ($1 / (10 ** $2)))." $3");
                     readingsBulkUpdate($hash, "tunerFrequency", sprintf("%.$2f", ($1 / (10 ** $2))));
                     
-                    if($data =~ /<Tuning>.*?<Band>(.+?)<\/Band>.*?<\/Tuning>/)
+                    if($data =~ /<(?:Tuning|DAB)>.*?<Band>(.+?)<\/Band>.*?<\/(?:Tuning|DAB)>/)
                     {
                         readingsBulkUpdate($hash, "tunerFrequencyBand", uc($1));
                     }
@@ -1702,6 +1941,53 @@ YAMAHA_AVR_ParseResponse($$$)
                 {
                     readingsBulkUpdate($hash, "tunerFrequency", sprintf("%.$2f", ($1 / (10 ** $2))));
                 }    
+            }
+            elsif($arg eq "surroundDecoder")
+            {
+                if($data =~ /<Decoder_Type>(.+?)<\/Decoder_Type>/)
+                {
+                    $hash->{helper}{SUPPORT_SURROUND_DECODER} = 1;
+                    readingsBulkUpdate($hash, "surroundDecoder", YAMAHA_AVR_Param2Fhem($1, 0));
+                    $hash->{helper}{SURROUND_DECODERS} = YAMAHA_AVR_generateSurroundDecoderList($hash) unless($hash->{helper}{SURROUND_DECODERS});
+                }
+                elsif($data =~ /RC="2"/) # is not supported by this specific model
+                {
+                    $hash->{helper}{SUPPORT_SURROUND_DECODER} = 0;
+                }
+            }
+            elsif($arg eq "displayBrightness")
+            {
+                if($data =~ /<Dimmer>(.+?)<\/Dimmer>/ or (YAMAHA_AVR_isModel_DSP($hash) and $data =~ /<Val>(.+?)<\/Val>/))
+                {
+                    $hash->{helper}{SUPPORT_DISPLAY_BRIGHTNESS} = 1;
+                    readingsBulkUpdate($hash, "displayBrightness", $1);
+                }
+                elsif($data =~ /RC="2"/) # is not supported by this specific model
+                {
+                    $hash->{helper}{SUPPORT_DISPLAY_BRIGHTNESS} = 0;
+                }
+            }
+            elsif($arg eq "hdmiOut1")
+            {
+                if($data =~ /<OUT_1>(.+?)<\/OUT_1>/)
+                {
+                    readingsBulkUpdate($hash, "hdmiOut1", lc($1));
+                }
+                elsif($data =~ /RC="2"/) # is not supported by this specific model
+                {
+                    $hash->{helper}{SUPPORT_HDMI_OUT} = 0;
+                }
+            }
+            elsif($arg eq "hdmiOut2")
+            {
+                if($data =~ /<OUT_2>(.+?)<\/OUT_2>/)
+                {
+                    readingsBulkUpdate($hash, "hdmiOut2", lc($1));
+                }
+                elsif($data =~ /RC="2"/) # is not supported by this specific model
+                {
+                    $hash->{helper}{SUPPORT_HDMI_OUT} = 0;
+                }
             }
         }
         elsif($cmd eq "on")
@@ -1748,7 +2034,7 @@ YAMAHA_AVR_ParseResponse($$$)
                     # menu browsing finished
                     if(exists($options->{last_layer}) and $options->{last_layer} == $menu_layer and $last and $options->{item_selected})
                     {
-                        Log3 $name, 5 ,"YAMAHA_AVR ($name) - menu browsing to $arg is finished. requesting basic status";
+                        Log3 $name, 4 ,"YAMAHA_AVR ($name) - menu browsing to $arg is finished. requesting basic status";
                         readingsEndUpdate($hash, 1);
                         YAMAHA_AVR_GetStatus($hash, 1);
                         return undef;
@@ -1757,14 +2043,28 @@ YAMAHA_AVR_ParseResponse($$$)
                     # initialization sequence
                     if($options->{init} and $menu_layer > 1)
                     {
-                        Log3 $name, 5 ,"YAMAHA_AVR ($name) - return to start of menu to begin menu browsing";
+                        Log3 $name, 4 ,"YAMAHA_AVR ($name) - return to start of menu to begin menu browsing";
+                        
+                        my $back_cmd = "Return to Home";
+                        my $tries = ++$options->{init};
+                        my $max_tries = 10;
                         
                         # RX-Vx71's series models and older use a different command to return back to menu root                       
-                        my $back_cmd = ((exists($hash->{MODEL}) and $hash->{MODEL} =~ /^(?:RX-A\d{1,2}10|RX-A\d{1,2}00|RX-V\d{1,2}(?:71|67|65))$/) ? "Back to Home" : "Return to Home");
+                        $back_cmd = "Back to Home" if(exists($hash->{MODEL}) and $hash->{MODEL} =~ /^(?:RX-A\d{1,2}10|RX-A\d{1,2}00|RX-V\d{1,2}(?:71|67|65))$/);
                         
-                        YAMAHA_AVR_SendCommand($hash,"<YAMAHA_AV cmd=\"PUT\"><[CURRENT_INPUT_TAG]><List_Control><Cursor>$back_cmd</Cursor></List_Control></[CURRENT_INPUT_TAG]></YAMAHA_AV>", $cmd, $arg);
-                        YAMAHA_AVR_SendCommand($hash,"<YAMAHA_AV cmd=\"GET\"><[CURRENT_INPUT_TAG]><List_Info>GetParam</List_Info></[CURRENT_INPUT_TAG]></YAMAHA_AV>", $cmd, $arg,  {options => {init => 1}});
-
+                        # RX-V2065/RX-V1067 don't support "Back to Home", just "Back" for one level up.
+                        $back_cmd = "Back" if(exists($hash->{MODEL}) and $hash->{MODEL} =~ /^RX-V\d{1,2}(?:65|67)$/);
+                        
+                        if($tries <= $max_tries) 
+                        {
+                            YAMAHA_AVR_SendCommand($hash,"<YAMAHA_AV cmd=\"PUT\"><[CURRENT_INPUT_TAG]><List_Control><Cursor>$back_cmd</Cursor></List_Control></[CURRENT_INPUT_TAG]></YAMAHA_AV>", $cmd, $arg);
+                            YAMAHA_AVR_SendCommand($hash,"<YAMAHA_AV cmd=\"GET\"><[CURRENT_INPUT_TAG]><List_Info>GetParam</List_Info></[CURRENT_INPUT_TAG]></YAMAHA_AV>", $cmd, $arg,  {options => {init => $tries}});
+                        }
+                        else
+                        {
+                            Log3 $name, 3 ,"YAMAHA_AVR ($name) - unable to return to top menu after $max_tries tries to navigate to $arg";
+                        }
+                        
                         readingsEndUpdate($hash, 1);
                         YAMAHA_AVR_HandleCmdQueue($queue_hash);
                         return;
@@ -1784,7 +2084,7 @@ YAMAHA_AVR_ParseResponse($$$)
                             my $last = ($3 eq "Item");                       
                             my $absolute_line_number = $1 + int($current_line / 8) * 8;
                             
-                            Log3 $name, 5 ,"YAMAHA_AVR ($name) - selecting menu item \"$2\" (line item: $1, absolute number: $absolute_line_number)";
+                            Log3 $name, 4 ,"YAMAHA_AVR ($name) - selecting menu item \"$2\" (line item: $1, absolute number: $absolute_line_number)";
                             
                             YAMAHA_AVR_SendCommand($hash,"<YAMAHA_AV cmd=\"PUT\"><[CURRENT_INPUT_TAG]><List_Control><Jump_Line>$absolute_line_number</Jump_Line></List_Control></[CURRENT_INPUT_TAG]></YAMAHA_AV>", $cmd, $arg);
                             YAMAHA_AVR_SendCommand($hash,"<YAMAHA_AV cmd=\"PUT\"><[CURRENT_INPUT_TAG]><List_Control><Direct_Sel>Line_$1</Direct_Sel></List_Control></[CURRENT_INPUT_TAG]></YAMAHA_AV>", $cmd, $arg);
@@ -1795,7 +2095,7 @@ YAMAHA_AVR_ParseResponse($$$)
                             if(($current_line + 8) < $max_line)
                             {
                                 #request next page
-                                Log3 $name, 5 ,"YAMAHA_AVR ($name) - request next page of menu (current line: $current_line, max lines: $max_line)";
+                                Log3 $name, 4 ,"YAMAHA_AVR ($name) - request next page of menu (current line: $current_line, max lines: $max_line)";
                                 YAMAHA_AVR_SendCommand($hash,"<YAMAHA_AV cmd=\"PUT\"><[CURRENT_INPUT_TAG]><List_Control><Page>Down</Page></List_Control></[CURRENT_INPUT_TAG]></YAMAHA_AV>", $cmd, $arg);
                                 YAMAHA_AVR_SendCommand($hash,"<YAMAHA_AV cmd=\"GET\"><[CURRENT_INPUT_TAG]><List_Info>GetParam</List_Info></[CURRENT_INPUT_TAG]></YAMAHA_AV>", $cmd, $arg, {options => {not_before => gettimeofday()+1}});
                             }
@@ -1809,7 +2109,7 @@ YAMAHA_AVR_ParseResponse($$$)
                 else
                 {
                     # list must be checked again in 1 second.
-                    Log3 $name, 5 ,"YAMAHA_AVR ($name) - menu is busy. retrying in 1 second";
+                    Log3 $name, 4 ,"YAMAHA_AVR ($name) - menu is busy. retrying in 1 second";
                     YAMAHA_AVR_SendCommand($hash,"<YAMAHA_AV cmd=\"GET\"><[CURRENT_INPUT_TAG]><List_Info>GetParam</List_Info></[CURRENT_INPUT_TAG]></YAMAHA_AV>", $cmd, $arg, {options => {not_before => (gettimeofday()+1), last_layer => $menu_layer, at_first => 1}});
                 }
             }
@@ -1860,7 +2160,7 @@ YAMAHA_AVR_ParseResponse($$$)
                 YAMAHA_AVR_SendCommand($hash,"<YAMAHA_AV cmd=\"GET\"><Tuner><Play_Info>GetParam</Play_Info></Tuner></YAMAHA_AV>", "statusRequest", "tunerFrequency");
             }
         }
-        
+       
         readingsEndUpdate($hash, 1);  
         
         YAMAHA_AVR_GetStatus($hash, 1) unless($cmd =~ /^statusRequest|navigateListMenu|volume|input|tuner.+$/);
@@ -2038,6 +2338,10 @@ YAMAHA_AVR_ParseXML($$$)
         }
     }
     
+
+    # check for hdmi output command
+    $hash->{helper}{SUPPORT_HDMI_OUT} = ($data =~ /<Menu Func_Ex="HDMI_Out" Title_1="HDMI OUT">/ ? 1 : 0);
+    
     # uncomment line for zone detection testing
     #
     #$hash->{helper}{ZONES} .= "|Zone_2";
@@ -2160,25 +2464,47 @@ sub YAMAHA_AVR_html2txt($)
     return $string;
 }
 
-
-# ########################################################################################
-# ### DSP-Z7 / 3900 specific functions ###################################################
-# ########################################################################################
+sub YAMAHA_AVR_generateSurroundDecoderList($)
+{
+    my ($hash) = @_;
+    
+    if(defined($hash->{MODEL}))
+    {
+        if($hash->{MODEL} =~ /^(?:RX-V[67]79|RX-A750|RX-AS710D?)$/) # RX-V679, RX-V779, RX-A750, RX-AS710, RX-AS710D (from RX-Vx79/RX-Ax50 series)
+        {
+            $hash->{helper}{SURROUND_DECODERS} = "Dolby PLII Movie|Dolby PLII Music|Dolby PLII Game|Dolby PLIIx Movie|Dolby PLIIx Music|Dolby PLIIx Game|DTS NEO:6 Cinema|DTS NEO:6 Music";
+        }
+        elsif($hash->{MODEL} =~ /^(?:RX-A850|RX-A[123]050|CX-A5100)$/) # RX-A850, RX-A1050, RX-A2050, RX-A3050, CX-A5100 (from RX-Vx79/RX-Ax50 series)
+        {
+            $hash->{helper}{SURROUND_DECODERS} = "Dolby PLII Movie|Dolby PLII Music|Dolby PLII Game|Dolby PLIIx Movie|Dolby PLIIx Music|Dolby PLIIx Game|Dolby Surround|DTS Neural:X|DTS NEO:6 Cinema|DTS NEO:6 Music";
+        }
+        elsif($hash->{MODEL} =~ /^RX-(?:V\d{1,2}81|A\d{1,2}60)$/) # RX-Ax60/Vx81 series
+        {
+            $hash->{helper}{SURROUND_DECODERS} = "Dolby Surround|DTS Neural:X|DTS NEO:6 Cinema|DTS NEO:6 Music"
+        }
+        else # all other/older models
+        {
+            $hash->{helper}{SURROUND_DECODERS} = "Dolby PL|Dolby PLII Movie|Dolby PLII Music|Dolby PLII Game|Dolby PLIIx Movie|Dolby PLIIx Music|Dolby PLIIx Game|DTS NEO:6 Cinema|DTS NEO:6 Music";
+        }
+    }
+}
 
 
 #############################
-# Check if amp is one of these models: DSP-Z7, DSP-Z9, DSP-Z11, RX-Z7, RX-Z9, RX-Z11, RX-V3900, DSP-AX3900
+# Check if amp is one of these models: DSP-Z7, DSP-Z9, DSP-Z11, RX-Z7, RX-Z9, RX-Z11, RX-V2065, RX-V3900, DSP-AX3900
 # Tested models: DSP-Z7
-sub
-YAMAHA_AVR_isModel_DSP($)
+sub YAMAHA_AVR_isModel_DSP($)
 {
     my($hash) = @_;
-    if(exists($hash->{MODEL}) && (($hash->{MODEL} =~ /DSP-Z/) || ($hash->{MODEL} =~ /RX-Z/) || ($hash->{MODEL} =~ /RX-V3900/) || ($hash->{MODEL} =~ /DSP-AX3900/)))
+    
+    if(exists($hash->{MODEL}) && (($hash->{MODEL} =~ /DSP-Z/) || ($hash->{MODEL} =~ /RX-Z/) || ($hash->{MODEL} =~ /RX-V2065/) || ($hash->{MODEL} =~ /RX-V3900/) || ($hash->{MODEL} =~ /DSP-AX3900/)))
     {
         return 1;
     }
     return 0;
 }
+
+
 
 1;
 
@@ -2275,6 +2601,8 @@ YAMAHA_AVR_isModel_DSP($)
 <li><b>volumeStraight</b> -80...15 [direct] &nbsp;&nbsp;-&nbsp;&nbsp; set the volume level in decibel. If you use "direct" as second argument, no volume smoothing is used (if activated) for this volume change. In this case, the volume will be set immediatly.</li>
 <li><b>volumeUp</b> [0-100] [direct] &nbsp;&nbsp;-&nbsp;&nbsp; increases the volume level by 5% or the value of attribute volumeSteps (optional the increasing level can be given as argument, which will be used instead). If you use "direct" as second argument, no volume smoothing is used (if activated) for this volume change. In this case, the volume will be set immediatly.</li>
 <li><b>volumeDown</b> [0-100] [direct] &nbsp;&nbsp;-&nbsp;&nbsp; decreases the volume level by 5% or the value of attribute volumeSteps (optional the decreasing level can be given as argument, which will be used instead). If you use "direct" as second argument, no volume smoothing is used (if activated) for this volume change. In this case, the volume will be set immediatly.</li>
+<li><b>hdmiOut1</b> on|off &nbsp;&nbsp;-&nbsp;&nbsp; controls the HDMI output 1</li>
+<li><b>hdmiOut2</b> on|off &nbsp;&nbsp;-&nbsp;&nbsp; controls the HDMI output 2</li>
 <li><b>mute</b> on|off|toggle &nbsp;&nbsp;-&nbsp;&nbsp; activates volume mute</li>
 <li><b>bass</b> [-6...6] step 0.5 (main zone), [-10...10] step 2 (other zones), [-10...10] step 1 (other zones, DSP models) &nbsp;&nbsp;-&nbsp;&nbsp; set bass tone level in decibel</li>
 <li><b>treble</b> [-6...6] step 0.5 (main zone), [-10...10] step 2 (other zones), [-10...10] step 1 (other zones, DSP models) &nbsp;&nbsp;-&nbsp;&nbsp; set treble tone level in decibel</li>
@@ -2292,6 +2620,10 @@ YAMAHA_AVR_isModel_DSP($)
 <li><b>direct</b> on|off &nbsp;&nbsp;-&nbsp;&nbsp; bypasses all internal sound enhancement features and plays the sound straight directly</li> 
 <li><b>sleep</b> off,30min,60min,...,last &nbsp;&nbsp;-&nbsp;&nbsp; activates the internal sleep timer</li>
 <li><b>shuffle</b> on,off &nbsp;&nbsp;-&nbsp;&nbsp; activates the shuffle mode on the current input</li>
+<li><b>surroundDecoder</b> dolbypl,... &nbsp;&nbsp;-&nbsp;&nbsp; set the surround decoder. Only the available decoders were given if the device supports the configuration of the surround decoder.</li>
+<li><b>extraBass</b> off,auto &nbsp;&nbsp;-&nbsp;&nbsp; controls the extra bass. Only available if supported by the device.</li>
+<li><b>ypaoVolume</b> off,auto &nbsp;&nbsp;-&nbsp;&nbsp; controls the YPAO volume. Only available if supported by the device.</li>
+<li><b>displayBrightness</b> -4...0 &nbsp;&nbsp;-&nbsp;&nbsp; controls brightness reduction of the front display. Only available if supported by the device.</li>
 <li><b>repeat</b> one,all,off &nbsp;&nbsp;-&nbsp;&nbsp; activates the repeat mode on the current input for one or all titles</li>
 <li><b>pause</b> &nbsp;&nbsp;-&nbsp;&nbsp; pause playback on current input</li>
 <li><b>play</b> &nbsp;&nbsp;-&nbsp;&nbsp; start playback on current input</li>
@@ -2395,53 +2727,67 @@ So here are some examples:
   <a name="YAMAHA_AVR_attr"></a>
   <b>Attributes</b>
   <ul>
-  
     <li><a href="#do_not_notify">do_not_notify</a></li>
     <li><a href="#disabledForIntervals">disabledForIntervals</a></li>
     <li><a href="#readingFnAttributes">readingFnAttributes</a></li><br>
     <li><a name="YAMAHA_AVR_request-timeout">request-timeout</a></li>
     Optional attribute change the response timeout in seconds for all queries to the receiver.
     <br><br>
-    Possible values: 1-5 seconds. Default value is 4 seconds.<br><br>
+    Possible values: 1-5 seconds. Default value is 4 seconds.
+    <br><br>
     <li><a name="YAMAHA_AVR_disable">disable</a></li>
     Optional attribute to disable the internal cyclic status update of the receiver. Manual status updates via statusRequest command is still possible.
     <br><br>
-    Possible values: 0 => perform cyclic status update, 1 => don't perform cyclic status updates.<br><br>
+    Possible values: 0 => perform cyclic status update, 1 => don't perform cyclic status updates.
+    <br><br>
     <li><a name="YAMAHA_AVR_volume-smooth-change">volume-smooth-change</a></li>
     Optional attribute to activate a smooth volume change.
     <br><br>
-    Possible values: 0 => off , 1 => on<br><br>
+    Possible values: 0 => off , 1 => on
+    <br><br>
     <li><a name="YAMAHA_AVR_volume-smooth-steps">volume-smooth-steps</a></li>
     Optional attribute to define the number of volume changes between the
-    current and the desired volume. Default value is 5 steps<br><br>
+    current and the desired volume. Default value is 5 steps
+    <br><br>
     <li><a name="YAMAHA_AVR_volume-steps">volumeSteps</a></li>
-    Optional attribute to define the default increasing and decreasing level for the volumeUp and volumeDown set command. Default value is 5%<br>
-  <br>
+    Optional attribute to define the default increasing and decreasing level for the volumeUp and volumeDown set command. Default value is 5%
+    <br><br>
+    <li><a name="YAMAHA_AVR_volume-max">volumeMax</a></li>
+    Optional attribute to set an upper limit in percentage for volume changes.
+    If the user tries to change the volume to a higher level than configured with this attribute, the volume will not exceed this limit.
+    <br><br>
+    Possible values: 0-100%. Default value is 100% (no limitation)<br><br>
   </ul>
   <b>Generated Readings/Events:</b><br>
   <ul>
   <li><b>3dCinemaDsp</b> - The status of the CINEMA DSP 3D mode (can be "auto" or "off")</li>
   <li><b>adaptiveDrc</b> - The status of the Adaptive DRC (can be "auto" or "off")</li>
   <li><b>bass</b> Reports the current bass tone level of the receiver or zone in decibel values (between -6 and 6 dB (mainzone) and -10 and 10 dB (other zones)</li>
-  <li><b>dsp</b> - The current selected DSP mode for sound output</li>
   <li><b>direct</b> - indicates if all sound enhancement features are bypassed or not ("on" =&gt; all features are bypassed, "off" =&gt; sound enhancement features are used).</li>
+  <li><b>dsp</b> - The current selected DSP mode for sound output</li>
+  <li><b>displayBrightness</b> - indicates the brightness reduction of the front display (-4 is the maximum reduction, 0 means no reduction; only available if supported by the device).</li>
   <li><b>enhancer</b> - The status of the internal sound enhancer (can be "on" or "off")</li>
+  <li><b>extraBass</b> - The status of the extra bass (can be "auto" or "off", only available if supported by the device)</li>
   <li><b>input</b> - The selected input source according to the FHEM input commands</li>
   <li><b>inputName</b> - The input description as seen on the receiver display</li>
+  <li><b>hdmiOut1</b> - The status of the HDMI output 1 (can be "on" or "off")</li>
+  <li><b>hdmiOut2</b> - The status of the HDMI output 2 (can be "on" or "off")</li>
   <li><b>mute</b> - Reports the mute status of the receiver or zone (can be "on" or "off")</li>
   <li><b>newFirmware</b> - indicates if a firmware update is available (can be "available" or "unavailable"; only available for RX-Vx71, RX-Vx73, RX-Ax10 or RX-Ax20)</li>
   <li><b>power</b> - Reports the power status of the receiver or zone (can be "on" or "off")</li>
   <li><b>presence</b> - Reports the presence status of the receiver or zone (can be "absent" or "present"). In case of an absent device, it cannot be controlled via FHEM anymore.</li>
   <li><b>partyMode</b> - indicates if the party mode is enabled/disabled for the whole device (in main zone) or if the current zone is enabled for party mode (other zones than main zone)</li>
-  <li><b>tunerFrequency</b> - the current tuner frequency in kHz (AM band) or MHz (FM band)</li>
-  <li><b>tunerFrequencyBand</b> - the current tuner band (AM or FM)</li>
-  <li><b>volume</b> - Reports the current volume level of the receiver or zone in percentage values (between 0 and 100 %)</li>
-  <li><b>volumeStraight</b> - Reports the current volume level of the receiver or zone in decibel values (between -80.5 and +15.5 dB)</li>
   <li><b>sleep</b> - indicates if the internal sleep timer is activated or not.</li>
   <li><b>straight</b> - indicates if the internal sound codec converter is bypassed or not (can be "on" or "off")</li>
   <li><b>state</b> - Reports the current power state and an absence of the device (can be "on", "off" or "absent")</li>
+  <li><b>surroundDecoder</b> - Reports the selected surround decoder in case of "Surround Decoder" is used as active DSP</li>    
+  <li><b>tunerFrequency</b> - the current tuner frequency in kHz (AM band) or MHz (FM band)</li>
+  <li><b>tunerFrequencyBand</b> - the current tuner band (AM or FM)</li>
   <li><b>treble</b> Reports the current treble tone level of the receiver or zone in decibel values (between -6 and 6 dB (mainzone) and -10 and 10 dB (other zones)</li>
-  <br><br><u>Input dependent Readings/Events:</u><br>
+  <li><b>volume</b> - Reports the current volume level of the receiver or zone in percentage values (between 0 and 100 %)</li>
+  <li><b>volumeStraight</b> - Reports the current volume level of the receiver or zone in decibel values (between -80.5 and +15.5 dB)</li>
+  <li><b>ypaoVolume</b> - The status of the YPAO valume (can be "auto" or "off", only available if supported by the device)</li>
+  <br><u>Input dependent Readings/Events:</u><br><br>
   <li><b>currentChannel</b> - Number of the input channel (SIRIUS only)</li>
   <li><b>currentStation</b> - Station name of the current radio station (available only on TUNER, HD RADIO, NET RADIO or PANDORA)</li>
   <li><b>currentStationFrequency</b> - The tuner frequency of the current station (only available on Tuner or HD Radio)</li>
@@ -2546,6 +2892,9 @@ So here are some examples:
 <li><b>enhancer</b> on,off &nbsp;&nbsp;-&nbsp;&nbsp; Aktiviert den Sound Enhancer f&uuml;r einen verbesserten Raumklang</li>
 <li><b>3dCinemaDsp</b> auto,off &nbsp;&nbsp;-&nbsp;&nbsp; Aktiviert den CINEMA DSP 3D Modus</li>
 <li><b>adaptiveDrc</b> auto,off &nbsp;&nbsp;-&nbsp;&nbsp; Aktiviert Adaptive DRC</li>
+<li><b>extraBass</b> auto,off &nbsp;&nbsp;-&nbsp;&nbsp; Aktiviert den Extra Bass</li>
+<li><b>ypaoVolume</b> auto,off &nbsp;&nbsp;-&nbsp;&nbsp; Aktiviert YPAO Lautst&auml;rke</li>
+<li><b>displayBrightness</b> -4...0 &nbsp;&nbsp;-&nbsp;&nbsp; Steuert die Helligkeitsreduzierung des Front-Displays</li>
 <li><b>partyMode</b> on|off &nbsp;&nbsp;-&nbsp;&nbsp;Aktiviert den Party Modus. In der Main Zone wird hierbei der Party Modus ger&auml;teweit aktiviert oder deaktiviert. In den anderen Zonen kann man damit die entsprechende Zone dem Party Modus zuschalten oder entziehen.</li>
 <li><b>navigateListMenu</b> [Element 1]/[Element 2]/.../[Element N] &nbsp;&nbsp;-&nbsp;&nbsp; W&auml;hlt ein spezifisches Element aus einer Men&uuml;struktur aus. Nur verwendbar bei Men&uuml;-basierenden Eing&auml;ngen (z.B. Net Radio, USB, Server, etc.). Siehe nachfolgendes Kapitel "<a href="#YAMAHA_AVR_MenuNavigation">Automatische Men&uuml; Navigation</a>" f&uuml;r weitere Details und Beispiele.</li>
 <li><b>tunerFrequency</b> [Frequenz] [AM|FM] &nbsp;&nbsp;-&nbsp;&nbsp; setzt die Radio-Frequenz. Das erste Argument ist die Frequenz, der zweite dient optional zu Angabe des Bandes (AM oder FM, standardm&auml;&szlig;ig FM). Abh&auml;ngig davon, welches Band man benutzt, wird die Frequenz in kHz (AM-Band) oder MHz (FM-Band) angegeben. Wenn im zweiten Argument kein Band angegeben ist, wird standardm&auml;&szlig;ig das FM-Band benutzt. Dieser Befehl kann auch benutzt werden, wenn der aktuelle Eingang nicht "tuner" ist. Die neue Frequenz wird dennoch gesetzt und bei der n&auml;chsten Benutzung abgespielt.</li>
@@ -2554,7 +2903,10 @@ So here are some examples:
 <li><b>presetDown</b> &nbsp;&nbsp;-&nbsp;&nbsp; w&auml;hlt das vorherige Preset f&uuml;r den aktuellen Eingang aus.</li>
 <li><b>direct</b> on,off &nbsp;&nbsp;-&nbsp;&nbsp; Umgeht alle internen soundverbessernden Ma&szlig;nahmen (Equalizer, Enhancer, Adaptive DRC,...) und gibt das Signal unverf&auml;lscht wieder</li>
 <li><b>input</b> hdmi1,hdmiX,... &nbsp;&nbsp;-&nbsp;&nbsp; W&auml;hlt den Eingangskanal (es werden nur die tats&auml;chlich verf&uuml;gbaren Eing&auml;nge angeboten)</li>
+<li><b>hdmiOut1</b> on,off &nbsp;&nbsp;-&nbsp;&nbsp; Aktiviert die Ausgabe via HDMI Ausgang 1</li>
+<li><b>hdmiOut2</b> on,off &nbsp;&nbsp;-&nbsp;&nbsp; Aktiviert die Ausgabe via HDMI Ausgang 2</li>
 <li><b>scene</b> scene1,sceneX &nbsp;&nbsp;-&nbsp;&nbsp; W&auml;hlt eine vorgefertigte Szene aus</li>
+<li><b>surroundDecoder</b> dolbypl,... &nbsp;&nbsp;-&nbsp;&nbsp; Setzt den Surround Decoder, welcher genutzt werden soll sofern der DSP Modus "Surround Decoder" aktiv ist.</li>
 <li><b>volume</b> 0...100  [direct] &nbsp;&nbsp;-&nbsp;&nbsp; Setzt die Lautst&auml;rke in Prozent (0 bis 100%). Wenn als zweites Argument "direct" gesetzt ist, wird keine weiche Lautst&auml;rkenanpassung durchgef&uuml;hrt (sofern aktiviert). Die Lautst&auml;rke wird in diesem Fall sofort gesetzt.</li>
 <li><b>volumeStraight</b> -87...15 [direct] &nbsp;&nbsp;-&nbsp;&nbsp; Setzt die Lautst&auml;rke in Dezibel (-80.5 bis 15.5 dB) so wie sie am Receiver auch verwendet wird. Wenn als zweites Argument "direct" gesetzt ist, wird keine weiche Lautst&auml;rkenanpassung durchgef&uuml;hrt (sofern aktiviert). Die Lautst&auml;rke wird in diesem Fall sofort gesetzt.</li>
 <li><b>volumeUp</b> [0...100] [direct] &nbsp;&nbsp;-&nbsp;&nbsp; Erh&ouml;ht die Lautst&auml;rke um 5% oder entsprechend dem Attribut volumeSteps (optional kann der Wert auch als Argument angehangen werden, dieser hat dann Vorang). Wenn als zweites Argument "direct" gesetzt ist, wird keine weiche Lautst&auml;rkenanpassung durchgef&uuml;hrt (sofern aktiviert). Die Lautst&auml;rke wird in diesem Fall sofort gesetzt.</li>
@@ -2571,6 +2923,7 @@ So here are some examples:
 <li><b>stop</b> &nbsp;&nbsp;-&nbsp;&nbsp; Wiedergabe stoppen (ist nur eingangsabh&auml;ngig verf&uuml;gbar)</li>
 <li><b>skip</b> reverse,forward &nbsp;&nbsp;-&nbsp;&nbsp; Aktuellen Titel &uuml;berspringen (ist nur eingangsabh&auml;ngig verf&uuml;gbar)</li>
 <li><b>statusRequest</b> &nbsp;&nbsp;-&nbsp;&nbsp; Fragt den aktuell Status des Receivers ab</li>
+
 <li><b>remoteControl</b> up,down,... &nbsp;&nbsp;-&nbsp;&nbsp; Sendet Fernbedienungsbefehle wie im n&auml;chsten Abschnitt beschrieben</li>
 </ul>
 <br><br>
@@ -2690,33 +3043,45 @@ Ein paar Beispiele:
     Optionales Attribut, welches angibt, wieviele Schritte zur weichen Lautst&auml;rkeanpassung
     durchgef&uuml;hrt werden sollen. Standardwert ist 5 Anpassungschritte<br><br>
     <li><a name="YAMAHA_AVR_volumeSteps">volumeSteps</a></li>
-    Optionales Attribut, welches den Standardwert zur Lautst&auml;rkenerh&ouml;hung (volumeUp) und Lautst&auml;rkenveringerung (volumeDown) konfiguriert. Standardwert ist 5%<br>
-  <br>
+    Optionales Attribut, welches den Standardwert zur Lautst&auml;rkenerh&ouml;hung (volumeUp) und Lautst&auml;rkenveringerung (volumeDown) konfiguriert. Standardwert ist 5%
+    <br><br>
+    <li><a name="YAMAHA_AVR_volumeMax">volumeMax</a></li>
+    Optionales Attribut, welches eine maximale Obergrenze in Prozent für die Lautst&auml;rke festlegt.
+    Wird versucht die Lautst&auml;rke auf einen h&ouml;heren Wert zu setzen, so wird die Lautst&auml;rke dennoch die konfigurierte Obergrenze nicht &uuml;berschreiten.
+    <br><br>
+    M&ouml;gliche Werte: 0-100%. Standardwert ist 100% (keine Begrenzung)
+    <br><br>
   </ul>
   <b>Generierte Readings/Events:</b><br>
   <ul>
   <li><b>3dCinemaDsp</b> - Der Status des CINEMA DSP 3D-Modus ("auto" =&gt; an, "off" =&gt; aus)</li>
   <li><b>adaptiveDrc</b> - Der Status des Adaptive DRC ("auto" =&gt; an, "off" =&gt; aus)</li>
   <li><b>bass</b> Der aktuelle Basspegel, zwischen -6 and 6 dB (main zone) and -10 and 10 dB (andere Zonen)</li>
+  <li><b>direct</b> - Zeigt an, ob soundverbessernde Features umgangen werden oder nicht ("on" =&gt; soundverbessernde Features werden umgangen, "off" =&gt; soundverbessernde Features werden benutzt)</li>
+  <li><b>displayBrightness</b> - Status der Helligkeitsreduzierung des Front-Displays (-4 =&gt; maximale Reduzierung, 0 =&gt; keine Reduzierung)</li>  
   <li><b>dsp</b> - Das aktuell aktive DSP Preset</li>
   <li><b>enhancer</b> - Der Status des Enhancers ("on" =&gt; an, "off" =&gt; aus)</li>
+  <li><b>extraBass</b> - Der Status des Extra Bass ("auto" =&gt; an, "off" =&gt; aus)</li>
   <li><b>input</b> - Der ausgew&auml;hlte Eingang entsprechend dem FHEM-Kommando</li>
   <li><b>inputName</b> - Die Eingangsbezeichnung, so wie sie am Receiver eingestellt wurde und auf dem Display erscheint</li>
+  <li><b>hdmiOut1</b> - Der Status des HDMI Ausgang 1 ("on" =&gt; an, "off" =&gt; aus)</li>
+  <li><b>hdmiOut2</b> - Der Status des HDMI Ausgang 2 ("on" =&gt; an, "off" =&gt; aus)</li>
   <li><b>mute</b> - Der aktuelle Stumm-Status ("on" =&gt; Stumm, "off" =&gt; Laut)</li>
   <li><b>newFirmware</b> - Zeigt an, ob eine neue Firmware zum installieren bereit liegt ("available" =&gt; neue Firmware verf&uuml;gbar, "unavailable" =&gt; keine neue Firmware verf&uuml;gbar; Event wird nur generiert f&uuml;r RX-Vx71, RX-Vx73, RX-Ax10 oder RX-Ax20)</li>
   <li><b>power</b> - Der aktuelle Betriebsstatus ("on" =&gt; an, "off" =&gt; aus)</li>
   <li><b>presence</b> - Die aktuelle Empfangsbereitschaft ("present" =&gt; empfangsbereit, "absent" =&gt; nicht empfangsbereit, z.B. Stromausfall)</li>
   <li><b>partyMode</b> - Der Status des Party Modus ( "enabled" =&gt; aktiviert, "disabled" =&gt; deaktiviert). In der Main Zone stellt dies den ger&auml;teweiten Zustand des Party Modus dar. In den einzelnen Zonen zeigt es an, ob die jeweilige Zone f&uuml;r den Party Modus verwendet wird.</li>
-  <li><b>tunerFrequency</b> - Die aktuelle Empfangsfrequenz f&uuml;r Radio-Empfang in kHz (AM-Band) oder MHz (FM-Band)</li>
-  <li><b>tunerFrequencyBand</b> - Das aktuell genutzte Radio-Band ("AM" oder "FM")</li>
-  <li><b>volume</b> - Der aktuelle Lautst&auml;rkepegel in Prozent (zwischen 0 und 100 %)</li>
-  <li><b>volumeStraight</b> - Der aktuelle Lautst&auml;rkepegel in Dezibel (zwischen -80.0 und +15 dB)</li>
-  <li><b>direct</b> - Zeigt an, ob soundverbessernde Features umgangen werden oder nicht ("on" =&gt; soundverbessernde Features werden umgangen, "off" =&gt; soundverbessernde Features werden benutzt)</li>
   <li><b>straight</b> - Zeigt an, ob die interne Codec Umwandlung umgangen wird oder nicht ("on" =&gt; Codec Umwandlung wird umgangen, "off" =&gt; Codec Umwandlung wird benutzt)</li>
   <li><b>sleep</b> - Zeigt den Status des internen Sleep-Timers an</li>
+  <li><b>surroundDecoder</b> - Zeigt den aktuellen Surround Decoder an</li>
   <li><b>state</b> - Der aktuelle Schaltzustand (power-Reading) oder die Abwesenheit des Ger&auml;tes (m&ouml;gliche Werte: "on", "off" oder "absent")</li>
+  <li><b>tunerFrequency</b> - Die aktuelle Empfangsfrequenz f&uuml;r Radio-Empfang in kHz (AM-Band) oder MHz (FM-Band)</li>
+  <li><b>tunerFrequencyBand</b> - Das aktuell genutzte Radio-Band ("AM" oder "FM")</li>
   <li><b>treble</b> Der aktuelle H&ouml;henpegel, zwischen -6 and 6 dB (main zone) and -10 and 10 dB (andere Zonen)</li>
-  <br><br><u>Eingangsabh&auml;ngige Readings/Events:</u><br>
+  <li><b>volume</b> - Der aktuelle Lautst&auml;rkepegel in Prozent (zwischen 0 und 100 %)</li>
+  <li><b>volumeStraight</b> - Der aktuelle Lautst&auml;rkepegel in Dezibel (zwischen -80.0 und +15 dB)</li>
+  <li><b>ypaoVolume</b> - Der Status der YPAO Lautst&auml;rke ("auto" =&gt; an, "off" =&gt; aus)</li>
+  <br><u>Eingangsabh&auml;ngige Readings/Events:</u><br><br>
   <li><b>currentChannel</b> - Nummer des Eingangskanals (nur bei SIRIUS)</li>
   <li><b>currentStation</b> - Name des Radiosenders (nur bei TUNER, HD RADIO, NET RADIO oder PANDORA)</li>
   <li><b>currentStationFrequency</b> - Die Sendefrequenz des aktuellen Radiosender (nur bei Tuner oder HD Radio)</li>  

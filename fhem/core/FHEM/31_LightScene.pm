@@ -1,5 +1,5 @@
 
-# $Id: 31_LightScene.pm 12889 2016-12-27 13:26:38Z justme1968 $
+# $Id: 31_LightScene.pm 15146 2017-09-28 06:28:07Z justme1968 $
 
 package main;
 
@@ -29,7 +29,7 @@ sub LightScene_Initialize($)
   $hash->{SetFn}    = "LightScene_Set";
   $hash->{GetFn}    = "LightScene_Get";
   $hash->{AttrFn}   = "LightScene_Attr";
-  $hash->{AttrList} = "async_delay followDevices:1,2 lightSceneRestoreOnlyIfChanged:1,0 showDeviceCurrentState:1,0 switchingOrder ". $readingFnAttributes;
+  $hash->{AttrList} = "async_delay followDevices:1,2 lightSceneRestoreOnlyIfChanged:1,0 showDeviceCurrentState:1,0 switchingOrder traversalOrder ". $readingFnAttributes;
 
   $hash->{FW_detailFn}  = "LightScene_detailFn";
   $data{FWEXT}{"/LightScene"}{FUNC} = "LightScene_CGI"; #mod
@@ -274,12 +274,12 @@ LightScene_Notify($$)
       $reading = "state";
       $value = $s;
 
-      if( $hash->{mayBeVisible} ) {
+      if( $hash->{mayBeVisible} || $hash->{followDevices} ) {
         my $room = AttrVal($name, "room", "");
         my %extPage = ();
         (undef, undef, $value) = FW_devState($dev->{NAME}, $room, \%extPage);
 
-        DoTrigger( $name, "$dev->{NAME}.$reading: <html>$value</html>" ) if( $hash->{mayBeVisible} );
+        DoTrigger( $name, "$dev->{NAME}.$reading: <html>$value</html>" );
       }
 
       if( $hash->{followDevices} ) {
@@ -590,8 +590,9 @@ LightScene_Set($@)
 
   my @sorted = sort keys %{$hash->{SCENES}};
 
-     if( $cmd eq "?" ){ return "Unknown argument ?, choose one of remove:".join(",", @sorted) ." rename save set setcmd scene:".join(",", @sorted) ." nextScene:noArg previousScene:noArg"};
+  if( $cmd eq "?" ){ return "Unknown argument ?, choose one of remove:".join(",", @sorted) ." rename save set setcmd scene:".join(",", @sorted) ." all nextScene:noArg previousScene:noArg"};
 
+  if( $cmd eq "all" && !defined( $scene ) ) { return "Usage: set $name all <command>" };
   if( $cmd eq "save" && !defined( $scene ) ) { return "Usage: set $name save <scene_name>" };
   if( $cmd eq "scene" && !defined( $scene ) ) { return "Usage: set $name scene <scene_name>" };
   if( $cmd eq "remove" && !defined( $scene ) ) { return "Usage: set $name remove <scene_name>" };
@@ -640,29 +641,39 @@ LightScene_Set($@)
     return undef;
 
   } elsif( $cmd eq 'nextScene' || $cmd eq 'previousScene' ) {
-    return "no scenes defined" if( $#sorted < 0 );
+    my $sorted = \@sorted;
+    if( my $list = AttrVal($name, 'traversalOrder', undef ) ) {
+      my @parts = split( /[ ,\n]/, $list );
+      $sorted = \@parts;
+    }
+    my $max = scalar @{$sorted}-1;
+
+    return "no scenes defined" if( $max < 0 );
     my $current = ReadingsVal( $name, 'state', '' );
-    my( $index )= grep { $sorted[$_] eq $current } 0..$#sorted;
+    my( $index )= grep { $sorted->[$_] eq $current } 0..$max;
     $index = -1 if( !defined($index) );
 
     ++$index if( $cmd eq 'nextScene' );
     --$index if( $cmd eq 'previousScene' );
 
-    return if( $scene && $scene eq 'nowrap' && $index > $#sorted );
+    return if( $scene && $scene eq 'nowrap' && $index > $max );
     return if( $scene && $scene eq 'nowrap' && $index < 0 );
 
-    $index = 0 if( $index > $#sorted );
-    $index = $#sorted if( $index < 0 );
+    $index = 0 if( $index > $max );
+    $index = $max if( $index < 0 );
 
     $cmd = 'scene';
-    $scene = $sorted[$index];
+    $scene = $sorted->[$index];
+
+    return "no such scene: $scene" if( !defined $hash->{SCENES}{$scene} );
   }
 
 
   $hash->{INSET} = 1;
 
   my @devices;
-  if( $cmd eq "scene" && defined($hash->{switchingOrder}) && defined($hash->{switchingOrder}{$scene}) ) {
+  if( ( $cmd eq "scene" || $cmd eq "all" )
+      && defined($hash->{switchingOrder}) && defined($hash->{switchingOrder}{$scene}) ) {
     @devices = @{$hash->{switchingOrder}{$scene}};
   } else {
     @devices = @{$hash->{devices}};
@@ -716,6 +727,13 @@ LightScene_Set($@)
         $count += $switched;
         $ret .= $rr // "";
       }
+
+    } elsif ( $cmd eq "all" ) {
+      $ret .= " " if( $ret );
+      my($rr,$switched) = LightScene_RestoreDevice($hash,$d,"$scene ".join(" ", @a));
+      $count += $switched;
+      $ret .= $rr // "";
+
     } else {
       $ret = "Unknown argument $cmd, choose one of save scene";
     }
@@ -724,6 +742,8 @@ LightScene_Set($@)
 
   if( $cmd eq "scene" ) {
     readingsSingleUpdate($hash, "state", $scene, 1 ) if( !$hash->{followDevices} || $count == 0 );
+  } elsif( $cmd eq "all" ) {
+    readingsSingleUpdate($hash, "state", "all $scene ".join(" ", @a), 1 ) if( !$hash->{followDevices} || $count == 0 );
   }
 
   delete($hash->{INSET});
@@ -1010,27 +1030,29 @@ LightScene_editTable($) {
   <a name="LightScene_Set"></a>
     <b>Set</b>
     <ul>
+      <li>all &lt;command&gt;<br>
+        execute set &lt;command&gt; for alle devices in this LightScene</li>
       <li>save &lt;scene_name&gt;<br>
-      save current state for alle devices in this LightScene to &lt;scene_name&gt;</li>
+        save current state for alle devices in this LightScene to &lt;scene_name&gt;</li>
       <li>scene &lt;scene_name&gt;<br>
-      shows scene &lt;scene_name&gt; - all devices are switched to the previously saved state</li>
+        shows scene &lt;scene_name&gt; - all devices are switched to the previously saved state</li>
       <li>nextScene [nowrap]<br>
-      activates the next scene in alphabetical order after the current scene or the first if no current scene is set.</li>
+        activates the next scene in alphabetical order after the current scene or the first if no current scene is set.</li>
       <li>previousScene [nowrap]<br>
-      activates the previous scene in alphabetical order before the current scene or the last if no current scene is set.</li>
+        activates the previous scene in alphabetical order before the current scene or the last if no current scene is set.</li>
       <li>set &lt;scene_name&gt; &lt;device&gt; [&lt;cmd&gt;]<br>
-      set the saved state of &lt;device&gt; in &lt;scene_name&gt; to &lt;cmd&gt;</li>
+        set the saved state of &lt;device&gt; in &lt;scene_name&gt; to &lt;cmd&gt;</li>
       <li>setcmd &lt;scene_name&gt; &lt;device&gt; [&lt;cmd&gt;]<br>
-      set command to be executed for &lt;device&gt; in &lt;scene_name&gt; to &lt;cmd&gt;.
+        set command to be executed for &lt;device&gt; in &lt;scene_name&gt; to &lt;cmd&gt;.
       &lt;cmd&gt; can be any commandline that fhem understands including multiple commands separated by ;;
       <ul>
         <li>set kino_group setcmd allOff LampeDecke sleep 30 ;; set LampeDecke off</li>
         <li>set light_group setcmd test Lampe1 sleep 10 ;; set Lampe1 on ;; sleep 5 ;; set Lampe1 off</li>
       </ul></li>
       <li>remove &lt;scene_name&gt;<br>
-      remove &lt;scene_name&gt; from list of saved scenes</li>
+        remove &lt;scene_name&gt; from list of saved scenes</li>
       <li>rename &lt;scene_old_name&gt; &lt;scene_new_name&gt;<br>
-      rename &lt;scene_old_name&gt; to &lt;scene_new_name&gt;</li>
+        rename &lt;scene_old_name&gt; to &lt;scene_new_name&gt;</li>
     </ul><br>
 
   <a name="LightScene_Get"></a>
@@ -1086,6 +1108,10 @@ LightScene_editTable($) {
         Example: To switch a master power outlet before every other device at power on and after every device on power off:<br>
         <code>define media LightScene TV,DVD,Amplifier,masterPower<br>
               attr media switchingOrder .*On:masterPower,.* allOff:!.*,masterPower</code>
+        </li>
+      <li>traversalOrder<br>
+        comma separated list of scene names that should be traversed by the prevoiusScene and nextScene commands.<br>
+        default not set -> all scenes will be traversed in alphabetical order
         </li>
       <li><a href="#readingFnAttributes">readingFnAttributes</a></li>
     </ul><br>

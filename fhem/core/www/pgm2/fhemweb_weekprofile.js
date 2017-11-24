@@ -1,4 +1,4 @@
-// $Id: fhemweb_weekprofile.js 13277 2017-01-29 18:38:12Z Risiko $
+// $Id: fhemweb_weekprofile.js 13978 2017-04-12 21:02:36Z Risiko $
 
 var language = 'de';
 //for tooltip
@@ -132,12 +132,28 @@ function FW_weekprofileMultiSelDialog(title, elementNames, elementLabels, select
     });
 }
 
+function FW_GetTranslation(widget,translate)
+{
+  if (widget.TRANSLATIONS == null)
+    return translate;
+  
+  var translated = widget.TRANSLATIONS[translate];
+  if (translated.length == 0)
+    return translate;
+  
+  return translated;
+}
+
 function weekprofile_DoEditWeek(devName,newPage)
 {
   var widget = $('div[informid="'+devName+'"]').get(0);
  
   if (newPage == 1) {
-    window.location.assign(FW_root+'?cmd={weekprofile_editOnNewpage("'+widget.DEVICE+'","'+widget.CURTOPIC+':'+widget.CURPRF+'");;}');
+    var csrfToken = $("body").attr('fwcsrf');
+    var url = FW_root+'?cmd={weekprofile_editOnNewpage("'+widget.DEVICE+'","'+widget.CURTOPIC+':'+widget.CURPRF+'");;}';
+    if (csrfToken)
+      url = url + '&fwcsrf='+ csrfToken;
+    window.location.assign(url);
   } else {
     widget.MODE = 'EDIT';
     $(widget.MENU.BASE).hide();
@@ -603,8 +619,9 @@ function FW_weekprofileEditWeek(widget)
   
   tr.append("<td><table><tr>");
   tr = tr.find("tr:last");
-  tr.append("<td><input type=\"button\" value=\"Speichern\" onclick=\"FW_weekprofilePrepAndSendProf('"+widget.DEVICE+"')\">");
-  tr.append("<td><input type=\"button\" value=\"Abbrechen\" onclick=\"FW_weekprofileEditAbort('"+widget.DEVICE+"')\">");
+  
+  tr.append("<td><input type=\"button\" value=\""+FW_GetTranslation(widget,'Speichern')+"\" onclick=\"FW_weekprofilePrepAndSendProf('"+widget.DEVICE+"')\">");
+  tr.append("<td><input type=\"button\" value=\""+FW_GetTranslation(widget,'Abbrechen')+"\" onclick=\"FW_weekprofileEditAbort('"+widget.DEVICE+"')\">");
 }
 
 function FW_weekprofileSendCallback(devName, data)
@@ -763,6 +780,14 @@ function FW_weekprofileGetValues(devName,what,data)
         widget.CURTOPIC = widget.TOPICNAMES[0];
       }
       FW_weekprofileChacheTo(devName,widget.CURTOPIC,null);
+  } else if (what == "TRANSLATE") {
+      var arr = data.split(',');
+      widget.TRANSLATIONS = new Array();
+      for (var k = 0; k < arr.length; ++k) {
+        var trans = arr[k].split(':');
+        if (trans.length == 2)
+          widget.TRANSLATIONS[trans[0].trim()] = trans[1].trim();
+      }
   }
 }
 
@@ -828,6 +853,7 @@ FW_weekprofileCreate(elName, devName, vArr, currVal, set, params, cmd)
   widget.activateFn = function(arg){
     FW_queryValue('get '+devName+' profile_data '+widget.CURTOPIC+':'+widget.CURPRF, widget);
     FW_cmd(FW_root+'?cmd={AttrVal("'+devName+'","widgetWeekdays","")}&XHR=1',function(data){FW_weekprofileGetValues(devName,"WEEKDAYS",data);});
+    FW_cmd(FW_root+'?cmd={AttrVal("'+devName+'","widgetTranslations","")}&XHR=1',function(data){FW_weekprofileGetValues(devName,"TRANSLATE",data);}); 
     if (widget.USETOPICS == 1) {
       FW_cmd(FW_root+'?cmd=get '+devName+' topic_names&XHR=1',function(data){FW_weekprofileGetValues(devName,"TOPICNAMES",data);});
     } else {

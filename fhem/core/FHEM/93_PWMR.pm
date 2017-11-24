@@ -5,7 +5,7 @@
 # e-mail: ag at goebel-it dot de
 #
 ##############################################
-# $Id: 93_PWMR.pm 12779 2016-12-14 21:16:06Z jamesgo $ 
+# $Id: 93_PWMR.pm 14829 2017-08-01 14:03:56Z jamesgo $ 
 # 29.07.15 GA change set <name> manualTempDuration <minutes>
 # 21.09.15 GA update, use Log3 and readingsSingleUpdate
 # 07.10.15 GA initial version published
@@ -44,6 +44,7 @@
 # 14.12.16 GA fix adjust rounding of PVal and newpulsePID
 # 14.12.16 GA fix supply DBuffer with delta temps for usePID=2 calculation
 # 14.12.16 GA add implement get previousTemps
+# 01.08.17 GA add documentation for attribute disable
 
 
 # module for PWM (Pulse Width Modulation) calculation
@@ -1807,6 +1808,10 @@ PWMR_valueFormat(@)
 
   <b>Attributes</b>
   <ul>
+    <li>disable<br>
+        PWMR objects with attribute disable set to <i>1</i> will be excluded in the calculation loop of the PWM object.
+        </li><br>
+
     <li>frostProtect<br>
         Switch on (1) of off (0) frostProtectMode. <i>desired-temp</i> will be set to <i>tempFrostProtect</i> in autoCalcMode.
         </li><br>

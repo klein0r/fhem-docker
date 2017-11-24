@@ -1,5 +1,5 @@
 
-var version="$Id: fhemweb_readingsGroup.js 13107 2017-01-16 13:14:31Z justme1968 $";
+FW_version["fhemweb_readingsGroup.js"] = "$Id: fhemweb_readingsGroup.js 15189 2017-10-03 17:53:27Z justme1968 $";
 
 //$(document).ready(FW_readingsGroupReadyFn);
 $(FW_readingsGroupReadyFn);
@@ -143,7 +143,18 @@ FW_readingsGroupUpdateLine(d){
   //console.log("xxx: "+d[1]);
 }
 
+function FW_readingsGroupCreate(elName, devName, vArr, currVal, set, params, cmd)
+{
+}
+
+
 FW_widgets['readingsGroup'] = {
+  createFn:FW_readingsGroupCreate,
   updateLine:FW_readingsGroupUpdateLine
 };
 
+
+/*
+=pod
+=cut
+*/

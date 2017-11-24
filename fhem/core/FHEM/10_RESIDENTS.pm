@@ -1,645 +1,33 @@
-# $Id: 10_RESIDENTS.pm 12317 2016-10-10 23:12:02Z loredo $
-##############################################################################
-#
-#     10_RESIDENTS.pm
-#     An FHEM Perl module to ease resident administration.
-#
-#     Copyright by Julian Pawlowski
-#     e-mail: julian.pawlowski at gmail.com
-#
-#     This file is part of fhem.
-#
-#     Fhem is free software: you can redistribute it and/or modify
-#     it under the terms of the GNU General Public License as published by
-#     the Free Software Foundation, either version 2 of the License, or
-#     (at your option) any later version.
-#
-#     Fhem is distributed in the hope that it will be useful,
-#     but WITHOUT ANY WARRANTY; without even the implied warranty of
-#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#     GNU General Public License for more details.
-#
-#     You should have received a copy of the GNU General Public License
-#     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
-#
-##############################################################################
-
+###############################################################################
+# $Id: 10_RESIDENTS.pm 14136 2017-04-29 16:31:46Z loredo $
 package main;
-
 use strict;
 use warnings;
-use Time::Local;
 use Data::Dumper;
+use Time::Local;
+
 require RESIDENTStk;
 
-no if $] >= 5.017011, warnings => 'experimental';
-
-sub RESIDENTS_Set($@);
-sub RESIDENTS_Define($$);
-sub RESIDENTS_Notify($$);
-sub RESIDENTS_Undefine($$);
-
-###################################
+# initialize ##################################################################
 sub RESIDENTS_Initialize($) {
     my ($hash) = @_;
 
-    Log3 $hash, 5, "RESIDENTS_Initialize: Entering";
+    $hash->{InitDevFn} = "RESIDENTStk_InitializeDev";
+    $hash->{DefFn}     = "RESIDENTStk_Define";
+    $hash->{UndefFn}   = "RESIDENTStk_Undefine";
+    $hash->{SetFn}     = "RESIDENTStk_Set";
+    $hash->{AttrFn}    = "RESIDENTStk_Attr";
+    $hash->{NotifyFn}  = "RESIDENTStk_Notify";
 
-    $hash->{SetFn}    = "RESIDENTS_Set";
-    $hash->{DefFn}    = "RESIDENTS_Define";
-    $hash->{NotifyFn} = "RESIDENTS_Notify";
-    $hash->{UndefFn}  = "RESIDENTS_Undefine";
+    $hash->{AttrPrefix} = "rgr_";
+
     $hash->{AttrList} =
-"rgr_showAllStates:0,1 rgr_states:multiple-strict,home,gotosleep,asleep,awoken,absent,gone rgr_wakeupDevice "
+        "disable:1,0 disabledForIntervals do_not_notify:1,0 "
+      . "rgr_states:multiple-strict,home,gotosleep,asleep,awoken,absent,gone rgr_lang:EN,DE rgr_noDuration:0,1 rgr_showAllStates:0,1 rgr_wakeupDevice "
       . $readingFnAttributes;
 }
 
-###################################
-sub RESIDENTS_Define($$) {
-    my ( $hash, $def ) = @_;
-    my $name = $hash->{NAME};
-    my $name_attr;
-
-    Log3 $name, 5, "RESIDENTS $name: called function RESIDENTS_Define()";
-
-    $hash->{TYPE} = "RESIDENTS";
-
-    # set default settings on first define
-    if ( $init_done && !defined( $hash->{OLDDEF} ) ) {
-        $attr{$name}{alias} = "Residents";
-        $attr{$name}{devStateIcon} =
-'.*home:status_available:absent .*absent:status_away_1:home .*gone:status_standby:home .*none:control_building_empty .*gotosleep:status_night:asleep .*asleep:status_night:awoken .*awoken:status_available:home .*:user_unknown:home';
-        $attr{$name}{group}  = "Home State";
-        $attr{$name}{icon}   = "control_building_filled";
-        $attr{$name}{room}   = "Residents";
-        $attr{$name}{webCmd} = "state";
-    }
-
-    # Injecting AttrFn for use with RESIDENTS Toolkit
-    if ( !defined( $modules{dummy}{AttrFn} ) ) {
-        $modules{dummy}{AttrFn} = "RESIDENTStk_AttrFnDummy";
-    }
-    elsif ( $modules{dummy}{AttrFn} ne "RESIDENTStk_AttrFnDummy" ) {
-        Log3 $name, 5,
-"RESIDENTStk $name: concurrent AttrFn already defined for dummy module. Some attribute based functions like auto-creations will not be available.";
-    }
-
-    return undef;
-}
-
-###################################
-sub RESIDENTS_Undefine($$) {
-    my ( $hash, $name ) = @_;
-
-    # delete child roommates
-    if ( defined( $hash->{ROOMMATES} )
-        && $hash->{ROOMMATES} ne "" )
-    {
-        my @registeredRoommates =
-          split( /,/, $hash->{ROOMMATES} );
-
-        foreach my $child (@registeredRoommates) {
-            fhem( "delete " . $child );
-            Log3 $name, 3, "RESIDENTS $name: deleted device $child";
-        }
-    }
-
-    # delete child guests
-    if ( defined( $hash->{GUESTS} )
-        && $hash->{GUESTS} ne "" )
-    {
-        my @registeredGuests =
-          split( /,/, $hash->{GUESTS} );
-
-        foreach my $child (@registeredGuests) {
-            fhem( "delete " . $child );
-            Log3 $name, 3, "RESIDENTS $name: deleted device $child";
-        }
-    }
-
-    return undef;
-}
-
-###################################
-sub RESIDENTS_Notify($$) {
-    my ( $hash, $dev ) = @_;
-    my $devName  = $dev->{NAME};
-    my $hashName = $hash->{NAME};
-
-    # process child notifies
-    if ( $devName ne $hashName ) {
-        my @registeredRoommates =
-          split( /,/, $hash->{ROOMMATES} )
-          if ( defined( $hash->{ROOMMATES} )
-            && $hash->{ROOMMATES} ne "" );
-
-        my @registeredGuests =
-          split( /,/, $hash->{GUESTS} )
-          if ( defined( $hash->{GUESTS} )
-            && $hash->{GUESTS} ne "" );
-
-        my @registeredWakeupdevs =
-          split( /,/, $attr{$hashName}{rgr_wakeupDevice} )
-          if ( defined( $attr{$hashName}{rgr_wakeupDevice} )
-            && $attr{$hashName}{rgr_wakeupDevice} ne "" );
-
-        # process only registered ROOMMATE or GUEST devices
-        if (   ( @registeredRoommates && $devName ~~ @registeredRoommates )
-            || ( @registeredGuests && $devName ~~ @registeredGuests ) )
-        {
-
-            return
-              if ( !$dev->{CHANGED} ); # Some previous notify deleted the array.
-
-            readingsBeginUpdate($hash);
-
-            foreach my $change ( @{ $dev->{CHANGED} } ) {
-
-                Log3 $hash, 5,
-                  "RESIDENTS " . $hashName . ": processing change $change";
-
-                # state changed
-                if (   $change !~ /:/
-                    || $change =~ /wayhome:/
-                    || $change =~ /wakeup:/ )
-                {
-                    Log3 $hash, 4,
-                        "RESIDENTS "
-                      . $hashName . ": "
-                      . $devName
-                      . ": notify about change to $change";
-
-                    RESIDENTS_UpdateReadings($hash);
-                }
-
-                # activity
-                if ( $change !~ /:/ ) {
-
-                    # get user realname
-                    my $realnamesrc;
-                    if ( $dev->{TYPE} eq "GUEST" ) {
-                        $realnamesrc = (
-                            defined( $attr{$devName}{rg_realname} )
-                              && $attr{$devName}{rg_realname} ne ""
-                            ? $attr{$devName}{rg_realname}
-                            : "alias"
-                        );
-                    }
-                    else {
-                        $realnamesrc = (
-                            defined( $attr{$devName}{rr_realname} )
-                              && $attr{$devName}{rr_realname} ne ""
-                            ? $attr{$devName}{rr_realname}
-                            : "group"
-                        );
-                    }
-
-                    my $realname = (
-                        defined( $attr{$devName}{$realnamesrc} )
-                          && $attr{$devName}{$realnamesrc} ne ""
-                        ? $attr{$devName}{$realnamesrc}
-                        : $devName
-                    );
-
-                    # update statistics
-                    readingsBulkUpdate( $hash, "lastActivity",
-                        ReadingsVal( $devName, "state", $change ) );
-                    readingsBulkUpdate( $hash, "lastActivityBy",    $realname );
-                    readingsBulkUpdate( $hash, "lastActivityByDev", $devName );
-
-                }
-
-            }
-
-            readingsEndUpdate( $hash, 1 );
-
-            return;
-        }
-
-        # if we have registered wakeup devices
-        if (@registeredWakeupdevs) {
-
-            # if this is a notification of a registered wakeup device
-            if ( $devName ~~ @registeredWakeupdevs ) {
-
-                # Some previous notify deleted the array.
-                return
-                  if ( !$dev->{CHANGED} );
-
-                foreach my $change ( @{ $dev->{CHANGED} } ) {
-                    RESIDENTStk_wakeupSet( $devName, $change );
-                }
-
-                return;
-            }
-
-            # process sub-child notifies: *_wakeupDevice
-            foreach my $wakeupDev (@registeredWakeupdevs) {
-
-                # if this is a notification of a registered sub dummy device
-                # of one of our wakeup devices
-                if (   defined( $attr{$wakeupDev}{wakeupResetSwitcher} )
-                    && $attr{$wakeupDev}{wakeupResetSwitcher} eq $devName
-                    && $defs{$devName}{TYPE} eq "dummy" )
-                {
-
-                    # Some previous notify deleted the array.
-                    return
-                      if ( !$dev->{CHANGED} );
-
-                    foreach my $change ( @{ $dev->{CHANGED} } ) {
-                        RESIDENTStk_wakeupSet( $wakeupDev, $change )
-                          if ( $change ne "off" );
-                    }
-
-                    last;
-                }
-            }
-        }
-    }
-
-    return;
-}
-
-###################################
-sub RESIDENTS_Set($@) {
-    my ( $hash, @a ) = @_;
-    my $name      = $hash->{NAME};
-    my $state     = ReadingsVal( $name, "state", "initialized" );
-    my $roommates = ( $hash->{ROOMMATES} ? $hash->{ROOMMATES} : "" );
-    my $guests    = ( $hash->{GUESTS} ? $hash->{GUESTS} : "" );
-
-    Log3 $name, 5, "RESIDENTS $name: called function RESIDENTS_Set()";
-
-    return "No Argument given" if ( !defined( $a[1] ) );
-
-    # depending on current FHEMWEB instance's allowedCommands,
-    # restrict set commands if there is "set-user" in it
-    my $adminMode         = 1;
-    my $FWallowedCommands = 0;
-    $FWallowedCommands = AttrVal( $FW_wname, "allowedCommands", 0 )
-      if ( defined($FW_wname) );
-    if ( $FWallowedCommands && $FWallowedCommands =~ m/\bset-user\b/ ) {
-        $adminMode = 0;
-        return "Forbidden command: set " . $a[1]
-          if ( lc( $a[1] ) eq "addroommate"
-            || lc( $a[1] ) eq "addguest"
-            || lc( $a[1] ) eq "removeroommate"
-            || lc( $a[1] ) eq "removeguest"
-            || lc( $a[1] ) eq "create" );
-    }
-
-    # states
-    my $states = (
-        defined( $attr{$name}{rgr_states} ) ? $attr{$name}{rgr_states}
-        : (
-            defined( $attr{$name}{rgr_showAllStates} )
-              && $attr{$name}{rgr_showAllStates} == 1
-            ? "home,gotosleep,asleep,awoken,absent,gone"
-            : "home,gotosleep,absent,gone"
-        )
-    );
-    $states = $state . "," . $states
-      if ( $state ne "initialized" && $states !~ /$state/ );
-
-    my $usage = "Unknown argument " . $a[1] . ", choose one of state:$states";
-    if ($adminMode) {
-        $usage .= " addRoommate addGuest";
-        $usage .= " removeRoommate:" . $roommates if ( $roommates ne "" );
-        $usage .= " removeGuest:" . $guests if ( $guests ne "" );
-        $usage .= " create:wakeuptimer";
-    }
-
-    # states
-    if (   $a[1] eq "state"
-        || $a[1] eq "home"
-        || $a[1] eq "gotosleep"
-        || $a[1] eq "asleep"
-        || $a[1] eq "awoken"
-        || $a[1] eq "absent"
-        || $a[1] eq "gone" )
-    {
-        my $newstate;
-        my $presence = "absent";
-
-        # if not direct
-        if (
-               $a[1] eq "state"
-            && defined( $a[2] )
-            && (   $a[2] eq "home"
-                || $a[2] eq "gotosleep"
-                || $a[2] eq "asleep"
-                || $a[2] eq "awoken"
-                || $a[2] eq "absent"
-                || $a[2] eq "gone" )
-          )
-        {
-            $newstate = $a[2];
-        }
-        elsif ( defined( $a[2] ) ) {
-            return
-"Invalid 2nd argument, choose one of home gotosleep asleep awoken absent gone ";
-        }
-        else {
-            $newstate = $a[1];
-        }
-
-        Log3 $name, 2, "RESIDENTS set $name " . $newstate;
-
-        # loop through every roommate
-        if ( defined( $hash->{ROOMMATES} )
-            && $hash->{ROOMMATES} ne "" )
-        {
-            my @registeredRoommates =
-              split( /,/, $hash->{ROOMMATES} );
-
-            foreach my $roommate (@registeredRoommates) {
-                fhem "set $roommate silentSet state $newstate"
-                  if ( ReadingsVal( $roommate, "state", "initialized" ) ne
-                    $newstate );
-            }
-        }
-
-        # loop through every guest
-        if ( defined( $hash->{GUESTS} )
-            && $hash->{GUESTS} ne "" )
-        {
-            $newstate = "none" if ( $newstate eq "gone" );
-
-            my @registeredGuests =
-              split( /,/, $hash->{GUESTS} );
-
-            foreach my $guest (@registeredGuests) {
-                fhem "set $guest silentSet state $newstate"
-                  if ( ReadingsVal( $guest, "state", "initialized" ) ne
-                    $newstate );
-            }
-        }
-    }
-
-    # addRoommate
-    elsif ( $a[1] eq "addRoommate" ) {
-        Log3 $name, 2, "RESIDENTS set $name " . $a[1] . " " . $a[2]
-          if ( defined( $a[2] ) );
-
-        my $rr_name;
-        my $rr_name_attr;
-
-        if ( $a[2] ne "" ) {
-            $rr_name = "rr_" . $a[2];
-
-            # define roommate
-            if ( !defined( $defs{$rr_name} ) ) {
-                fhem( "define " . $rr_name . " ROOMMATE " . $name );
-                if ( defined( $defs{$rr_name} ) ) {
-                    fhem "set $rr_name silentSet state home";
-                    Log3 $name, 3,
-                      "RESIDENTS $name: created new device $rr_name";
-                }
-            }
-            else {
-                return "Can't create, device $rr_name already existing.";
-            }
-
-        }
-        else {
-            return "No Argument given, choose one of name ";
-        }
-    }
-
-    # removeRoommate
-    elsif ( $a[1] eq "removeRoommate" ) {
-        Log3 $name, 2, "RESIDENTS set $name " . $a[1] . " " . $a[2]
-          if ( defined( $a[2] ) );
-
-        if ( $a[2] ne "" ) {
-            my $rr_name = $a[2];
-
-            # delete roommate
-            if ( defined( $defs{$rr_name} ) ) {
-                Log3 $name, 3, "RESIDENTS $name: deleted device $rr_name"
-                  if fhem( "delete " . $rr_name );
-            }
-        }
-        else {
-            return "No Argument given, choose one of name ";
-        }
-    }
-
-    # addGuest
-    elsif ( $a[1] eq "addGuest" ) {
-        Log3 $name, 2, "RESIDENTS set $name " . $a[1] . " " . $a[2]
-          if ( defined( $a[2] ) );
-
-        my $rg_name;
-        my $rg_name_attr;
-
-        if ( $a[2] ne "" ) {
-            $rg_name = "rg_" . $a[2];
-
-            # define guest
-            if ( !defined( $defs{$rg_name} ) ) {
-                fhem( "define " . $rg_name . " GUEST " . $name );
-                if ( defined( $defs{$rg_name} ) ) {
-                    fhem "set $rg_name silentSet state none";
-                    Log3 $name, 3,
-                      "RESIDENTS $name: created new device $rg_name";
-                }
-            }
-            else {
-                return "Can't create, device $rg_name already existing.";
-            }
-
-        }
-        else {
-            return "No Argument given, choose one of name ";
-        }
-    }
-
-    # removeGuest
-    elsif ( $a[1] eq "removeGuest" ) {
-        Log3 $name, 2, "RESIDENTS set $name " . $a[1] . " " . $a[2]
-          if ( defined( $a[2] ) );
-
-        if ( $a[2] ne "" ) {
-            my $rg_name = $a[2];
-
-            # delete guest
-            if ( defined( $defs{$rg_name} ) ) {
-                Log3 $name, 3, "RESIDENTS $name: deleted device $rg_name"
-                  if fhem( "delete " . $rg_name );
-            }
-        }
-        else {
-            return "No Argument given, choose one of name ";
-        }
-    }
-
-    # register
-    elsif ( $a[1] eq "register" ) {
-        if ( defined( $a[2] ) && $a[2] ne "" ) {
-            return "No such device " . $a[2]
-              if ( !defined( $defs{ $a[2] } ) );
-
-            # ROOMMATE
-            if ( $defs{ $a[2] }{TYPE} eq "ROOMMATE" ) {
-                Log3 $name, 4, "RESIDENTS $name: " . $a[2] . " registered";
-
-                # update readings
-                $roommates .= ( $roommates eq "" ? $a[2] : "," . $a[2] )
-                  if ( $roommates !~ /$a[2]/ );
-
-                $hash->{ROOMMATES} = $roommates;
-            }
-
-            # GUEST
-            elsif ( $defs{ $a[2] }{TYPE} eq "GUEST" ) {
-                Log3 $name, 4, "RESIDENTS $name: " . $a[2] . " registered";
-
-                # update readings
-                $guests .= ( $guests eq "" ? $a[2] : "," . $a[2] )
-                  if ( $guests !~ /$a[2]/ );
-
-                $hash->{GUESTS} = $guests;
-            }
-
-            # unsupported
-            else {
-                return "Device type is not supported.";
-            }
-
-        }
-        else {
-            return "No Argument given, choose one of ROOMMATE GUEST ";
-        }
-    }
-
-    # unregister
-    elsif ( $a[1] eq "unregister" ) {
-        if ( defined( $a[2] ) && $a[2] ne "" ) {
-            return "No such device " . $a[2]
-              if ( !defined( $defs{ $a[2] } ) );
-
-            # ROOMMATE
-            if ( $defs{ $a[2] }{TYPE} eq "ROOMMATE" ) {
-                Log3 $name, 4, "RESIDENTS $name: " . $a[2] . " unregistered";
-
-                # update readings
-                my $replace = "," . $a[2];
-                $roommates =~ s/$replace//g;
-                $replace = $a[2] . ",";
-                $roommates =~ s/^$replace//g;
-                $roommates =~ s/^$a[2]//g;
-
-                $hash->{ROOMMATES} = $roommates;
-            }
-
-            # GUEST
-            elsif ( $defs{ $a[2] }{TYPE} eq "GUEST" ) {
-                Log3 $name, 4, "RESIDENTS $name: " . $a[2] . " unregistered";
-
-                # update readings
-                my $replace = "," . $a[2];
-                $guests =~ s/$replace//g;
-                $replace = $a[2] . ",";
-                $guests =~ s/^$replace//g;
-                $guests =~ s/^$a[2]//g;
-
-                $hash->{GUESTS} = $guests;
-            }
-
-            # unsupported
-            else {
-                return "Device type is not supported.";
-            }
-
-        }
-        else {
-            return "No Argument given, choose one of ROOMMATE GUEST ";
-        }
-
-        readingsBeginUpdate($hash);
-        RESIDENTS_UpdateReadings($hash);
-        readingsEndUpdate( $hash, 1 );
-    }
-
-    # create
-    elsif ( $a[1] eq "create" ) {
-        if ( defined( $a[2] ) && $a[2] eq "wakeuptimer" ) {
-            my $i               = "1";
-            my $wakeuptimerName = $name . "_wakeuptimer" . $i;
-            my $created         = 0;
-
-            until ($created) {
-                if ( defined( $defs{$wakeuptimerName} ) ) {
-                    $i++;
-                    $wakeuptimerName = $name . "_wakeuptimer" . $i;
-                }
-                else {
-                    my $sortby = AttrVal( $name, "sortby", -1 );
-                    $sortby++;
-
-                    # create new dummy device
-                    fhem "define $wakeuptimerName dummy";
-                    fhem "attr $wakeuptimerName alias Wake-up Timer $i";
-                    fhem
-"attr $wakeuptimerName comment Auto-created by RESIDENTS module for use with RESIDENTS Toolkit";
-                    fhem
-"attr $wakeuptimerName devStateIcon OFF:general_aus\@red:reset running:general_an\@green:stop .*:general_an\@orange:nextRun%20OFF";
-                    fhem "attr $wakeuptimerName group " . $attr{$name}{group}
-                      if ( defined( $attr{$name}{group} ) );
-                    fhem "attr $wakeuptimerName icon time_timer";
-                    fhem "attr $wakeuptimerName room " . $attr{$name}{room}
-                      if ( defined( $attr{$name}{room} ) );
-                    fhem
-"attr $wakeuptimerName setList nextRun:OFF,00:00,00:15,00:30,00:45,01:00,01:15,01:30,01:45,02:00,02:15,02:30,02:45,03:00,03:15,03:30,03:45,04:00,04:15,04:30,04:45,05:00,05:15,05:30,05:45,06:00,06:15,06:30,06:45,07:00,07:15,07:30,07:45,08:00,08:15,08:30,08:45,09:00,09:15,09:30,09:45,10:00,10:15,10:30,10:45,11:00,11:15,11:30,11:45,12:00,12:15,12:30,12:45,13:00,13:15,13:30,13:45,14:00,14:15,14:30,14:45,15:00,15:15,15:30,15:45,16:00,16:15,16:30,16:45,17:00,17:15,17:30,17:45,18:00,18:15,18:30,18:45,19:00,19:15,19:30,19:45,20:00,20:15,20:30,20:45,21:00,21:15,21:30,21:45,22:00,22:15,22:30,22:45,23:00,23:15,23:30,23:45 reset:noArg trigger:noArg start:noArg stop:noArg end:noArg";
-                    fhem "attr $wakeuptimerName userattr wakeupUserdevice";
-                    fhem "attr $wakeuptimerName sortby " . $sortby
-                      if ($sortby);
-                    fhem "attr $wakeuptimerName wakeupUserdevice $name";
-                    fhem "attr $wakeuptimerName webCmd nextRun";
-
-                    # register slave device
-                    my $wakeupDevice = AttrVal( $name, "rgr_wakeupDevice", 0 );
-                    if ( !$wakeupDevice ) {
-                        fhem "attr $name rgr_wakeupDevice $wakeuptimerName";
-                    }
-                    elsif ( $wakeupDevice !~ /(.*,?)($wakeuptimerName)(.*,?)/ )
-                    {
-                        fhem "attr $name rgr_wakeupDevice "
-                          . $wakeupDevice
-                          . ",$wakeuptimerName";
-                    }
-
-                    # trigger first update
-                    fhem "set $wakeuptimerName nextRun OFF";
-
-                    $created = 1;
-                }
-            }
-
-            return
-"Dummy $wakeuptimerName and other pending devices created and pre-configured.\nYou may edit Macro_$wakeuptimerName to define your wake-up actions\nand at_$wakeuptimerName for optional at-device adjustments.";
-        }
-        else {
-            return "Invalid 2nd argument, choose one of wakeuptimer ";
-        }
-    }
-
-    # return usage hint
-    else {
-        return $usage;
-    }
-
-    return undef;
-}
-
-############################################################################################################
-#
-#   Begin of helper functions
-#
-############################################################################################################
-
+# module Fn ####################################################################
 sub RESIDENTS_UpdateReadings (@) {
     my ($hash) = @_;
     my $name = $hash->{NAME};
@@ -714,7 +102,7 @@ sub RESIDENTS_UpdateReadings (@) {
 
         my $roommateName =
           AttrVal( $roommate,
-            AttrVal( $roommate, "rr_realname", "alias" ), "" );
+            AttrVal( $roommate, "rr_realname", "group" ), "" );
 
         Log3 $name, 5,
           "RESIDENTS $name: considering $roommate for state change";
@@ -964,7 +352,7 @@ sub RESIDENTS_UpdateReadings (@) {
         $state_guestDev++;
 
         my $guestName =
-          AttrVal( $guest, AttrVal( $guest, "rg_realname", "alias" ), "" );
+          AttrVal( $guest, AttrVal( $guest, "rg_realname", "group" ), "" );
 
         Log3 $name, 5, "RESIDENTS $name: considering $guest for state change";
 
@@ -1158,226 +546,154 @@ sub RESIDENTS_UpdateReadings (@) {
     }
 
     # update counter
-    readingsBulkUpdate( $hash, "residentsTotal", $state_total )
-      if ( ReadingsVal( $name, "residentsTotal", "" ) ne $state_total );
+    readingsBulkUpdateIfChanged( $hash, "residentsTotal", $state_total );
 
-    readingsBulkUpdate( $hash, "residentsTotalGuests", $state_totalGuests )
-      if ( ReadingsVal( $name, "residentsTotalGuests", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalGuests",
         $state_totalGuests );
 
-    readingsBulkUpdate( $hash, "residentsTotalGuestsPresent",
-        $state_totalGuestsPresent )
-      if ( ReadingsVal( $name, "residentsTotalGuestsPresent", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalGuestsPresent",
         $state_totalGuestsPresent );
 
-    readingsBulkUpdate(
+    readingsBulkUpdateIfChanged(
         $hash,
         "residentsTotalGuestsPresentDevs",
         $residentsDevs_totalPresentGuest
-      )
-      if ( ReadingsVal( $name, "residentsTotalGuestsPresentDevs", "" ) ne
-        $residentsDevs_totalPresentGuest );
+    );
 
-    readingsBulkUpdate( $hash, "residentsTotalGuestsPresentNames",
-        $residents_totalPresentGuest )
-      if ( ReadingsVal( $name, "residentsTotalGuestsPresentNames", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalGuestsPresentNames",
         $residents_totalPresentGuest );
 
-    readingsBulkUpdate( $hash, "residentsTotalGuestsAbsent",
-        $state_totalGuestsAbsent )
-      if ( ReadingsVal( $name, "residentsTotalGuestsAbsent", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalGuestsAbsent",
         $state_totalGuestsAbsent );
 
-    readingsBulkUpdate(
+    readingsBulkUpdateIfChanged(
         $hash,
         "residentsTotalGuestsAbsentDevs",
         $residentsDevs_totalAbsentGuest
-      )
-      if ( ReadingsVal( $name, "residentsTotalGuestsAbsentDevs", "" ) ne
-        $residentsDevs_totalAbsentGuest );
+    );
 
-    readingsBulkUpdate( $hash, "residentsTotalGuestsAbsentNames",
-        $residents_totalAbsentGuest )
-      if ( ReadingsVal( $name, "residentsTotalGuestsAbsentNames", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalGuestsAbsentNames",
         $residents_totalAbsentGuest );
 
-    readingsBulkUpdate( $hash, "residentsTotalRoommates",
-        $state_totalRoommates )
-      if ( ReadingsVal( $name, "residentsTotalRoommates", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalRoommates",
         $state_totalRoommates );
 
-    readingsBulkUpdate( $hash, "residentsTotalRoommatesPresent",
-        $state_totalRoommatesPresent )
-      if ( ReadingsVal( $name, "residentsTotalRoommatesPresent", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalRoommatesPresent",
         $state_totalRoommatesPresent );
 
-    readingsBulkUpdate(
+    readingsBulkUpdateIfChanged(
         $hash,
         "residentsTotalRoommatesPresentDevs",
         $residentsDevs_totalPresentRoommates
-      )
-      if ( ReadingsVal( $name, "residentsTotalRoommatesPresentDevs", "" ) ne
-        $residentsDevs_totalPresentRoommates );
+    );
 
-    readingsBulkUpdate(
+    readingsBulkUpdateIfChanged(
         $hash,
         "residentsTotalRoommatesPresentNames",
         $residents_totalPresentRoommates
-      )
-      if ( ReadingsVal( $name, "residentsTotalRoommatesPresentNames", "" ) ne
-        $residents_totalPresentRoommates );
+    );
 
-    readingsBulkUpdate( $hash, "residentsTotalRoommatesAbsent",
-        $state_totalRoommatesAbsent )
-      if ( ReadingsVal( $name, "residentsTotalRoommatesAbsent", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalRoommatesAbsent",
         $state_totalRoommatesAbsent );
 
-    readingsBulkUpdate(
+    readingsBulkUpdateIfChanged(
         $hash,
         "residentsTotalRoommatesAbsentDevs",
         $residentsDevs_totalAbsentRoommates
-      )
-      if ( ReadingsVal( $name, "residentsTotalRoommatesAbsentDevs", "" ) ne
-        $residentsDevs_totalAbsentRoommates );
+    );
 
-    readingsBulkUpdate(
+    readingsBulkUpdateIfChanged(
         $hash,
         "residentsTotalRoommatesAbsentNames",
         $residents_totalAbsentRoommates
-      )
-      if ( ReadingsVal( $name, "residentsTotalRoommatesAbsentNames", "" ) ne
-        $residents_totalAbsentRoommates );
+    );
 
-    readingsBulkUpdate( $hash, "residentsTotalPresent", $state_totalPresent )
-      if ( ReadingsVal( $name, "residentsTotalPresent", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalPresent",
         $state_totalPresent );
 
-    readingsBulkUpdate( $hash, "residentsTotalPresentDevs",
-        $residentsDevs_totalPresent )
-      if ( ReadingsVal( $name, "residentsTotalPresentDevs", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalPresentDevs",
         $residentsDevs_totalPresent );
 
-    readingsBulkUpdate( $hash, "residentsTotalPresentNames",
-        $residents_totalPresent )
-      if ( ReadingsVal( $name, "residentsTotalPresentNames", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalPresentNames",
         $residents_totalPresent );
 
-    readingsBulkUpdate( $hash, "residentsTotalAbsent", $state_totalAbsent )
-      if ( ReadingsVal( $name, "residentsTotalAbsent", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalAbsent",
         $state_totalAbsent );
 
-    readingsBulkUpdate( $hash, "residentsTotalAbsentDevs",
-        $residentsDevs_totalAbsent )
-      if ( ReadingsVal( $name, "residentsTotalAbsentDevs", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalAbsentDevs",
         $residentsDevs_totalAbsent );
 
-    readingsBulkUpdate( $hash, "residentsTotalAbsentNames",
-        $residents_totalAbsent )
-      if ( ReadingsVal( $name, "residentsTotalAbsentNames", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalAbsentNames",
         $residents_totalAbsent );
 
-    readingsBulkUpdate( $hash, "residentsHome", $state_home )
-      if ( ReadingsVal( $name, "residentsHome", "" ) ne $state_home );
+    readingsBulkUpdateIfChanged( $hash, "residentsHome", $state_home );
 
-    readingsBulkUpdate( $hash, "residentsHomeDevs", $residentsDevs_home )
-      if (
-        ReadingsVal( $name, "residentsHomeDevs", "" ) ne $residentsDevs_home );
+    readingsBulkUpdateIfChanged( $hash, "residentsHomeDevs",
+        $residentsDevs_home );
 
-    readingsBulkUpdate( $hash, "residentsHomeNames", $residents_home )
-      if ( ReadingsVal( $name, "residentsHomeNames", "" ) ne $residents_home );
+    readingsBulkUpdateIfChanged( $hash, "residentsHomeNames", $residents_home );
 
-    readingsBulkUpdate( $hash, "residentsGotosleep", $state_gotosleep )
-      if ( ReadingsVal( $name, "residentsGotosleep", "" ) ne $state_gotosleep );
+    readingsBulkUpdateIfChanged( $hash, "residentsGotosleep",
+        $state_gotosleep );
 
-    readingsBulkUpdate( $hash, "residentsGotosleepDevs",
-        $residentsDevs_gotosleep )
-      if ( ReadingsVal( $name, "residentsGotosleepDevs", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsGotosleepDevs",
         $residentsDevs_gotosleep );
 
-    readingsBulkUpdate( $hash, "residentsGotosleepNames", $residents_gotosleep )
-      if ( ReadingsVal( $name, "residentsGotosleepNames", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsGotosleepNames",
         $residents_gotosleep );
 
-    readingsBulkUpdate( $hash, "residentsAsleep", $state_asleep )
-      if ( ReadingsVal( $name, "residentsAsleep", "" ) ne $state_asleep );
+    readingsBulkUpdateIfChanged( $hash, "residentsAsleep", $state_asleep );
 
-    readingsBulkUpdate( $hash, "residentsAsleepDevs", $residentsDevs_asleep )
-      if ( ReadingsVal( $name, "residentsAsleepDevs", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsAsleepDevs",
         $residentsDevs_asleep );
 
-    readingsBulkUpdate( $hash, "residentsAsleepNames", $residents_asleep )
-      if (
-        ReadingsVal( $name, "residentsAsleepNames", "" ) ne $residents_asleep );
+    readingsBulkUpdateIfChanged( $hash, "residentsAsleepNames",
+        $residents_asleep );
 
-    readingsBulkUpdate( $hash, "residentsAwoken", $state_awoken )
-      if ( ReadingsVal( $name, "residentsAwoken", "" ) ne $state_awoken );
-
-    readingsBulkUpdate( $hash, "residentsAwokenDevs", $residentsDevs_awoken )
-      if ( ReadingsVal( $name, "residentsAwokenDevs", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsAwoken", $state_awoken );
+    readingsBulkUpdateIfChanged( $hash, "residentsAwokenDevs",
         $residentsDevs_awoken );
 
-    readingsBulkUpdate( $hash, "residentsAwokenNames", $residents_awoken )
-      if (
-        ReadingsVal( $name, "residentsAwokenNames", "" ) ne $residents_awoken );
+    readingsBulkUpdateIfChanged( $hash, "residentsAwokenNames",
+        $residents_awoken );
 
-    readingsBulkUpdate( $hash, "residentsAbsent", $state_absent )
-      if ( ReadingsVal( $name, "residentsAbsent", "" ) ne $state_absent );
-
-    readingsBulkUpdate( $hash, "residentsAbsentDevs", $residentsDevs_absent )
-      if ( ReadingsVal( $name, "residentsAbsentDevs", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsAbsent", $state_absent );
+    readingsBulkUpdateIfChanged( $hash, "residentsAbsentDevs",
         $residentsDevs_absent );
 
-    readingsBulkUpdate( $hash, "residentsAbsentNames", $residents_absent )
-      if (
-        ReadingsVal( $name, "residentsAbsentNames", "" ) ne $residents_absent );
+    readingsBulkUpdateIfChanged( $hash, "residentsAbsentNames",
+        $residents_absent );
 
-    readingsBulkUpdate( $hash, "residentsGone", $state_gone )
-      if ( ReadingsVal( $name, "residentsGone", "" ) ne $state_gone );
+    readingsBulkUpdateIfChanged( $hash, "residentsGone", $state_gone );
 
-    readingsBulkUpdate( $hash, "residentsGoneDevs", $residentsDevs_gone )
-      if (
-        ReadingsVal( $name, "residentsGoneDevs", "" ) ne $residentsDevs_gone );
+    readingsBulkUpdateIfChanged( $hash, "residentsGoneDevs",
+        $residentsDevs_gone );
 
-    readingsBulkUpdate( $hash, "residentsGoneNames", $residents_gone )
-      if ( ReadingsVal( $name, "residentsGoneNames", "" ) ne $residents_gone );
+    readingsBulkUpdateIfChanged( $hash, "residentsGoneNames", $residents_gone );
 
-    readingsBulkUpdate( $hash, "residentsTotalWakeup", $wakeup )
-      if ( ReadingsVal( $name, "residentsTotalWakeup", "" ) ne $wakeup );
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalWakeup", $wakeup );
 
-    readingsBulkUpdate( $hash, "residentsTotalWakeupDevs",
-        $residentsDevs_wakeup )
-      if ( ReadingsVal( $name, "residentsTotalWakeupDevs", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalWakeupDevs",
         $residentsDevs_wakeup );
 
-    readingsBulkUpdate( $hash, "residentsTotalWakeupNames", $residents_wakeup )
-      if ( ReadingsVal( $name, "residentsTotalWakeupNames", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalWakeupNames",
         $residents_wakeup );
 
-    readingsBulkUpdate( $hash, "residentsTotalWayhome", $wayhome )
-      if ( ReadingsVal( $name, "residentsTotalWayhome", "" ) ne $wayhome );
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalWayhome", $wayhome );
 
-    readingsBulkUpdate( $hash, "residentsTotalWayhomeDevs",
-        $residentsDevs_wayhome )
-      if ( ReadingsVal( $name, "residentsTotalWayhomeDevs", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalWayhomeDevs",
         $residentsDevs_wayhome );
 
-    readingsBulkUpdate( $hash, "residentsTotalWayhomeNames",
-        $residents_wayhome )
-      if ( ReadingsVal( $name, "residentsTotalWayhomeNames", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalWayhomeNames",
         $residents_wayhome );
 
-    readingsBulkUpdate( $hash, "residentsTotalWayhomeDelayed", $wayhomeDelayed )
-      if ( ReadingsVal( $name, "residentsTotalWayhomeDelayed", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalWayhomeDelayed",
         $wayhomeDelayed );
 
-    readingsBulkUpdate( $hash, "residentsTotalWayhomeDelayedDevs",
-        $residentsDevs_wayhomeDelayed )
-      if ( ReadingsVal( $name, "residentsTotalWayhomeDelayedDevs", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalWayhomeDelayedDevs",
         $residentsDevs_wayhomeDelayed );
 
-    readingsBulkUpdate( $hash, "residentsTotalWayhomeDelayedNames",
-        $residents_wayhomeDelayed )
-      if ( ReadingsVal( $name, "residentsTotalWayhomeDelayedNames", "" ) ne
+    readingsBulkUpdateIfChanged( $hash, "residentsTotalWayhomeDelayedNames",
         $residents_wayhomeDelayed );
 
     #
@@ -1482,9 +798,8 @@ sub RESIDENTS_UpdateReadings (@) {
             for my $wakeupDevice ( split /,/, $wakeupDeviceList ) {
                 next if !$wakeupDevice;
 
-                if ( defined( $defs{$wakeupDevice} )
-                    && $defs{$wakeupDevice}{TYPE} eq "dummy" )
-                {
+                if ( IsDevice( $wakeupDevice, "dummy" ) ) {
+
                     # forced-stop only if resident is not present anymore
                     if ( $newpresence eq "present" ) {
                         fhem "set $wakeupDevice:FILTER=running!=0 end";
@@ -1577,6 +892,9 @@ sub RESIDENTS_UpdateReadings (@) {
         }
 
     }
+
+    # calculate duration timers
+    RESIDENTStk_DurationTimer( $hash, 1 );
 }
 
 1;
@@ -1677,6 +995,12 @@ sub RESIDENTS_UpdateReadings (@) {
       <a name="RESIDENTSattr" id="RESIDENTSattr"></a> <b>Attributes</b><br>
       <ul>
         <ul>
+          <li>
+            <b>rgr_lang</b> - overwrite global language setting; helps to set device attributes to translate FHEMWEB display text
+          </li>
+          <li>
+            <b>rgr_noDuration</b> - may be used to disable continuous, non-event driven duration timer calculation (see readings durTimer*)
+          </li>
           <li>
             <b>rgr_showAllStates</b> - states 'asleep' and 'awoken' are hidden by default to allow simple gotosleep process via devStateIcon; defaults to 0
           </li>
@@ -1924,7 +1248,7 @@ sub RESIDENTS_UpdateReadings (@) {
 								<i>wakeupDefaultTime</i> - after triggering macro reset the wake-up time to this default value (optional)
 							</li>
 							<li>
-								<i>wakeupEnforced</i> - Enforce wake-up (optional; 0=no, 1=yes, 2=if wake-up time is not wakeupDefaultTime)
+								<i>wakeupEnforced</i> - Enforce wake-up (optional; 0=no, 1=yes, 2=if wake-up time is not wakeupDefaultTime, 3=if wake-up time is earlier than wakeupDefaultTime)
 							</li>
 							<li>
 								<i>wakeupHolidays</i> - May trigger macro on holidays or non-holidays (optional; andHoliday=on holidays also considering wakeupDays, orHoliday=on holidays independently of wakeupDays, andNoHoliday=on non-holidays also considering wakeupDays, orNoHoliday=on non-holidays independently of wakeupDays)
@@ -2046,6 +1370,12 @@ sub RESIDENTS_UpdateReadings (@) {
       <a name="RESIDENTSattr" id="RESIDENTSattr"></a> <b>Attribute</b><br>
       <ul>
         <ul>
+          <li>
+            <b>rgr_lang</b> - &uuml;berschreibt globale Spracheinstellung; hilft beim setzen von Device Attributen, um FHEMWEB Anzeigetext zu &uuml;bersetzen
+          </li>
+          <li>
+            <b>rgr_noDuration</b> - deaktiviert die kontinuierliche, nicht Event-basierte Berechnung der Zeitspannen (siehe Readings durTimer*)
+          </li>
           <li>
             <b>rgr_showAllStates</b> - die Status 'asleep' und 'awoken' sind normalerweise nicht immer sichtbar, um einen einfachen Zubettgeh-Prozess &uuml;ber das devStateIcon Attribut zu erm&ouml;glichen; Standard ist 0
           </li>
@@ -2293,7 +1623,7 @@ sub RESIDENTS_UpdateReadings (@) {
 								<i>wakeupDefaultTime</i> - Stellt die Weckzeit nach dem ausl&ouml;sen zur&uuml;ck auf diesen Standardwert (optional)
 							</li>
 							<li>
-								<i>wakeupEnforced</i> - Forciertes wecken (optional; 0=nein, 1=ja, 2=wenn Weckzeit ungleich wakeupDefaultTime)
+								<i>wakeupEnforced</i> - Forciertes wecken (optional; 0=nein, 1=ja, 2=wenn Weckzeit ungleich wakeupDefaultTime, 3=wenn Weckzeit fr&uuml;her ist als wakeupDefaultTime)
 							</li>
 							<li>
 								<i>wakeupHolidays</i> - Makro u.U. an Feiertagen oder Nicht-Feiertagen ausf&uuml;hren (optional; andHoliday=an Feiertagen ggf. zusammen mit wakeupDays, orHoliday=an Feiertagen unabh&auml;ngig von wakeupDays, andNoHoliday=an Nicht-Feiertagen ggf. zusammen mit wakeupDays, orNoHoliday=an Nicht-Feiertagen unabh&auml;ngig von wakeupDays)

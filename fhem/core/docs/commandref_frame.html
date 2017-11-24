@@ -79,7 +79,7 @@
   </ul>
 
   <br>
-  <b>Devices</b>
+  <b>Device modules</b>
   <ul>
       <a href="#global">global</a><br>
       <!-- header:device -->
@@ -148,11 +148,10 @@ When starting the server you have to specify a configuration file:<br>
 </ul>
 <br>
 
-A minimal configuration file looks like: <pre>
+A reasonable minimal configuration file looks like: <pre>
     attr global <a href="#logfile">logfile</a> log/fhem.log
     attr global <a href="#modpath">modpath</a> .
     attr global <a href="#statefile">statefile</a> log/fhem.save
-    attr global <a href="#verbose">verbose</a> 3
     define telnetPort <a href="#telnet">telnet</a> 7072 global
     define WEB <a href="#FHEMWEB">FHEMWEB</a> 8083 global</pre>
 
@@ -178,6 +177,9 @@ telnet) or single client command (via fhem.pl). Example:
 <ul>
     <code>fhem.pl &lt;fhemhost&gt;:7072 "&lt;fhem-command&gt" "..."</code>
 </ul>
+<br>
+If a OS-user called fhem exists, and FHEM is started as root, FHEM will
+automatically change to to this user via setuid. <br>
 </ul>
 <!-- intro end - diese Zeile nicht entfernen! -->
 
@@ -357,6 +359,9 @@ Device specific attributes are documented in the corresponding device section.
         separated pair. The first part specifies the "old" value, the second
         the new/desired value. If the first character is slash(/) or comma(,)
         then split not by space but by this character, enabling to embed spaces.
+        You can specify a widgetOverride after an additional colon (e.g.
+        on-for-timer:OnFor:texField), the default widget is :noArg to avoid
+        extra input fields in cmdList.
         Examples:<ul><code>
         attr store eventMap on:open off:closed<br>
         attr store eventMap /on-for-timer 10:open/off:closed/<br>
@@ -455,7 +460,8 @@ attribute list if you want to know if a device supports these attributes.  <br>
     If set, then every word in the argument is replaced by the value of the
     reading if such a reading for the current device exists. If the value of
     this attribute is enclused in {}, then it is evaluated. This attribute is
-    evaluated each time a reading is updated.
+    evaluated each time a reading is updated.<br>
+    The "set magic" described <a href="#set">here</a> is also applied.
     </li>
     <p>
 
@@ -570,7 +576,8 @@ attribute list if you want to know if a device supports these attributes.  <br>
     This attribute takes a comma-separated list of reading:minInterval pairs.
     You may use regular expressions for reading. Events will only be
     generated, if at least minInterval seconds elapsed since the last reading
-    of the matched type.
+    of the matched type. If event-on-change-reading is also specified, they are
+    combined with OR: if one of them is true, the event is generated.
     </li>
     <p>
 
@@ -707,6 +714,7 @@ The following local attributes are used by a wider range of devices:
   Cancels a named <a href="#sleep">sleep</a>.
 
 </ul>
+<!-- cancel end -->
 
 <a name="define"></a>
 <h3>define</h3>
@@ -737,6 +745,7 @@ The following local attributes are used by a wider range of devices:
   </ul>
 
 </ul>
+<!-- define end -->
 
 <a name="defmod"></a>
 <h3>defmod</h3>
@@ -753,6 +762,7 @@ The following local attributes are used by a wider range of devices:
   definition still exists.
   <br>
 </ul>
+<!-- defmod end -->
 
 
 <a name="delete"></a>
@@ -771,6 +781,7 @@ The following local attributes are used by a wider range of devices:
   </ul>
   <br>
 </ul>
+<!-- delete end -->
 
 <a name="deleteattr"></a>
 <h3>deleteattr</h3>
@@ -791,6 +802,7 @@ The following local attributes are used by a wider range of devices:
   </ul>
   <br>
 </ul>
+<!-- deleteattr end -->
 
 <a name="deletereading"></a>
 <h3>deletereading</h3>
@@ -811,6 +823,7 @@ The following local attributes are used by a wider range of devices:
   </ul>
   <br>
 </ul>
+<!-- deletereading end -->
 
 <a name="displayattr"></a>
 <h3>displayattr</h3>
@@ -837,6 +850,7 @@ The following local attributes are used by a wider range of devices:
   </ul>
   <br>
 </ul>
+<!-- displayattr end -->
 
 <a name="get"></a>
 <h3>get</h3>
@@ -856,6 +870,7 @@ The following local attributes are used by a wider range of devices:
   <br>
 
 </ul>
+<!-- get end -->
 
 
 <a name="include"></a>
@@ -867,6 +882,7 @@ The following local attributes are used by a wider range of devices:
   Note: only experts should use this command.
   <br>
 </ul>
+<!-- include end -->
 
 <a name="inform"></a>
 <h3>inform</h3>
@@ -882,6 +898,7 @@ The following local attributes are used by a wider range of devices:
 
   <br>
 </ul>
+<!-- inform end -->
 
 <a name="list"></a>
 <h3>list</h3>
@@ -954,6 +971,7 @@ The following local attributes are used by a wider range of devices:
   device itself, together with the definition of probably associated devices.
   Note: the algorithm to select associated devices is known to be imperfect.
 </ul>
+<!-- list end -->
 
 <a name="modify"></a>
 <h3>modify</h3>
@@ -975,6 +993,7 @@ The following local attributes are used by a wider range of devices:
     <code>modify lampon 19:00 set lamp on-for-timer 16</code><br>
   </ul>
 </ul>
+<!-- modify end -->
 
 <a name="quit"></a>
 <h3>quit</h3>
@@ -989,6 +1008,7 @@ The following local attributes are used by a wider range of devices:
     <code>quit</code>
   </ul>
 </ul>
+<!-- quit end -->
 
 <a name="reload"></a>
 <h3>reload</h3>
@@ -1003,6 +1023,7 @@ The following local attributes are used by a wider range of devices:
     <code>reload 99_PRIV</code>
   </ul>
 </ul>
+<!-- reload end -->
 
 <a name="rename"></a>
 <h3>rename</h3>
@@ -1018,6 +1039,7 @@ The following local attributes are used by a wider range of devices:
     <code>rename FHT_1234 fht.kitchen</code>
   </ul>
 </ul>
+<!-- rename end -->
 
 <a name="rereadcfg"></a>
 <h3>rereadcfg</h3>
@@ -1038,6 +1060,7 @@ The following local attributes are used by a wider range of devices:
     <code>rereadcfg</code>
   </ul>
 </ul>
+<!-- rereadcfg end -->
 
 <a name="save"></a>
 <h3>save</h3>
@@ -1059,8 +1082,12 @@ The following local attributes are used by a wider range of devices:
     structures, but it won't work correctly if some of these files are not
     writeable.</li>
 
+    <li>before overwriting the files, the old version will be saved, see the <a
+    href="#restoreDirs">restoreDirs</a> global attribute for details.
+
   </ul>
 </ul>
+<!-- save end -->
 
 <a name="set"></a>
 <h3>set</h3>
@@ -1080,15 +1107,33 @@ The following local attributes are used by a wider range of devices:
   <br><br>
   From featurelevel 5.7 on the set and setreading command replaces:
   <ul>
-  <li>[device:reading] with the corresponding reading of device, if both device
-    and reading exists.</li>
-  <li>[device:reading:d] same as above, but only the number is retrieved, see
-     ReadingsNum </li>
+  <li>[device:name] with the reading, internal or attribute of the device, if
+    both device and the reading, internal or attribute exists.
+    <ul>
+      <li>You can use the r:, i: or a: prefix to restrict the search to one
+          type, analogue to the devspec filtering.</li>
+      <li>The suffix :d retrieves the first number</li>
+      <li>The suffix :i retrieves the integer part of the first number.</li>
+      <li>The suffix :r&lt;n&gt; retrieves the first number and rounds it to
+          &lt;n&gt; decimal places. If &lt;n&gt; is missing, then rounds it to
+          one decimal place.</li>
+      <li>The suffix :t returns the timestamp (works only for readings)</li>
+      <li>The suffix :sec returns the number of seconds since the reading was
+          set.</li>
+    </ul>
+    Example:
+    <ul>
+      set Lamp blink [blinkDummy:number] [r:blinkDummy:duration:d]
+    </ul>
+  </li>
+  <li>[device:name:d] same as above, but only the number is retrieved</li>
+  <li>[device:name:sec] same as above, but only the number is retrieved</li>
   <li>{(perlExpression)} with the result of perlExpression.
     The $DEV variable is additionally available, designating the set device
     name.
     </li>
   </ul>
+  These replacements are also known as "set magic".
   <br><br>
 
   <a name="setExtensions"></a>
@@ -1144,6 +1189,7 @@ The following local attributes are used by a wider range of devices:
     </code>
   </ul>
 </ul>
+<!-- set end -->
 
 <a name="setdefaultattr"></a>
 <h3>setdefaultattr</h3>
@@ -1172,6 +1218,7 @@ The following local attributes are used by a wider range of devices:
     <li>There is no way to delete a single default-attribute from the list</li>
   </ul>
 </ul>
+<!-- setdefaultattr end -->
 
 <a name="setreading"></a>
 <h3>setreading</h3>
@@ -1190,6 +1237,7 @@ The following local attributes are used by a wider range of devices:
   Note: setreading won't generate an event for device X, if it is called from a
   notify for device X. Use "sleep 0.1; setreading X Y Z" in this case.
 </ul>
+<!-- setreading end -->
 
 <a name="setstate"></a>
 <h3>setstate</h3>
@@ -1209,6 +1257,7 @@ The following local attributes are used by a wider range of devices:
     setstate lamp on
   </ul>
 </ul>
+<!-- setstate end -->
 
 <a name="shutdown"></a>
 <h3>shutdown</h3>
@@ -1227,6 +1276,7 @@ The following local attributes are used by a wider range of devices:
     <code>shutdown 1</code><br>
   </ul>
 </ul>
+<!-- shutdown end -->
 
 <a name="sleep"></a>
 <h3>sleep</h3>
@@ -1238,7 +1288,7 @@ The following local attributes are used by a wider range of devices:
   specified time. The unit is seconds, with millisecond accuracy, as you can
   specify decimal places.<br><br>
 
-  A sleep with an &lt;id&lt; will replace a sleep with the same &lt;id&lt;
+  A sleep with an &lt;id&gt; will replace a sleep with the same &lt;id&gt;
   and can be canceled by <a href="#cancel">cancel</a>.
 
   When called in a notify/at/etc, then nonempty return values of the following
@@ -1256,6 +1306,7 @@ The following local attributes are used by a wider range of devices:
   it issues a WARNING in the FHEM log.
   <br>
 </ul>
+<!-- sleep end -->
 
 <a name="trigger"></a>
 <h3>trigger</h3>
@@ -1272,6 +1323,7 @@ The following local attributes are used by a wider range of devices:
     <code>trigger btn3 on</code>
   </ul>
 </ul>
+<!-- trigger end -->
 
 <!-- commands end - diese Zeile nicht entfernen! -->
 
@@ -1293,7 +1345,12 @@ The following local attributes are used by a wider range of devices:
   <ul>
     <li><a href="#archivedir">archivedir</a></li>
     <li><a href="#archivecmd">archivecmd</a></li>
-    <li><a href="#nrarchive">nrarchive</a></li><br>
+    <li><a href="#nrarchive">nrarchive</a></li>
+    <a name="archivesort"></a>
+    <li>archivesort<br>
+        archivesort may be set to the (default) alphanum or timestamp, and
+        specifies how the last files are computed for the nrarchive attribute.
+    </li><br>
 
     <a name="autoload_undefined_devices"></a>
     <li>autoload_undefined_devices<br>
@@ -1372,6 +1429,14 @@ The following local attributes are used by a wider range of devices:
         after each update. If set to modular, there is only a short description
         at the beginning, and the module documentation is loaded from FHEM
         dynamically.
+    </li><br>
+
+    <a name="dnsHostsFile"></a>
+    <li>dnsHostsFile<br>
+        If dnsServer is set, check the contents of the file specified as
+        argument. To use the system hosts file, set it to /etc/hosts on
+        Linux/Unix/OSX and C:\windows\system32\drivers\etc\hosts on Windows.
+        Note: only IPv4 is supported.
     </li><br>
 
     <a name="dnsServer"></a>
@@ -1456,13 +1521,40 @@ The following local attributes are used by a wider range of devices:
         Windows.
     </li><br>
 
-    <a name="pidfilename="></a>
+    <a name="pidfilename"></a>
     <li>pidfilename<br>
         Write the process id of the perl process to the specified file. The
         server runs as a daemon, and some distributions would like to check by
         the pid if we are still running. The file will be deleted upon
         shutdown.
     </li><br>
+
+    <a name="proxy"></a>
+    <li>proxy<br>
+        IP:PORT of the proxy server to be used by HttpUtils.
+    </li><br>
+    <a name="proxyAuth"></a>
+    <li>proxyAuth<br>
+        Base64 encoded username:password
+    </li><br>
+    <a name="proxyExclude"></a>
+    <li>proxyExclude<br>
+        regexp for hosts to exclude when using a proxy
+    </li><br>
+
+    <a name="restoreDirs"></a>
+    <li>restoreDirs<br>
+        update saves each file before overwriting it with the new version from
+        the Web. For this purpose update creates a directory restoreDir in the
+        global modpath directory, then a subdirectory with the current date,
+        where the old version of the currently replaced file is stored.
+        The default value of this attribute is 3, meaning that 3 old versions
+        (i.e. date-directories) are kept, and the older ones are deleted.<br>
+        fhem.cfg and fhem.state will be also copied with this method before
+        executing save. To restore the files, you can use the restore FHEM
+        command.<br>
+        <br>If the attribute is set to 0, the feature is deactivated.
+        </li><br>
 
     <li><a href="#fheminfo">sendStatistics</a><br>
 
@@ -1476,6 +1568,13 @@ The following local attributes are used by a wider range of devices:
     <li><a href="#title">title</a><br>
 
     <li><a href="#fheminfo">uniqueID</a><br>
+
+    <a name="useInet6"></a>
+    <li>useInet6<br>
+        try to use IPv6 in HttpUtils for communication. If the server does not
+        have an IPv6 address, fall back to IPv4. Note: IO::Socket::INET6 is
+        required.
+    </li><br>
 
     <a name="userattr"></a>
     <li>userattr<br>
@@ -1596,7 +1695,8 @@ The following local attributes are used by a wider range of devices:
     $mday, $month, $year, $wday, $yday, $isdst are available in the perl
     oneliners (see also perldoc -f localtime). Exceptions: $month is in the
     range of 1 to 12, and $year is corrected by 1900 (as I would expect).
-    Additionally the variable $hms contains the time in the HH:MM:SS format.
+    Additionally the variable $hms contains the time in the HH:MM:SS format and
+    $today the current date in YYYY-MM-DD format.
     <br>
     Additionally the variabe $we is 1 if it is weekend (i.e $wday == 0 or
     $wday == 6), and 0 otherwise. If the <a href="#holiday2we">holida2we</a>
@@ -1639,8 +1739,18 @@ The following local attributes are used by a wider range of devices:
         Return the reading (the value in the Readings section of "list device")
         </li><br>
       <li>
-        ReadingsNum(&lt;devicename&gt;,&lt;reading&gt;,&lt;defaultvalue&gt;)<br>
-        Return the reading as a number, i.e. delete non-numerical values.
+        ReadingsNum(&lt;devicename&gt;,&lt;reading&gt;,
+                    &lt;defaultvalue&gt;,&lt;round&gt;)<br>
+        Return the first number from a reading value.
+        Round id to &lt;round&gt; devimal places (optional parameter).
+        </li><br>
+      <li>ReadingsTimestamp(&lt;devicename&gt;,&lt;reading&gt;,&lt;
+        defaultvalue&gt;)<br>
+        returns the timestamp of the reading.
+        </li><br>
+      <li>ReadingsAge(&lt;devicename&gt;,&lt;reading&gt;,&lt;defaultvalue&gt;)
+        <br>
+        returns the age of the reading in seconds.
         </li><br>
       <li>
         AttrVal(&lt;devicename&gt;,&lt;attribute&gt;,&lt;defaultvalue&gt;)<br>
@@ -1654,10 +1764,22 @@ The following local attributes are used by a wider range of devices:
         { AttrVal("wz", "room", "none") }<br>
         </li><br>
       <li>
+        AttrNum(&lt;devicename&gt;,&lt;attribute&gt;,
+                    &lt;defaultvalue&gt;,&lt;round&gt;)<br>
+        Return the first number from an attribute value.
+        Round id to &lt;round&gt; devimal places (optional parameter).
+        </li><br>
+      <li>
         InternalVal(&lt;devicename&gt;,&lt;property&gt;,&lt;defaultvalue&gt;)
         <br>
         Return the internal value (the value in the Internals section of "list
         device").
+        </li><br>
+      <li>
+        InternalNum(&lt;devicename&gt;,&lt;property&gt;,
+                    &lt;defaultvalue&gt;,&lt;round&gt;)<br>
+        Return the first number from an internal value.
+        Round id to &lt;round&gt; devimal places (optional parameter).
         </li><br>
       </ul>
 

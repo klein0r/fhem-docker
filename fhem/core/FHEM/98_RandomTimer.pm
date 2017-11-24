@@ -1,4 +1,4 @@
-# $Id: 98_RandomTimer.pm 13356 2017-02-07 23:47:53Z orti-otto $
+# $Id: 98_RandomTimer.pm 14538 2017-06-18 19:48:48Z orti-otto $
 ##############################################################################
 #
 #     98_RandomTimer_Initialize.pm
@@ -50,7 +50,7 @@ sub RandomTimer_Initialize($)
   $hash->{DefFn}     = "RandomTimer_Define";
   $hash->{UndefFn}   = "RandomTimer_Undef";
   $hash->{AttrFn}    = "RandomTimer_Attr";
-  $hash->{AttrList}  = "onCmd offCmd switchmode disable:0,1 disableCond runonce:0,1 keepDeviceAlive ".
+  $hash->{AttrList}  = "onCmd offCmd switchmode disable:0,1 disableCond runonce:0,1 keepDeviceAlive forceStoptimeSameDay ".
                        $readingFnAttributes;
 }
 ########################################################################
@@ -108,10 +108,12 @@ sub RandomTimer_Define($$)
   $hash->{helper}{S_REL}          = $srel;
   $hash->{COMMAND}                = Value($hash->{DEVICE});
   
+  #$attr{$name}{verbose} = 4;
+  
   readingsSingleUpdate ($hash,  "TimeToSwitch", $hash->{helper}{TIMETOSWITCH}, 1);
   
   myRemoveInternalTimer("SetTimer", $hash);
-  myInternalTimer      ("SetTimer", time()+1, "RandomTimer_SetTimer", $hash, 0);
+  myInternalTimer      ("SetTimer", time(), "RandomTimer_SetTimer", $hash, 0);
 
   return undef;
 }
@@ -151,12 +153,17 @@ sub RandomTimer_SetTimer($) {
 # attr Test verbose 5                                     ;
 # define ds at +00:00:30 attr Test disable 1              ;
 #
+# delete  RT_Test; define RT_Test RandomTimer *22:00:00 Brunnen 23:00:00 300
+# set RT_Test disable 0 
+# delete  RT_Test
 sub RandomTimer_Exec($) {
    my ($myHash) = @_;
    
    my $hash = myGetHashIndirekt($myHash, (caller(0))[3]);
    return if (!defined($hash));
-  
+   
+   my $now = time();
+   
    # Wenn aktiv aber disabled, dann timer abschalten, Meldung ausgeben.
    my $active          = RandomTimer_isAktive($hash);
    my $disabled        = RandomTimer_isDisabled($hash);
@@ -201,15 +208,19 @@ sub RandomTimer_Exec($) {
          return;
       }
       if (!$disabled) { 
-         Log3 $hash, 3, "[".$hash->{NAME}."]"." starting RandomTimer on $hash->{DEVICE}: "
-            . strftime("%H:%M:%S(%d)",localtime($hash->{helper}{startTime})) . " - "
-            . strftime("%H:%M:%S(%d)",localtime($hash->{helper}{stopTime}));
-         RandomTimer_setActive($hash,1);
+         if ($now>$hash->{helper}{startTime} && $now<$hash->{helper}{stopTime}) {
+            Log3 $hash, 3, "[".$hash->{NAME}."]"." starting RandomTimer on $hash->{DEVICE}: "
+               . strftime("%H:%M:%S(%d)",localtime($hash->{helper}{startTime})) . " - "
+               . strftime("%H:%M:%S(%d)",localtime($hash->{helper}{stopTime}));
+            RandomTimer_setActive($hash,1);
+         }          
       }
    }
    
    RandomTimer_setState($hash);
-   RandomTimer_device_toggle($hash) if (!$disabled);
+   if ($now>$hash->{helper}{startTime} && $now<$hash->{helper}{stopTime}) {
+      RandomTimer_device_toggle($hash) if (!$disabled);
+   }
 
    my $nextSwitch = time() + RandomTimer_getSecsToNextAbschaltTest($hash);
    myRemoveInternalTimer("Exec", $hash);
@@ -374,8 +385,11 @@ sub RandomTimer_stopZeitErmitteln  ($$) {
    } else {
       $stopTime = RandomTimer_zeitBerechnen($now, $hour, $min, $sec);
    }
-   if ($hash->{helper}{startTime} > $stopTime) {
-      $stopTime  = RandomTimer_addDays($stopTime, 1);
+   
+   if (!AttrVal($hash->{NAME}, "forceStoptimeSameDay", 0)) {
+      if ($hash->{helper}{startTime} > $stopTime) {
+         $stopTime  = RandomTimer_addDays($stopTime, 1);
+      }
    }
    $hash->{helper}{stopTime} = $stopTime;
    $hash->{helper}{STOPTIME} = strftime("%d.%m.%Y  %H:%M:%S",localtime($stopTime));
@@ -575,6 +589,17 @@ sub RandomTimer_Wakeup() {  # {RandomTimer_Wakeup()}
         </pre>
     </li>
 
+    the decision to switch on or off depends on the state of the device and is evaluated by the funktion Value(<device>). Value() must 
+    evaluate one of the values "on" or "off". The behavior of devices that do not evaluate one of those values can be corrected by defining a statFormat:  
+    <pre>
+       attr stateFormat  EDIPlug_01  {(ReadingsVal("EDIPlug_01","state","nF") =~ m/(ON|on)/i)  ? "on" : "off" }
+    </pre>
+    if a devices Value() funktion does not evalute to on or off(like WLAN-Steckdose von Edimax) you get the message:
+    <pre>
+       [EDIPlug] result of function Value(EDIPlug_01) must be 'on' or 'off'
+    </pre>
+        
+    
     <li><a name="switchmode">switchmode</a><br>
         Setting the switchmode you can influence the behavior of switching on/off.
         The parameter has the Format 999/999 and the default ist 800/200. The values are in "per mill".

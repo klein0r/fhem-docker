@@ -1,5 +1,5 @@
 ################################################################
-# $Id: 98_update.pm 12801 2016-12-17 16:52:31Z rudolfkoenig $
+# $Id: 98_update.pm 15377 2017-11-01 16:59:23Z rudolfkoenig $
 
 package main;
 use strict;
@@ -11,8 +11,6 @@ use Blocking;
 sub CommandUpdate($$);
 sub upd_getUrl($);
 sub upd_initRestoreDirs($);
-sub upd_mkDir($$$);
-sub upd_rmTree($);
 sub upd_writeFile($$$$);
 sub upd_mv($$);
 sub upd_metainit($);
@@ -21,13 +19,15 @@ sub upd_saveConfig($$$);
 
 my $updateInBackground;
 my $updRet;
-my %updDirs;
 my $updArg;
 my $mainPgm = "/fhem.pl\$";
 my %upd_connecthash;
 my $upd_needJoin;
 my $upd_nChanged;
+my $upd_running;
 
+eval "require IO::Socket::SSL";  # Forum #74387
+my $upd_hasSSL = $@ ? 0 : 1;
 
 ########################################
 sub
@@ -69,14 +69,18 @@ CommandUpdate($$)
   $updateInBackground = AttrVal("global","updateInBackground",1);
   $updateInBackground = 0 if($arg ne "all");                                   
   $updArg = $arg;
+  return "An update is already running" if($upd_running);
+  $upd_running = 1;
   if($updateInBackground) {
     CallFn($cl->{NAME}, "ActivateInformFn", $cl, "log");
-    BlockingCall("doUpdateInBackground", {src=>$src,arg=>$arg});
+    sub updDone(@) { $upd_running=0 }
+    BlockingCall("doUpdateInBackground", {src=>$src,arg=>$arg}, "updDone");
     return "Executing the update the background.";
 
   } else {
     doUpdateLoop($src, $arg);
     my $ret = $updRet; $updRet = "";
+    $upd_running = 0;
     return $ret;
 
   }
@@ -234,6 +238,7 @@ doUpdate($$$$)
 {
   my ($curr, $max, $src, $arg) = @_;
   my ($basePath, $ctrlFileName);
+  $src =~ s'^http://fhem\.de'https://fhem.de' if($upd_hasSSL);
   if($src !~ m,^(.*)/([^/]*)$,) {
     uLog 1, "Cannot parse $src, probably not a valid http control file";
     return;
@@ -266,7 +271,7 @@ doUpdate($$$$)
   ###########################
   # read in & digest the local control file
   my $root = $attr{global}{modpath};
-  my $restoreDir = ($arg eq "check" ? "" : upd_initRestoreDirs($root));
+  my $restoreDir = ($arg eq "check" ? "" : restoreDir_init());
 
   my @locList;
   if(($arg eq "check" || $arg eq "all") &&
@@ -310,7 +315,7 @@ doUpdate($$$$)
         uLog 1, "Suspicious line $r, aborting";
         return 1;
       }
-      upd_mkDir($root, $r[2], 0);
+      restoreDir_mkDir($root, $r[2], 0);
       my $mvret = upd_mv("$root/$r[1]", "$root/$r[2]");
       uLog 4, "mv $root/$r[1] $root/$r[2]". ($mvret ? " FAILED:$mvret":"");
     }
@@ -329,7 +334,7 @@ doUpdate($$$$)
    
       my $isExcl;
       foreach my $ex (@excl) {
-        $isExcl = 1 if($fName =~ m/$ex/);
+        $isExcl = 1 if($fName =~ m/$ex/ || "$src:$fName" =~ m/$ex/);
       }
       my $fPath = "$root/$fName";
       $fPath = $0 if($fPath =~ m/$mainPgm/);
@@ -456,26 +461,6 @@ upd_mv($$)
 }
 
 sub
-upd_mkDir($$$)
-{
-  my ($root, $dir, $isFile) = @_;
-  if($isFile) { # Delete the file Component
-    $dir =~ m,^(.*)/([^/]*)$,;
-    $dir = $1;
-  }
-  return if($updDirs{$dir});
-  $updDirs{$dir} = 1;
-  my @p = split("/", $dir);
-  for(my $i = 0; $i < int(@p); $i++) {
-    my $path = "$root/".join("/", @p[0..$i]);
-    if(!-d $path) {
-      mkdir $path;
-      uLog 4, "MKDIR $root/".join("/", @p[0..$i]);
-    }
-  }
-}
-
-sub
 upd_getChanges($$)
 {
   my ($root, $basePath) = @_;
@@ -530,7 +515,7 @@ upd_saveConfig($$$)
   my($root, $restoreDir, $fName) = @_;
 
   return if(!$fName || !$restoreDir || configDBUsed() || !-r "$root/$fName");
-  upd_mkDir($root, "$restoreDir/$fName", 1);
+  restoreDir_mkDir($root, "$restoreDir/$fName", 1);
   Log 1, "saving $fName";
   if(!copy("$root/$fName", "$root/$restoreDir/$fName")) {
     uLog 1, "copy $root/$fName $root/$restoreDir/$fName failed:$!, ".
@@ -545,8 +530,8 @@ upd_writeFile($$$$)
   my($root, $restoreDir, $fName, $content) = @_;
 
   # copy the old file and save the new
-  upd_mkDir($root, $fName, 1);
-  upd_mkDir($root, "$restoreDir/$fName", 1) if($restoreDir);
+  restoreDir_mkDir($root, $fName, 1);
+  restoreDir_mkDir($root, "$restoreDir/$fName", 1) if($restoreDir);
   if($restoreDir && -f "$root/$fName" &&
      ! copy("$root/$fName", "$root/$restoreDir/$fName")) {
     uLog 1, "copy $root/$fName $root/$restoreDir/$fName failed:$!, ".
@@ -579,69 +564,6 @@ upd_writeFile($$$$)
   return 1;
 }
 
-sub
-upd_rmTree($)
-{
-  my ($dir) = @_;
-
-  my $dh;
-  if(!opendir($dh, $dir)) {
-    uLog 1, "opendir $dir: $!";
-    return;
-  }
-  my @files = grep { $_ ne "." && $_ ne ".." } readdir($dh);
-  closedir($dh);
-
-  foreach my $f (@files) {
-    if(-d "$dir/$f") {
-      upd_rmTree("$dir/$f");
-    } else {
-      uLog 4, "rm $dir/$f";
-      if(!unlink("$dir/$f")) {
-        uLog 1, "rm $dir/$f failed: $!";
-      }
-    }
-  }
-  uLog 4, "rmdir $dir";
-  if(!rmdir($dir)) {
-    uLog 1, "rmdir $dir failed: $!";
-  }
-}
-
-sub
-upd_initRestoreDirs($)
-{
-  my ($root) = @_;
-
-  my $nDirs = AttrVal("global","restoreDirs", 3);
-  if($nDirs !~ m/^\d+$/ || $nDirs < 0) {
-    uLog 1, "invalid restoreDirs value $nDirs, setting it to 3";
-    $nDirs = 3;
-  }
-  return "" if($nDirs == 0);
-
-  my $rdName = "restoreDir";
-  my @t = localtime;
-  my $restoreDir = sprintf("$rdName/%04d-%02d-%02d",
-                        $t[5]+1900, $t[4]+1, $t[3]);
-  Log 1, "MKDIR $restoreDir" if(!  -d "$root/restoreDir");
-  upd_mkDir($root, $restoreDir, 0);
-
-  if(!opendir(DH, "$root/$rdName")) {
-    uLog 1, "opendir $root/$rdName: $!";
-    return "";
-  }
-  my @oldDirs = sort grep { $_ !~ m/^\./ && $_ ne $restoreDir } readdir(DH);
-  closedir(DH);
-  while(int(@oldDirs) > $nDirs) {
-    my $dir = "$root/$rdName/". shift(@oldDirs);
-    next if($dir =~ m/$restoreDir/);    # Just in case
-    uLog 1, "RMDIR: $dir";
-    upd_rmTree($dir);
-  }
-    
-  return $restoreDir;
-}
 1;
 
 =pod
@@ -728,19 +650,12 @@ upd_initRestoreDirs($)
         <ul>
           attr global exclude_from_update 21_OWTEMP.pm FS20.off.png
         </ul>
+        The regexp is checked against the filename and the source:filename
+        combination. To exclude the updates for FILE.pm from fhem.de, as you are
+        updating it from another source, specify fhem.de.*:FILE.pm
         </li><br>
 
-    <a name="restoreDirs"></a>
-    <li>restoreDirs<br>
-        update saves each file before overwriting it with the new version from
-        the Web. For this purpose update creates a directory restoreDir in the
-        global modpath directory, then a subdirectory with the current date,
-        where the old version of the currently replaced file is stored.
-        The default value of this attribute is 3, meaning that 3 old versions
-        (i.e. date-directories) are kept, and the older ones are deleted. If
-        the attribute is set to 0, the feature is deactivated.
-        </li><br>
-
+    <li><a href="#restoreDirs">restoreDirs</a></li><br>
 
   </ul>
 </ul>
@@ -836,18 +751,14 @@ upd_initRestoreDirs($)
         <ul>
           attr global exclude_from_update 21_OWTEMP.pm temp4hum4.gplot 
         </ul>
+        Der Regexp wird gegen den Dateinamen und gegen Quelle:Dateiname
+        gepr&uuml;ft. Um die Datei FILE.pm von updates von fhem.de
+        auszuschlie&szlig;en, weil sie von einer anderen Quelle bezogen wird,
+        kann man fhem.de.*:FILE.pm spezifizieren.
+
         </li><br>
 
-    <li><a href="#restoreDirs">restoreDirs</a>
-        update sichert jede Datei vor dem &Uuml;berschreiben mit der neuen
-        Version aus dem Web. F&uuml;r diesen Zweck wird zuerst ein restoreDir
-        Verzeichnis in der global modpath Verzeichnis angelegt, und danach
-        ein Unterverzeichnis mit dem aktuellen Datum. In diesem Verzeichnis
-        werden vor dem &Uuml;berschreiben die alten Versionen der Dateien
-        gerettet. Die Voreinstellung ist 3, d.h. die letzten 3
-        Datums-Verzeichnisse werden aufgehoben, und die &auml;lteren entfernt.
-        Falls man den Wert auf 0 setzt, dann ist dieses Feature deaktiviert.
-        </li><br>
+    <li><a href="#restoreDirs">restoreDirs</a></li><br>
 
   </ul>
 </ul>

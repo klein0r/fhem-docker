@@ -1,5 +1,5 @@
 
-# $Id: 36_JeeLink.pm 12695 2016-12-01 21:38:18Z justme1968 $
+# $Id: 36_JeeLink.pm 14707 2017-07-13 18:08:33Z justme1968 $
 
 package main;
 
@@ -708,7 +708,17 @@ JeeLink_Parse($$$$)
   }
 
   if($dmsg =~ m/^\[/ ) {
-    $hash->{model} = $dmsg;
+    if($dmsg =~ m/^\[LaCrosseITPlusReader/) {
+      my $model = "";
+      my $settings = "";
+      ($model, $settings) = split(/ /, $dmsg, 2);
+      chop($settings);
+      $hash->{model} = substr($model, 1);
+      $hash->{settings} = $settings;
+    }
+    else {
+      $hash->{model} = $dmsg;
+    }
 
     if( ReadingsVal($name,"state","" ) eq "opened" ) {
       if( my $initCommandsString = AttrVal($name, "initCommands", undef) ) {

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_HMinfo.pm 13168 2017-01-21 11:57:16Z martinp876 $
+# $Id: 98_HMinfo.pm 15458 2017-11-19 18:20:37Z martinp876 $
 package main;
 use strict;
 use warnings;
@@ -201,7 +201,7 @@ sub HMinfo_Notify(@){##########################################################
   HMinfo_listOfTempTemplates() if (grep /(FILEWRITE.*$cfgFn|INITIALIZED)/,@{$events});
 
   if (grep /(SAVE|SHUTDOWN)/,@{$events}){# also save configuration
-    HMinfo_archConfig($hash,$name,"","");
+    HMinfo_archConfig($hash,$name,"","") if(AttrVal($name,"autoArchive",undef));
   }
   if (grep /INITIALIZED/,@{$events}){
     HMinfo_SetFn($hash,$name,"loadConfig") 
@@ -444,10 +444,10 @@ sub HMinfo_regCheck(@) { ######################################################
         my $pre =  (CUL_HM_getAttrInt($eName,"expert") & 0x02)?"":".";#raw register on
 
         delete $ehash->{helper}{shadowReg}{$rl} 
-              if (   (   $ehash->{READINGS}{$pre.$rl} 
-                      && $ehash->{READINGS}{$pre.$rl}{VAL} eq $ehash->{helper}{shadowReg}{$rl}
-                      )                                  # content is already displayed
-                   ||(!$ehash->{helper}{shadowReg}{$rl}) # content is missing
+              if (   ( !$ehash->{helper}{shadowReg}{$rl}) # content is missing
+                  ||(   $ehash->{READINGS}{$pre.$rl} 
+                     && $ehash->{READINGS}{$pre.$rl}{VAL} eq $ehash->{helper}{shadowReg}{$rl}
+                     )                                  # content is already displayed
                    );
       }
       push @regChPend,$eName if (keys %{$ehash->{helper}{shadowReg}});
@@ -1323,6 +1323,7 @@ sub HMinfo_GetFn($@) {#########################################################
   }
   elsif($cmd eq "configCheck"){##check peers and register----------------------
     if ($hash->{CL}){
+      $defs{$name}{helper}{cfgChkResult} = "";
       my $id = ++$hash->{nb}{cnt};
       my $bl = BlockingCall("HMinfo_configCheck", join(",",("$name;$id;$hash->{CL}{NAME}",$opt,$filter)), 
                             "HMinfo_bpPost", 30, 
@@ -1335,6 +1336,9 @@ sub HMinfo_GetFn($@) {#########################################################
       $ret =~s/-ret-/\n/g;
     }
   }
+  elsif($cmd eq "configChkResult"){##check peers and register----------------------
+    return $defs{$name}{helper}{cfgChkResult} ? $defs{$name}{helper}{cfgChkResult} :"no results available";
+  }
   elsif($cmd eq "templateChk"){##template: see if it applies ------------------
     my $id = ++$hash->{nb}{cnt};
     my $bl = BlockingCall("HMinfo_templateChk_Get", join(",",("$name;$id;$hash->{CL}{NAME}",$opt,$filter,@a)), 
@@ -1343,7 +1347,7 @@ sub HMinfo_GetFn($@) {#########################################################
     $hash->{nb}{$id}{$_} = $bl->{$_} foreach (keys %{$bl});
     $ret = "";
   }
-  elsif($cmd eq "templateUsg"){##template: see if it applies ------------------
+  elsif($cmd =~ m/^templateUs(g|gG)$/){##template: see if it applies ------------------
     return HMinfo_templateUsg($opt,$filter,@a);
   }
   #------------ print tables ---------------
@@ -1474,15 +1478,23 @@ sub HMinfo_GetFn($@) {#########################################################
 
   else{
     my @cmdLst =     
-           ( "help"
-            ,"configCheck","param","peerCheck","peerXref"
-            ,"protoEvents","msgStat"
+           ( "help:noArg"
+            ,"configCheck"
+            ,"configChkResult:noArg"
+            ,"param"
+            ,"peerCheck"
+            ,"peerXref"
+            ,"protoEvents"
+            ,"msgStat"
             ,"rssi rssiG:full,reduced"
             ,"models"
 #            ,"overview"
-            ,"regCheck","register"
+            ,"regCheck"
+            ,"register"
             ,"templateList:".join(",",("all",sort keys%HMConfig::culHmTpl))
-            ,"templateChk","templateUsg"
+            ,"templateChk"
+            ,"templateUsg"
+            ,"templateUsgG:sortTemplate,sortPeer,noTmpl,all"
             );
             
     $ret = "Unknown argument $cmd, choose one of ".join (" ",sort @cmdLst);
@@ -1518,10 +1530,19 @@ sub HMinfo_SetFn($@) {#########################################################
         delete $modules{CUL_HM}{stat}{s}{$_};
       }
     }
-    if ($type ne "msgStat"){
-      return "unknown parameter - use msgEvents, readings, msgStat, register, rssi, attack or all"
-            if ($type !~ m/^(msgEvents|readings|register|oldRegs|rssi|all|attack|trigger)$/);
-      $opt .= "d" if ($type =~ m/(msgEvents|rssi)/);# readings apply to all, others device only
+    if ($type eq "msgErrors"){#clear message events for all devices which has problems
+      my @devL = split(",",InternalVal($hash->{NAME},"W__protoNames",""));
+      push @devL,split(",",InternalVal($hash->{NAME},"CRI__protoNames",""));
+      push @devL,split(",",InternalVal($hash->{NAME},"ERR__protoNames",""));
+    
+      foreach my $dName (HMinfo_noDup(@devL)){
+        CUL_HM_Set($defs{$dName},$dName,"clear","msgEvents");
+      }
+    }
+    elsif ($type ne "msgStat"){
+      return "unknown parameter - use msgEvents, msgErrors, msgStat, readings, register, rssi, attack or all"
+            if ($type !~ m/^(msgEvents|msgErrors|readings|register|oldRegs|rssi|all|attack|trigger)$/);
+      $opt .= "d" if ($type =~ m/(msgE|rssi)/);# readings apply to all, others device only
       my @entities;
       foreach my $dName (HMinfo_getEntities($opt,$filter)){
         push @entities,$dName;
@@ -1638,9 +1659,9 @@ sub HMinfo_SetFn($@) {#########################################################
     my @cmdLst =     
            ( "autoReadReg"
             ,"clear"    #:msgStat,msgEvents,all,rssi,register,trigger,readings"  
-            ,"clearG:msgEvents,readings,register,oldRegs,rssi,msgStat,trigger,attack,all"
+            ,"clearG:msgEvents,msgErrors,msgStat,readings,register,oldRegs,rssi,trigger,attack,all"
             ,"archConfig:-0,-a","saveConfig","verifyConfig","loadConfig","purgeConfig"
-            ,"update"
+            ,"update:noArg"
             ,"cpRegs"
             ,"tempList"
             ,"tempListG:verify,status,save,restore,genPlot"
@@ -1682,6 +1703,7 @@ sub HMInfo_help(){ ############################################################
            ."\n set clear[G] [-typeFilter-] [msgEvents|readings|msgStat|register|rssi]"
            ."\n                       # delete readings selective"
            ."\n          msgEvents    # delete all protocol-events , msg events"
+           ."\n          msgErrors    # delete protoevents for all devices which had errors"
            ."\n          readings     # all readings"
            ."\n          register     # all register-readings"
            ."\n          oldRegs      # outdated register (cleanup) "
@@ -2121,6 +2143,7 @@ sub HMinfo_configCheck ($){ ###################################################
     next if (!defined $defs{$dName}{helper}{tmpl});
     foreach (keys %{$defs{$dName}{helper}{tmpl}}){
       my ($p,$t)=split(">",$_);
+      $p = 0 if ($p eq "none");
       my $tck = HMinfo_templateChk($dName,$t,$p,split(" ",$defs{$dName}{helper}{tmpl}{$_}));
       push @tlr,$tck if ($tck);
     }
@@ -2199,6 +2222,7 @@ sub HMinfo_bpPost($) {#bp finished ############################################
     }
   }
   delete $defs{$name}{nb}{$id};
+  $defs{$name}{helper}{cfgChkResult} = $ret;
   return;
 }
 sub HMinfo_bpAbort($) {#bp timeout ############################################
@@ -2222,15 +2246,16 @@ sub HMinfo_templateChk_Get ($){ ###############################################
   }
   else{
     foreach my $dName (HMinfo_getEntities($opt."v",$filter)){
-      next if (!defined $defs{$dName}{helper}{tmpl});
-      foreach (keys %{$defs{$dName}{helper}{tmpl}}){
-        my ($p,$t)=split(">",$_);
-        $ret .= HMinfo_templateChk($dName,$t,$p,split(" ",$defs{$dName}{helper}{tmpl}{$_}));
+      next if (!defined $defs{$dName}{helper}{tmpl} || ! $defs{$dName}{helper}{tmpl});
+      #$ret .= HMinfo_templateChk(@a);
+      foreach my $tmpl(keys %{$defs{$dName}{helper}{tmpl}}){
+        my ($p,$t)=split(">",$tmpl);
+        $ret .= HMinfo_templateChk($dName,$t,($p eq "none"?0:$p),split(" ",$defs{$dName}{helper}{tmpl}{$tmpl}));
       }
     }
   }    
   $ret = $ret ? $ret
-                :"templateChk: passed";
+               :"templateChk: passed";
   $ret =~ s/\n/-ret-/g; # replace return with a placeholder - we cannot transfere direct
   return "$id;$ret";
 }
@@ -2373,6 +2398,7 @@ sub HMinfo_templateDel(@){#####################################################
   return if (!defined $defs{$aName});
   delete $defs{$aName}{helper}{tmpl}{"$pSet>$tmpl"};
   $tmplUsgChange = 1; # mark change
+
   $defs{$aName}{helper}{tmplChg} = 1;
   CUL_HM_setTmplDisp($defs{$aName});#set readings if desired
   return;
@@ -2391,24 +2417,40 @@ sub HMinfo_templateExe(@){#####################################################
 }
 sub HMinfo_templateUsg(@){#####################################################
   my ($opt,$filter,$tFilter) = @_;
-  my @ul;
+  $tFilter = "all" if (!$tFilter);
+  my @ul;# usageList
+  my @nul;# NonUsageList
+  my %h;
   foreach my $dName (HMinfo_getEntities($opt."v",$filter)){
-    next if(!defined $defs{$dName}{helper}{tmpl});
+    my @regLists = map {(my $foo = $_)=~s/^\.//;$foo}CUL_HM_reglUsed($dName);
+    foreach my $rl (@regLists){
+      if    ($rl =~ m/^RegL_.*\.$/)    {$h{$dName}{general}     = 1;} # no peer register
+      elsif ($rl =~ m/^RegL_03\.(.*)$/){$h{$dName}{$1.":short"} = 1;
+                                        $h{$dName}{$1.":long"}  = 1;} # peer short and long register
+      elsif ($rl =~ m/^RegL_0.\.(.*)$/){$h{$dName}{$1}          = 1;} # peer register
+    }
+   #.RegL_00.
+   #.RegL_01.
+   #.RegL_03.FB2_1
+   #.RegL_03.FB2_2
+   #.RegL_03.dis_01
+   #.RegL_03.dis_02
+   #.RegL_03.self01
+   #.RegL_03.self02
+
     foreach my $tid(keys %{$defs{$dName}{helper}{tmpl}}){
-      my ($p,$t) = split(">",$tid);
-      if($tFilter && $tFilter =~ m/^sort.*/){
+      my ($p,$t) = split(">",$tid);             #split Peer > Template
+      my ($pn,$ls) = split(":",$p);             #split PeerName : list
+      
+      if   ($tFilter =~ m/^sort.*/){
         if($tFilter eq "sortTemplate"){
           push @ul,sprintf("%-20s|%-15s|%s|%s",$t,$dName,$p,$defs{$dName}{helper}{tmpl}{$tid});
         }
-        if($tFilter eq "sortPeer"){
-          my ($pn,$ls) = split(":",$p);
+        elsif($tFilter eq "sortPeer"){
           push @ul,sprintf("%-20s|%-15s|%5s:%-20s|%s",$pn,$t,$ls,$dName,$defs{$dName}{helper}{tmpl}{$tid});
         }
-#        elsif($tFilter ne $t){
-#          next;
-#        }
       }
-      else{ 
+      elsif($tFilter eq $t || $tFilter eq "all"){
         my @param;
         my $para = "";
         if($defs{$dName}{helper}{tmpl}{$tid}){
@@ -2419,22 +2461,37 @@ sub HMinfo_templateUsg(@){#####################################################
           }
           $para = join(" ",@param);
         }
-        push @ul,sprintf("%-20s|%-15s|%s|%s",$dName,$p,$t,$para) if(!$tFilter || $tFilter eq $t);
- 
+        push @ul,sprintf("%-20s|%-15s|%s|%s",$dName,$p,$t,$para);
+      }
+      elsif($tFilter eq "noTmpl"){
+        if    ($p eq "none")         {$h{$dName}{general}      = 0;}
+        elsif ($ls && $ls eq "short"){$h{$dName}{$pn.":short"} = 0;}
+        elsif ($ls && $ls eq "long") {$h{$dName}{$pn.":long"}  = 0;}
+        elsif ($ls && $ls eq "both") {$h{$dName}{$pn.":short"} = 0;
+                                      $h{$dName}{$pn.":long"}  = 0;}
+        elsif ($pn )                 {$h{$dName}{$pn}          = 0;}
+      }
+    }
+    if ($tFilter eq "noTmpl"){
+      foreach my $item (keys %{$h{$dName}}){
+        push @nul,sprintf("%-20s|%-15s ",$dName,$item) if($h{$dName}{$item});
       }
     }
   }
-  return join("\n",sort(@ul));
+  if ($tFilter eq "noTmpl"){return  "\n no template for:\n"
+                                   .join("\n",sort(@nul)); }
+  else{                     return  join("\n",sort(@ul));  }
 }
+
 sub HMinfo_templateChk(@){#####################################################
   my ($aName,$tmpl,$pSet,@p) = @_;
   # pset: 0                = template w/o peers
   #       peer / peer:both = template for peer, not extending Long/short
   #       peer:short|long  = template for peerlong or short
 
-  return "template undefined $tmpl\n"                     if(!$HMConfig::culHmTpl{$tmpl});
-  return "aktor $aName unknown\n"                         if(!$defs{$aName});
-  return "give <peer>:[short|long|both] wrong:$pSet\n"    if($pSet && $pSet !~ m/:(short|long|both)$/);
+  return "aktor $aName - $tmpl:template undefined\n"                       if(!$HMConfig::culHmTpl{$tmpl});
+  return "aktor $aName unknown\n"                                          if(!$defs{$aName});
+  return "aktor $aName - $tmpl:give <peer>:[short|long|both] wrong:$pSet\n"if($pSet && $pSet !~ m/:(short|long|both)$/);
   $pSet = "0:0" if (!$pSet);
   
   my $repl = "";
@@ -2719,6 +2776,9 @@ sub HMinfo_noDup(@) {#return list with no duplicates###########################
       <li><a name="#HMinfoconfigCheck">configCheck</a> <a href="#HMinfoFilter">[filter]</a><br>
           performs a consistency check of HM settings. It includes regCheck and peerCheck
       </li>
+      <li><a name="#HMinfoconfigChkResult">configChkResult</a><br>
+          returns the results of a previous executed configCheck
+      </li>
       <li><a name="#HMinfotemplateList">templateList [&lt;name&gt;]</a><br>
           list defined templates. If no name is given all templates will be listed<br>
       </li>
@@ -2773,6 +2833,7 @@ sub HMinfo_noDup(@) {#return list with no duplicates###########################
           executes a set clear ...  on all HM entities<br>
           <ul>
           <li>protocol relates to set clear msgEvents</li>
+          <li>set clear msgEvents for all device with protocol errors</li>
           <li>readings relates to set clear readings</li>
           <li>rssi clears all rssi counters </li>
           <li>msgStat clear HM general message statistics</li>
@@ -3167,6 +3228,9 @@ sub HMinfo_noDup(@) {#return list with no duplicates###########################
       <li><a name="#HMinfoconfigCheck">configCheck</a> <a href="#HMinfoFilter">[filter]</a><br>
           Plausibilit&auml;tstest aller HM Einstellungen inklusive regCheck und peerCheck
       </li>
+      <li><a name="#HMinfoconfigChkResult">configChkResult</a><br>
+          gibt das Ergebnis eines vorher ausgeführten configCheck zurück
+      </li>
       <li><a name="#HMinfotemplateList">templateList [&lt;name&gt;]</a><br>
           zeigt eine Liste von Vorlagen. Ist kein Name angegeben, werden alle Vorlagen angezeigt<br>
       </li>
@@ -3218,10 +3282,11 @@ sub HMinfo_noDup(@) {#return list with no duplicates###########################
       <li><a name="#HMinfoautoReadReg">autoReadReg</a> <a href="#HMinfoFilter">[filter]</a><br>
           Aktiviert das automatische Lesen der Konfiguration f&uuml;r ein CUL_HM Ger&auml;t, wenn das Attribut autoReadReg auf 1 oder h&ouml;her steht.
       </li>
-      <li><a name="#HMinfoclear">clear</a> <a href="#HMinfoFilter">[filter]</a> [msgEvents|readings|msgStat|register|rssi]<br>
+      <li><a name="#HMinfoclear">clear</a> <a href="#HMinfoFilter">[filter]</a> [msgEvents|msgErrors|readings|msgStat|register|rssi]<br>
           F&uuml;hrt ein set clear ... f&uuml;r alle HM Instanzen aus<br>
           <ul>
           <li>Protocol bezieht sich auf set clear msgEvents</li>
+          <li>Protocol set clear msgEvents fuer alle devices mit protokoll Fehlern</li>
           <li>readings bezieht sich auf set clear readings</li>
           <li>rssi l&ouml;scht alle rssi Z&auml;hler</li>
           <li>msgStat l&ouml;scht die HM Meldungsstatistik</li>

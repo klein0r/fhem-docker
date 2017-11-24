@@ -1,12 +1,17 @@
 
-# $Id: 39_siri.pm 12629 2016-11-22 19:48:19Z justme1968 $
+# $Id: 39_siri.pm 14044 2017-04-20 07:48:44Z justme1968 $
 
 package main;
 
 use strict;
 use warnings;
 
-#use IO::Socket::INET;
+use vars qw(%modules);
+use vars qw(%defs);
+use vars qw(%attr);
+use vars qw($readingFnAttributes);
+sub Log($$);
+sub Log3($$$);
 
 sub
 siri_Initialize($)

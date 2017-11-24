@@ -1,4 +1,4 @@
-// $Id: fhemweb_fbcalllist.js 9346 2015-10-02 19:30:04Z markusbloch $
+FW_version["fhemweb_fbcalllist.js"] = "$Id: fhemweb_fbcalllist.js 13629 2017-03-06 20:50:43Z markusbloch $";
 
 // WORKAROUND - should be removed if a more suitable solution is found
 // remove all similar informid's in all parent elements to ensure further updates.

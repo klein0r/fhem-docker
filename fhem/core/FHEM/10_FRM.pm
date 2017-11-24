@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_FRM.pm 11728 2016-07-01 22:20:30Z klauswitt $
+# $Id: 10_FRM.pm 15021 2017-09-06 19:48:55Z klausw $
 ##############################################
 package main;
 
@@ -57,6 +57,7 @@ my @clients = qw(
   I2C_TSL2561
   FRM_LCD
   I2C_K30
+  I2C_LM.*
 );
 
 #####################################
@@ -1033,6 +1034,11 @@ sub FRM_OWX_Discover ($) {
 1;
 
 =pod
+=item device
+=item summary accesses FRM devices
+=item summary_DE Zugriff auf FRM Ger&auml;te 
+=begin html
+
   CHANGES
 
   18.12.2015 jensb
