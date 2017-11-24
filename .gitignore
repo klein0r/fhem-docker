@@ -1,6 +1,11 @@
 .DS_Store
 .idea
 !.gitkeep
-/fhem/data/fhem.cfg
-/fhem/log/*
+/fhem/core/FHEM/FhemUtils/uniqueID
+/fhem/core/backup/*
+/fhem/core/cache/*
+/fhem/core/log/*
+/fhem/core/restoreDir/*
 /mysql/data/*
+/mqtt/log/*
+/mqtt/data/*
