@@ -39,7 +39,8 @@ services:
             - ./mysql/init.sql:/docker-entrypoint-initdb.d/fhem-init.sql
             - ./mysql/data:/var/lib/mysql
         environment:
-            - MYSQL_RANDOM_ROOT_PASSWORD=yes
+            - MYSQL_ROOT_PASSWORD=KQW8JgZEDb4CpSMaz
+            - MYSQL_DATABASE=fhem
         networks:
             - fhem-network
 
@@ -67,7 +68,7 @@ services:
             - "1880:1880"
         image: elzekool/rpi-nodered
         volumes:
-            - ./nodered/data/:/data/
+            - ./nodered/data/:/root/.node-red/
         networks:
             - fhem-network
         depends_on:

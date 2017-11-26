@@ -25,6 +25,7 @@ docker-compose up -d
 ## Defaults
 
 - FHEM-WEB: 8083 (8084 and 8085 have been deleted)
+- mySQL-Root-Password: KQW8JgZEDb4CpSMaz
 - mySQL-User: fhemuser
 - mySQL-Password: 2jRHnEi3WuNSQAcX7
 - Homekit-Pairing-Code: 012-34-567
