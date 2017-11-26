@@ -19,29 +19,12 @@ services:
             - "mysql"
             - "mqtt"
 
-    homebridge:
-        restart: always
-        expose:
-            - "51826"
-            - "8282"
-            - "5353"
-        ports:
-            - "51826:51826"
-            - "8282:8282"
-            - "5353:5353"
-        build: homebridge
-        volumes:
-            - ./homebridge/start.sh:/root/start.sh
-            - ./homebridge/config.json:/root/.homebridge/config.json
-        networks:
-            - fhem-network
-        depends_on:
-            - "fhem"
-
     habridge:
         restart: always
         build: habridge
         network_mode: host
+        volumes:
+            - ./habridge/data/:/opt/habridge/data/
 
     mysql:
         restart: always
@@ -51,7 +34,7 @@ services:
         ports:
             - "3306:3306"
             - "33060:33060"
-        image: mysql/mysql-server:5.7
+        image: hypriot/rpi-mysql
         volumes:
             - ./mysql/init.sql:/docker-entrypoint-initdb.d/fhem-init.sql
             - ./mysql/data:/var/lib/mysql
@@ -68,7 +51,7 @@ services:
         ports:
             - "1883:1883"
             - "9001:9001"
-        image: toke/mosquitto
+        image: pascaldevink/rpi-mosquitto
         networks:
             - fhem-network
         volumes:
@@ -82,7 +65,7 @@ services:
             - "1880"
         ports:
             - "1880:1880"
-        image: nodered/node-red-docker:0.17.5
+        image: elzekool/rpi-nodered
         volumes:
             - ./nodered/data/:/data/
         networks:

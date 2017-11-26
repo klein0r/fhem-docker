@@ -1,4 +1,4 @@
-FROM debian:jessie
+FROM resin/rpi-raspbian:jessie
 
 MAINTAINER Matthias Kleine <info@haus-automatisierung.com>
 
@@ -11,14 +11,14 @@ RUN apt-get install -y --force-yes xz-utils wget python libavahi-compat-libdnssd
 
 RUN echo Europe/Berlin > /etc/timezone && dpkg-reconfigure tzdata
 
-RUN wget https://nodejs.org/dist/v6.9.2/node-v6.9.2-linux-x64.tar.xz -P /tmp && cd /usr/local && tar -xvf /tmp/node-v6.9.2-linux-x64.tar.xz --strip=1
+RUN wget https://nodejs.org/dist/v6.9.2/node-v6.9.2-linux-arm64.tar.xz -P /tmp && cd /usr/local && tar -xvf /tmp/node-v6.9.2-linux-arm64.tar.xz --strip=1
 RUN ln -s /usr/local/bin/node /usr/bin/node
 
 ENV NODE_ENV production
 
 RUN apt-get install -y --force-yes make make gcc g++
 
-RUN npm install -g homebridge homebridge-fhem homebridge-http
+RUN npm install -g --unsafe-perm --save-dev homebridge@0.4.24
 
 EXPOSE 51826
 
