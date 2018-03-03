@@ -21,20 +21,15 @@ services:
 
     homebridge:
         restart: always
-        expose:
-            - "51826"
-            - "8282"
-            - "5353"
-        ports:
-            - "51826:51826"
-            - "8282:8282"
-            - "5353:5353"
-        build: homebridge
+        image: oznu/homebridge
         volumes:
-            - ./homebridge/start.sh:/root/start.sh
-            - ./homebridge/config.json:/root/.homebridge/config.json
-        networks:
-            - fhem-network
+            - ./homebridge/config.json:/homebridge/config.json
+            - ./homebridge/package.json:/homebridge/package.json
+        environment:
+            - TZ=Europe/Berlin
+            - PGID=1000
+            - PUID=1000
+        network_mode: host
         depends_on:
             - "fhem"
 
@@ -82,7 +77,7 @@ services:
             - "1880"
         ports:
             - "1880:1880"
-        image: nodered/node-red-docker:0.17.5
+        image: nodered/node-red-docker:0.18.4
         volumes:
             - ./nodered/data/:/data/
         networks:

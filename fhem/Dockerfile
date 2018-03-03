@@ -1,4 +1,4 @@
-FROM debian:jessie
+FROM debian:stretch
 
 MAINTAINER Matthias Kleine <info@haus-automatisierung.com>
 
@@ -32,6 +32,10 @@ libavahi-compat-libdnssd-dev \
 libcgi-pm-perl \
 libclass-dbi-mysql-perl \
 libclass-isa-perl \
+libcrypt-cbc-perl \
+libcrypt-ecb-perl \
+libcrypt-urandom-perl \
+libcgi-pm-perl \
 libcommon-sense-perl \
 libconvert-base32-perl \
 libcrypt-urandom-perl \
@@ -40,6 +44,7 @@ libdatetime-format-strptime-perl \
 libdbd-sqlite3-perl \
 libdbi-perl \
 libdevice-serialport-perl \
+libdigest-md5-perl \
 libdpkg-perl \
 liberror-perl \
 libfile-copy-recursive-perl \
@@ -52,6 +57,8 @@ libio-socket-inet6-perl \
 libio-socket-ip-perl \
 libio-socket-multicast-perl \
 libio-socket-ssl-perl \
+libimage-info-perl \
+libimage-librsvg-perl \
 libjson-perl \
 libjson-xs-perl \
 liblist-moreutils-perl \
@@ -71,6 +78,10 @@ libtext-diff-perl \
 libtimedate-perl \
 libwww-perl \
 libxml-simple-perl
+
+RUN cpan Crypt::Rijndael_PP
+RUN cpan Net::MQTT::Simple
+RUN cpan Net::MQTT::Constants
 
 # Install fhem
 RUN echo Europe/Berlin > /etc/timezone && dpkg-reconfigure tzdata
