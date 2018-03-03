@@ -1,4 +1,4 @@
-FROM debian:jessie
+FROM debian:stretch
 
 MAINTAINER Matthias Kleine <info@haus-automatisierung.com>
 
