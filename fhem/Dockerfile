@@ -84,7 +84,7 @@ RUN cpan Net::MQTT::Simple
 RUN cpan Net::MQTT::Constants
 
 # Install fhem
-RUN echo Europe/Berlin > /etc/timezone && dpkg-reconfigure tzdata
+RUN unlink /etc/localtime && ln -s /usr/share/zoneinfo/Europe/Berlin /etc/localtime && dpkg-reconfigure tzdata
 
 RUN wget https://fhem.de/fhem-${FHEM_VERSION}.deb && dpkg -i fhem-${FHEM_VERSION}.deb
 RUN userdel fhem
