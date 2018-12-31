@@ -2,19 +2,24 @@ version: '2'
 
 services:
     fhem:
+        image: fhem/fhem:latest
         restart: always
-        expose:
-            - "8083"
-            - "7072"
         ports:
             - "8083:8083"
             - "7072:7072"
-        build: fhem
-        privileged: true
         volumes:
             - ./fhem/core/:/opt/fhem/
         networks:
             - fhem-network
+        #devices:
+        #    - "/dev/ttyUSB0:/dev/ttyUSB0"
+        environment:
+            FHEM_UID: 1000
+            FHEM_GID: 1000
+            TIMEOUT: 10
+            RESTART: 1
+            TELNETPORT: 7072
+            TZ: Europe/Berlin
         depends_on:
             - "mysql"
             - "mqtt"
