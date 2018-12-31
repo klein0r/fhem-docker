@@ -29,3 +29,6 @@ docker-compose up -d
 - mySQL-User: fhemuser
 - mySQL-Password: 2jRHnEi3WuNSQAcX7
 - Homekit-Pairing-Code: 012-34-567
+- Homekit-Pairing-Code: 012-34-567
+- Homekit ConfigUI User: admin
+- Homekit ConfigUI Password: admin
