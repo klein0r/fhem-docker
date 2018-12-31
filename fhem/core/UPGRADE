@@ -1,0 +1,34 @@
+This file describes the changes to made in a FHEM installation when upgrading
+_to_ the named version from an older version. It describes no new features,
+only features not working anymore.  It may or may not work to set "attr global
+featurelevel X.Y" (where X.Y is the old FHEM version, e.g. 5.6) in order to
+enable the old feature.
+
+- 2015-11-15 (5.7)
+  - In the evaluated perl expression $value{DEVICE} is not set any more, use
+    Value("DEVICE") instead
+  - the lastinclude global attribute (as in attr global lastinclude filename)
+    is not evaluated anymore, use the following instead:
+      define lastinclude notify global:INITIALIZED include filename
+  - In the evaluated perl expression % was replaced with the event, and @ with
+    the device name. Instead of % $EVENT must be used, and instead of @ $NAME.
+    The double %% and @@ is not replaced with a single % and @ anymore.
+
+- 2017-02-19 (5.8)
+  - the FHEMWEB csrfToken attribute is set to a random value on each startup,
+    which is checked when executing a command started via the FHEMWEB HTTP
+    connection. Something like:
+      wget 'http://fhemhost:8083/fhem?cmd=set%20device%20on'
+    wont work anymore. One solutions is to set "attr WEB csrfToken mySecret" and
+    rewrite the above call to:
+      wget 'http://fhemhost:8083/fhem?cmd=set%20device%20on&fwcsrf=mySecret'
+    There are other solutions in the FHEM wiki.
+
+- 2018-10-07 (5.9)
+  - the default for the setStructType structure attribute changed from 1 to 0
+  - the default for the style setting changed to f18, the old "default" is
+    still present.
+  - the default for the iconPath changed from default:fhemSVG:openautomation to 
+    fhemSVG:openautomation:default. NOTE: the old version may be needed for
+    FLORRPLAN users
+  - the default fhem.cfg does not contain a telnet definition

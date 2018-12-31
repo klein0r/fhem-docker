@@ -1,21 +1,23 @@
 ##############################################################################
-# $Id: 38_netatmo.pm 14411 2017-05-29 09:33:00Z moises $
+# $Id: 38_netatmo.pm 17678 2018-11-05 01:56:01Z moises $
 #
 #  38_netatmo.pm
 #
-#  2017 Markus M.
+#  2018 Markus Moises < vorname at nachname . de >
+#
 #  Based on original code by justme1968
 #
 #  https://forum.fhem.de/index.php/topic,53500.0.html
 #
 #
 ##############################################################################
-# Release 12 / 2017-05-29
+# Release 23 / 2018-11-03
 
 package main;
 
 use strict;
 use warnings;
+no warnings qw(redefine);
 
 use Encode qw(encode_utf8 decode_utf8);
 use JSON;
@@ -37,7 +39,6 @@ my %health_index = (  0 => "healthy",
                       4 => "unhealthy",
                       5 => "unknown", );
 
-
 sub
 netatmo_Initialize($)
 {
@@ -51,13 +52,14 @@ netatmo_Initialize($)
   $hash->{DbLog_splitFn}    =   "netatmo_DbLog_splitFn";
   $hash->{AttrFn}   = "netatmo_Attr";
   $hash->{AttrList} = "IODev ".
-                      "disable:1 ".
+                      "disable:0,1 ".
                       "interval ".
                       "videoquality:poor,low,medium,high ".
                       "ignored_device_ids ".
                       "setpoint_duration ".
                       "webhookURL webhookPoll:0,1 ".
-                      "addresslimit ";
+                      "addresslimit ".
+                      "serverAPI ";
   $hash->{AttrList} .= $readingFnAttributes;
 }
 
@@ -72,10 +74,13 @@ netatmo_Define($$)
 
   my $name = $a[0];
   $hash->{status} = "initialized";
+  $hash->{helper}{last_status_store} = 0;
 
   my $subtype;
   if($a[2] eq "WEBHOOK") {
     $subtype = "WEBHOOK";
+    $hash->{model} = "WEBHOOK";
+
     my $d = $modules{$hash->{TYPE}}{defptr}{"WEBHOOK"};
     return "Netatmo webkook already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
 
@@ -98,7 +103,7 @@ netatmo_Define($$)
 
     $hash->{openRequests} = 0;
 
-    $hash->{INTERVAL} = 60*15 if( !$hash->{INTERVAL} );
+    $hash->{helper}{INTERVAL} = 60*15 if( !$hash->{helper}{INTERVAL} );
 
     my $d = $modules{$hash->{TYPE}}{defptr}{"D$device"};
     return "device $device already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
@@ -114,6 +119,7 @@ netatmo_Define($$)
 
     if( $a[3] && $a[3] =~ m/[\da-f]{2}(:[\da-f]{2}){5}/ )
     {
+      $hash->{model} = "PUBLIC";
 
       my $device = $a[3];
       $hash->{Device} = $device;
@@ -136,7 +142,7 @@ netatmo_Define($$)
         }
 
         $hash->{Module} = $module;
-        $hash->{dataTypes} = $readings if($readings);
+        $hash->{dataTypes} = $readings if(defined($readings) && $readings ne "");
         $hash->{dataTypes} = "Temperature,CO2,Humidity,Noise,Pressure,Rain,WindStrength,WindAngle,GustStrength,GustAngle,Sp_Temperature,BoilerOn,BoilerOff" if( !$readings );
 
 
@@ -198,6 +204,8 @@ netatmo_Define($$)
       $hash->{Rad} = $rad;
 
       $subtype = "PUBLIC";
+      $hash->{model} = "WEATHERMAP";
+
       $modules{$hash->{TYPE}}{defptr}{$hash->{Lat}.$hash->{Lon}.$hash->{Rad}} = $hash;
 
       my $account = $modules{$hash->{TYPE}}{defptr}{"account"};
@@ -207,7 +215,7 @@ netatmo_Define($$)
 
     }
 
-    $hash->{INTERVAL} = 60*30 if( !$hash->{INTERVAL} );
+    $hash->{helper}{INTERVAL} = 60*30 if( !$hash->{helper}{INTERVAL} );
     $attr{$name}{room} = "netatmo" if( !defined($attr{$name}{room}) && defined($name));
     $attr{$name}{devStateIcon} = ".*:no-icon" if( !defined($attr{$name}{devStateIcon}) && defined($name));
 
@@ -222,7 +230,7 @@ netatmo_Define($$)
 
     $hash->{openRequests} = 0;
 
-    $hash->{INTERVAL} = 60*15 if( !$hash->{INTERVAL} );
+    $hash->{helper}{INTERVAL} = 60*15 if( !$hash->{helper}{INTERVAL} );
 
     my $d = $modules{$hash->{TYPE}}{defptr}{"M$module"};
     return "module $module already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
@@ -231,6 +239,7 @@ netatmo_Define($$)
 
   } elsif( ($a[2] eq "FORECAST" && @a == 4 ) ) {
     $subtype = "FORECAST";
+    $hash->{model} = "FORECAST";
 
     my $device = $a[3];
 
@@ -238,7 +247,7 @@ netatmo_Define($$)
 
     $hash->{openRequests} = 0;
 
-    $hash->{INTERVAL} = 60*60 if( !$hash->{INTERVAL} );
+    $hash->{helper}{INTERVAL} = 60*60 if( !$hash->{helper}{INTERVAL} );
     $attr{$name}{room} = "netatmo" if( !defined($attr{$name}{room}) && defined($name));
     $attr{$name}{devStateIcon} = ".*:no-icon" if( !defined($attr{$name}{devStateIcon}) && defined($name));
     $attr{$name}{'event-on-change-reading'} = ".*" if( !defined($attr{$name}{'event-on-change-reading'}) && defined($name));
@@ -262,7 +271,7 @@ netatmo_Define($$)
 
     $hash->{openRequests} = 0;
 
-    $hash->{INTERVAL} = 60*30 if( !$hash->{INTERVAL} );
+    $hash->{helper}{INTERVAL} = 60*30 if( !$hash->{helper}{INTERVAL} );
 
     my $d = $modules{$hash->{TYPE}}{defptr}{"R$device"};
     return "relay $device already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
@@ -280,21 +289,58 @@ netatmo_Define($$)
 
     $hash->{openRequests} = 0;
     $hash->{dataTypes} = "Temperature,Sp_Temperature,BoilerOn,BoilerOff";
-    $hash->{INTERVAL} = 60*30 if( !$hash->{INTERVAL} );
+    $hash->{helper}{INTERVAL} = 60*30 if( !$hash->{helper}{INTERVAL} );
 
     my $d = $modules{$hash->{TYPE}}{defptr}{"T$module"};
     return "thermostat $module already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
 
     $modules{$hash->{TYPE}}{defptr}{"T$module"} = $hash;
 
-  } elsif( ($a[2] eq "HOME" && @a == 4 ) ) {
-    $subtype = "HOME";
+  } elsif( ($a[2] eq "HEATINGHOME" && @a == 4 ) ) {
+    $subtype = "HEATINGHOME";
+    $hash->{model} = "HEATINGHOME";
 
     my $home = $a[@a-1];
 
     $hash->{Home} = $home;
 
-    $hash->{INTERVAL} = 60*15 if( !$hash->{INTERVAL} );
+    $hash->{openRequests} = 0;
+    #$hash->{dataTypes} = "Temperature,Sp_Temperature,BoilerOn,BoilerOff";
+    $hash->{helper}{INTERVAL} = 60*30 if( !$hash->{helper}{INTERVAL} );
+
+    my $d = $modules{$hash->{TYPE}}{defptr}{"E$home"};
+    return "heating home $home already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
+
+    $modules{$hash->{TYPE}}{defptr}{"E$home"} = $hash;
+
+  } elsif( ($a[2] eq "HEATINGROOM" && @a == 5 ) ) {
+    $subtype = "HEATINGROOM";
+    $hash->{model} = "HEATINGROOM";
+
+    my $room = $a[@a-1];
+    my $home = $a[@a-2];
+
+    $hash->{Home} = $home;
+    $hash->{Room} = $room;
+
+    $hash->{openRequests} = 0;
+    $hash->{dataTypes} = "Temperature,Sp_Temperature,heating_power_request,BoilerOn,BoilerOff";
+    $hash->{helper}{INTERVAL} = 60*30 if( !$hash->{helper}{INTERVAL} );
+
+    my $d = $modules{$hash->{TYPE}}{defptr}{"O$room"};
+    return "heating room $room already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
+
+    $modules{$hash->{TYPE}}{defptr}{"O$room"} = $hash;
+
+  } elsif( ($a[2] eq "HOME" && @a == 4 ) ) {
+    $subtype = "HOME";
+    $hash->{model} = "HOME";
+
+    my $home = $a[@a-1];
+
+    $hash->{Home} = $home;
+
+    $hash->{helper}{INTERVAL} = 60*15 if( !$hash->{helper}{INTERVAL} );
 
     $attr{$name}{videoquality} = "medium" if( !defined($attr{$name}{videoquality}) && defined($name));
 
@@ -305,6 +351,7 @@ netatmo_Define($$)
 
   } elsif( ($a[2] eq "PERSON" && @a == 5 ) ) {
     $subtype = "PERSON";
+    $hash->{model} = "PERSON";
 
     my $home = $a[@a-2];
     my $person = $a[@a-1];
@@ -312,7 +359,7 @@ netatmo_Define($$)
     $hash->{Home} = $home;
     $hash->{Person} = $person;
 
-    $hash->{INTERVAL} = 60*15 if( !$hash->{INTERVAL} );
+    $hash->{helper}{INTERVAL} = 60*15 if( !$hash->{helper}{INTERVAL} );
 
     my $d = $modules{$hash->{TYPE}}{defptr}{"P$person"};
     return "person $person already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
@@ -328,7 +375,7 @@ netatmo_Define($$)
     $hash->{Home} = $home;
     $hash->{Camera} = $camera;
 
-    $hash->{INTERVAL} = 60*15 if( !$hash->{INTERVAL} );
+    $hash->{helper}{INTERVAL} = 60*15 if( !$hash->{helper}{INTERVAL} );
 
     my $d = $modules{$hash->{TYPE}}{defptr}{"C$camera"};
     return "camera $camera already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
@@ -344,7 +391,7 @@ netatmo_Define($$)
     $hash->{Tag} = $tag;
     $hash->{Camera} = $camera;
 
-    #$hash->{INTERVAL} = 60*15 if( !$hash->{INTERVAL} );
+    #$hash->{helper}{INTERVAL} = 60*15 if( !$hash->{helper}{INTERVAL} );
 
     my $d = $modules{$hash->{TYPE}}{defptr}{"G$tag"};
     return "tag $tag already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
@@ -353,6 +400,7 @@ netatmo_Define($$)
 
   } elsif( @a == 6  || ($a[2] eq "ACCOUNT" && @a == 7 ) ) {
     $subtype = "ACCOUNT";
+    $hash->{model} = "ACCOUNT";
     $hash->{network} = "ok";
 
     delete($hash->{access_token});
@@ -383,11 +431,12 @@ netatmo_Define($$)
     $hash->{helper}{client_id} = $client_id;
     $hash->{helper}{client_secret} = $client_secret;
 
-    $hash->{INTERVAL} = 60*60 if( !$hash->{INTERVAL} );
+    $hash->{helper}{INTERVAL} = 60*60 if( !$hash->{helper}{INTERVAL} );
     $attr{$name}{room} = "netatmo" if( !defined($attr{$name}{room}) && defined($name));
 
     $modules{$hash->{TYPE}}{defptr}{"account"} = $hash;
 
+    $hash->{helper}{apiserver} = AttrVal($name, "serverAPI", "api.netatmo.com");
 
   } else {
     return "Usage: define <name> netatmo device\
@@ -399,10 +448,15 @@ netatmo_Define($$)
   $hash->{NAME} = $name;
   $hash->{SUBTYPE} = $subtype;
 
-  $hash->{STATE} = "Initialized";
+  $hash->{STATE} = "Initialized" if( $hash->{SUBTYPE} eq "ACCOUNT" );
 
   $hash->{NOTIFYDEV} = "global";
 
+  if(IsDisabled($name) || !defined($name)) {
+    RemoveInternalTimer($hash);
+    $hash->{STATE} = "Disabled";
+    return undef;
+  }
 
   if( $init_done ) {
     netatmo_connect($hash) if( $hash->{SUBTYPE} eq "ACCOUNT" );
@@ -414,6 +468,8 @@ netatmo_Define($$)
     netatmo_pingCamera($hash) if( $hash->{SUBTYPE} eq "CAMERA" );
     netatmo_poll($hash) if( $hash->{SUBTYPE} eq "RELAY" );
     netatmo_poll($hash) if( $hash->{SUBTYPE} eq "THERMOSTAT" );
+    netatmo_initHeatingHome($hash) if( $hash->{SUBTYPE} eq "HEATINGHOME" );
+    #netatmo_initHeatingRoom($hash) if( $hash->{SUBTYPE} eq "HEATINGROOM" );
     netatmo_addExtension($hash) if( $hash->{SUBTYPE} eq "WEBHOOK" );
 
   }
@@ -444,6 +500,8 @@ sub netatmo_InitWait($) {
     netatmo_pingCamera($hash) if( $hash->{SUBTYPE} eq "CAMERA" );
     netatmo_poll($hash) if( $hash->{SUBTYPE} eq "RELAY" );
     netatmo_poll($hash) if( $hash->{SUBTYPE} eq "THERMOSTAT" );
+    netatmo_initHeatingHome($hash) if( $hash->{SUBTYPE} eq "HEATINGHOME" );
+    #netatmo_initHeatingRoom($hash) if( $hash->{SUBTYPE} eq "HEATINGROOM" );
     netatmo_addExtension($hash) if( $hash->{SUBTYPE} eq "WEBHOOK" );
 
   }
@@ -467,6 +525,12 @@ netatmo_Notify($$)
 
   RemoveInternalTimer($hash);
 
+  if(IsDisabled($name) || !defined($name)) {
+    RemoveInternalTimer($hash);
+    $hash->{STATE} = "Disabled";
+    return undef;
+  }
+
   netatmo_connect($hash) if( $hash->{SUBTYPE} eq "ACCOUNT" );
   netatmo_initDevice($hash) if( $hash->{SUBTYPE} eq "DEVICE" );
   netatmo_initDevice($hash) if( $hash->{SUBTYPE} eq "MODULE" );
@@ -476,6 +540,8 @@ netatmo_Notify($$)
   netatmo_pingCamera($hash) if( $hash->{SUBTYPE} eq "CAMERA" );
   netatmo_poll($hash) if( $hash->{SUBTYPE} eq "RELAY" );
   netatmo_poll($hash) if( $hash->{SUBTYPE} eq "THERMOSTAT" );
+  netatmo_initHeatingHome($hash) if( $hash->{SUBTYPE} eq "HEATINGHOME" );
+  #netatmo_initHeatingRoom($hash) if( $hash->{SUBTYPE} eq "HEATINGROOM" );
   netatmo_addExtension($hash) if( $hash->{SUBTYPE} eq "WEBHOOK" );
 
 
@@ -497,6 +563,8 @@ netatmo_Undefine($$)
   delete( $modules{$hash->{TYPE}}{defptr}{"P$hash->{Person}"} ) if( $hash->{SUBTYPE} eq "PERSON" );
   delete( $modules{$hash->{TYPE}}{defptr}{"R$hash->{Relay}"} ) if( $hash->{SUBTYPE} eq "RELAY" );
   delete( $modules{$hash->{TYPE}}{defptr}{"T$hash->{Thermostat}"} ) if( $hash->{SUBTYPE} eq "THERMOSTAT" );
+  delete( $modules{$hash->{TYPE}}{defptr}{"E$hash->{Home}"} ) if( $hash->{SUBTYPE} eq "HEATINGHOME" );
+  delete( $modules{$hash->{TYPE}}{defptr}{"O$hash->{Room}"} ) if( $hash->{SUBTYPE} eq "HEATINGROOM" );
   netatmo_removeExtension($hash) if( $hash->{SUBTYPE} eq "WEBHOOK" );
 
   return undef;
@@ -507,16 +575,16 @@ netatmo_Set($$@)
 {
   my ($hash, $name, $cmd, @parameters) = @_;
 
-
+  $hash->{SUBTYPE} = "unknown" if(!defined($hash->{SUBTYPE}));
   my $list = "";
   $list = "autocreate:noArg autocreate_homes:noArg autocreate_thermostats:noArg autocreate_homecoachs:noArg" if( $hash->{SUBTYPE} eq "ACCOUNT" );
   #$list .= " unban:noArg" if( $hash->{SUBTYPE} eq "ACCOUNT" );
   $list = "home:noArg away:noArg" if ($hash->{SUBTYPE} eq "PERSON");
-  $list = "empty:noArg notify_movements:never,empty,always notify_unknowns:empty,always record_movements:never,empty,always record_alarms:never,empty,always presence_record_humans:ignore,record,record_and_notify presence_record_vehicles:ignore,record,record_and_notify presence_record_animals:ignore,record,record_and_notify presence_record_movements:ignore,record,record_and_notify presence_record_alarms:ignore,record,record_and_notify gone_after presence_enable_notify_from_to:empty,always presence_notify_from presence_notify_to smart_notifs:on,off" if ($hash->{SUBTYPE} eq "HOME");
+  $list = "empty:noArg notify_movements:never,empty,always notify_unknowns:empty,always notify_animals:true,false record_animals:true,false record_movements:never,empty,always record_alarms:never,empty,always presence_record_humans:ignore,record,record_and_notify presence_record_vehicles:ignore,record,record_and_notify presence_record_animals:ignore,record,record_and_notify presence_record_movements:ignore,record,record_and_notify presence_record_alarms:ignore,record,record_and_notify gone_after presence_enable_notify_from_to:empty,always presence_notify_from presence_notify_to smart_notifs:on,off" if ($hash->{SUBTYPE} eq "HOME");
   $list = "enable disable irmode:auto,always,never led_on_live:on,off mirror:off,on audio:on,off" if ($hash->{SUBTYPE} eq "CAMERA");
   $list = "enable disable light_mode:auto,on,off floodlight intensity:slider,0,1,100 night_always:true,false night_person:true,false night_vehicle:true,false night_animal:true,false night_movement:true,false" if ($hash->{SUBTYPE} eq "CAMERA" && defined($hash->{model}) && $hash->{model} eq "NOC");
   $list = "calibrate:noArg" if ($hash->{SUBTYPE} eq "TAG");
-  if ($hash->{SUBTYPE} eq "THERMOSTAT")
+  if ($hash->{SUBTYPE} eq "THERMOSTAT" || $hash->{SUBTYPE} eq "HEATINGROOM")
   {
     $list = "setpoint_mode:off,hg,away,program,manual,max setpoint_temp:5.0,5.5,6.0,6.5,7.0,7.5,8.0,8.5,9.0,9.5,10.0,10.5,11.0,11.5,12.0,12.5,13.0,13.5,14.0,14.5,15.0,15.5,16.0,16.5,17.0,17.5,18.0,18.5,19.0,19.5,20.0,20.5,21.0,21.5,22.0,22.5,23.0,23.5,24.0,24.5,25.0,25.5,26.0,26.5,27.0,27.5,28.0,28.5,29.0,29.5,30.0";
     $list = "setpoint_mode:off,hg,away,program,manual,max program:".$hash->{schedulenames}." setpoint_temp:5.0,5.5,6.0,6.5,7.0,7.5,8.0,8.5,9.0,9.5,10.0,10.5,11.0,11.5,12.0,12.5,13.0,13.5,14.0,14.5,15.0,15.5,16.0,16.5,17.0,17.5,18.0,18.5,19.0,19.5,20.0,20.5,21.0,21.5,22.0,22.5,23.0,23.5,24.0,24.5,25.0,25.5,26.0,26.5,27.0,27.5,28.0,28.5,29.0,29.5,30.0" if(defined($hash->{schedulenames}));
@@ -605,6 +673,7 @@ netatmo_Set($$@)
     my $setting = $parameters[0];
     my $duration = $parameters[1];
     return "You have to define a mode" if(!defined($setting) || $setting eq "");
+    return netatmo_setRoomMode($hash,$setting,$duration) if($hash->{SUBTYPE} eq "HEATINGROOM");
     return netatmo_setThermostatMode($hash,$setting,$duration);
     return undef;
   }
@@ -612,6 +681,7 @@ netatmo_Set($$@)
     my $setting = $parameters[0];
     my $duration = $parameters[1];
     return "You have to define a temperature" if(!defined($setting) || $setting eq "");
+    return netatmo_setRoomTemp($hash,$setting,$duration) if($hash->{SUBTYPE} eq "HEATINGROOM");
     return netatmo_setThermostatTemp($hash,$setting,$duration);
     return undef;
   }
@@ -655,10 +725,10 @@ netatmo_getToken($)
   return Log3 $name, 1, "$name: No password was found! (getToken)" if(!defined($hash->{helper}{password}));
 
   my($err,$data) = HttpUtils_BlockingGet({
-    url => "https://api.netatmo.com/oauth2/token",
+    url => "https://".$hash->{helper}{apiserver}."/oauth2/token",
     timeout => 5,
     noshutdown => 1,
-    data => {grant_type => 'password', client_id => $hash->{helper}{client_id},  client_secret=> $hash->{helper}{client_secret}, username => netatmo_decrypt($hash->{helper}{username}), password => netatmo_decrypt($hash->{helper}{password}), scope => 'read_station read_thermostat write_thermostat write_camera read_camera access_camera read_presence write_presence access_presence read_homecoach'},
+    data => {grant_type => 'password', client_id => $hash->{helper}{client_id},  client_secret=> $hash->{helper}{client_secret}, username => netatmo_decrypt($hash->{helper}{username}), password => netatmo_decrypt($hash->{helper}{password}), scope => 'read_station read_thermostat write_thermostat read_camera write_camera access_camera read_presence write_presence access_presence read_homecoach'},
   });
 
   netatmo_dispatch( {hash=>$hash,type=>'token'},$err,$data );
@@ -704,7 +774,7 @@ netatmo_refreshToken($;$)
 
   Log3 $name, 3, "$name: refreshing token";
   
-  my $resolve = inet_aton("api.netatmo.com");
+  my $resolve = inet_aton($hash->{helper}{apiserver});
   if(!defined($resolve))
   {
     $hash->{STATE} = "DNS error";
@@ -712,7 +782,7 @@ netatmo_refreshToken($;$)
     delete($hash->{access_token});
     delete($hash->{access_token_app});
     InternalTimer( gettimeofday() + 1800, "netatmo_refreshTokenTimer", $hash);
-    Log3 $name, 1, "$name: DNS error, cannot resolve api.netatmo.com";
+    Log3 $name, 1, "$name: DNS error, cannot resolve ".$hash->{helper}{apiserver};
     return undef;
   } else {
     $hash->{network} = "ok";
@@ -727,8 +797,8 @@ netatmo_refreshToken($;$)
 
   if( $nonblocking ) {
     HttpUtils_NonblockingGet({
-      url => "https://api.netatmo.com/oauth2/token",
-      timeout => 20,
+      url => "https://".$hash->{helper}{apiserver}."/oauth2/token",
+      timeout => 30,
       noshutdown => 1,
       data => {grant_type => 'refresh_token', client_id => $hash->{helper}{client_id},  client_secret=> $hash->{helper}{client_secret}, refresh_token => $hash->{refresh_token}},
         hash => $hash,
@@ -737,7 +807,7 @@ netatmo_refreshToken($;$)
     });
   } else {
     my($err,$data) = HttpUtils_BlockingGet({
-      url => "https://api.netatmo.com/oauth2/token",
+      url => "https://".$hash->{helper}{apiserver}."/oauth2/token",
       timeout => 5,
       noshutdown => 1,
       data => {grant_type => 'refresh_token', client_id => $hash->{helper}{client_id},  client_secret=> $hash->{helper}{client_secret}, refresh_token => $hash->{refresh_token}},
@@ -778,7 +848,7 @@ netatmo_refreshAppToken($;$)
   if( $nonblocking ) {
     HttpUtils_NonblockingGet({
       url => "https://app.netatmo.net/oauth2/token",
-      timeout => 20,
+      timeout => 30,
       noshutdown => 1,
       header => "$auth",
       data => {grant_type => 'refresh_token', refresh_token => $hash->{refresh_token_app}},
@@ -804,6 +874,11 @@ netatmo_refreshTokenTimer($)
 {
   my ($hash) = @_;
   my $name = $hash->{NAME};
+  if(!defined($name))
+  {
+    Log3 "netatmo", 1, "error ".Dumper($hash);
+    return undef;
+  }
 
   Log3 $name, 5, "$name: refreshing token (timer)";
 
@@ -822,23 +897,37 @@ netatmo_refreshAppTokenTimer($)
 }
 
 sub
-netatmo_checkConnection($)
+netatmo_checkConnection($;$)
 {
-  my ($hash) = @_;
+  my ($hash,$forcecheck) = @_;
   my $name = $hash->{NAME};
 
-  return undef if($hash->{network} eq "ok");
-
+  return undef if(!$forcecheck && $hash->{network} eq "ok");
+  return undef if(!defined($hash->{access_token}));
   Log3 $name, 3, "$name: refreshing connection information";
 
-
   HttpUtils_NonblockingGet({
-    url => "https://api.netatmo.com/api/readtimeline",
-    timeout => 5,
+    url => "https://".$hash->{helper}{apiserver}."/api/getuser",
+    method => "POST",
+    timeout => 30,
+    header => "Content-Type: application/json\r\nAuthorization: Bearer ".$hash->{access_token},
     hash => $hash,
     callback => \&netatmo_parseConnection,
   });
   return undef;
+
+  # my $json = '{"limit":2,"divider":3,"zoom":18,"lat_ne":0.1,"lon_ne":-0.1,"lat_sw":0.1,"lon_sw":-0.1,"date_end":"last","quality":1}';
+  #
+  # HttpUtils_NonblockingGet({
+  #   url => "https://".$hash->{helper}{apiserver}."/api/getpublicmeasures",
+  #   method => "POST",
+  #   timeout => 30,
+  #   header => "Content-Type: application/json\r\nAuthorization: Bearer ".$hash->{access_token},
+  #   hash => $hash,
+  #   data => $json,
+  #   callback => \&netatmo_parseConnection,
+  # });
+  # return undef;
 }
 
 sub
@@ -868,12 +957,13 @@ netatmo_parseConnection($$$)
       $hash->{status} = "timeout";
       $hash->{network} = "disconnected";
     }
-    
+    readingsSingleUpdate($hash, "active", "error", 1);
     return undef;
   } elsif( $data ) {
       $data =~ s/\n//g;
       if( $data !~ m/^{.*}$/ ) {
         Log3 $name, 2, "$name: invalid json on connection check";
+        Log3 $name, 4, "$name: ".$data;
         return undef;
       }
       my $json = eval { JSON->new->utf8(0)->decode($data) };
@@ -882,7 +972,13 @@ netatmo_parseConnection($$$)
         Log3 $name, 2, "$name: invalid json evaluation on connection check ".$@;
         return undef;
       }
-      $hash->{network} = "ok" if($json->{status} eq "ok");
+      if(!defined($json->{status})) {
+        Log3 $name, 2, "$name: invalid json data on connection check: \n".$data;
+      } else {
+        Log3 $name, 4, "$name: connection check: \n".$data;
+        $hash->{network} = "ok" if($json->{status} eq "ok");
+        readingsSingleUpdate($hash, "active", "ok", 1) if($json->{status} eq "ok");
+      }
     }
   return undef;
 }
@@ -935,7 +1031,7 @@ netatmo_parseUnban($$$)
 
   HttpUtils_NonblockingGet({
     url => "https://auth.netatmo.com/en-US/access/login?next_url=https://dev.netatmo.com/dev/myaccount",
-    timeout => 5,
+    timeout => 30,
     hash => $hash,
     ignoreredirects => 1,
     type => 'unban',
@@ -985,7 +1081,7 @@ netatmo_parseUnban2($$$)
 
   HttpUtils_NonblockingGet({
     url => "https://dev.netatmo.com/api/unbanapp",
-    timeout => 5,
+    timeout => 30,
     hash => $hash,
     type => 'unban',
     header => "Referer: https://dev.netatmo.com/dev/myaccount\r\nAuthorization: Bearer ".$accesstoken."\r\nContent-Type: application/json;charset=utf-8\r\nCookie: netatmocomci_csrf_cookie_na=".$csrf_token."; netatmocomlocale=en-US; netatmocomacces_token=".$accesstoken,
@@ -1024,11 +1120,21 @@ netatmo_initDevice($)
     Log3 $name, 1, "$name: no I/O device";
   }
 
+  if(IsDisabled($name) || !defined($name)) {
+    RemoveInternalTimer($hash);
+    #$hash->{STATE} = "Disabled";
+    readingsSingleUpdate($hash, "active", "disabled", 1);
+    return undef;
+  }
+
   my $device;
   if( $hash->{Module} ) {
     $device = netatmo_getDeviceDetail( $hash, $hash->{Module} );
-  } else {
+  } elsif( $hash->{Device} ) {
     $device = netatmo_getDeviceDetail( $hash, $hash->{Device} );
+  } else {
+    Log3 $name, 2, "$name: no device details for initialization";
+    return undef;
   }
   $hash->{stationName} = encode_utf8($device->{station_name}) if( $device->{station_name} );
   $hash->{moduleName} = encode_utf8($device->{module_name}) if( $device->{module_name} );
@@ -1042,12 +1148,13 @@ netatmo_initDevice($)
   $hash->{date_setup} = FmtDateTime($device->{date_setup}) if(defined($device->{date_setup}));
   $hash->{last_setup} = FmtDateTime($device->{last_setup}) if(defined($device->{last_setup}));
   $hash->{last_status_store} = FmtDateTime($device->{last_status_store}) if(defined($device->{last_status_store}));
+  $hash->{helper}{last_status_store} = $device->{last_status_store} if(defined($device->{last_status_store}) && $device->{last_status_store} > $hash->{helper}{last_status_store});
   $hash->{last_message} = FmtDateTime($device->{last_message}) if(defined($device->{last_message}));
   $hash->{last_seen} = FmtDateTime($device->{last_seen}) if(defined($device->{last_seen}));
   $hash->{wifi_status} = $device->{wifi_status} if(defined($device->{wifi_status}));
   $hash->{rf_status} = $device->{rf_status} if(defined($device->{rf_status}));
   #$hash->{battery_percent} = $device->{battery_percent} if(defined($device->{battery_percent}));
-  $hash->{battery_vp} = $device->{battery_vp} if(defined($device->{battery_vp}));
+  #$hash->{battery_vp} = $device->{battery_vp} if(defined($device->{battery_vp}));
 
   if( $device->{place} ) {
     $hash->{country} = $device->{place}{country};
@@ -1058,8 +1165,9 @@ netatmo_initDevice($)
     $hash->{location} = $device->{place}{location}[1] .",". $device->{place}{location}[0];
   }
 
-  readingsSingleUpdate($hash, "battery", ($device->{battery_percent} > 20) ? "ok" : "low", 1) if(defined($device->{battery_percent}));
-  readingsSingleUpdate($hash, "battery_percent", $device->{battery_percent}, 1) if(defined($device->{battery_percent}));
+  readingsSingleUpdate($hash, "batteryState", ($device->{battery_percent} > 20) ? "ok" : "low", 1) if(defined($device->{battery_percent}));
+  readingsSingleUpdate($hash, "batteryPercent", $device->{battery_percent}, 1) if(defined($device->{battery_percent}));
+  readingsSingleUpdate($hash, "batteryVoltage", $device->{battery_vp}/1000, 1) if(defined($device->{battery_vp}));
 
   my $state_format;
   if( $device->{data_type} ) {
@@ -1067,7 +1175,7 @@ netatmo_initDevice($)
     my $newdatatypes = "";
     my @reading_names = ();
     foreach my $type (@{$device->{data_type}}) {
-      $newdatatypes = "" if ( !defined($newdatatypes) );
+      #$newdatatypes = "" if ( !defined($newdatatypes) );
       $newdatatypes .= "," if ( $newdatatypes );
       $type = "WindStrength,WindAngle,GustStrength,GustAngle" if($type eq "Wind");
       $newdatatypes .= $type;
@@ -1082,9 +1190,9 @@ netatmo_initDevice($)
         $state_format .= "H: humidity";
       }
     }
-    if($newdatatypes ne "")
+    if(defined($newdatatypes) && $newdatatypes ne "")
     {
-      delete($hash->{dataTypes});
+      #delete($hash->{dataTypes});
       $hash->{dataTypes} = $newdatatypes;
     }
 
@@ -1093,10 +1201,14 @@ netatmo_initDevice($)
 
   $attr{$name}{stateFormat} = $state_format if( !defined($attr{$name}{stateFormat}) && defined($state_format) && defined($name) );
 
-  return undef if(AttrVal($name,"disable",0) eq "1" || !defined($name));
+  if(IsDisabled($name) || !defined($name)) {
+    RemoveInternalTimer($hash);
+    #$hash->{STATE} = "Disabled";
+    readingsSingleUpdate($hash, "active", "disabled", 1);
+    return undef;
+  }
 
   InternalTimer(gettimeofday()+90, "netatmo_poll", $hash);
-  #netatmo_poll($hash);
 
 }
 
@@ -1113,7 +1225,7 @@ netatmo_getDevices($;$)
   
   if( $blocking ) {
     my($err,$data) = HttpUtils_BlockingGet({
-      url => "https://api.netatmo.com/api/getstationsdata",
+      url => "https://".$hash->{helper}{apiserver}."/api/getstationsdata",
       timeout => 5,
       noshutdown => 1,
       data => { access_token => $hash->{access_token}, },
@@ -1124,8 +1236,8 @@ netatmo_getDevices($;$)
     return $hash->{helper}{devices};
   } else {
     HttpUtils_NonblockingGet({
-      url => "https://api.netatmo.com/api/getstationsdata",
-      timeout => 20,
+      url => "https://".$hash->{helper}{apiserver}."/api/getstationsdata",
+      timeout => 30,
       noshutdown => 1,
       data => { access_token => $hash->{access_token}, },
       hash => $hash,
@@ -1149,7 +1261,7 @@ netatmo_getHomes($;$)
 
   if( $blocking ) {
     my($err,$data) = HttpUtils_BlockingGet({
-      url => "https://api.netatmo.com/api/gethomedata",
+      url => "https://".$hash->{helper}{apiserver}."/api/gethomedata",
       timeout => 5,
       noshutdown => 1,
       data => { access_token => $hash->{access_token}, },
@@ -1159,8 +1271,8 @@ netatmo_getHomes($;$)
     return $hash->{helper}{homes};
   } else {
     HttpUtils_NonblockingGet({
-      url => "https://api.netatmo.com/api/gethomedata",
-      timeout => 20,
+      url => "https://".$hash->{helper}{apiserver}."/api/gethomedata",
+      timeout => 30,
       noshutdown => 1,
       data => { access_token => $hash->{access_token}, },
       hash => $hash,
@@ -1180,9 +1292,10 @@ netatmo_getThermostats($;$)
 
   return Log3 $name, 1, "$name: No access token was found! (getThermostats)" if(!defined($hash->{access_token}));
 
+#      url => "https://".$hash->{helper}{apiserver}."/api/getthermostatsdata",
   if( $blocking ) {
     my($err,$data) = HttpUtils_BlockingGet({
-      url => "https://api.netatmo.com/api/getthermostatsdata",
+      url => "https://".$hash->{helper}{apiserver}."/api/gethomesdata",
       timeout => 5,
       noshutdown => 1,
       data => { access_token => $hash->{access_token}, },
@@ -1193,8 +1306,8 @@ netatmo_getThermostats($;$)
     return $hash->{helper}{thermostats};
   } else {
     HttpUtils_NonblockingGet({
-      url => "https://api.netatmo.com/api/getthermostatsdata",
-      timeout => 20,
+      url => "https://".$hash->{helper}{apiserver}."/api/gethomesdata",
+      timeout => 30,
       noshutdown => 1,
       data => { access_token => $hash->{access_token}, },
       hash => $hash,
@@ -1219,7 +1332,7 @@ netatmo_getHomecoachs($;$)
 
   if( $blocking ) {
     my($err,$data) = HttpUtils_BlockingGet({
-      url => "https://api.netatmo.com/api/gethomecoachsdata",
+      url => "https://".$hash->{helper}{apiserver}."/api/gethomecoachsdata",
       timeout => 5,
       noshutdown => 1,
       data => { access_token => $hash->{access_token}, },
@@ -1230,8 +1343,8 @@ netatmo_getHomecoachs($;$)
     return $hash->{helper}{homecoachs};
   } else {
     HttpUtils_NonblockingGet({
-      url => "https://api.netatmo.com/api/gethomecoachsdata",
-      timeout => 20,
+      url => "https://".$hash->{helper}{apiserver}."/api/gethomecoachsdata",
+      timeout => 30,
       noshutdown => 1,
       data => { access_token => $hash->{access_token}, },
       hash => $hash,
@@ -1277,7 +1390,7 @@ netatmo_pingCamera($;$)
   } else {
     HttpUtils_NonblockingGet({
       url => $pingurl,
-      timeout => 10,
+      timeout => 30,
       sslargs => { SSL_hostname => '', },
       data => { access_token => $iohash->{access_token}, },
       hash => $hash,
@@ -1438,8 +1551,8 @@ netatmo_getEvents($)
   return Log3 $name, 1, "$name: No access token was found! (getEvents)" if(!defined($iohash->{access_token}));
 
   HttpUtils_NonblockingGet({
-    url => "https://api.netatmo.com/api/getnextevents",
-    timeout => 20,
+    url => "https://".$iohash->{helper}{apiserver}."/api/getnextevents",
+    timeout => 60,
     noshutdown => 1,
     data => { access_token => $iohash->{access_token}, home_id => $hash->{Home}, event_id => $hash->{lastevent}, },
     hash => $hash,
@@ -1493,19 +1606,19 @@ netatmo_getPublicDevices($$;$$$$)
 
   if( $blocking ) {
     my($err,$data) = HttpUtils_BlockingGet({
-      url => "https://api.netatmo.com/api/getpublicdata",
-      timeout => 5,
+      url => "https://".$iohash->{helper}{apiserver}."/api/getpublicmeasures",
+      timeout => 10,
       noshutdown => 1,
-      data => { access_token => $iohash->{access_token}, lat_ne => $lat_ne, lon_ne => $lon_ne, lat_sw => $lat_sw, lon_sw => $lon_sw },
+      data => { access_token => $iohash->{access_token}, lat_ne => $lat_ne, lon_ne => $lon_ne, lat_sw => $lat_sw, lon_sw => $lon_sw, quality => 1, divider => 8, limit => 4, zoom => 10, date_end => 'last' },
     });
 
       return netatmo_dispatch( {hash=>$hash,type=>'publicdata'},$err,$data );
   } else {
     HttpUtils_NonblockingGet({
-      url => "https://api.netatmo.com/api/getpublicdata",
-      timeout => 20,
+      url => "https://".$iohash->{helper}{apiserver}."/api/getpublicmeasures",
+      timeout => 60,
       noshutdown => 1,
-      data => { access_token => $iohash->{access_token}, lat_ne => $lat_ne, lon_ne => $lon_ne, lat_sw => $lat_sw, lon_sw => $lon_sw, filter => 'true' },
+      data => { access_token => $iohash->{access_token}, lat_ne => $lat_ne, lon_ne => $lon_ne, lat_sw => $lat_sw, lon_sw => $lon_sw, quality => 1, divider => 8, limit => 4, zoom => 10, date_end => 'last' },
       hash => $hash,
       type => 'publicdata',
       callback => \&netatmo_dispatch,
@@ -1526,14 +1639,14 @@ netatmo_getAddress($$$$)
 
   if( $blocking ) {
     my($err,$data) = HttpUtils_BlockingGet({
-      url => "https://maps.googleapis.com/maps/api/geocode/json?latlng=$lat,$lon",
+      url => "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=$lat&lon=$lon&addressdetails=1&limit=1",
       noshutdown => 1,
     });
 
       return netatmo_dispatch( {hash=>$hash,type=>'address'},$err,$data );
   } else {
     HttpUtils_NonblockingGet({
-      url => "https://maps.googleapis.com/maps/api/geocode/json?latlng=$lat,$lon",
+      url => "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=$lat&lon=$lon&addressdetails=1&limit=1",
       noshutdown => 1,
       hash => $hash,
       type => 'address',
@@ -1554,14 +1667,14 @@ netatmo_getLatLong($$$)
 
   if( $blocking ) {
     my($err,$data) = HttpUtils_BlockingGet({
-      url => "https://maps.googleapis.com/maps/api/geocode/json?address=germany+$addr",
+      url => "https://nominatim.openstreetmap.org/search/$addr&format=jsonv2&addressdetails=0&limit=2",
       noshutdown => 1,
     });
 
       return netatmo_dispatch( {hash=>$hash,type=>'latlng'},$err,$data );
   } else {
     HttpUtils_NonblockingGet({
-      url => "https://maps.googleapis.com/maps/api/geocode/json?address=germany+$addr",
+      url => "https://nominatim.openstreetmap.org/search/$addr&format=jsonv2&addressdetails=0&limit=2",
       noshutdown => 1,
       hash => $hash,
       type => 'latlng',
@@ -1600,6 +1713,8 @@ netatmo_requestDeviceReadings($@)
 
   return undef if( !defined($hash->{IODev}) );
 
+  Log3 $name, 5, "$name: requestDeviceReadings ($id ".(!$type?"-":$type)." ".(!$module?"-":$module).")";
+
   my $iohash = $hash->{IODev};
   $type = $hash->{dataTypes} if( !$type );
   $type = "Temperature,CO2,Humidity,Noise,Pressure,health_idx" if( !$type && $hash->{SUBTYPE} eq "DEVICE" );
@@ -1619,8 +1734,8 @@ netatmo_requestDeviceReadings($@)
   Log3 $name, 3, "$name: requestDeviceReadings ($type)";
 
   HttpUtils_NonblockingGet({
-    url => "https://api.netatmo.com/api/getmeasure",
-    timeout => 20,
+    url => "https://".$iohash->{helper}{apiserver}."/api/getmeasure",
+    timeout => 60,
     noshutdown => 1,
     data => \%data,
     hash => $hash,
@@ -1646,15 +1761,14 @@ netatmo_initHome($@)
   my %data = (access_token => $iohash->{access_token}, home_id => $hash->{Home});
 
   my $lastupdate = ReadingsVal( $name, ".lastupdate", undef );
-  #$data{"size"} = 1;#$lastupdate if( defined($lastupdate) );
 
   Log3 $name, 3, "$name initHome (gethomedata)";
 
-#    url => "https://api.netatmo.com/api/gethomedata",
+#    url => "https://".$iohash->{helper}{apiserver}."/api/gethomedata",
 #    data => \%data,
   HttpUtils_NonblockingGet({
     url => "https://app.netatmo.net/api/gethomesdata",
-    timeout => 20,
+    timeout => 30,
     noshutdown => 1,
     header => "Content-Type: application/json\r\nAuthorization: Bearer ".$iohash->{access_token_app},
     hash => $hash,
@@ -1662,8 +1776,8 @@ netatmo_initHome($@)
     callback => \&netatmo_dispatch,
   });
 
-  InternalTimer(gettimeofday()+$hash->{INTERVAL}, "netatmo_poll", $hash);
-  $hash->{helper}{NEXT_POLL} = int(gettimeofday())+$hash->{INTERVAL};
+  InternalTimer(gettimeofday()+$hash->{helper}{INTERVAL}, "netatmo_poll", $hash);
+  $hash->{helper}{NEXT_POLL} = int(gettimeofday())+$hash->{helper}{INTERVAL};
 }
 
 sub
@@ -1686,11 +1800,11 @@ netatmo_requestHomeReadings($@)
   #$data{"size"} = 1;#$lastupdate if( defined($lastupdate) );
   Log3 $name, 3, "$name requestHomeReadings (gethomedata)";
 
-#    url => "https://api.netatmo.com/api/gethomedata",
+#    url => "https://".$iohash->{helper}{apiserver}."/api/gethomedata",
 #    data => \%data,
   HttpUtils_NonblockingGet({
     url => "https://app.netatmo.net/api/gethomesdata",
-    timeout => 20,
+    timeout => 60,
     noshutdown => 1,
     header => "Content-Type: application/json\r\nAuthorization: Bearer ".$iohash->{access_token_app},
     hash => $hash,
@@ -1720,14 +1834,238 @@ netatmo_requestThermostatReadings($@)
   #$data{"size"} = 1;#$lastupdate if( defined($lastupdate) );
 
   HttpUtils_NonblockingGet({
-    url => "https://api.netatmo.com/api/getthermostatsdata",
-    timeout => 20,
+    url => "https://".$iohash->{helper}{apiserver}."/api/getthermostatsdata",
+    timeout => 60,
     noshutdown => 1,
     data => \%data,
     hash => $hash,
     type => 'getthermostatsdata',
     callback => \&netatmo_dispatch,
   });
+}
+
+sub
+netatmo_initHeatingHome($@)
+{
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+
+  return undef if( !defined($hash->{IODev}) );
+
+  my $iohash = $hash->{IODev};
+  netatmo_refreshToken( $iohash, defined($iohash->{access_token}) );
+  netatmo_refreshAppToken( $iohash, defined($iohash->{access_token_app}) );
+
+  return Log3 $name, 1, "$name: No access token was found! (initHeatingHome)" if(!defined($iohash->{access_token}));
+  return Log3 $name, 1, "$name: No app access token was found! (initHeatingHome)" if(!defined($iohash->{access_token_app}));
+
+  my %data = (app_type => 'app_thermostat', home_id => $hash->{Home});
+
+  my $lastupdate = ReadingsVal( $name, ".lastupdate", undef );
+  #$data{"size"} = 1;#$lastupdate if( defined($lastupdate) );
+
+  Log3 $name, 3, "$name initHeatingHome (gethomedata)";
+
+#    url => "https://".$iohash->{helper}{apiserver}."/api/gethomedata",
+#    data => \%data,
+  HttpUtils_NonblockingGet({
+    url => "https://app.netatmo.net/api/gethomesdata",
+    timeout => 30,
+    noshutdown => 1,
+    header => "Content-Type: application/json\r\nAuthorization: Bearer ".$iohash->{access_token_app},
+    data => \%data,
+    hash => $hash,
+    type => 'gethomedata',
+    callback => \&netatmo_dispatch,
+  });
+
+  InternalTimer(gettimeofday()+$hash->{helper}{INTERVAL}, "netatmo_poll", $hash);
+  $hash->{helper}{NEXT_POLL} = int(gettimeofday())+$hash->{helper}{INTERVAL};
+}
+
+
+sub 
+netatmo_pollHeatingHome($@)
+{
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+
+  return undef if( !defined($hash->{IODev}) );
+
+  my $iohash = $hash->{IODev};
+  netatmo_refreshToken( $iohash, defined($iohash->{access_token}) );
+
+  return Log3 $name, 1, "$name: No app access token was found! (pollHeatingHome)" if(!defined($iohash->{access_token_app}));
+
+  my %data = (home_id => $hash->{Home});
+
+  my $lastupdate = ReadingsVal( $name, ".lastupdate", undef );
+  #$data{"size"} = 1;#$lastupdate if( defined($lastupdate) );
+  my $json = encode_json( { home_id => $hash->{Home} } );
+
+  $json =~s/\"true\"/true/g;
+  $json =~s/\"false\"/false/g;
+
+  Log3 $name, 3, "$name pollHeatingHome (getheatinghomedata)";
+
+#    url => "https://".$iohash->{helper}{apiserver}."/api/gethomedata",
+#    data => \%data,
+  HttpUtils_NonblockingGet({
+    url => "https://".$iohash->{helper}{apiserver}."/syncapi/v1/gethomestatus",
+    timeout => 60,
+    noshutdown => 1,
+    header => "Content-Type: application/json;charset=utf-8\r\nAuthorization: Bearer ".$iohash->{access_token},
+    data => $json,
+    hash => $hash,
+    type => 'getheatinghomedata',
+    callback => \&netatmo_dispatch,
+  });
+
+  InternalTimer(gettimeofday()+$hash->{helper}{INTERVAL}, "netatmo_poll", $hash);
+  $hash->{helper}{NEXT_POLL} = int(gettimeofday())+$hash->{helper}{INTERVAL};
+
+  return undef;
+}
+
+sub 
+netatmo_pollHeatingRoom($@)
+{
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+
+  return undef if( !defined($hash->{IODev}) );
+
+  my $iohash = $hash->{IODev};
+  netatmo_refreshAppToken( $iohash, defined($iohash->{access_token_app}) );
+
+  return Log3 $name, 1, "$name: No app access token was found! (pollHeatingRoom)" if(!defined($iohash->{access_token_app}));
+
+  $hash->{openRequests} = 0 if ( !defined(  $hash->{openRequests}) );
+  Log3 $name, 4, "$name: pollHeatingRoom types [".$hash->{dataTypes} . "] for room [".$hash->{Room}."]" if(defined($hash->{dataTypes}));
+
+  my $lastupdate = ReadingsVal( $name, ".lastupdate", undef );
+  $lastupdate = (time-7*24*60*60) if(!$lastupdate);
+  $lastupdate += 10;
+  $hash->{openRequests} += 1;
+
+  my $now = int(time);
+  my $json = encode_json( { home_id => $hash->{Home},
+                            room_id => $hash->{Room},
+                            scale => "max",
+                            type => $hash->{dataTypes},
+                            date_begin => "$lastupdate",
+                            date_end => "$now",
+                            real_time => "true" } );
+
+  $json =~s/\"true\"/true/g;
+  $json =~s/\"false\"/false/g;
+
+  Log3 $name, 3, "$name pollHeatingRoom (getheatinghomedata)";
+
+#    url => "https://".$iohash->{helper}{apiserver}."/api/gethomedata",
+#    data => \%data,
+  HttpUtils_NonblockingGet({
+    url => "https://app.netatmo.net/api/getroommeasure",
+    timeout => 60,
+    noshutdown => 1,
+    header => "Content-Type: application/json\r\nAuthorization: Bearer ".$iohash->{access_token_app},
+    data => $json,
+    hash => $hash,
+    requested => $hash->{dataTypes},
+    type => 'getmeasure',
+    callback => \&netatmo_dispatch,
+  });
+
+  InternalTimer(gettimeofday()+$hash->{helper}{INTERVAL}, "netatmo_poll", $hash);
+  $hash->{helper}{NEXT_POLL} = int(gettimeofday())+$hash->{helper}{INTERVAL};
+
+  return undef;
+}
+
+sub
+netatmo_setRoomMode($$;$)
+{
+  my ($hash,$set,$duration) = @_;
+  my $name = $hash->{NAME};
+
+  return undef if( !defined($hash->{IODev}) );
+
+  my $iohash = $hash->{IODev};
+  netatmo_refreshToken( $iohash, defined($iohash->{access_token}) );
+
+  return Log3 $name, 1, "$name: No access token was found! (setRoomMode)" if(!defined($iohash->{access_token}));
+
+  my $json = encode_json( { home_id => $hash->{Home},
+                            room_id => $hash->{Room},
+                            mode => "$set" } );
+
+
+  if(defined($duration) || $set eq "max")
+  {
+    $duration = AttrVal($name,"setpoint_duration",60) if(!defined($duration));
+    my $endpoint = time + (60 * $duration);
+    my $json = encode_json( { home_id => $hash->{Home},
+                              room_id => $hash->{Room},
+                              mode => "$set",
+                              endtime => $endpoint } );
+  }
+
+  $json =~s/\"true\"/true/g;
+  $json =~s/\"false\"/false/g;
+
+
+  Log3 $name, 3, "$name: setRoomMode ($set)";
+
+  HttpUtils_NonblockingGet({
+      url => "https://".$iohash->{helper}{apiserver}."/syncapi/v1/setthermpoint",
+      timeout => 30,
+      noshutdown => 1,
+      header => "Content-Type: application/json\r\nAuthorization: Bearer ".$iohash->{access_token},
+      data => $json,
+      hash => $hash,
+      type => 'setroom',
+      callback => \&netatmo_dispatch,
+    });
+
+
+}
+
+sub
+netatmo_setRoomTemp($$;$)
+{
+  my ($hash,$set,$duration) = @_;
+  my $name = $hash->{NAME};
+
+  return undef if( !defined($hash->{IODev}) );
+
+  my $iohash = $hash->{IODev};
+  netatmo_refreshToken( $iohash, defined($iohash->{access_token}) );
+
+  return Log3 $name, 1, "$name: No access token was found! (setRoomTemp)" if(!defined($iohash->{access_token}));
+
+  $duration = AttrVal($name,"setpoint_duration",60) if(!defined($duration));
+  my $endpoint = time + (60 * $duration);
+
+  my $json = encode_json( { home_id => $hash->{Home},
+                            room_id => $hash->{Room},
+                            mode => "manual",
+                            endtime => $endpoint,
+                            temp => $set } );
+
+  Log3 $name, 3, "$name: setRoomTemp ($set)";
+
+  HttpUtils_NonblockingGet({
+      url => "https://".$iohash->{helper}{apiserver}."/syncapi/v1/setthermpoint",
+      timeout => 30,
+      noshutdown => 1,
+      header => "Content-Type: application/json\r\nAuthorization: Bearer ".$iohash->{access_token},
+      data => $json,
+      hash => $hash,
+      type => 'setroom',
+      callback => \&netatmo_dispatch,
+    });
+
+
 }
 
 
@@ -1752,8 +2090,8 @@ netatmo_requestPersonReadings($)
   my $lastupdate = ReadingsVal( $name, ".lastupdate", undef );
 
   HttpUtils_NonblockingGet({
-    url => "https://api.netatmo.com/api/getlasteventof",
-    timeout => 20,
+    url => "https://".$iohash->{helper}{apiserver}."/api/getlasteventof",
+    timeout => 60,
     noshutdown => 1,
     data => \%data,
     hash => $hash,
@@ -1799,7 +2137,7 @@ netatmo_setPresence($$)
 
   HttpUtils_NonblockingGet({
     url => "https://app.netatmo.net/api/setpersons".$urlstatus,
-    timeout => 20,
+    timeout => 30,
     noshutdown => 1,
     method => "POST",
     header => "Content-Type: application/json\r\nAuthorization: Bearer ".$iohash->{access_token_app},
@@ -1884,8 +2222,8 @@ netatmo_setNotifications($$$)
 
 
   HttpUtils_NonblockingGet({
-    url => "https://my.netatmo.com/api/updatehome",
-    timeout => 20,
+    url => "https://app.netatmo.net/api/updatehome",
+    timeout => 30,
     noshutdown => 1,
     method => "POST",
     header => "Content-Type: application/x-www-form-urlencoded; charset=UTF-8\r\nAuthorization: Bearer ".$iohash->{access_token_app},
@@ -1914,7 +2252,7 @@ netatmo_setCamera($$$)
 
   HttpUtils_NonblockingGet({
       url => $commandurl,
-      timeout => 20,
+      timeout => 30,
       noshutdown => 1,
       verify_hostname => 0,
       hash => $hash,
@@ -1942,7 +2280,7 @@ netatmo_setCameraSetting($$$)
 
   HttpUtils_NonblockingGet({
       url => $commandurl,
-      timeout => 20,
+      timeout => 30,
       noshutdown => 1,
       verify_hostname => 0,
       hash => $hash,
@@ -1970,7 +2308,7 @@ netatmo_setFloodlight($$)
 
   HttpUtils_NonblockingGet({
       url => $commandurl,
-      timeout => 20,
+      timeout => 30,
       noshutdown => 1,
       verify_hostname => 0,
       hash => $hash,
@@ -1999,7 +2337,7 @@ netatmo_setIntensity($$)
 
   HttpUtils_NonblockingGet({
       url => $commandurl,
-      timeout => 20,
+      timeout => 30,
       noshutdown => 1,
       verify_hostname => 0,
       hash => $hash,
@@ -2029,7 +2367,7 @@ netatmo_setPresenceConfig($$)
 
   HttpUtils_NonblockingGet({
       url => $commandurl,
-      timeout => 20,
+      timeout => 30,
       noshutdown => 1,
       verify_hostname => 0,
       hash => $hash,
@@ -2058,7 +2396,7 @@ netatmo_getPresenceConfig($)
 
   HttpUtils_NonblockingGet({
       url => $commandurl,
-      timeout => 20,
+      timeout => 30,
       noshutdown => 1,
       verify_hostname => 0,
       hash => $hash,
@@ -2094,7 +2432,7 @@ netatmo_setTagCalibration($$)
 
   HttpUtils_NonblockingGet({
       url => $commandurl,
-      timeout => 20,
+      timeout => 30,
       noshutdown => 1,
       verify_hostname => 0,
       hash => $hash,
@@ -2106,7 +2444,7 @@ netatmo_setTagCalibration($$)
 }
 
 sub
-netatmo_setThermostatMode($$;$$)
+netatmo_setThermostatMode($$;$)
 {
   my ($hash,$set,$duration) = @_;
   my $name = $hash->{NAME};
@@ -2132,8 +2470,8 @@ netatmo_setThermostatMode($$;$$)
   Log3 $name, 3, "$name: setThermostatMode ($set)";
 
   HttpUtils_NonblockingGet({
-      url => 'https://api.netatmo.com/api/setthermpoint',
-      timeout => 20,
+      url => "https://".$iohash->{helper}{apiserver}."/api/setthermpoint",
+      timeout => 30,
       noshutdown => 1,
       data => \%data,
       hash => $hash,
@@ -2165,8 +2503,8 @@ netatmo_setThermostatTemp($$;$$)
   Log3 $name, 3, "$name: setThermostatTemp ($set)";
 
   HttpUtils_NonblockingGet({
-      url => 'https://api.netatmo.com/api/setthermpoint',
-      timeout => 20,
+      url => "https://".$iohash->{helper}{apiserver}."/api/setthermpoint",
+      timeout => 30,
       noshutdown => 1,
       data => \%data,
       hash => $hash,
@@ -2201,8 +2539,8 @@ netatmo_setThermostatProgram($$)
   Log3 $name, 3, "$name: setThermostatProgram ($set / $schedule_id)";
 
   HttpUtils_NonblockingGet({
-      url => 'https://api.netatmo.com/api/switchschedule',
-      timeout => 20,
+      url => "https://".$iohash->{helper}{apiserver}."/api/switchschedule",
+      timeout => 30,
       noshutdown => 1,
       data => \%data,
       hash => $hash,
@@ -2220,21 +2558,26 @@ netatmo_poll($)
   my $name = $hash->{NAME};
 
 
-  return undef if(AttrVal($name,"disable",0) eq "1" || !defined($name));
+  if(IsDisabled($name) || !defined($name)) {
+    RemoveInternalTimer($hash);
+    #$hash->{STATE} = "Disabled";
+    readingsSingleUpdate($hash, "active", "disabled", 1);
+    return undef;
+  }
 
-  # my $resolve = inet_aton("api.netatmo.com");
+  # my $resolve = inet_aton($hash->{helper}{apiserver});
   # if(!defined($resolve))
   # {
   #   Log3 $name, 1, "$name: DNS error on poll";
   #   InternalTimer( gettimeofday() + 1800, "netatmo_poll", $hash);
   #   return undef;
   # }
-  $hash->{INTERVAL} = 3600 if(!defined($hash->{INTERVAL}));
+  $hash->{helper}{INTERVAL} = 3600 if(!defined($hash->{helper}{INTERVAL}));
   
   
   if(defined($hash->{status}) && ($hash->{status} =~ /usage/ || $hash->{status} =~ /too_many_connections/)) {
     RemoveInternalTimer($hash);
-    InternalTimer(gettimeofday()+$hash->{INTERVAL}+1800, "netatmo_poll", $hash);
+    InternalTimer(gettimeofday()+$hash->{helper}{INTERVAL}+1800, "netatmo_poll", $hash);
     Log3 $name, 1, "$name: API usage limit reached";
     $hash->{status} = "postponed update";
     readingsSingleUpdate( $hash, "active", $hash->{status}, 1 ) if($hash->{status} ne "no data");
@@ -2291,6 +2634,10 @@ netatmo_poll($)
     netatmo_pollRelay($hash);
   } elsif( $hash->{SUBTYPE} eq "THERMOSTAT" ) {
     netatmo_pollThermostat($hash);
+  } elsif( $hash->{SUBTYPE} eq "HEATINGHOME" ) {
+    netatmo_pollHeatingHome($hash);
+  } elsif( $hash->{SUBTYPE} eq "HEATINGROOM" ) {
+    netatmo_pollHeatingRoom($hash);
   } elsif( $hash->{SUBTYPE} eq "PERSON" ) {
     netatmo_pollPerson($hash);
   } else {
@@ -2301,8 +2648,8 @@ netatmo_poll($)
   if( defined($hash->{helper}{update_count}) && $hash->{helper}{update_count} > 1024 ) {
     InternalTimer(gettimeofday()+30, "netatmo_poll", $hash);
   } else {
-    $hash->{helper}{NEXT_POLL} = int(gettimeofday())+$hash->{INTERVAL};
-    InternalTimer(gettimeofday()+$hash->{INTERVAL}, "netatmo_poll", $hash);
+    $hash->{helper}{NEXT_POLL} = int(gettimeofday())+$hash->{helper}{INTERVAL};
+    InternalTimer(gettimeofday()+$hash->{helper}{INTERVAL}, "netatmo_poll", $hash);
   }
 }
 
@@ -2327,7 +2674,7 @@ netatmo_dispatch($$$)
   $hash->{openRequests} -= 1 if( $param->{type} eq 'getmeasure' );
 
   if( $err ) {
-    Log3 $name, 2, "$name: http request failed: $err";
+    Log3 $name, 2, "$name: ".$param->{type}." request failed: $err";
     if($err =~ /refused/ ){
       RemoveInternalTimer($hash);
       InternalTimer(gettimeofday()+3600, "netatmo_poll", $hash);
@@ -2365,11 +2712,11 @@ netatmo_dispatch($$$)
     return undef;
   } elsif( $data ) {
     $data =~ s/\n//g;
-    if( $data !~ m/^{.*}$/ ) {
+    if( $data !~ m/^{.*}$/ && $data !~ m/^\[.*\]$/ ) {
       RemoveInternalTimer($hash);
       InternalTimer(gettimeofday()+300, "netatmo_poll", $hash);
       Log3 $name, 2, "$name: invalid json detected";
-      Log3 $name, 5, "$name: $data";
+      Log3 $name, 4, "$name: $data";
       $hash->{status} = "error";
       $hash->{network} = "ok" if($hash->{SUBTYPE} eq "ACCOUNT");
       $hash->{IODev}->{network} = "ok" if($hash->{SUBTYPE} ne "ACCOUNT");
@@ -2391,7 +2738,7 @@ netatmo_dispatch($$$)
     Log3 $name, 4, "$name: dispatch return: ".$param->{type};
     Log3 $name, 5, Dumper($json);
 
-    if( $json->{error} ) {
+    if( ref($json) eq "HASH" && $json->{error} ) {
       if(ref($json->{error}) ne "HASH") {
         $hash->{STATE} = "LOGIN FAILED" if($hash->{SUBTYPE} eq "ACCOUNT");
         $hash->{status} = $json->{error};
@@ -2443,6 +2790,8 @@ netatmo_dispatch($$$)
       netatmo_parseThermostatReadings($hash,$json);
     } elsif( $param->{type} eq 'setthermostat' ) {
       netatmo_parseThermostatStatus($hash,$json);
+    } elsif( $param->{type} eq 'getheatinghomedata' ) {
+      netatmo_parseHeatingHomeStatus($hash,$json);
     } elsif( $param->{type} eq 'getpersondata' ) {
       netatmo_parsePersonReadings($hash,$json);
     } elsif( $param->{type} eq 'publicdata' ) {
@@ -2507,7 +2856,7 @@ netatmo_autocreate($;$)
     foreach my $d (keys %defs) {
       next if(!defined($defs{$d}));
       next if($defs{$d}{TYPE} ne "autocreate");
-      return undef if(AttrVal($defs{$d}{NAME},"disable",undef));
+      return undef if(IsDisabled($defs{$d}{NAME}));
     }
   }
 
@@ -2571,7 +2920,7 @@ netatmo_autocreatehome($;$)
     foreach my $d (keys %defs) {
       next if(!defined($defs{$d}));
       next if($defs{$d}{TYPE} ne "autocreate");
-      return undef if(AttrVal($defs{$d}{NAME},"disable",undef));
+      return undef if(IsDisabled($defs{$d}{NAME}));
     }
   }
 
@@ -2678,32 +3027,55 @@ netatmo_autocreatethermostat($;$)
     foreach my $d (keys %defs) {
       next if(!defined($defs{$d}));
       next if($defs{$d}{TYPE} ne "autocreate");
-      return undef if(AttrVal($defs{$d}{NAME},"disable",undef));
+      return undef if(IsDisabled($defs{$d}{NAME}));
     }
   }
 
   my $autocreated = 0;
 
   my $devices = $hash->{helper}{thermostats};
+  
+  #Log3 $name, 1, "$name: autocreating ".Dumper($devices);
+
   foreach my $device (@{$devices}) {
-    if( defined($modules{$hash->{TYPE}}{defptr}{"R$device->{_id}"}) ) {
-      Log3 $name, 4, "$name: relay '$device->{_id}' already defined";
+    if( defined($modules{$hash->{TYPE}}{defptr}{"R$device->{id}"}) ) {
+      Log3 $name, 4, "$name: relay '$device->{id}' already defined";
       next;
     }
-    if( defined($modules{$hash->{TYPE}}{defptr}{"T$device->{_id}"}) ) {
-      Log3 $name, 4, "$name: thermostat '$device->{_id}' already defined";
+    if( defined($modules{$hash->{TYPE}}{defptr}{"T$device->{id}"}) ) {
+      Log3 $name, 4, "$name: thermostat '$device->{id}' already defined";
       next;
     }
-    if(AttrVal($name,"ignored_device_ids","") =~ /$device->{_id}/) {
-      Log3 $name, 4, "$name: '$device->{_id}' ignored for autocreate";
+    if( defined($modules{$hash->{TYPE}}{defptr}{"E$device->{id}"}) ) {
+      Log3 $name, 4, "$name: heating home '$device->{id}' already defined";
+      next;
+    }
+    if( defined($modules{$hash->{TYPE}}{defptr}{"O$device->{id}"}) ) {
+      Log3 $name, 4, "$name: heating room '$device->{id}' already defined";
+      next;
+    }
+    if(AttrVal($name,"ignored_device_ids","") =~ /$device->{id}/) {
+      Log3 $name, 4, "$name: '$device->{id}' ignored for autocreate";
       next;
     }
 
-    my $id = $device->{_id};
+    my $id = $device->{id};
     my $devname = "netatmo_R". $id;
     $devname =~ s/:/_/g;
     my $define= "$devname netatmo RELAY $id";
-    if( $device->{main_device} ) {
+    if( $device->{type} eq "Home" ) {
+      next;
+      $devname = "netatmo_E". $id;
+      $devname =~ s/:/_/g;
+      $define= "$devname netatmo HEATINGHOME $id";
+    }
+    elsif( $device->{type} eq "Room" ) {
+      next;
+      $devname = "netatmo_O". $id;
+      $devname =~ s/:/_/g;
+      $define= "$devname netatmo HEATINGROOM $device->{Home} $id";
+    }
+    elsif( $device->{main_device} ) {
       $devname = "netatmo_T". $id;
       $devname =~ s/:/_/g;
       $define= "$devname netatmo THERMOSTAT $device->{main_device} $id";
@@ -2714,12 +3086,13 @@ netatmo_autocreatethermostat($;$)
     if($cmdret) {
       Log3 $name, 1, "$name: Autocreate: An error occurred while creating device for id '$id': $cmdret";
     } else {
-      $cmdret= CommandAttr(undef,"$devname alias ".encode_utf8($device->{station_name})) if( defined($device->{station_name}) );
-      $cmdret= CommandAttr(undef,"$devname alias ".encode_utf8($device->{module_name})) if( defined($device->{module_name}) );
+      $cmdret= CommandAttr(undef,"$devname alias ".encode_utf8($device->{name})) if( defined($device->{name}) );
+      #$cmdret= CommandAttr(undef,"$devname alias ".encode_utf8($device->{module_name})) if( defined($device->{module_name}) );
       $cmdret= CommandAttr(undef,"$devname room netatmo");
       $cmdret= CommandAttr(undef,"$devname IODev $name");
       $cmdret= CommandAttr(undef,"$devname devStateIcon .*:no-icon");
-      $cmdret= CommandAttr(undef,"$devname stateFormat setpoint|temperature");
+      $cmdret= CommandAttr(undef,"$devname stateFormat setpoint|temperature") if( $device->{main_device} );
+      $cmdret= CommandAttr(undef,"$devname stateFormat active") if( !$device->{main_device} );
       $autocreated++;
     }
   }
@@ -2744,7 +3117,7 @@ netatmo_autocreatehomecoach($;$)
     foreach my $d (keys %defs) {
       next if(!defined($defs{$d}));
       next if($defs{$d}{TYPE} ne "autocreate");
-      return undef if(AttrVal($defs{$d}{NAME},"disable",undef));
+      return undef if(IsDisabled($defs{$d}{NAME}));
     }
   }
 
@@ -2771,7 +3144,7 @@ netatmo_autocreatehomecoach($;$)
     if($cmdret) {
       Log3 $name, 1, "$name: Autocreate: An error occurred while creating device for id '$id': $cmdret";
     } else {
-      $cmdret= CommandAttr(undef,"$devname alias ".encode_utf8($device->{name})) if( defined($device->{name}) );
+      $cmdret= CommandAttr(undef,"$devname alias ".encode_utf8($device->{station_name})) if( defined($device->{station_name}) );
       $cmdret= CommandAttr(undef,"$devname room netatmo");
       $cmdret= CommandAttr(undef,"$devname IODev $name");
       $cmdret= CommandAttr(undef,"$devname devStateIcon .*:no-icon");
@@ -2879,7 +3252,7 @@ netatmo_parseHomeList($$)
 
   my @homes = ();
   foreach my $home (@{$json->{body}{homes}}) {
-    push( @homes, $home );
+    push( @homes, $home ) if(defined($home->{cameras}) && @{$home->{cameras}});
     foreach my $camera (@{$home->{cameras}}) {
       $camera->{home} = $home->{id};
       push( @homes, $camera ) if(defined($camera->{status}));
@@ -2907,16 +3280,35 @@ netatmo_parseThermostatList($$)
   #$do_autocreate = 0 if( !defined($hash->{helper}{devices}) ); #autocreate
 
   my @devices = ();
-  foreach my $device (@{$json->{body}{devices}}) {
+  foreach my $home (@{$json->{body}{homes}}) {
+    
+    next if(!defined($home->{devices}) || !@{$home->{devices}});
+    $home->{type} = "Home";
+    $home->{firmware} = "-";
+    push( @devices, $home );
+    
+    foreach my $room (@{$home->{rooms}}) {
+      next if(!defined($room->{modules}) || !@{$room->{modules}});
+
+      $room->{Home} = $home->{id};
+      $room->{type} = "Room";
+      $room->{firmware} = "-";
+      push( @devices, $room );
+
+    }
+
+    foreach my $device (@{$home->{devices}}) {
     push( @devices, $device );
 
 
     foreach my $module (@{$device->{modules}}) {
-      $module->{main_device} = $device->{_id};
+
+        $module->{main_device} = $device->{id};
       push( @devices, $module );
 
 
     }
+  }
   }
 
   $hash->{helper}{thermostats} = \@devices;
@@ -2998,10 +3390,11 @@ netatmo_parseReadings($$;$)
   }
 
   if( $json ) {
-    $hash->{status} = $json->{status};
+    $hash->{status} = $json->{status} if($json->{status});
     $hash->{status} = $json->{error}{message} if( $json->{error} );
 
     my $lastupdate = ReadingsVal( $name, ".lastupdate", 0 );
+
     my @r = ();
     my $readings = \@r;
     $readings = $hash->{readings} if( defined($hash->{readings}) );
@@ -3014,6 +3407,7 @@ netatmo_parseReadings($$;$)
       if(scalar(@{$json->{body}}) == 0)
       {
         $hash->{status} = "no data";
+        readingsSingleUpdate( $hash, "active", "dead", 1 ) if($hash->{helper}{last_status_store} > 0 && $hash->{helper}{last_status_store} < (int(time) - 7200) );
       }
 
       foreach my $values ( @{$json->{body}}) {
@@ -3029,26 +3423,39 @@ netatmo_parseReadings($$;$)
 
             if( !defined($reading) )
             {
-              next;
+              $reading = "undefined";#next;
             }
-            if(lc($requested) =~ /wind/ && ($rname eq "temperature" || $rname eq "humidity"))
+            if(lc($requested) =~ /wind/ && lc($requested) !~ /temperature/ && ($rname eq "temperature" || $rname eq "humidity"))
             {
-              Log3 $name, 4, "$name netatmo - wind sensor $rname reading: $reading ($time)";
+              Log3 $name, 3, "$name netatmo - wind sensor $rname reading: $reading ($time)";
               next;# if($reading == 0);
             }
 
 
-            if(($rname eq "noise" && $reading > 150) || ($rname eq "temperature" && $reading > 60) || ($rname eq "humidity" && $reading > 100) || ($rname eq "pressure" && $reading < 500))
+            if($reading ne "undefined" && (($rname eq "noise" && int($reading) > 150) || ($rname eq "temperature" && int($reading) > 60) || ($rname eq "humidity" && int($reading) > 100) || ($rname eq "pressure" && int($reading) < 500)))
             {
               Log3 $name, 1, "$name netatmo - invalid reading: $rname: ".Dumper($reading)." \n    ".Dumper($reading_names);
              next;
             }
 
-            if($rname eq "health_idx"){
+            if($reading ne "undefined" && $rname eq "health_idx"){
               $reading = $health_index{$reading};
             }
 
-            push(@{$readings}, [$time, $rname, $reading]);
+            if($reading ne "undefined" && $rname =~ /temperature/){
+              $reading = sprintf( "%.1f", $reading);
+            }
+
+            # if($reading ne "undefined" && $rname eq "rain" && $reading > 0)
+            # {
+            #   my $rain_sum = ReadingsVal($name,"rain_sum",0);
+            #   $rain_sum += $reading;
+            #   readingsSingleUpdate($hash,"rain_sum",$rain_sum,1);
+            #   Log3 $name, 2, $name.": summed rain ".$reading." (to ".$rain_sum.")";
+            # }
+
+
+            push(@{$readings}, [$time, $rname, $reading]) if($reading ne "undefined");
             
           }
           $last_time = $time if(defined($time));
@@ -3056,7 +3463,7 @@ netatmo_parseReadings($$;$)
           $time += $step_time if( $step_time );
 
         }
-        $hash->{last_status_store} = FmtDateTime($last_time);
+        $hash->{helper}{last_status_store} = $last_time if($last_time > $hash->{helper}{last_status_store});
       }
 
       if( $hash->{openRequests} > 1 ) {
@@ -3065,9 +3472,16 @@ netatmo_parseReadings($$;$)
         my ($seconds,undef) = netatmo_updateReadings( $hash, $readings );
         $hash->{LAST_POLL} = FmtDateTime( $seconds );
         delete $hash->{readings};
+#        readingsSingleUpdate($hash, ".lastupdate", $last_time, 0);
       }
     
-      if(defined($last_time) && int($last_time) > 0 && defined($step_time)) {
+      
+      if(defined(AttrVal($name, "interval", undef))){
+        $hash->{helper}{NEXT_POLL} = int(gettimeofday())+$hash->{helper}{INTERVAL};
+        RemoveInternalTimer($hash, "netatmo_poll");
+        InternalTimer($hash->{helper}{NEXT_POLL}, "netatmo_poll", $hash);
+        Log3 $name, 3, "$name: next fixed interval update for device ($requested) at ".FmtDateTime($hash->{helper}{NEXT_POLL});
+      } elsif(defined($last_time) && int($last_time) > 0 && defined($step_time)) {
         my $nextdata = $last_time + 2*$step_time + 10 + int(rand(20));
         
         if($hash->{SUBTYPE} eq "MODULE")
@@ -3091,13 +3505,14 @@ netatmo_parseReadings($$;$)
                 $hash->{helper}{NEXT_POLL} = $nextdata;
                 Log3 $name, 3, "$name: next extended dynamic update from device ($requested) at ".FmtDateTime($nextdata);
               } else {
-              Log3 $name, 2, "$name: invalid time for dynamic update from device ($requested): ".FmtDateTime($nextdata);
+                Log3 $name, 3, "$name: invalid time for dynamic update from device ($requested): ".FmtDateTime($nextdata);
             }
           }
         }
         }
         elsif($nextdata >= (gettimeofday()+280))
         {
+          $nextdata = $nextdata + 10 + int(rand(20));
           RemoveInternalTimer($hash, "netatmo_poll");
           InternalTimer($nextdata, "netatmo_poll", $hash);
           $hash->{helper}{NEXT_POLL} = $nextdata;
@@ -3111,9 +3526,21 @@ netatmo_parseReadings($$;$)
             $hash->{helper}{NEXT_POLL} = $nextdata;
             Log3 $name, 3, "$name: next extended dynamic update ($requested) at ".FmtDateTime($nextdata);
           } else {
-          Log3 $name, 2, "$name: invalid time for dynamic update ($requested): ".FmtDateTime($nextdata);
+            Log3 $name, 3, "$name: invalid time for dynamic update ($requested): ".FmtDateTime($nextdata);
           }
         }
+      } elsif(defined($last_time) && int($last_time) > 0) {
+        my $nextdata = int($last_time)+(12*60);
+        $nextdata = int(gettimeofday()+280) if($nextdata <= (gettimeofday()+280));
+        RemoveInternalTimer($hash, "netatmo_poll");
+        InternalTimer($nextdata, "netatmo_poll", $hash);
+        $hash->{helper}{NEXT_POLL} = $nextdata;
+        Log3 $name, 3, "$name: next predictive update for device ($requested) at ".FmtDateTime($nextdata);
+      } else {
+        $hash->{helper}{NEXT_POLL} = int(gettimeofday())+(12*60);
+        RemoveInternalTimer($hash, "netatmo_poll");
+        InternalTimer($hash->{helper}{NEXT_POLL}, "netatmo_poll", $hash);
+        Log3 $name, 3, "$name: next fixed update for device ($requested) at ".FmtDateTime($hash->{helper}{NEXT_POLL});
       }
     }
   }
@@ -3121,7 +3548,13 @@ netatmo_parseReadings($$;$)
   {
     $hash->{status} = "error";
   }
-  readingsSingleUpdate( $hash, "active", $hash->{status}, 1 ) if($hash->{status} ne "no data");
+
+  if($hash->{helper}{last_status_store} > 0 && $hash->{helper}{last_status_store} < (int(time) - $hash->{helper}{INTERVAL} - 7200) ) {
+    readingsSingleUpdate( $hash, "active", "dead", 1 );    
+  } else {
+    readingsSingleUpdate( $hash, "active", $hash->{status}, 1 ) if($hash->{status} ne "no data");
+  }
+
 }
 
 
@@ -3206,6 +3639,14 @@ netatmo_parseGlobal($$)
         }
         if(defined($devicedata->{dashboard_data}{sum_rain_24}))
         {
+          #my $rain_day = ReadingsVal($device->{NAME},"rain_day",0);
+          # if($devicedata->{dashboard_data}{sum_rain_24} < $rain_day)
+          # {
+          #   my $rain_total = ReadingsVal($device->{NAME},"rain_total",0);
+          #   $rain_total += $rain_day;
+          #   readingsSingleUpdate($device,"rain_total",$rain_total,1);
+          #   Log3 $name, 1, $device->{NAME}.": added rain ".$rain_day." (to ".$rain_total.")";
+          # }
           readingsBeginUpdate($device);
           $device->{".updateTimestamp"} = FmtDateTime($devicedata->{dashboard_data}{time_utc});
           readingsBulkUpdate( $device, "rain_day", $devicedata->{dashboard_data}{sum_rain_24}, 1 );
@@ -3239,15 +3680,17 @@ netatmo_parseGlobal($$)
 
         $device->{co2_calibrating} = $devicedata->{co2_calibrating} if(defined($devicedata->{co2_calibrating}));
         $device->{last_status_store} = FmtDateTime($devicedata->{last_status_store}) if(defined($devicedata->{last_status_store}));
+        $device->{helper}{last_status_store} = $devicedata->{last_status_store} if(defined($devicedata->{last_status_store}) && $devicedata->{last_status_store} > $device->{helper}{last_status_store});
         $device->{last_message} = FmtDateTime($devicedata->{last_message}) if(defined($devicedata->{last_message}));
         $device->{last_seen} = FmtDateTime($devicedata->{last_seen}) if(defined($devicedata->{last_seen}));
         $device->{wifi_status} = $devicedata->{wifi_status} if(defined($devicedata->{wifi_status}));
         $device->{rf_status} = $devicedata->{rf_status} if(defined($devicedata->{rf_status}));
         #$device->{battery_percent} = $devicedata->{battery_percent} if(defined($devicedata->{battery_percent}));
-        $device->{battery_vp} = $devicedata->{battery_vp} if(defined($devicedata->{battery_vp}));
+        #$device->{battery_vp} = $devicedata->{battery_vp} if(defined($devicedata->{battery_vp}));
 
-        readingsSingleUpdate($device, "battery", ($devicedata->{battery_percent} > 20) ? "ok" : "low", 1) if(defined($devicedata->{battery_percent}));
-        readingsSingleUpdate($device, "battery_percent", $devicedata->{battery_percent}, 1) if(defined($devicedata->{battery_percent}));
+        readingsSingleUpdate($device, "batteryState", ($devicedata->{battery_percent} > 20) ? "ok" : "low", 1) if(defined($devicedata->{battery_percent}));
+        readingsSingleUpdate($device, "batteryPercent", $devicedata->{battery_percent}, 1) if(defined($devicedata->{battery_percent}));
+        readingsSingleUpdate($device, "batteryVoltage", $devicedata->{battery_vp}/1000, 1) if(defined($devicedata->{battery_vp}));
 
         if(defined($devicedata->{modules}))
         {
@@ -3310,6 +3753,14 @@ netatmo_parseGlobal($$)
             }
             if(defined($moduledata->{dashboard_data}{sum_rain_24}))
             {
+              # my $rain_day = ReadingsVal($module->{NAME},"rain_day",0);
+              # if($moduledata->{dashboard_data}{sum_rain_24} < $rain_day)
+              # {
+              #   my $rain_total = ReadingsVal($module->{NAME},"rain_total",0);
+              #   $rain_total += $rain_day;
+              #   readingsSingleUpdate($module,"rain_total",$rain_total,1);
+              #   Log3 $name, 1, $module->{NAME}.":_added rain ".$rain_day." (to ".$rain_total.")";
+              # }
               readingsBeginUpdate($module);
               $module->{".updateTimestamp"} = FmtDateTime($moduledata->{dashboard_data}{time_utc});
               readingsBulkUpdate( $module, "rain_day", $moduledata->{dashboard_data}{sum_rain_24}, 1 );
@@ -3335,15 +3786,17 @@ netatmo_parseGlobal($$)
 
             $module->{co2_calibrating} = $moduledata->{co2_calibrating} if(defined($moduledata->{co2_calibrating}));
             $module->{last_status_store} = FmtDateTime($moduledata->{last_status_store}) if(defined($moduledata->{last_status_store}));
+            $module->{helper}{last_status_store} = $moduledata->{last_status_store} if(defined($moduledata->{last_status_store}) && $moduledata->{last_status_store} > $module->{helper}{last_status_store});
             $module->{last_message} = FmtDateTime($moduledata->{last_message}) if(defined($moduledata->{last_message}));
             $module->{last_seen} = FmtDateTime($moduledata->{last_seen}) if(defined($moduledata->{last_seen}));
             $module->{wifi_status} = $moduledata->{wifi_status} if(defined($moduledata->{wifi_status}));
             $module->{rf_status} = $moduledata->{rf_status} if(defined($moduledata->{rf_status}));
             #$module->{battery_percent} = $moduledata->{battery_percent} if(defined($moduledata->{battery_percent}));
-            $module->{battery_vp} = $moduledata->{battery_vp} if(defined($moduledata->{battery_vp}));
+            #$module->{battery_vp} = $moduledata->{battery_vp} if(defined($moduledata->{battery_vp}));
 
-            readingsSingleUpdate($module, "battery", ($moduledata->{battery_percent} > 20) ? "ok" : "low", 1) if(defined($moduledata->{battery_percent}));
-            readingsSingleUpdate($module, "battery_percent", $moduledata->{battery_percent}, 1) if(defined($moduledata->{battery_percent}));
+            readingsSingleUpdate($module, "batteryState", ($moduledata->{battery_percent} > 20) ? "ok" : "low", 1) if(defined($moduledata->{battery_percent}));
+            readingsSingleUpdate($module, "batteryPercent", $moduledata->{battery_percent}, 1) if(defined($moduledata->{battery_percent}));
+            readingsSingleUpdate($module, "batteryVoltage", $moduledata->{battery_vp}/1000, 1) if(defined($moduledata->{battery_vp}));
 
 
           }#foreach module
@@ -3633,6 +4086,8 @@ netatmo_parseHomeReadings($$;$)
 
         readingsSingleUpdate($hash, "notify_unknowns", $homedata->{notify_unknowns}, 1) if(defined($homedata->{notify_unknowns}));
         readingsSingleUpdate($hash, "notify_movements", $homedata->{notify_movements}, 1) if(defined($homedata->{notify_movements}));
+        readingsSingleUpdate($hash, "notify_animals", ($homedata->{notify_animals} eq "1")?"true":"false", 1) if(defined($homedata->{notify_animals}));
+        readingsSingleUpdate($hash, "record_animals", ($homedata->{record_animals} eq "1")?"true":"false", 1) if(defined($homedata->{record_animals}));
         readingsSingleUpdate($hash, "record_alarms", $homedata->{record_alarms}, 1) if(defined($homedata->{record_alarms}));
         readingsSingleUpdate($hash, "record_movements", $homedata->{record_movements}, 1) if(defined($homedata->{record_movements}));
 
@@ -3709,8 +4164,9 @@ netatmo_parseHomeReadings($$;$)
               $tag->{notify_rule} = $tagdata->{notify_rule};
               $tag->{notify_rule} = $tagdata->{notify_rule};
 
-              readingsSingleUpdate($tag, "battery", ($tagdata->{battery_percent} > 20) ? "ok" : "low", 1) if(defined($tagdata->{battery_percent}));
-              readingsSingleUpdate($tag, "battery_percent", $tagdata->{battery_percent}, 1) if(defined($tagdata->{battery_percent}));
+              readingsSingleUpdate($tag, "batteryState", ($tagdata->{battery_percent} > 20) ? "ok" : "low", 1) if(defined($tagdata->{battery_percent}));
+              readingsSingleUpdate($tag, "batteryPercent", $tagdata->{battery_percent}, 1) if(defined($tagdata->{battery_percent}));
+              readingsSingleUpdate($tag, "batteryVoltage", $tagdata->{battery_vp}/1000, 1) if(defined($tagdata->{battery_vp}));
 
             }            
             
@@ -4446,6 +4902,7 @@ netatmo_parseThermostatReadings($$;$)
         $hash->{date_setup} = FmtDateTime($devicedata->{date_setup}) if(defined($devicedata->{date_setup}));
         $hash->{last_setup} = FmtDateTime($devicedata->{last_setup}) if(defined($devicedata->{last_setup}));
         $hash->{last_status_store} = FmtDateTime($devicedata->{last_status_store}) if(defined($devicedata->{last_status_store}));
+        $hash->{helper}{last_status_store} = $devicedata->{last_status_store} if(defined($devicedata->{last_status_store}) && $devicedata->{last_status_store} > $hash->{helper}{last_status_store});
         $hash->{last_message} = FmtDateTime($devicedata->{last_message}) if(defined($devicedata->{last_message}));
         $hash->{last_seen} = FmtDateTime($devicedata->{last_seen}) if(defined($devicedata->{last_seen}));
         $hash->{last_plug_seen} = FmtDateTime($devicedata->{last_plug_seen}) if(defined($devicedata->{last_plug_seen}));
@@ -4453,12 +4910,14 @@ netatmo_parseThermostatReadings($$;$)
         $hash->{wifi_status} = $devicedata->{wifi_status} if(defined($devicedata->{wifi_status}));
         $hash->{rf_status} = $devicedata->{rf_status} if(defined($devicedata->{rf_status}));
         #$hash->{battery_percent} = $devicedata->{battery_percent} if(defined($devicedata->{battery_percent}));
-        $hash->{battery_vp} = $devicedata->{battery_vp} if(defined($devicedata->{battery_vp}));
+        #$hash->{battery_vp} = $devicedata->{battery_vp} if(defined($devicedata->{battery_vp}));
         $hash->{therm_orientation} = $devicedata->{therm_orientation} if(defined($devicedata->{therm_orientation}));
         $hash->{therm_relay_cmd} = $devicedata->{therm_relay_cmd} if(defined($devicedata->{therm_relay_cmd}));
         $hash->{udp_conn} = $devicedata->{udp_conn} if(defined($devicedata->{udp_conn}));
         $hash->{plug_connected_boiler} = $devicedata->{plug_connected_boiler} if(defined($devicedata->{plug_connected_boiler}));
         $hash->{syncing} = $devicedata->{syncing} if(defined($devicedata->{syncing}));
+
+        $hash->{room} = $devicedata->{room} if(defined($devicedata->{room}));
 
         if( $devicedata->{place} ) {
           $hash->{country} = encode_utf8($devicedata->{place}{country});
@@ -4470,8 +4929,9 @@ netatmo_parseThermostatReadings($$;$)
           $hash->{timezone} = encode_utf8($devicedata->{place}{timezone});
         }
 
-        readingsSingleUpdate($hash, "battery", ($devicedata->{battery_percent} > 20) ? "ok" : "low", 1) if(defined($devicedata->{battery_percent}));
-        readingsSingleUpdate($hash, "battery_percent", $devicedata->{battery_percent}, 1) if(defined($devicedata->{battery_percent}));
+        readingsSingleUpdate($hash, "batteryState", ($devicedata->{battery_percent} > 20) ? "ok" : "low", 1) if(defined($devicedata->{battery_percent}));
+        readingsSingleUpdate($hash, "batteryPercent", $devicedata->{battery_percent}, 1) if(defined($devicedata->{battery_percent}));
+        readingsSingleUpdate($hash, "batteryVoltage", $devicedata->{battery_vp}/1000, 1) if(defined($devicedata->{battery_vp}));
 
 
         if(defined($devicedata->{modules}))
@@ -4491,6 +4951,7 @@ netatmo_parseThermostatReadings($$;$)
             $module->{date_setup} = FmtDateTime($moduledata->{date_setup}) if(defined($moduledata->{date_setup}));
             $module->{last_setup} = FmtDateTime($moduledata->{last_setup}) if(defined($moduledata->{last_setup}));
             $module->{last_status_store} = FmtDateTime($moduledata->{last_status_store}) if(defined($moduledata->{last_status_store}));
+            $module->{helper}{last_status_store} = $moduledata->{last_status_store} if(defined($moduledata->{last_status_store}) && $moduledata->{last_status_store} > $module->{helper}{last_status_store});
             $module->{last_message} = FmtDateTime($moduledata->{last_message}) if(defined($moduledata->{last_message}));
             $module->{last_seen} = FmtDateTime($moduledata->{last_seen}) if(defined($moduledata->{last_seen}));
             $module->{last_plug_seen} = FmtDateTime($moduledata->{last_plug_seen}) if(defined($moduledata->{last_plug_seen}));
@@ -4498,12 +4959,14 @@ netatmo_parseThermostatReadings($$;$)
             $module->{wifi_status} = $moduledata->{wifi_status} if(defined($moduledata->{wifi_status}));
             $module->{rf_status} = $moduledata->{rf_status} if(defined($moduledata->{rf_status}));
             #$module->{battery_percent} = $moduledata->{battery_percent} if(defined($moduledata->{battery_percent}));
-            $module->{battery_vp} = $moduledata->{battery_vp} if(defined($moduledata->{battery_vp}));
+            #$module->{battery_vp} = $moduledata->{battery_vp} if(defined($moduledata->{battery_vp}));
             $module->{therm_orientation} = $moduledata->{therm_orientation} if(defined($moduledata->{therm_orientation}));
             #$module->{therm_relay_cmd} = $moduledata->{therm_relay_cmd} if(defined($moduledata->{therm_relay_cmd}));
             $module->{udp_conn} = $moduledata->{udp_conn} if(defined($moduledata->{udp_conn}));
             $module->{plug_connected_boiler} = $moduledata->{plug_connected_boiler} if(defined($moduledata->{plug_connected_boiler}));
             $module->{syncing} = $moduledata->{syncing} if(defined($moduledata->{syncing}));
+
+            $module->{room} = $moduledata->{room} if(defined($moduledata->{room}));
 
             if( $moduledata->{place} ) {
               $module->{country} = $moduledata->{place}{country};
@@ -4515,8 +4978,9 @@ netatmo_parseThermostatReadings($$;$)
               $module->{timezone} = encode_utf8($moduledata->{place}{timezone});
             }
 
-            readingsSingleUpdate($module, "battery", ($moduledata->{battery_percent} > 20) ? "ok" : "low", 1) if(defined($moduledata->{battery_percent}));
-            readingsSingleUpdate($module, "battery_percent", $moduledata->{battery_percent}, 1) if(defined($moduledata->{battery_percent}));
+            readingsSingleUpdate($module, "batteryState", ($moduledata->{battery_percent} > 20) ? "ok" : "low", 1) if(defined($moduledata->{battery_percent}));
+            readingsSingleUpdate($module, "batteryPercent", $moduledata->{battery_percent}, 1) if(defined($moduledata->{battery_percent}));
+            readingsSingleUpdate($module, "batteryVoltage", $moduledata->{battery_vp}/1000, 1) if(defined($moduledata->{battery_vp}));
             #readingsSingleUpdate($module, "name", encode_utf8($moduledata->{module_name}), 1) if(defined($moduledata->{module_name}));
 
             my $setmode = "manual";
@@ -4535,7 +4999,7 @@ netatmo_parseThermostatReadings($$;$)
             {
               readingsBeginUpdate($module);
               $module->{".updateTimestamp"} = FmtDateTime($moduledata->{measured}{time});
-              readingsBulkUpdate( $module, "setpoint_temp", $moduledata->{measured}{setpoint_temp}, 1 );
+              readingsBulkUpdate( $module, "setpoint_temp", sprintf( "%.1f", $moduledata->{measured}{setpoint_temp}), 1 );
               $module->{CHANGETIME}[0] = FmtDateTime($moduledata->{measured}{time});
               readingsEndUpdate($module,1);
               $setmode = sprintf( "%.1f", $moduledata->{measured}{setpoint_temp}) if($setmode ne "max" && $setmode ne "off");
@@ -4596,14 +5060,26 @@ netatmo_parseThermostatStatus($$;$)
     $hash->{status} = $json->{status};
     $hash->{status} = $json->{error}{message} if( $json->{error} );
     InternalTimer( gettimeofday() + 10, "netatmo_pollRelay", $thermostat) if($hash->{status} eq "ok");
-  }
-  else{
+  } else {
     netatmo_pollRelay($thermostat) if($thermostat->{status} !~ /usage/ && $thermostat->{status} !~ /too_many_connections/ && $thermostat->{status} !~ /postponed/);;
   }
   readingsSingleUpdate( $hash, "active", $hash->{status}, 1 ) if($hash->{status} ne "no data");
 
 }
 
+sub 
+netatmo_parseHeatingHomeStatus($$)
+{
+  my($hash, $json) = @_;
+  my $name = $hash->{NAME};
+
+  Log3 $name, 4, "$name: parseHeatingHomeStatus";
+  my $thermostat = $modules{$hash->{TYPE}}{defptr}{"E$hash->{Home}"};
+
+  Log3 $name, 5, "$name: parseHeatingHomeStatus ".Dumper($json);
+
+  return undef;
+}
 
 sub
 netatmo_parsePublic($$)
@@ -5012,15 +5488,24 @@ netatmo_parseAddress($$)
   Log3 $name, 4, "$name: parseAddress";
   
   if( $json ) {
-    Log3 $name, 5, "$name: ".Dumper($json);
-    $hash->{status} = $json->{status};
-    $hash->{status} = $json->{error}{message} if( $json->{error} );
-    if( $hash->{status} eq "OK" ) {
-      if( $json->{results} ) {
-        return $json->{results}->[0]->{formatted_address};
+    Log3 $name, 2, "$name: ".Dumper($json);
+    #$hash->{status} = $json->{status};
+    #$hash->{status} = $json->{error}{message} if( $json->{error} );
+    if( defined($json) ) {
+      if( defined($json->{address}) ) {
+        my $addr = "";
+        $addr .= $json->{address}->{road}." " if(defined($json->{address}->{road}));
+        $addr .= $json->{address}->{house_number} if(defined($json->{address}->{house_number}));
+        #$addr .= " ".$json->{address}->{postcode}." " if(defined($json->{address}->{postcode}));
+        #$addr .= $json->{address}->{city} if(defined($json->{address}->{city}));
+        return $addr;
+      } elsif( defined($json->{display_name}) ) {
+        return $json->{display_name};
+      } else {
+        return "unknown";
       }
     } else {
-      return $hash->{status};
+      return "unknown";
     }
   }
 }
@@ -5035,14 +5520,25 @@ netatmo_parseLatLng($$)
   
   if( $json ) {
     Log3 $name, 5, "$name: ".Dumper($json);
-    $hash->{status} = $json->{status};
-    $hash->{status} = $json->{error}{message} if( $json->{error} );
-    if( $hash->{status} eq "OK" ) {
-      if( $json->{results} ) {
-        return $json->{results}->[0]->{geometry}->{bounds};
+    #$hash->{status} = $json->{status};
+    #$hash->{status} = $json->{error}{message} if( $json->{error} );
+    my $ret = "error";
+    my $comp = 0;
+    if( defined($json->[0]) ) {
+      if( defined($json->[0]->{boundingbox}) ) {
+        $ret = $json->[0]->{boundingbox};
+        #$comp = abs($json->[0]->{boundingbox}[0]-$json->[0]->{boundingbox}[1]) + abs($json->[0]->{boundingbox}[2]-$json->[0]->{boundingbox}[3]);
       }
+      #if( defined($json->[1]->{boundingbox}) ) {
+      #  if((abs($json->[1]->{boundingbox}[0]-$json->[1]->{boundingbox}[1]) + abs($json->[1]->{boundingbox}[2]-$json->[1]->{boundingbox}[3])) < $comp) {
+      #    $ret = $json->[1]->{boundingbox} ;
+      #    $comp = abs($json->[1]->{boundingbox}[0]-$json->[1]->{boundingbox}[1]) + abs($json->[1]->{boundingbox}[2]-$json->[1]->{boundingbox}[3]);
+      #    Log3 $name, 2, "$name: box1 ".$comp;
+      #  }
+      #}
+      return $ret;
     } else {
-      return $hash->{status};
+      return "error";
     }
   }
 }
@@ -5055,6 +5551,11 @@ netatmo_pollDevice($)
 
   $hash->{openRequests} = 0 if ( !defined(  $hash->{openRequests}) );
 
+  if( !defined($hash->{dataTypes}) && $hash->{SUBTYPE} ne "PUBLIC" && (defined($hash->{Module}) || defined($hash->{Device}) ) ) {
+    Log3 $name, 2, "$name: dataTypes missing, re-initializing device";
+    netatmo_initDevice($hash);
+  }
+
   if( $hash->{Module} )
   {
     my @types = split( ' ', $hash->{dataTypes} ) if(defined($hash->{dataTypes}));
@@ -5064,12 +5565,12 @@ netatmo_pollDevice($)
     $lastupdate = (time-7*24*60*60) if(!$lastupdate and !$hash->{model});
     $hash->{openRequests} += int(@types);
     $hash->{openRequests} += 1 if(int(@types)==0);
+    
+    readingsSingleUpdate($hash, ".lastupdate", $lastupdate, 0) if(int(@types)>0);
+    
     foreach my $module (split( ' ', $hash->{Module} ) ) {
-      my $type;
-      $type = shift(@types) if( $module and @types);
-
-      readingsSingleUpdate($hash, ".lastupdate", $lastupdate, 0) if($type);
-      netatmo_requestDeviceReadings( $hash, $hash->{Device}, $type, $module ne $hash->{Device}?$module:undef );# if($type);
+      my $type = shift(@types) if( $module and @types);
+      netatmo_requestDeviceReadings( $hash, $hash->{Device}, $type, ($module ne $hash->{Device})?$module:undef );# if($type);
     }
   }
   elsif( defined($hash->{Lat}) )
@@ -5120,8 +5621,8 @@ netatmo_pollGlobal($)
   Log3 $name, 4, "$name: pollGlobal";
 
   HttpUtils_NonblockingGet({
-      url => "https://api.netatmo.com/api/getstationsdata",
-      timeout => 20,
+      url => "https://".$hash->{helper}{apiserver}."/api/getstationsdata",
+      timeout => 60,
       noshutdown => 1,
       data => { access_token => $hash->{access_token}, },
       hash => $hash,
@@ -5144,8 +5645,8 @@ netatmo_pollGlobalHealth($)
   Log3 $name, 4, "$name: pollGlobalHealth";
 
   HttpUtils_NonblockingGet({
-      url => "https://api.netatmo.com/api/gethomecoachsdata",
-      timeout => 20,
+      url => "https://".$hash->{helper}{apiserver}."/api/gethomecoachsdata",
+      timeout => 60,
       noshutdown => 1,
       data => { access_token => $hash->{access_token}, },
       hash => $hash,
@@ -5183,8 +5684,8 @@ netatmo_pollForecast($)
   Log3 $name, 4, "$name: pollForecast (forecastdata)";
 
   HttpUtils_NonblockingGet({
-      url => "https://api.netatmo.com/api/simplifiedfuturemeasure",
-      timeout => 20,
+      url => "https://app.netatmo.net/api/simplifiedfuturemeasure",
+      timeout => 60,
       noshutdown => 1,
       data => { device_id => $hash->{Station}, },
       header => "Authorization: Bearer ".$iohash->{access_token_app},
@@ -5266,7 +5767,9 @@ netatmo_Get($$@)
       || $hash->{SUBTYPE} eq "CAMERA"
       || $hash->{SUBTYPE} eq "PERSON"
       || $hash->{SUBTYPE} eq "RELAY"
-      || $hash->{SUBTYPE} eq "THERMOSTAT" ) {
+      || $hash->{SUBTYPE} eq "THERMOSTAT"
+      || $hash->{SUBTYPE} eq "HEATINGHOME"
+      || $hash->{SUBTYPE} eq "HEATINGROOM" ) {
     $list = "update:noArg";
 
     $list = " ping:noArg video video_local live live_local snapshot" if($hash->{SUBTYPE} eq "CAMERA");
@@ -5311,7 +5814,7 @@ netatmo_Get($$@)
       return undef;
     }
   } elsif( $hash->{SUBTYPE} eq "ACCOUNT" ) {
-    $list = "update:noArg devices:noArg homes:noArg thermostats:noArg homecoachs:noArg public showAccount:noArg";
+    $list = "update:noArg devices:noArg homes:noArg thermostats:noArg homecoachs:noArg public showAccount:noArg"; #checkConnection:noArg";
 
     if( $cmd eq "update" ) {
       netatmo_poll($hash);
@@ -5332,6 +5835,12 @@ netatmo_Get($$@)
       return "username: $username\npassword: $password";
     }
 
+    if( $cmd eq 'checkConnection' )
+    {
+      netatmo_checkConnection($hash,1);
+      return undef;
+    }
+
     if( $cmd eq "devices" ) {
       my $devices = netatmo_getDevices($hash,1);
       my $ret;
@@ -5350,7 +5859,7 @@ netatmo_Get($$@)
         my $ret;
         foreach my $home (@{$homes}) {
           $ret .= "\n" if( $ret );
-          $ret .= "$home->{id} \t\tHome\t".encode_utf8($home->{name}) if(defined($home->{cameras}));
+          $ret .= "$home->{id} \t\tHome\t".encode_utf8($home->{name}) if(defined($home->{cameras}) && @{$home->{cameras}});;
           if(defined($home->{status}))
           {
             $ret .= "$home->{id} \t\t\tCamera\t".encode_utf8($home->{name});
@@ -5372,7 +5881,7 @@ netatmo_Get($$@)
           my $ret;
           foreach my $thermostat (@{$thermostats}) {
             $ret .= "\n" if( $ret );
-            $ret .= "$thermostat->{_id}\t$thermostat->{firmware}\t$thermostat->{type}\t ".(defined($thermostat->{module_name}) ? $thermostat->{module_name} : $thermostat->{station_name});
+            $ret .= "$thermostat->{id}\t$thermostat->{firmware}\t$thermostat->{type}\t ".$thermostat->{name};
           }
 
           $ret = "id\t\t\tfw\ttype\t name\n" . $ret if( $ret );
@@ -5385,7 +5894,7 @@ netatmo_Get($$@)
       my $ret;
       foreach my $homecoach (@{$homecoachs}) {
         $ret .= "\n" if( $ret );
-        $ret .= "$homecoach->{_id}\t$homecoach->{firmware}\t$homecoach->{type}\t$homecoach->{name}";
+        $ret .= "$homecoach->{_id}\t$homecoach->{firmware}\t$homecoach->{type}\t$homecoach->{station_name}";
       }
 
       $ret = "id\t\t\tfw\ttype\t name\n" . $ret if( $ret );
@@ -5398,14 +5907,23 @@ netatmo_Get($$@)
 
       if( @args && defined($args[0]) && ( $args[0] =~ m/^\d{5}$/
                         || $args[0] =~ m/^a:/ ) ) {
-        $addr = shift @args;
-        $addr = substr($addr,2) if( $addr =~ m/^a:/ );
+
+        if($args[0] =~ m/^a:/){
+          $addr = '?';
+          $addr .= 'q='.join('+', @args);
+          $addr =~ s/a://g;
+        } elsif($args[0] =~ m/^\d{5}$/) {
+          $addr = '?';
+          $addr .= 'postalcode='.$args[0].'&';
+          $addr .= 'country=de';
+        }
 
         my $bounds =  netatmo_getLatLong( $hash,1,$addr );
-        $args[0] = $bounds->{northeast}->{lat};
-        $args[1] = $bounds->{northeast}->{lng};
-        $args[2] = $bounds->{southwest}->{lat};
-        $args[3] = $bounds->{southwest}->{lng};
+        return "data error " if( ref($bounds) ne "ARRAY" );
+        $args[0] = $bounds->[1];
+        $args[1] = $bounds->[3];
+        $args[2] = $bounds->[0];
+        $args[3] = $bounds->[2];
       } elsif(defined($args[0]) && $args[0] =~ m/,/) {
         my @latlon1 = split( ',', $args[0] );
         if($args[1] !~ m/,/){
@@ -5544,7 +6062,7 @@ netatmo_Get($$@)
           $ret .= "\t $addr" if(defined($addr));
 
           #$ret .= "\n\tdefine netatmo_P$device->{_id} netatmo PUBLIC $device->{_id} $ext" if( $station );
-          my $definelink = "<a href=\"#\" onclick=\"javascript:window.open((\'".$FW_ME."?cmd=define netatmo_D".$idname." netatmo+++PUBLIC ".$device->{_id}." ".$ext.$csrftoken."\').replace('+++',' '), 'definewindow');\">=&gt; </a>";
+          my $definelink = "<a href=\"#\" onclick=\"javascript:window.open((\'".$FW_ME."?cmd=define netatmo_D".$idname." net+++atmo PUBLIC ".$device->{_id}." ".$ext.$csrftoken."\').replace('+++',''), 'definewindow');\">=&gt; </a>";
           $ret =~ s/$device->{_id}/$definelink/;
         }
       } else {
@@ -5609,8 +6127,8 @@ netatmo_registerWebhook($)
   return undef if(!defined($webhookurl));
   
   HttpUtils_NonblockingGet({
-    url => "https://api.netatmo.com/api/addwebhook",
-    timeout => 20,
+    url => "https://".$iohash->{helper}{apiserver}."/api/addwebhook",
+    timeout => 30,
     noshutdown => 1,
     data => { access_token => $iohash->{access_token}, url => $webhookurl, app_type => 'app_security', },
     hash => $hash,
@@ -5634,8 +6152,8 @@ netatmo_dropWebhook($)
   Log3 $name, 3, "Dropping Netatmo webhook";
   
   HttpUtils_NonblockingGet({
-    url => "https://api.netatmo.com/api/dropwebhook",
-    timeout => 20,
+    url => "https://".$iohash->{helper}{apiserver}."/api/dropwebhook",
+    timeout => 30,
     noshutdown => 1,
     data => { access_token => $iohash->{access_token}, app_type => 'app_security', },
     hash => $hash,
@@ -5745,12 +6263,19 @@ sub netatmo_Attr($$$)
     $attrVal = 60*5 if($hash->{SUBTYPE} ne "HOME" && $attrVal < 60*5 && $attrVal != 0);
 
     #\$attrVal = 2700 if(($attrVal < 2700 && ($hash->{SUBTYPE} eq "ACCOUNT" || $hash->{SUBTYPE} eq "FORECAST");
-    $hash->{INTERVAL} = $attrVal if($attrVal);
-    $hash->{INTERVAL} = 60*30 if( !$hash->{INTERVAL} );
+    $hash->{helper}{INTERVAL} = $attrVal if($attrVal);
+    $hash->{helper}{INTERVAL} = 60*30 if( !$hash->{helper}{INTERVAL} );
   } elsif( $attrName eq "setpoint_duration" ) {
       my $hash = $defs{$name};
       #$hash->{SETPOINT_DURATION} = $attrVal;
       #$hash->{SETPOINT_DURATION} = 60 if( !$hash->{SETPOINT_DURATION} );
+  } elsif( $attrName eq "serverAPI" ) {
+    my $hash = $defs{$name};
+    if( $cmd eq "set" && $attrVal ne "" ) {
+      $hash->{helper}{apiserver} = $attrVal;
+    } else {
+      $hash->{helper}{apiserver} = "api.netatmo.com";
+    }
   } elsif( $attrName eq "disable" ) {
     my $hash = $defs{$name};
     RemoveInternalTimer($hash);
@@ -5882,6 +6407,14 @@ sub netatmo_DbLog_splitFn($)
   elsif($event =~ m/air_/)
   {
     $unit = "ug/m3";
+  }
+  elsif($event =~ m/batteryPercent/)
+  {
+    $unit = "%";
+  }
+  elsif($event =~ m/batteryVoltage/)
+  {
+    $unit = "V";
   }
   else
   {

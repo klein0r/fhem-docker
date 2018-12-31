@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: Unit.pm 14136 2017-04-29 16:31:46Z loredo $
+# $Id: Unit.pm 17875 2018-12-01 10:09:46Z loredo $
 package main;
 use strict;
 use warnings;
@@ -662,7 +662,7 @@ my $rtype_base = {
     25 => {
         base_description => {
             de => 'Zahlen',
-            en => 'Numbering',
+            en => 'numbering',
         },
         format       => '%.1f',
         decimal_mark => {
@@ -675,7 +675,7 @@ my $rtype_base = {
     26 => {
         base_description => {
             de => 'Logische Operatoren',
-            en => 'Logical operators',
+            en => 'logical operators',
         },
         tmpl => '%value%',
     },
@@ -2271,6 +2271,7 @@ my $rtypes = {
         scale_m => '1.0e2',
     },
 
+    # logarithmic scale
     b => {
         ref_base => 19,
         scale_m  => '1.0e0',
@@ -2286,6 +2287,7 @@ my $rtypes = {
         scale_m => '1.0e-1',
     },
 
+    # electric current
     ua => {
         ref     => 'a',
         scale_m => '1.0e-6',
@@ -2878,6 +2880,9 @@ sub rname2rtype ($$@) {
     my $guess;
     my %return;
 
+    # reading name exactly matches rtype
+    return $reading if ( $rtypes->{$reading} && !wantarray );
+
     # remove some prefix or other values to
     # flatten reading name
     $r =~ s/^fc\d+_//i;
@@ -2902,7 +2907,7 @@ sub rname2rtype ($$@) {
         $rt                = (
               $readingsDB->{global}{$dr}{rtype}
             ? $readingsDB->{global}{$dr}{rtype}
-            : "-"
+            : undef
         );
     }
 
@@ -2913,7 +2918,7 @@ sub rname2rtype ($$@) {
         $rt                = (
               $readingsDB->{global}{$r}{rtype}
             ? $readingsDB->{global}{$r}{rtype}
-            : "-"
+            : undef
         );
     }
 
@@ -2923,7 +2928,14 @@ sub rname2rtype ($$@) {
         $rt = $1;
     }
 
+    if (wantarray) {
+        return ( $reading, $return{aliasname}, $return{shortname},
+            $return{guess} )
+          if ( $rtypes->{$reading} );
+        return ( $rt, $return{aliasname}, $return{shortname}, $return{guess} );
+    }
     return $rt if ( $rt && $rtypes->{$rt} );
+    return undef;
 }
 
 ######################################
@@ -3944,10 +3956,17 @@ sub formatValue($$$;$$$$) {
 # find desc for device:reading
 sub readingsDesc($;$) {
     my ( $device, $reading ) = @_;
+    $device = "" unless ( defined($device) );
     my $desc = getCombinedKeyValAttr( $device, "readingsDesc", $reading );
 
     my $rtype;
-    $rtype = $desc->{rtype} if ( $desc->{rtype} );
+    if ( $desc->{rtype} ) {
+        $rtype = $desc->{rtype};
+    }
+    else {
+        $rtype = rname2rtype( $device, $reading );
+        $desc->{rtype} = $rtype;
+    }
 
     if ( $rtype && defined( $rtypes->{$rtype} ) ) {
 
@@ -4178,14 +4197,18 @@ sub makeSTATE($;$$) {
 # get combined hash for settings from module, device, global and device attributes
 sub getCombinedKeyValAttr($;$$) {
     my ( $name, $attribute, $reading ) = @_;
-    my $d = $defs{$name} if ( $defs{$name} );
-    my $m = $modules{ $d->{TYPE} } if ( $d && $d->{TYPE} );
+    my $d = $defs{$name}           if ( $name && $defs{$name} );
+    my $m = $modules{ $d->{TYPE} } if ( $d    && $d->{TYPE} );
     my $g = $defs{"global"};
 
     # join hashes until 3rd level
 
     my $desc;
-    if ( $m && $m->{$attribute} && ref( $m->{$attribute} ) eq "HASH" ) {
+    if (   $m
+        && $attribute
+        && $m->{$attribute}
+        && ref( $m->{$attribute} ) eq "HASH" )
+    {
         Log3( $name, 5,
 "getCombinedKeyValAttr $name $reading: including HASH from module X_Initialize() function"
         );
@@ -4214,7 +4237,11 @@ sub getCombinedKeyValAttr($;$$) {
         }
     }
 
-    if ( $g && $g->{$attribute} && ref( $g->{$attribute} ) eq "HASH" ) {
+    if (   $g
+        && $attribute
+        && $g->{$attribute}
+        && ref( $g->{$attribute} ) eq "HASH" )
+    {
         Log3( $name, 5,
 "getCombinedKeyValAttr $name $reading: including HASH from global attribute $attribute"
         );
@@ -4243,7 +4270,11 @@ sub getCombinedKeyValAttr($;$$) {
         }
     }
 
-    if ( $d && $d->{$attribute} && ref( $d->{$attribute} ) eq "HASH" ) {
+    if (   $d
+        && $attribute
+        && $d->{$attribute}
+        && ref( $d->{$attribute} ) eq "HASH" )
+    {
         Log3( $name, 5,
 "getCombinedKeyValAttr $name $reading: including HASH from device attribute $attribute"
         );

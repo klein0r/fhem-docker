@@ -1,5 +1,7 @@
 ################################################################
-# $Id: 24_TPLinkHS110.pm 14381 2017-05-26 07:14:53Z vk $
+# $Id: 24_TPLinkHS110.pm 17468 2018-10-06 16:32:28Z vk $
+#
+#  Release 2018-11-01 SetExtension
 #
 #  Copyright notice
 #
@@ -34,6 +36,9 @@ use warnings;
 use IO::Socket::INET;
 use IO::Socket::Timeout;
 use JSON;
+use SetExtensions;
+use Data::Dumper; 
+
 
 #####################################
 sub TPLinkHS110_Initialize($)
@@ -47,10 +52,10 @@ sub TPLinkHS110_Initialize($)
   $hash->{DeleteFn}   = "TPLinkHS110_Delete";
   $hash->{AttrFn}     = "TPLinkHS110_Attr";
   $hash->{AttrList}   = "interval ".
-			"disable:0,1 " .
-			"nightmode:on,off " .
-  			"timeout " .
-                        "$readingFnAttributes";
+	  "disable:0,1 " .
+	  "nightmode:on,off " .
+	  "timeout " .
+	  "$readingFnAttributes";
 }
 
 #####################################
@@ -80,6 +85,7 @@ sub TPLinkHS110_Get($$)
 {
 	my ($hash) = @_;
 	my $name = $hash->{NAME};
+    my($success,$json,$realtimejson);
 	return "Device disabled in config" if ($attr{$name}{"disable"} eq "1");
   	RemoveInternalTimer($hash);    
 	InternalTimer(gettimeofday()+$hash->{INTERVAL}, "TPLinkHS110_Get", $hash, 1);
@@ -99,25 +105,39 @@ sub TPLinkHS110_Get($$)
 	        Type     => SOCK_STREAM,
        		Timeout  => $hash->{TIMEOUT} )
 	        or return "Couldn't connect to $remote_host:$remote_port: $@\n";
-	$socket->send($c);
-	my $data;
-	my $retval = $socket->recv($data,8192);
+	$socket->write($c);
+    IO::Socket::Timeout->enable_timeouts_on($socket);
+    $socket->read_timeout(.5);
+    my $data;
+    $data = <$socket>;
 	$socket->close();
-	unless( defined $retval) { return undef; }
-	$data = decrypt(substr($data,4));
-	my $json;
-	eval {
-		$json = decode_json($data);
-	} or do {
-		Log3 $hash, 2, "TPLinkHS110: $name json-decoding failed. Problem decoding getting statistical data";
-		return;
-	};
+	
+    readingsBeginUpdate($hash);
+    $data = decrypt(substr($data,4));
+	
+    ($success,$json) = TPLinkHS110__evaljson($name,$data);
+    if(!$success) {
+        readingsEndUpdate($hash, 1);
+        return;
+	}
 
 	Log3 $hash, 3, "TPLinkHS110: $name Get called. Relay state: $json->{'system'}->{'get_sysinfo'}->{'relay_state'}, RSSI: $json->{'system'}->{'get_sysinfo'}->{'rssi'}";
-	readingsBeginUpdate($hash);	
+	
+	my $hw_ver = $json->{'system'}->{'get_sysinfo'}->{'hw_ver'};
+	my %hwMap = hwMapping();
+	
 	foreach my $key (sort keys %{$json->{'system'}->{'get_sysinfo'}}) {
-		readingsBulkUpdate($hash, $key, $json->{'system'}->{'get_sysinfo'}->{$key});
-        }
+		my $sysinfoValue = $json->{'system'}->{'get_sysinfo'}->{$key};
+		
+		#adjust different hw_ver readings 
+		if (exists($hwMap{$hw_ver}{'system'}{'get_sysinfo'}{$key})) {
+			if (exists($hwMap{$hw_ver}{'system'}{'get_sysinfo'}{$key}{'factor'})) {
+				$sysinfoValue = $sysinfoValue * $hwMap{$hw_ver}{'system'}{'get_sysinfo'}{$key}{'factor'};
+			}
+			$key = $hwMap{$hw_ver}{'system'}{'get_sysinfo'}{$key}{'name'}
+		}			
+		readingsBulkUpdate($hash, $key, $sysinfoValue);		
+    }
 	if ($json->{'system'}->{'get_sysinfo'}->{'relay_state'} == 0) {
 		readingsBulkUpdate($hash, "state", "off");
 	}
@@ -125,7 +145,7 @@ sub TPLinkHS110_Get($$)
 		readingsBulkUpdate($hash, "state", "on");
 	}
 	# If the device is a HS110, get realtime data:
-	if ($json->{'system'}->{'get_sysinfo'}->{'model'} eq "HS110(EU)") {
+	if ($json->{'system'}->{'get_sysinfo'}->{'model'} eq "HS110(EU)" or $json->{'system'}->{'get_sysinfo'}->{'model'} eq "HS110(UK)") {
 		my $realtimejcommand='{"emeter":{"get_realtime":{}}}';
 		my $rc = encrypt($realtimejcommand);
 		my $socket = IO::Socket::INET->new(PeerAddr => $remote_host,
@@ -134,27 +154,48 @@ sub TPLinkHS110_Get($$)
 		        Type     => SOCK_STREAM,
 	       		Timeout  => $hash->{TIMEOUT} )
 		        or return "Couldn't connect to $remote_host:$remote_port: $@\n";
-		$socket->send($rc);
-		my $rdata;
-		$retval = $socket->recv($rdata,8192);
-		$socket->close();
-		unless( defined $retval) { return undef; }
+		$socket->write($rc);
+        IO::Socket::Timeout->enable_timeouts_on($socket);
+        $socket->read_timeout(.5);
+        my $rdata;
+        $rdata = <$socket>;
 		$rdata = decrypt(substr($rdata,4));
-		my $realtimejson;
+
 		if (length($rdata)==0) {
 			Log3 $hash, 1, "TPLinkHS110: $name: Received zero bytes of realtime data. Cannot process realtime data";
 			return;
 		}
-		eval {
-			$realtimejson = decode_json($rdata);
-		} or do {
-			Log3 $hash, 2, "TPLinkHS110: $name json-decoding failed. Problem decoding getting statistical data";
-			return;
-		};
+        
+        ($success,$realtimejson) = TPLinkHS110__evaljson($name,$rdata);
+        if(!$success) {
+            readingsEndUpdate($hash, 1);
+			return; 
+		} else {
+            Log3 $hash, 2, "TPLinkHS110: $name Realtime data updated";
+        }
+		
+		my %emeterReadings = ();
+
 		foreach my $key2 (sort keys %{$realtimejson->{'emeter'}->{'get_realtime'}}) {
-			readingsBulkUpdate($hash, $key2, $realtimejson->{'emeter'}->{'get_realtime'}->{$key2});
+			
+			my $emeterValue = $realtimejson->{'emeter'}->{'get_realtime'}->{$key2};
+			
+			#adjust different hw_ver readings, be sure to list all emeter readings in hwMapping
+			if (exists($hwMap{$hw_ver}{'emeter'}{'get_realtime'}{$key2})) {
+				if (exists($hwMap{$hw_ver}{'emeter'}{'get_realtime'}{$key2}{'factor'})) {
+					$emeterValue = $emeterValue * $hwMap{$hw_ver}{'emeter'}{'get_realtime'}{$key2}{'factor'};
+				}
+				$key2 = $hwMap{$hw_ver}{'emeter'}{'get_realtime'}{$key2}{'name'};
+				readingsBulkUpdate($hash, $key2, $emeterValue);
+				$emeterReadings{$key2} = $emeterValue;
+			} else {
+				return "Check supported hw_ver of device: $hw_ver\n";
+			}
 		}
-		Log3 $hash, 3, "TPLinkHS110: $name Device is an HS110. Got extra realtime data: $realtimejson->{'emeter'}->{'get_realtime'}->{'power'} Watt, $realtimejson->{'emeter'}->{'get_realtime'}->{'voltage'} Volt, $realtimejson->{'emeter'}->{'get_realtime'}->{'current'} Ampere";
+
+		Log3 $hash, 3, "TPLinkHS110: $name Device is an HS110. Got extra realtime data: $emeterReadings{'power'} Watt, $emeterReadings{'voltage'} Volt, $emeterReadings{'current'} Ampere";
+
+		
 		# Get Daily Stats
 		my $command = '{"emeter":{"get_daystat":{"month":'.$mon.',"year":'.$year.'}}}';
 		my $c = encrypt($command);
@@ -164,33 +205,49 @@ sub TPLinkHS110_Get($$)
 		        Type     => SOCK_STREAM,
 	       		Timeout  => $hash->{TIMEOUT} )
 		        or return "Couldn't connect to $remote_host:$remote_port: $@\n";
-		$socket->send($c);
-		my $data;
-		$retval = $socket->recv($data,8192);
+		$socket->write($c);
+        IO::Socket::Timeout->enable_timeouts_on($socket);
+        $socket->read_timeout(.5);
+        my $data;
+        $data = <$socket>;
 		$socket->close();
-		unless( defined $retval) { return undef; }
 		$data = decrypt(substr($data,4));
-		eval {
-			my $json = decode_json($data);
+
+        Log3 $hash, 3, "TPLinkHS110: $name Updating daystat. Data: " . $data;
+
+        ($success,$json) = TPLinkHS110__evaljson($name,$data);
+        if($success && $json) {
 			my $total=0;
 			foreach my $key (sort keys @{$json->{'emeter'}->{'get_daystat'}->{'day_list'}}) {
 				foreach my $key2 ($json->{'emeter'}->{'get_daystat'}->{'day_list'}[$key]) {
-					$total = $total+ $key2->{'energy'};
-					if ($key2->{'day'} == $mday) {
+					if ($hw_ver eq "1.0") {
+						$total = $total+ $key2->{'energy'};
+						if ($key2->{'day'} == $mday) {
 						readingsBulkUpdate($hash, "daily_total", sprintf("%.3f", $key2->{'energy'}));
+						}
+					} else {
+						$total = $total+ $key2->{'energy_wh'};
+						if ($key2->{'day'} == $mday) {
+						readingsBulkUpdate($hash, "daily_total", sprintf("%.3f", $key2->{'energy_wh'}));
+						}
 					}
+					
 				}
 			}
 			my $count=1;
 			$count = @{$json->{'emeter'}->{'get_daystat'}->{'day_list'}};
 			readingsBulkUpdate($hash, "monthly_total", $total);
 			if ($count) { readingsBulkUpdate($hash, "daily_average", $total/$count)};
-			1;
-		} or do {
-			Log3 $hash, 2, "TPLinkHS110: $name json-decoding failed. Problem decoding getting statistical data";
+            Log3 $hash, 2, "TPLinkHS110: $name Daystat updated";
+        } else {
+            Log3 $hash, 1, "TPLinkHS110: $name Error updating daystat. Success: " . $success . ", json: " . $json;
+            Log3 $hash, 3, "TPLinkHS110: $name Updating readings";
+            readingsEndUpdate($hash, 1);
+            Log3 $hash, 3, "TPLinkHS110: $name Get end";
 			return;
-		};
+        }
 	}
+    Log3 $hash, 3, "TPLinkHS110: $name Updating readings";
 	readingsEndUpdate($hash, 1);
 	Log3 $hash, 3, "TPLinkHS110: $name Get end";
 }
@@ -199,19 +256,27 @@ sub TPLinkHS110_Get($$)
 #####################################
 sub TPLinkHS110_Set($$)
 {
-	my ( $hash, @a ) = @_;
-  	my $name= $hash->{NAME};
-	return "Device disabled in config" if ($attr{$name}{"disable"} eq "1");
-   	Log3 $hash, 3, "TPLinkHS110: $name Set <". $a[1] ."> called";
-	return "Unknown argument $a[1], choose one of on off " if($a[1] ne "on" & $a[1] ne "off");
-
-	my $command;
-	if($a[1] eq "on") {
-		$command = '{"system":{"set_relay_state":{"state":1}}}';
-	}
-	if($a[1] eq "off") {
-		$command = '{"system":{"set_relay_state":{"state":0}}}';
-	}
+	my ( $hash, $name, $cmd, @args ) = @_;
+	my $cmdList = "on off";
+    my($success,$json,$realtimejson);
+	return "\"set $name\" needs at least one argument" unless(defined($cmd));
+	return if ($attr{$name}{"disable"} eq "1");
+   	Log3 $hash, 3, "TPLinkHS110: $name Set <". $cmd ."> called" if ($cmd !~ /\?/);
+		
+	my $command="";
+	if($cmd eq "on")
+		{
+			$command = '{"system":{"set_relay_state":{"state":1}}}';
+		}
+		elsif($cmd eq "off")
+		{
+			$command = '{"system":{"set_relay_state":{"state":0}}}';
+		}
+		else # wenn der übergebene Befehl nicht durch X_Set() verarbeitet werden kann, Weitergabe an SetExtensions
+		{
+			return SetExtensions($hash, $cmdList, $name, $cmd, @args);
+		}	
+	
 	my $remote_host = $hash->{HOST};
 	my $remote_port = 9999;
 	my $c = encrypt($command);
@@ -221,21 +286,23 @@ sub TPLinkHS110_Set($$)
 	        Type     => SOCK_STREAM,
        		Timeout  => $hash->{TIMEOUT})
 	        or return "Couldn't connect to $remote_host:$remote_port: $@\n";
-	$socket->send($c);
-	my $data;
-	my $retval = $socket->recv($data,8192);
+	$socket->write($c);
+    IO::Socket::Timeout->enable_timeouts_on($socket);
+    $socket->read_timeout(.5);
+    my $data;
+    $data = <$socket>;
 	$socket->close();
-	unless( defined $retval) { return undef; }
+    
+    readingsBeginUpdate($hash);
 	$data = decrypt(substr($data,4));
-	my $json;
-	eval {
-		$json = decode_json($data);
-	} or do {
-		Log3 $hash, 2, "TPLinkHS110: $name json-decoding failed. Problem decoding getting statistical data";
-		return;
-	};
+    
+	($success,$json) = TPLinkHS110__evaljson($name,$data);
+    if(!$success) {
+        readingsEndUpdate($hash, 1);
+        return;
+	}
 
-        if ($json->{'system'}->{'set_relay_state'}->{'err_code'} eq "0") {
+	if ($json->{'system'}->{'set_relay_state'}->{'err_code'} eq "0") {
 		TPLinkHS110_Get($hash,"");
 		
 	} else {
@@ -310,11 +377,12 @@ sub TPLinkHS110_Attr {
 		        Type     => SOCK_STREAM,
 	       		Timeout  => $hash->{TIMEOUT} )
 		        or return "Couldn't connect to $remote_host:$remote_port: $@\n";
-		$socket->send($c);
-		my $data;
-		my $retval = $socket->recv($data,8192);
+        $socket->write($c);
+        IO::Socket::Timeout->enable_timeouts_on($socket);
+        $socket->read_timeout(.5);
+        my $data;
+        $data = <$socket>;
 		$socket->close();
-		unless( defined $retval) { return undef; }
 		$data = decrypt(substr($data,4));
 		my $json;
 		eval {
@@ -332,8 +400,8 @@ sub TPLinkHS110_Attr {
 # Based on https://www.softscheck.com/en/reverse-engineering-tp-link-hs110/
 sub encrypt {
         my $key = 171;
-        my $result = "\0\0\0\0";
-        my @string=split(//, $_[0]);
+		my @string=split(//, $_[0]);
+        my $result = "\0\0\0".chr(@string);
         foreach (@string) {
                 my $a = $key ^ ord($_);
                 $key = $a;
@@ -351,6 +419,71 @@ sub decrypt {
                 $result .= chr($a);
         }
         return $result;
+}
+
+# mapping for different hardware versions
+sub hwMapping {
+	my %hwMap = ();
+	$hwMap{'1.0'}{'system'}{'get_sysinfo'}{'longitude'}{'name'}		= 'longitude';
+	$hwMap{'1.0'}{'system'}{'get_sysinfo'}{'longitude'}{'factor'}		= 1;
+	$hwMap{'1.0'}{'system'}{'get_sysinfo'}{'latitude'}{'name'}		= 'latitude';
+	$hwMap{'1.0'}{'system'}{'get_sysinfo'}{'latitude'}{'factor'}		= 1;
+	$hwMap{'2.0'}{'system'}{'get_sysinfo'}{'longitude_i'}{'name'}		= 'longitude';
+	$hwMap{'2.0'}{'system'}{'get_sysinfo'}{'longitude_i'}{'factor'}		= 0.0001;
+	$hwMap{'2.0'}{'system'}{'get_sysinfo'}{'latitude_i'}{'name'}		= 'latitude';
+	$hwMap{'2.0'}{'system'}{'get_sysinfo'}{'latitude_i'}{'factor'}		= 0.0001;	
+	
+	$hwMap{'1.0'}{'emeter'}{'get_realtime'}{'power'}{'name'}		= 'power';
+	$hwMap{'1.0'}{'emeter'}{'get_realtime'}{'power'}{'factor'}		= 1;
+	$hwMap{'1.0'}{'emeter'}{'get_realtime'}{'voltage'}{'name'}		= 'voltage';
+	$hwMap{'1.0'}{'emeter'}{'get_realtime'}{'voltage'}{'factor'}		= 1;
+	$hwMap{'1.0'}{'emeter'}{'get_realtime'}{'current'}{'name'}		= 'current';
+	$hwMap{'1.0'}{'emeter'}{'get_realtime'}{'current'}{'factor'}		= 1;
+	$hwMap{'1.0'}{'emeter'}{'get_realtime'}{'total'}{'name'}		= 'total';
+	$hwMap{'1.0'}{'emeter'}{'get_realtime'}{'total'}{'factor'}		= 1;
+	$hwMap{'1.0'}{'emeter'}{'get_realtime'}{'err_code'}{'name'}		= 'err_code';
+	$hwMap{'1.0'}{'emeter'}{'get_realtime'}{'err_code'}{'factor'}		= 1;
+
+	$hwMap{'2.0'}{'emeter'}{'get_realtime'}{'power_mw'}{'name'}		= 'power';
+	$hwMap{'2.0'}{'emeter'}{'get_realtime'}{'power_mw'}{'factor'}		= 0.001;
+	$hwMap{'2.0'}{'emeter'}{'get_realtime'}{'voltage_mv'}{'name'}		= 'voltage';
+	$hwMap{'2.0'}{'emeter'}{'get_realtime'}{'voltage_mv'}{'factor'}		= 0.001;
+	$hwMap{'2.0'}{'emeter'}{'get_realtime'}{'current_ma'}{'name'}		= 'current';
+	$hwMap{'2.0'}{'emeter'}{'get_realtime'}{'current_ma'}{'factor'}		= 0.001;
+	$hwMap{'2.0'}{'emeter'}{'get_realtime'}{'total_wh'}{'name'}		= 'total';
+	$hwMap{'2.0'}{'emeter'}{'get_realtime'}{'total_wh'}{'factor'}		= 0.001;
+	$hwMap{'2.0'}{'emeter'}{'get_realtime'}{'err_code'}{'name'}		= 'err_code';
+	$hwMap{'2.0'}{'emeter'}{'get_realtime'}{'err_code'}{'factor'}		= 1;
+	
+	return %hwMap;
+}
+
+###############################################################################
+#   Test ob JSON-String empfangen wurde
+sub TPLinkHS110__evaljson($$) { 
+  my ($name,$data)= @_;
+  my $hash = $defs{$name};
+  my $json;
+  my $success = 1;
+  my $jerr = "ok";
+  
+  Log3 $name, 5, "$name - Data returned: ". Dumper $data;
+  eval {$json = decode_json($data);} or do 
+  {
+      $success = 0; 
+  };
+        
+  if($@) {
+      $jerr = $@;
+  };
+  
+  readingsBulkUpdate($hash, "decode_json", $jerr);
+  
+  if($success) {
+      return($success,$json);
+  } else {
+      return($success,undef); 
+  }
 }
 
 ######################################################################################

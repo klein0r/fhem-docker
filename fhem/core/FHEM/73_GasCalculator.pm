@@ -1,4 +1,4 @@
-# $Id: 73_GasCalculator.pm 14220 2017-05-08 10:55:22Z Sailor $
+# $Id: 73_GasCalculator.pm 16602 2018-04-13 17:58:19Z Sailor $
 ########################################################################################################################
 #
 #     73_GasCalculator.pm
@@ -98,6 +98,7 @@ sub GasCalculator_Define($$$)
 	$hash->{REGEXP} = $RegEx;	
 
 	### Writing values to global hash
+	notifyRegexpChanged($hash, $RegEx);
 	$hash->{NAME}							= $name;
 	$hash->{STATE}              			= "active";
 	$hash->{REGEXP}             			= $RegEx;
@@ -143,7 +144,7 @@ sub GasCalculator_Attr(@)
 	my $name                   = $a[1];
 	my $hash                   = $defs{$name};
 	
-	### Check whether "disbale" attribute has been provided
+	### Check whether "disable" attribute has been provided
 	if ($a[2] eq "disable")
 	{
 		if    ($a[3] eq 0)
@@ -152,7 +153,7 @@ sub GasCalculator_Attr(@)
 		}
 		elsif ($a[3] eq 1)		
 		{	
-			$hash->{STATE} = "diabled";
+			$hash->{STATE} = "disabled";
 		}
 	}
 

@@ -1,4 +1,4 @@
-# $Id: 98_configdb.pm 15096 2017-09-19 12:55:19Z betateilchen $
+# $Id: 98_configdb.pm 16477 2018-03-24 17:58:10Z betateilchen $
 #
 
 package main;
@@ -49,7 +49,7 @@ sub CommandConfigdb($$) {
 				}
 			} elsif($param2 eq "") {
 			# delete attribute
-				undef($configDB{attr}{$param1});
+				delete $configDB{attr}{$param1};
 				$ret = " attribute $param1 deleted";
 			} else {
 			# set attribute
@@ -59,60 +59,9 @@ sub CommandConfigdb($$) {
 		}
 
 		when ('dump') {
-
-			my ($dbconn,$dbuser,$dbpass,$dbtype)  = _cfgDB_readConfig();
-			my ($dbname,$dbhostname,$dbport,$gzip,$mp,$ret,$size,$source,$target,$ts);
-			$ts     = strftime('%Y-%m-%d_%H-%M-%S',localtime);
-			$mp     = AttrVal('global','modpath','.');
-			$target = "$mp/log/configDB_$ts.dump";
-
-			if (lc($param1) eq 'unzipped') {
-				$gzip = '';
-			} else {
-				$gzip    = '| gzip -c';
-				$target .= '.gz';
-			}
-			
-			if ($dbtype eq 'SQLITE') {
-				(undef,$source) = split (/=/, $dbconn);
-				my $dumpcmd = "echo '.dump' | sqlite3 $source $gzip > $target";
-				Log 4,"configDB: $dumpcmd";
-				$ret        = qx($dumpcmd);
-				return $ret if $ret; # return error message if available
-
-			} elsif ($dbtype eq 'MYSQL') {
-				($dbname,$dbhostname,$dbport) = split (/;/,$dbconn);
-				$dbport //= '=3306';
-				(undef,$dbname)     = split (/=/,$dbname);
-				(undef,$dbhostname) = split (/=/,$dbhostname);
-				(undef,$dbport)     = split (/=/,$dbport);
-				my $dumpcmd = "mysqldump --user=$dbuser --password=$dbpass --host=$dbhostname --port=$dbport -Q $dbname $gzip > $target";
-				Log 4,"configDB: $dumpcmd";
-				$ret        = qx($dumpcmd);
-				return $ret if $ret;
-				$source = $dbname;
-
-			} elsif ($dbtype eq 'POSTGRESQL') {
-				($dbname,$dbhostname,$dbport) = split (/;/,$dbconn);
-				$dbport //= '=5432';
-				(undef,$dbname)     = split (/=/,$dbname);
-				(undef,$dbhostname) = split (/=/,$dbhostname);
-				(undef,$dbport)     = split (/=/,$dbport);
-				my $dumpcmd = "PGPASSWORD=$dbpass pg_dump -U $dbuser -h $dbhostname -p $dbport $dbname $gzip > $target";
-				Log 4,"configDB: $dumpcmd";
-				$ret        = qx($dumpcmd);
-				return $ret if $ret;
-				$source     = $dbname;
-
-			} else {
-				return "configdb dump not supported for $dbtype!";
-			}
-
-			$size = -s $target;
-			$size //= 0;
-			$ret  = "configDB dumped $size bytes\nfrom: $source\n  to: $target";
-			return $ret;
+			return _cfgDB_dump($param1);
 		}
+
 
 		when ('diff') {
 			return "\n Syntax: configdb diff <device> <version>" if @a != 3;
@@ -129,7 +78,6 @@ sub CommandConfigdb($$) {
 				$filename  = $attr{global}{modpath};
 				$filename .= "/$param1";
 			}
-#			$ret = _cfgDB_Filedelete $filename;
 			$ret  = "File $filename ";
 			$ret .= defined(_cfgDB_Filedelete($filename)) ? "deleted from" : "not found in";
 			$ret .= " database.";
@@ -213,12 +161,14 @@ sub CommandConfigdb($$) {
 
 		when ('info') {
 			Log3('configdb', 4, "info requested.");
-			$ret = _cfgDB_Info;
+			$ret = _cfgDB_Info('$Id: 98_configdb.pm 16477 2018-03-24 17:58:10Z betateilchen $');
 		}
 
 		when ('list') {
 			$param1 = $param1 ? $param1 : '%';
 			$param2 = $param2 ? $param2 : 0;
+			$ret = "list not allowed for configDB itself.";
+			break if($param1 =~ m/configdb/i);
 			Log3('configdb', 4, "configdb: list requested for device: $param1 in version $param2.");
 			$ret = _cfgDB_Search($param1,$param2,1);
 		}
@@ -480,8 +430,7 @@ sub _cfgDB_readConfig() {
 			<ul><b>deleteimported</b> if set to 1 files will always be deleted from filesystem after import to database.<br/></ul><br/>
 			<ul><b>maxversions</b> set the maximum number of configurations stored in database. <br/>
 			    The oldest version will be dropped in a "save config" if it would exceed this number.</ul><br/>
-			<ul><b>private</b> if set to 1 the user and password info will not be shown in 'configdb info' output.</ul><br/>
-			<ul><b>useCache</b> (experimental!) if set to 1 fileread from database will be cached.</ul><br/>
+			<ul><b>private</b> if set to 0 the database user and password info will be shown in 'configdb info' output.</ul><br/>
 			<br/>
 
 		<li><code>configdb diff &lt;device&gt; &lt;version&gt;</code></li><br/>

@@ -1,7 +1,8 @@
 ##############################################
-# $Id: 10_FBDECT.pm 15295 2017-10-20 07:03:57Z rudolfkoenig $
+# $Id: 10_FBDECT.pm 17992 2018-12-17 08:59:34Z rudolfkoenig $
 package main;
 
+# See also https://avm.de/fileadmin/user_upload/Global/Service/Schnittstellen/AHA-HTTP-Interface.pdf
 use strict;
 use warnings;
 use SetExtensions;
@@ -13,7 +14,7 @@ sub FBDECT_Cmd($$@);
 
 sub FBDECT_decodePayload($$$);
 
-my @fbdect_models = qw(Powerline546E Dect200 CometDECT);
+my @fbdect_models = qw(Powerline546E Dect200 CometDECT HAN-FUN);
 
 my %fbdect_payload = (
    7 => { n=>"connected" },
@@ -92,7 +93,7 @@ FBDECT_SetHttp($@)
     $cmd{off} = $cmd{on} = $cmd{toggle} = "noArg";
   }
   if($p =~ m/actuator/) {
-    $cmd{"desired-temp"} = "slider,8,0.5,28,1";
+    $cmd{"desired-temp"} = "slider,7.5,0.5,28.5,1";
     $cmd{open} = $cmd{closed} = "noArg";
   }
   if(!$cmd{$a[1]}) {
@@ -116,10 +117,12 @@ FBDECT_SetHttp($@)
   if($cmd =~ m/^(open|closed|desired-temp)$/) {
     if($cmd eq "desired-temp") { 
       return "Usage: set $name desired-temp value" if(int(@a) != 3);
-      return "desired-temp must be between 8 and 28"
-        if($a[2] !~ m/^[\d.]+$/ || $a[2] < 8 || $a[2] > 28)
+      return "desired-temp must be between 7.5 and 28.5"
+        if($a[2] !~ m/^[\d.]+$/ || $a[2] < 7.5 || $a[2] > 28.5)
     }
-    my $val = ($cmd eq "open" ? 254 : ($cmd eq "closed" ? 253: int(2*$a[2])));
+    my $a2 = ($a[2] ? $a[2] : 0);
+    my $val = ($cmd eq "open"  || $a2==28.5) ? 254 :
+              ($cmd eq "closed"|| $a2== 7.5) ? 253: int(2*$a2);
     IOWrite($hash, ReadingsVal($name,"AIN",0),"sethkrtsoll&param=$val");
     return undef;
   }
@@ -176,9 +179,12 @@ FBDECT_Get($@)
   my $cmd = ($a[1] ? $a[1] : "");
   my %gets = ("devInfo"=>1);
 
-  my $cmdList = ($hash->{IODev} && $hash->{IODev}{TYPE} eq "FBAHA") ? 
-                  join(" ", sort keys %gets) : "";
-  return "Unknown argument $cmd, choose one of $cmdList" if(!$gets{$cmd});
+  if($hash->{IODev} && $hash->{IODev}{TYPE} eq "FBAHA") {
+    return "Unknown argument $cmd, choose one of ".join(" ",sort keys %gets)
+        if(!$gets{$cmd});
+  } else {
+    return "Unknown argument $cmd, choose one of ";
+  }
 
   if($cmd eq "devInfo") {
     my @answ = FBAHA_getDevList($hash->{IODev}, $hash->{id});
@@ -227,9 +233,18 @@ my %fbhttp_readings = (
    present         => '"present:".($val?"yes":"no")',
    productname     => '"FBTYPE:$val"',
    state           => '"state:".($val?"on":"off")',
+   voltage         => 'sprintf("voltage:%.3f V", $val/1000)',
 #  tist => 'sprintf("temperature:%.1f C (measured)", $val/2)', # Forum #57644
    tsoll           => 'sprintf("desired-temp:%s", $val)',
    members         => '"members:$val"',
+   devicelock      => '"devicelock:".($val ? "yes":"no")',
+   errorcode       => '"errorcode:".($ecTxt{$val} ? $ecTxt{$val} : ">$val<")',
+   windowopenactiv => '"windowopenactiv:".($val ? "yes":"no")',
+   battery         => 'sprintf("battery:%s %%", $val)',
+   endperiod       => 'sprintf("nextPeriodStart:%s", FmtDateTime($val))',
+   tchange         => 'sprintf("nextPeriodTemp:%0.1f C", $val/2)',
+   summeractive    => '"summeractive:".($val ? "yes":"no")',
+   holidayactive   => '"holidayactive:".($val ? "yes":"no")',
 );
 
 sub
@@ -245,12 +260,25 @@ FBDECT_ParseHttp($$$)
   my $ain = $h{identifier};
   $ain =~ s/[-: ]/_/g;
 
-  my %ll = (6=>"actuator", 7=>"powerMeter", 8=>"tempSensor",
-            9=>"switch", 10=>"repeater");
+  my %ll = (4=>"alarmSensor",
+            6=>"actuator",
+            7=>"powerMeter",
+            8=>"tempSensor",
+            9=>"switch",
+           10=>"repeater");
+  my %ecTxt = (0 => "noError (0)",
+               1 => "notMounted (1)",
+               2 => "valveShortOrBatteryEmpty (2)",
+               3 => "valveStuck (3)",
+               4 => "installationPreparation (4)",
+               5 => "installationInProgress (5)",
+               6 => "installationIsAdapting (6)");
+
   my $lsn = int($h{functionbitmask});
   my @fb;
   map { push @fb, $ll{$_} if((1<<$_) & $lsn) } sort keys %ll;
   my $fbprop = join(",", @fb);
+  $fbprop = "none" if(!$fbprop); # 85930
 
   my $dp = $modules{FBDECT}{defptr};
   my $hash = $dp->{"$ioName:$ain"};
@@ -272,12 +300,15 @@ FBDECT_ParseHttp($$$)
     Log3 $hash, 5, "   $n = $h{$n}";
     next if(!$fbhttp_readings{$n});
     my $val = $h{$n};
-    $val = ($val==254 ? "on": ($val==253 ? "off" : sprintf("%0.1f C",$val/2)))
+    $val = ($val == 254 ? 28.5:
+            $val == 253 ?  7.5 : sprintf("%0.1f C",$val/2))
       if($n eq "tsoll");
     $val = $type if($n eq "productname" && $val eq "");
     my ($ptyp,$pyld) = split(":", eval $fbhttp_readings{$n}, 2);
     readingsBulkUpdate($hash, "state", "$ptyp: $pyld") if($n eq "tsoll");
     readingsBulkUpdate($hash, $ptyp, $pyld);
+    readingsBulkUpdate($hash, "batteryState", $pyld ? "low" : "ok")
+        if($ptyp eq "batterylow");
   }
   readingsEndUpdate($hash, 1);
 
@@ -533,7 +564,8 @@ FBDECT_Undef($$)
     </li>
 
   <li>desired-temp &lt;value&gt;<br>
-    set the desired temp on a Comet DECT (FBAHAHTTP IOdev only)
+    set the desired temp on a Comet DECT (FBAHAHTTP IOdev only). The value 7.5
+    corresponds to off, and 28.5 to on.
     </li>
 
   <li><a href="#setExtensions">set extensions</a> are supported.
@@ -601,7 +633,7 @@ FBDECT_Undef($$)
 <ul>
   Dieses Modul wird verwendet, um AVM FRITZ!DECT Ger&auml;te via FHEM zu
   steuern, siehe auch das <a href="#FBAHA">FBAHA</a> oder <a
-  href="#FBAHAHTTP">FBAHAHTTP</a> Modul f&uumlr die Anbindung an das FRITZ!Box.
+  href="#FBAHAHTTP">FBAHAHTTP</a> Modul f&uuml;r die Anbindung an das FRITZ!Box.
   <br><br>
   <a name="FBDECTdefine"></a>
   <b>Define</b>
@@ -626,9 +658,9 @@ FBDECT_Undef($$)
   <ul>
   <li>on/off<br>
     Ger&auml;t einschalten bzw. ausschalten.</li>
-  <li>desired-temp &lt;value&/gt;<br>
-    Gew&uuml;nschte Temperatur beim Comet DECT setzen (nur mit FBAHAHTTP als
-    IODev).
+  <li>desired-temp &lt;value&gt;<br>
+    Gew&uuml;nschte Temperatur beim Comet DECT setzen. 7.5 entspricht aus, 28.5
+    bedeutet an.
     </li>
   <li>
     Die <a href="#setExtensions">set extensions</a> werden

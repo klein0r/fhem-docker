@@ -5,7 +5,7 @@
 # e-mail: ag at goebel-it dot de
 #
 ##############################################
-# $Id: 93_PWMR.pm 14829 2017-08-01 14:03:56Z jamesgo $ 
+# $Id: 93_PWMR.pm 16121 2018-02-08 14:55:52Z jamesgo $ 
 # 29.07.15 GA change set <name> manualTempDuration <minutes>
 # 21.09.15 GA update, use Log3 and readingsSingleUpdate
 # 07.10.15 GA initial version published
@@ -45,6 +45,9 @@
 # 14.12.16 GA fix supply DBuffer with delta temps for usePID=2 calculation
 # 14.12.16 GA add implement get previousTemps
 # 01.08.17 GA add documentation for attribute disable
+# 27.12.17 GA add handle "off" as c_tempFrostProtect and "on" as c_tempC in getDesiredTempFrom (valid form Homematic)
+# 31.01.18 GA add support for stateFormat
+# 08.02.18 GA fix PID_I_previousTemps was shortened to c_PID_DLookBackCnt instead of c_PID_ILookBackCnt in define
 
 
 # module for PWM (Pulse Width Modulation) calculation
@@ -118,7 +121,7 @@ PWMR_Initialize($)
   $hash->{UndefFn}   = "PWMR_Undef";
   $hash->{AttrFn}    = "PWMR_Attr";
 
-  $hash->{AttrList}  = "disable:1,0 loglevel:0,1,2,3,4,5 event-on-change-reading event-min-interval ".
+  $hash->{AttrList}  = "disable:1,0 loglevel:0,1,2,3,4,5 ".
 			"frostProtect:0,1 ".
 			"autoCalcTemp:0,1 ".
 			"desiredTempFrom ".
@@ -133,7 +136,7 @@ PWMR_Initialize($)
 			"tempRule4 ".
 			"tempRule5 ".
 			"valueFormat:textField-long ".
- 			"";
+ 			" ".$readingFnAttributes;
 
 }
 
@@ -152,9 +155,21 @@ PWMR_getDesiredTempFrom(@)
         $newTemp  = $1;
         Log3 ($hash, 4, "PWMR_getDesiredTempFrom $hash->{NAME}: from $dt->{NAME} reading($d_reading) VAL($d_readingVal) regexp($d_regexpTemp) regexpVal($val)");
 
-      } else {
-        $newTemp = $hash->{c_tempFrostProtect};
-        Log3 ($hash, 4, "PWMR_getDesiredTempFrom $hash->{NAME}: from $dt->{NAME} reading($d_reading) VAL($d_readingVal) regexp($d_regexpTemp) regexpVal($val) set to frostProtect");
+      } else { # regexp does not match
+
+        if ($val =~ /^on$/) {
+          $newTemp = $hash->{c_tempC};
+          Log3 ($hash, 4, "PWMR_getDesiredTempFrom $hash->{NAME}: from $dt->{NAME} reading($d_reading) VAL($d_readingVal) regexp($d_regexpTemp) regexpVal($val) set to 30");
+
+        } elsif ( $val =~ /^off$/ ) {
+
+          $newTemp = $hash->{c_tempFrostProtect};
+          Log3 ($hash, 4, "PWMR_getDesiredTempFrom $hash->{NAME}: from $dt->{NAME} reading($d_reading) VAL($d_readingVal) regexp($d_regexpTemp) regexpVal($val) set to frostProtect");
+        } else {
+
+          $newTemp = $hash->{c_tempFrostProtect};
+          Log3 ($hash, 4, "PWMR_getDesiredTempFrom $hash->{NAME}: from $dt->{NAME} reading($d_reading) VAL($d_readingVal) regexp($d_regexpTemp) regexpVal($val) set to frostProtect");
+        }
 
       }
 
@@ -197,7 +212,6 @@ PWMR_CalcDesiredTemp($)
 
         Log3 ($hash, 4, "PWMR_CalcDesiredTemp $name: desired-temp was manualy set until ".
           $hash->{READINGS}{"desired-temp"}{TIME});
-        #$hash->{STATE}     = "ManualSetUntil";
         return undef;
       }
       else
@@ -207,16 +221,6 @@ PWMR_CalcDesiredTemp($)
       }
     }
   }
-
-  #if ($hash->{READINGS}{"desired-temp"}{TIME} gt TimeNow()) {
-  #  Log3 ($hash, 4, "PWMR_CalcDesiredTemp $name: desired-temp was manualy set until ".
-  #      $hash->{READINGS}{"desired-temp"}{TIME});
-  #
-  #  $hash->{STATE}     = "ManualSetUntil";
-  #  return undef;
-  #} else {
-  #  Log3 ($hash, 4, "PWMR_CalcDesiredTemp $name: calc desired-temp");
-  #}
 
   ####################
   # frost protection
@@ -236,7 +240,8 @@ PWMR_CalcDesiredTemp($)
     #push @{$hash->{CHANGED}}, "desired-temp $hash->{c_tempFrostProtect}";
     #DoTrigger($name, undef);
  
-    $hash->{STATE}     = "FrostProtect";
+    #$hash->{STATE}     = "FrostProtect";
+    readingsSingleUpdate ($hash,  "state", "FrostProtect", 1);
     return undef;
   }
 
@@ -246,7 +251,8 @@ PWMR_CalcDesiredTemp($)
   if ($hash->{c_autoCalcTemp} > 0 ) {
     if ($hash->{c_desiredTempFrom} eq "") {
 
-      $hash->{STATE}     = "Calculating";
+      #$hash->{STATE}     = "Calculating";
+      readingsSingleUpdate ($hash,  "state", "Calculating", 1);
   
       my @time = localtime();
       my $wday = $time[6];
@@ -331,7 +337,8 @@ PWMR_CalcDesiredTemp($)
         }
       }
     } else { # $hash->{c_desiredTempFrom} is set
-      $hash->{STATE}     = "From $hash->{d_name}";
+      #$hash->{STATE}     = "From $hash->{d_name}";
+      readingsSingleUpdate ($hash,  "state", "From $hash->{d_name}", 1);
 
       my $newTemp = PWMR_getDesiredTempFrom ($hash, $defs{$hash->{d_name}}, $hash->{d_reading}, $hash->{d_regexpTemp});
 
@@ -344,7 +351,8 @@ PWMR_CalcDesiredTemp($)
   
     }
   } else {
-    $hash->{STATE}     = "Manual";
+    #$hash->{STATE}     = "Manual";
+    readingsSingleUpdate ($hash,  "state", "Manual", 1);
   }
 
   #DoTrigger($name, undef);
@@ -446,9 +454,11 @@ PWMR_Set($@)
     readingsBeginUpdate ($hash);
     readingsBulkUpdate ($hash,  "desired-temp", sprintf ("%.01f", $a[2]));
     if ($hash->{c_autoCalcTemp} == 0) {
-      $hash->{STATE}     = "Manual";
+      #$hash->{STATE}     = "Manual";
+      readingsBulkUpdate ($hash,  "state", "Manual");
     } else {
-      $hash->{STATE}     = "ManualSetUntil ".FmtTime($now + $duration);
+      #$hash->{STATE}     = "ManualSetUntil ".FmtTime($now + $duration);
+      readingsBulkUpdate ($hash,  "state", "ManualSetUntil ".FmtTime($now + $duration));
       readingsBulkUpdate ($hash,  "desired-temp-until", FmtDateTime($now + $duration));
     }
     readingsEndUpdate($hash, 1);
@@ -483,7 +493,7 @@ PWMR_Set($@)
   if ( $cmd eq "frostProtect" ) {
     my $val = $a[2];
     if ( $val eq "on" ) {
-      $hash->{c_frostProtect} = 1;
+     $hash->{c_frostProtect} = 1;
       $attr{$name}{frostProtect} = 1;
       return undef;
     } elsif ( $val eq "off" ) {
@@ -676,7 +686,7 @@ PWMR_Define($$)
     Log3 ($hash, 4, "content of IBuffer is @{$IBuffer}");
 
     # cut Buffer if it is too large
-    while (scalar @{$IBuffer} > $hash->{c_PID_DLookBackCnt}) {
+    while (scalar @{$IBuffer} > $hash->{c_PID_ILookBackCnt}) {
       my $v = shift @{$IBuffer};
     }
 
@@ -791,7 +801,8 @@ PWMR_Define($$)
 
   readingsSingleUpdate ($hash,  "actorState", "unknown", 0);
 
-  $hash->{STATE}       = "Initialized";
+  #$hash->{STATE}       = "Initialized";
+  readingsSingleUpdate ($hash,  "state", "Initialized", 1);
 
   # values for calculation of desired-temp
 
@@ -1460,7 +1471,8 @@ PWMR_Attr(@)
       PWMR_NormalizeRules($hash);
     } elsif ($attrname eq "autoCalcTemp") {
       $hash->{c_autoCalcTemp} = 1;
-      $hash->{STATE}     = "Calculating";
+      #$hash->{STATE}     = "Calculating";
+      readingsSingleUpdate ($hash,  "state", "Calculating", 1);
       PWMR_NormalizeRules($hash);
     } 
 
@@ -1487,13 +1499,16 @@ PWMR_Attr(@)
   } elsif ($attrname eq "autoCalcTemp") {                       # autoCalcTemp 0/1
     if ($attrval eq 0) {
       $hash->{c_autoCalcTemp} = 0;
-      $hash->{STATE}     = "Manual";
+      #$hash->{STATE}     = "Manual";
+      readingsSingleUpdate ($hash,  "state", "Manual", 1);
     } elsif ( $attrval eq 1) {
       $hash->{c_autoCalcTemp} = 1;
-      $hash->{STATE}     = "Calculating";
+      #$hash->{STATE}     = "Calculating";
+      readingsSingleUpdate ($hash,  "state", "Calculating", 1);
     } elsif ($attrval eq "") {
       $hash->{c_autoCalcTemp} = 1;
-      $hash->{STATE}     = "Calculating";
+      #$hash->{STATE}     = "Calculating";
+      readingsSingleUpdate ($hash,  "state", "Calculating", 1);
     } else {
       return "valid values are 0 or 1";
     }
@@ -1865,7 +1880,11 @@ PWMR_valueFormat(@)
         If <i>regexp</i> does not match (e.g. reading is 'off') then tempFrostProtect is used.<br> 
         Internals c_desiredTempFrom reflects the actual setting and d_name, d_reading und d_regexpTemp the values used.<br>
         If this attribute is used then state will change from "Calculating" to "From &lt;device&gt;".<br>
-        Calculation of desired-temp is (like when using tempRules) based on the interval specified for this device (default is 300 seconds).
+        Calculation of desired-temp is (like when using tempRules) based on the interval specified for this device (default is 300 seconds).<br>
+        Special values "on" and "off" of Homematic devices are handled as c_tempC (set by attribute tempCosy) and c_tempFrostProtect (set by attribute tempFrostProtect).
+
+
+
         </li><br>
 
     <li>valueFormat<br>

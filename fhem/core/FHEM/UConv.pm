@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: UConv.pm 14398 2017-05-28 09:40:42Z loredo $
+# $Id: UConv.pm 17589 2018-10-22 13:37:00Z loredo $
 package main;
 sub UConv_Initialize() { }
 
@@ -7,6 +7,7 @@ package UConv;
 use Scalar::Util qw(looks_like_number);
 use POSIX qw(strftime);
 use Data::Dumper;
+
 
 ####################
 # Translations
@@ -583,6 +584,18 @@ sub wpsm2lux($;$) {
 ### Nautic unit conversions
 ###
 
+# Speed: convert smi (statute miles) to nmi (nautical miles)
+sub smi2nmi($;$) {
+    my ( $data, $rnd ) = @_;
+    return _round( $data * 0.8684, $rnd );
+}
+
+# Speed: convert km (kilometer) to nmi (nautical miles)
+sub km2nmi($;$) {
+    my ( $data, $rnd ) = @_;
+    return _round( smi2nmi( km2mi( $data, 9 ), 9 ), $rnd );
+}
+
 # Speed: convert km/h to knots
 sub kph2kn($;$) {
     my ( $data, $rnd ) = @_;
@@ -691,8 +704,11 @@ sub mph2bft($) {
 ### Differential conversions
 ###
 
-sub distance($$$$;$) {
-    my ( $lat1, $lng1, $lat2, $lng2, $miles ) = @_;
+sub distance($$$$;$$) {
+    my ( $lat1, $lng1, $lat2, $lng2, $rnd, $unit ) = @_;
+    return _round( "0.000000000", $rnd )
+      if ( $lat1 eq $lat2 && $lng1 eq $lng2 );
+
     use constant M_PI => 4 * atan2( 1, 1 );
     my $pi80 = M_PI / 180;
     $lat1 *= $pi80;
@@ -709,7 +725,32 @@ sub distance($$$$;$) {
     my $c = 2 * atan2( sqrt($a), sqrt( 1 - $a ) );
     my $km = $r * $c;
 
-    return ( $miles ? km2mi($km) : $km );
+    return _round(
+        ( $unit eq "nmi" ? km2nmi($km) : ( $unit ? km2mi($km) : $km ) ), $rnd );
+}
+
+sub duration ($$;$) {
+    my ( $datetimeNow, $datetimeOld, $format ) = @_;
+
+    if ( $datetimeNow eq "" || $datetimeOld eq "" ) {
+        $datetimeNow = "1970-01-01 00:00:00";
+        $datetimeOld = "1970-01-01 00:00:00";
+    }
+
+    my $timestampNow = main::time_str2num($datetimeNow);
+    my $timestampOld = main::time_str2num($datetimeOld);
+    my $timeDiff     = $timestampNow - $timestampOld;
+
+    # return seconds
+    return _round( $timeDiff, 0 )
+      if ( defined($format) && $format eq "sec" );
+
+    # return minutes
+    return _round( $timeDiff / 60, 0 )
+      if ( defined($format) && $format eq "min" );
+
+    # return human readable format
+    return s2hms( _round( $timeDiff, 0 ) );
 }
 
 #################################

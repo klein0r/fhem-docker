@@ -1,4 +1,4 @@
-# $Id: 33_readingsHistory.pm 15100 2017-09-19 21:21:27Z justme1968 $
+# $Id: 33_readingsHistory.pm 16299 2018-03-01 08:06:55Z justme1968 $
 ##############################################################################
 #
 #     This file is part of fhem.
@@ -740,7 +740,7 @@ readingsHistory_Attr($$$)
     <ul>
       <li>&lt;device&gt; can be of the form INTERNAL=VALUE where INTERNAL is the name of an internal value and VALUE is a regex.</li>
       <li>If regex is a comma separatet list it will be used as an enumeration of allowed readings.</li>
-      <li>if no device/reading argument is given only lines with 'set <device> add ...' are displayed.</li>
+      <li>if no device/reading argument is given only lines with 'set &lt;device&gt; add ...' are displayed.</li>
     </ul><br>
 
     Examples:

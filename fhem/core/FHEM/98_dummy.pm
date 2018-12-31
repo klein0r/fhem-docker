@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_dummy.pm 12700 2016-12-02 16:49:42Z rudolfkoenig $
+# $Id: 98_dummy.pm 16965 2018-07-09 07:59:58Z rudolfkoenig $
 package main;
 
 use strict;

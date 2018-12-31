@@ -22,7 +22,7 @@
 # The GNU General Public License may also be found at http://www.gnu.org/licenses/gpl-2.0.html .
 ###################################
 #
-# # $Id: 46_PW_Circle.pm 11989 2016-08-19 17:50:52Z icinger $
+# # $Id: 46_PW_Circle.pm 17302 2018-09-09 07:43:23Z Icinger $
 package main;
 
 use strict;
@@ -126,7 +126,10 @@ sub PW_Circle_Set($@)
 	if($opt eq "on"||$opt eq "off")  
     {
 		IOWrite($hash,$hash->{CODE},$opt);
-    } elsif($opt =~ "(on|off)-for-timer")  
+    } elsif ($opt eq "toggle") {
+		$opt = ReadingsVal($name,"state","off") eq "off" ? "on" : "off";
+		IOWrite($hash,$hash->{CODE},$opt);    	
+    }elsif($opt =~ "(on|off)-for-timer")  
     {
     	if (@a == 1) {
 			IOWrite($hash,$hash->{CODE},$1);
@@ -147,7 +150,7 @@ sub PW_Circle_Set($@)
 	}
 	else
         {
-          return "Unknown argument $opt, choose one of on-for-timer off-for-timer on off getLog syncTime removeNode ping status";
+          return "Unknown argument $opt, choose one of on-for-timer off-for-timer on off toggle getLog syncTime removeNode ping status";
         }
 }
 sub PW_Circle_OnOffTimer($) {

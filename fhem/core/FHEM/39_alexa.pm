@@ -1,5 +1,5 @@
 
-# $Id: 39_alexa.pm 15047 2017-09-10 18:05:05Z justme1968 $
+# $Id: 39_alexa.pm 16299 2018-03-01 08:06:55Z justme1968 $
 
 package main;
 
@@ -714,7 +714,7 @@ alexa_Attr($$$)
   <b>Set</b>
   <ul>
     <li>reload [name]<br>
-      Reloads the device <it>name</it> or all devices in alexa-fhem. Subsequently you have to start a device discovery
+      Reloads the device <code>name</code> or all devices in alexa-fhem. Subsequently you have to start a device discovery
       for the home automation skill in the amazon alexa app.</li>
   </ul>
 

@@ -1,6 +1,6 @@
 =for comment
 
-# $Id: 98_fheminfo.pm 14839 2017-08-02 17:37:28Z betateilchen $
+# $Id: 98_fheminfo.pm 16909 2018-06-25 15:29:01Z betateilchen $
 
 This script free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -29,8 +29,9 @@ my $c_noModel = 'noModel';
 
 my %fhemInfo    = ();
 my @ignoreList  = qw(Global);
-my @noModelList = qw(readingsgroup doif lacrosse zwdongle wol weekdaytimer 
-   cul_rfr solarview lw12 tscul knx dummy at archetype weather pushover twilight hminfo readingsgroup);
+my @noModelList = qw(readingsgroup lacrosse zwdongle wol weekdaytimer 
+   cul_rfr solarview lw12 tscul knx dummy at archetype weather pushover twilight 
+   notify cloneDummy structure FHEMWEB hminfo readingsgroup);
 
 sub fheminfo_Initialize($$) {
   my %hash = (
@@ -100,23 +101,25 @@ sub _fi2_Count() {
          $model = defined($defs{$key}{MODEL}) ? $defs{$key}{MODEL} : $model;
       }
 
+      if ($model eq $c_noModel) {
 # 3. look for model information in attributes
-      $model = AttrVal($name,'model',$model);
+         $model = AttrVal($name,'model',$model);
 
 # 4. look for model information in readings
-      $model = ReadingsVal($name,'model',$model);
+         $model = ReadingsVal($name,'model',$model);
 
-      # special reading for BOSEST
-      $model = ReadingsVal($name,'type',$model)
-               if (lc($type) eq 'bosest');
-      # special reading for ZWave
-      if (lc($type) eq 'zwave') {
-         $model = ReadingsVal($name,'modelId',undef);
-         next unless (defined($model));
-         next if ($model =~ /^0x.... /);
-         $model = _fi2_zwave($model);
+         # special reading for BOSEST
+         $model = ReadingsVal($name,'type',$model)
+                  if (lc($type) eq 'bosest');
+         # special reading for ZWave
+         if (lc($type) eq 'zwave') {
+            $model = ReadingsVal($name,'modelId',undef);
+            next unless (defined($model));
+            next if ($model =~ /^0x.... /);
+            $model = _fi2_zwave($model);
+         }
       }
-      
+
 # 5. ignore model for some modules
       foreach my $i (@noModelList) {
          $model = $c_noModel if (lc($type) eq $i);

@@ -1,6 +1,6 @@
 # Modul für  I2C Temperatur- und Feuchtigkeitssensor HDC1008
-# Autor : Karsten Grüttner
-# $Id: 52_I2C_HDC1008.pm 11595 2016-06-02 14:54:51Z schlawiano $
+# Autor : Karsten Grüttner (schlawiano) bis 2016, Änderungen ab 2018: Gernot Hillier (yoda_gh)
+# $Id: 52_I2C_HDC1008.pm 16756 2018-05-18 19:15:41Z yoda_gh $
 # Technische Dokumention für den Sensor befindet sich  http://www.ti.com/lit/ds/symlink/hdc1008.pdf
 
 
@@ -163,12 +163,24 @@ sub I2C_HDC1008_I2CRec ($$) {
 		my $upper_k = uc $k;
 		$hash->{$upper_k} = $v if $k =~ /^$pname/ ;
 	}
-	if ($clientmsg->{direction} && $clientmsg->{type} && $clientmsg->{$pname . "_SENDSTAT"} && $clientmsg->{$pname . "_SENDSTAT"} eq "Ok") {
-		if ( $clientmsg->{direction} eq "i2cread" && defined($clientmsg->{received}) ) 
-		{
-			Log3 $hash, 5, "[$name] I2C_HDC1008_I2CRec  received: $clientmsg->{type} $clientmsg->{received}";
-			I2C_HDC1008_GetTemp  ($hash, $clientmsg->{received}) if $clientmsg->{type} eq "temp" && $clientmsg->{nbyte} == 2;
-			I2C_HDC1008_GetHum ($hash, $clientmsg->{received}) if $clientmsg->{type} eq "hum" && $clientmsg->{nbyte} == 2;
+	if ($clientmsg->{direction} && $clientmsg->{$pname . "_SENDSTAT"}) {
+		my $sendstat = $clientmsg->{$pname . "_SENDSTAT"};
+		Log3 $hash, 5, "[$name] I2C_HDC1008_I2CRec  $clientmsg->{direction} $sendstat ";
+		if ( $clientmsg->{$pname . "_SENDSTAT"} eq "Ok") {
+			if ( $clientmsg->{direction} eq "i2cwrite" ) {
+				if ($hash->{DEVICE_STATE} eq 'READY') {
+					$hash->{DEVICE_STATE} = 'CONFIGURING';
+				} elsif($hash->{DEVICE_STATE} eq 'CONFIGURING') {
+					$hash->{DEVICE_STATE} = 'MEASURING';
+				}
+			}
+			
+			if ( $clientmsg->{direction} eq "i2cread" && defined($clientmsg->{received}) ) 
+			{
+				Log3 $hash, 5, "[$name] I2C_HDC1008_I2CRec  received: $clientmsg->{type} $clientmsg->{received}";
+				I2C_HDC1008_GetTemp  ($hash, $clientmsg->{received}) if $clientmsg->{nbyte} == 4;
+				I2C_HDC1008_GetHum ($hash, $clientmsg->{received}) if $clientmsg->{nbyte} == 4;
+			}
 		}
 	}
 }
@@ -180,6 +192,10 @@ sub I2C_HDC1008_GetTemp ($$)
 	
 	my @raw = split(" ",$rawdata);
 	my $tempWord  = ($raw[0] << 8 | $raw[1]);
+	if ( ($tempWord & 0x3) != 0 ) {
+		Log3 $hash, 4, "[$name] I2C_HDC1008_I2CRec  invalid temperature raw value: $tempWord";
+		return undef;
+	}
 	
 	my $temperature = (($tempWord /65536.0)*165.0)-40.0;
 
@@ -197,8 +213,12 @@ sub I2C_HDC1008_GetHum ($$)
 	my $name = $hash->{NAME};
 	
 	my @raw = split(" ",$rawdata);
-	my $humWord  = ($raw[0] << 8 | $raw[1]);	
-	
+	my $humWord  = ($raw[2] << 8 | $raw[3]);	
+	if ( ($humWord & 0x3) != 0) {
+		Log3 $hash, 4, "[$name] I2C_HDC1008_I2CRec  invalid humidity raw value: $humWord";
+		return undef;
+	}
+
 	my $humidity  = ($humWord /65536.0)*100.0;
 
 	Log3 $hash, 5, "[$name] I2C_HDC1008_I2CRec  calced humidity: $humidity";
@@ -315,12 +335,11 @@ sub I2C_HDC1008_UpdateValues($)
 					reg => 2,
 					data => $high_byte. " ".$low_byte	# Leider fehlt es hier an Doku. Laut Quellcode (00_RPII2C.pm, ab Zeile 369),  werden die  dezimale Zahlen durch Leerzeichen getrennt, binär gewandelt und zum I2C-Bus geschickt
 					});
-		$hash->{DEVICE_STATE} = 'CONFIGURING';
 		return 15.0/1000; # Sensor braucht bis 15 ms bis er bereit ist
 	}
 	elsif($hash->{DEVICE_STATE} eq 'CONFIGURING')
 	{
-		# HDC1008-Sensor soll Temperatur messen
+		# HDC1008-Sensor soll messen
 		# --------------------------------------------------------
 		
 		CallFn($iodev->{NAME}, "I2CWrtFn", $iodev, {
@@ -329,54 +348,23 @@ sub I2C_HDC1008_UpdateValues($)
 					data => (0)
 					});				
 					
-		$hash->{DEVICE_STATE} = 'MEASURING_TEMPERATURE';
-		
-		my $tempWait = $I2C_HDC1008_tempParams{$resTempIndex}{delay};  # in ns
+		my $tempWait = $I2C_HDC1008_tempParams{$resTempIndex}{delay} + 
+		               $I2C_HDC1008_humParams{$resTempIndex}{delay};  # in ns
 		return $tempWait/1000000.0; 
 		
 	}
-	elsif($hash->{DEVICE_STATE} eq 'MEASURING_TEMPERATURE')
+	elsif($hash->{DEVICE_STATE} eq 'MEASURING')
 	{
 	
-		# Temperatur vom HDC1008-Sensor lesen
+		# Werte vom HDC1008-Sensor lesen
 		# --------------------------------------------------------	
 		
 		CallFn($iodev->{NAME}, "I2CWrtFn", $iodev, {	# Leider fehlt es hier an Doku. daher hier der Hinweis bei erfolgreichem Lesen wird die Funktion in $hash->{I2CRecFn} aufgerufen	
 				direction  => 	"i2cread",
 				i2caddress => 	$i2caddress,
-				type => 		"temp",
-				nbyte => 		2
+				nbyte => 		4
 				});	
 	
-
-
-		# HDC1008-Sensor soll Feuchtigkeit messen
-		# --------------------------------------------------------
-		
-		CallFn($iodev->{NAME}, "I2CWrtFn", $iodev, {
-					direction  => 	"i2cwrite",
-					i2caddress => 	$i2caddress,
-					data => 		1
-					});			
-		
-		$hash->{DEVICE_STATE} = 'MEASURING_HUMIDITY';
-		
-		my $humWait = $I2C_HDC1008_humParams{$resTempIndex}{delay}; 	
-	
-		return $humWait/1000000.0; 
-	}
-	elsif($hash->{DEVICE_STATE} eq 'MEASURING_HUMIDITY')
-	{	
-		# lese Feuchtigkeit vom HDC1008-Sensor
-		# --------------------------------------------------------	
-		
-		CallFn($iodev->{NAME}, "I2CWrtFn", $iodev, {
-				direction  => "i2cread",
-				i2caddress => $i2caddress,
-				type => 			 "hum",
-				nbyte => 2
-				});	
-				
 		# fertig	
 		
 		$hash->{DEVICE_STATE} = 'READY';
@@ -477,7 +465,7 @@ sub I2C_HDC1008_Poll
 	 
 	
 	my $delay = I2C_HDC1008_UpdateValues($hash);
-	
+	# TODO Catch ohne eval?! Das bringt wohl nix, fraglich ist, ob wir hier ein Catch brauchen?
 	my $ret = I2C_HDC1008_Catch($@) if $@;
 	
 
@@ -586,6 +574,9 @@ sub I2C_HDC1008_Attr(@)
 1;
 
 =pod
+=item device
+=item summary read Texas Instruments HDC1008/1080 temp/humidity sensor via I2C bus
+=item summary_DE Texas Instruments HDC1008/1080 Temp./Feuchte-Sensor über I2C auslesen
 =begin html
 
 <a name="I2C_HDC1008"></a>

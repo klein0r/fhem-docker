@@ -5,7 +5,7 @@
 # e-mail: omega at online dot de
 #
 ##############################################
-# $Id: 82_M232Voltage.pm 3830 2013-08-31 17:09:10Z borisneubert $
+# $Id: 82_M232Voltage.pm 16375 2018-03-10 15:40:02Z neubert $
 package main;
 
 use strict;
@@ -117,6 +117,8 @@ M232Voltage_Define($$)
 1;
 
 =pod
+=item summary    analog input of ELV M232 module
+=item summary_DE analoger Anschluss eines ELV-M232-Moduls
 =begin html
 
 <a name="M232Voltage"></a>

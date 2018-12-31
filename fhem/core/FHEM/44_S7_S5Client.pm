@@ -1,4 +1,4 @@
-# $Id: 44_S7_S5Client.pm 14939 2017-08-21 07:50:47Z charlie71 $
+# $Id: 44_S7_S5Client.pm 15518 2017-11-28 21:17:47Z charlie71 $
 ##############################################
 
 use strict;
@@ -477,14 +477,15 @@ sub S5ConnectPLCAS511($$) {
 	my $b1 = "";
 	my $ttyPort;
 
-	if ($^O=~/Win/) {
-		eval ("use Win32::SerialPort;");
+	if($^O =~ m/Win/) {
+		require Win32::SerialPort;
+		#eval ("use Win32::SerialPort;");
 		$self->{serial} = new Win32::SerialPort ($portName);
 	}else{
-		eval ("use Device::SerialPort;");
+		#eval ("use Device::SerialPort;");
+		require Device::SerialPort;
 		$self->{serial} = new Device::SerialPort ($portName);
-	}
-
+    }
 
 	main::Log3( undef, 3, "Can't open serial port $portName" )
 	  unless ( $self->{serial} );

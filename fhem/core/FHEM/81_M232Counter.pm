@@ -5,7 +5,7 @@
 # e-mail: omega at online dot de
 #
 ##############################################
-# $Id: 81_M232Counter.pm 3830 2013-08-31 17:09:10Z borisneubert $
+# $Id: 81_M232Counter.pm 16375 2018-03-10 15:40:02Z neubert $
 package main;
 
 use strict;
@@ -254,6 +254,8 @@ M232Counter_Define($$)
 1;
 
 =pod
+=item summary    digital input of a ELV M232 module
+=item summary_DE digitaler Eingang eines ELV-M232-Moduls
 =begin html
 
 <a name="M232Counter"></a>

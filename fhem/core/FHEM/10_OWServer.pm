@@ -1,4 +1,4 @@
-# $Id: 10_OWServer.pm 14523 2017-06-16 05:15:56Z neubert $
+# $Id: 10_OWServer.pm 16501 2018-03-27 11:27:13Z neubert $
 ################################################################
 #
 #  Copyright notice
@@ -31,7 +31,10 @@ use warnings;
 # this must be the latest OWNet from
 #  http://owfs.cvs.sourceforge.net/viewvc/owfs/owfs/module/ownet/perl5/OWNet/lib/OWNet.pm
 # the version at CPAN is outdated and malfunctioning as at 2012-12-19
-use lib::OWNet;
+
+#use constant OWNet_version_default => "2.8p17";
+use constant OWNet_version_default => "3.1p5";
+use vars qw($OWNet_version);
 
 use vars qw(%owfamily);
 # 1-Wire devices (order by family code)
@@ -75,6 +78,7 @@ use vars qw(%gets %sets);
   "/settings/timeout/w1"               => "",
   "/settings/units/pressure_scale"     => "",
   "/settings/units/temperature_scale"  => "",
+  "/uncached/alarm"                    => "",
 );
 
 %sets = (
@@ -124,20 +128,36 @@ OWServer_Define($$)
 {
   my ($hash, $def) = @_;
 
-  my @a = split("[ \t]+", $def, 3);
+  my @a = split("[ \t]+", $def, 4);
   my $name = $a[0];
   if(@a < 3) {
-    my $msg = "wrong syntax for $name: define <name> OWServer <protocol>";
+    my $msg = "wrong syntax for $name: define <name> OWServer <protocol> [<version>]";
     Log 2, $msg;
     return $msg;
   }
 
   my $protocol = $a[2];
-
   $hash->{fhem}{protocol}= $protocol;
-  
+
+  my $version;
+  if(@a==4) {
+    $version= $a[3];
+    Log3 $hash, 5, "$name: Suggesting OWNet version $version";
+    if(!OWServer_hasOWNet($version)) {
+      Log3 $hash, 2, "$name: Suggested OWNet version $version not available, falling back to default version "
+        . OWNet_version_default;
+      $version= OWNet_version_default;
+    }
+  } else {
+     $version= OWNet_version_default;
+     Log3 $hash, 5, "$name: Tentatively assuming OWNet version $version";
+  }
+  $hash->{OWNET_VERSION}= $version;
+
+
   $hash->{NOTIFYDEV} = "global";
- 
+
+  $hash->{OWNET_VERSION}= OWServer_loadOWNet($hash);
 
   if( $init_done ) {
     OWServer_OpenDev($hash);
@@ -170,6 +190,75 @@ OWServer_Undef($$)
 }
 
 #####################################
+sub OWServer_getOWNetfilename($) {
+  my ($v)= @_;
+  return "lib/OWNet-$v.pm";
+}
+
+sub OWServer_hasOWNet($) {
+  my ($v)= @_;
+  my $filename= $attr{global}{modpath}."/FHEM/lib/OWNet-$v.pm";
+  return -r $filename;
+}
+
+sub OWServer_loadOWNet($) {
+
+
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+
+  if(defined($OWNet_version)) {
+    Log3 $name, 3, "$name: owserver version not checked, using currently loaded OWNet version $OWNet_version";
+    return $OWNet_version;
+  }
+
+  $OWNet_version= $hash->{OWNET_VERSION};
+  my $libfilename= OWServer_getOWNetfilename($OWNet_version);
+  Log3 $name, 5, "$name: Loading OWNet version $OWNet_version...";
+  require $libfilename;
+  Log3 $name, 3, "$name: OWNet version $OWNet_version loaded.";
+
+  my $owserver= OWServer_TryOpenDev($hash);
+  if(defined($owserver)) {
+    my $version= $owserver->read("/system/configuration/version");
+    if(defined($version)) {
+      Log3 $name, 3, "$name: owserver version $version found.";
+      $hash->{OWSERVER_VERSION}= $version;
+      if($OWNet_version eq $version) {
+        Log3 $name, 3, "$name: Matching OWNet version already loaded.";
+        return $OWNet_version;
+      }
+    } else {
+      Log3 $name, 2, "$name: Could not read owserver version, using OWNet version $OWNet_version.";
+      return $OWNet_version;
+    }
+    my $libfilename= OWServer_getOWNetfilename($version);
+    Log3 $name, 5, "$name: Looking for OWNet version $version in $libfilename...";
+    if(OWServer_hasOWNet($version)) {
+      # we temporarily disable the subroutine warning
+      my $handler= $SIG{__WARN__};
+      $SIG{__WARN__} = sub {
+        my $warning= shift;
+        warn $warning unless $warning =~ /Subroutine .* redefined at/;
+      };
+      Log3 $name, 5, "$name: Loading OWNet version $version...";
+      require $libfilename;
+      $SIG{__WARN__}= $handler;
+      $OWNet_version= $version;
+      Log3 $name, 3, "$name: OWNet version $OWNet_version loaded.";
+      return $OWNet_version;
+    } else {
+      Log3 $name, 3, "$name: No matching OWNet version found, using OWNet version $OWNet_version.";
+    }
+  } else {
+    Log3 $name, 2, "$name: Could not connect to owserver, using OWNet version $OWNet_version";
+    return $OWNet_version;
+  }
+  # we should not get here
+  return undef;
+}
+
+#####################################
 sub
 OWServer_CloseDev($)
 {
@@ -183,17 +272,30 @@ OWServer_CloseDev($)
 
 ########################
 sub
-OWServer_OpenDev($)
+OWServer_TryOpenDev($)
 {
   my ($hash) = @_;
   my $name = $hash->{NAME};
 
   OWServer_CloseDev($hash);
+
   my $protocol= $hash->{fhem}{protocol};
   Log3 $name, 3, "$name: Opening connection to OWServer $protocol...";
   my $owserver= OWNet->new($protocol);
   if($owserver) {
     Log3 $name, 3, "$name: Successfully connected to $protocol.";
+  } else {
+    Log3 $name, 2, "$name: Could not connect to $protocol.";
+  }
+  return $owserver
+}
+
+sub
+OWServer_OpenDev($)
+{
+  my ($hash) = @_;
+  my $owserver= OWServer_TryOpenDev($hash);
+  if(defined($owserver)) {
     $hash->{fhem}{owserver}= $owserver;
     readingsSingleUpdate($hash, "state", "CONNECTED", 1);
     my $ret  = OWServer_DoInit($hash);
@@ -262,12 +364,12 @@ OWServer_Read($@)
     InternalTimer(gettimeofday()+6, "OWServer_TimeoutChild", $pid, 0);
     if($pid == 0) {
       close READER;
-      $ret= OWNet::read($hash->{DEF},$path);
+      $ret= $hash->{fhem}{owserver}->read($path);
       $ret =~ s/^\s+//g if(defined($ret));
       my $r= defined($ret) ? $ret : "<undefined>";
       Log3 $hash, 5, "OWServer child read $path: $r";
       delete $hash->{".path"};
-      print WRITER $ret if(defined($ret)); 
+      print WRITER $ret if(defined($ret));
       close WRITER;
       # see http://forum.fhem.de/index.php?t=tree&goto=94670
       # changed from
@@ -388,7 +490,7 @@ OWServer_Autocreate($)
     return undef if(AttrVal($acdname,"disable",undef));
   }
   return undef unless($acdname ne "");
-  
+
   my $owserver= $hash->{fhem}{owserver};
 
   my @dir= split(",", $owserver->dir("/"));
@@ -398,7 +500,7 @@ OWServer_Autocreate($)
   foreach my $d (keys %defs) {
     next if($defs{$d}{TYPE} !~ /^OW(Device|AD|ID|MULTI|COUNT|LCD|SWITCH|THERM)$/);
     if(defined($defs{$d}{fhem}) && defined($defs{$d}{fhem}{address})) {
-      $defined{$defs{$d}{fhem}{address}} = $d; 
+      $defined{$defs{$d}{fhem}{address}} = $d;
     } elsif(defined($defs{$d}{OW_ID}) and defined($defs{$d}{OW_FAMILY})) {
       $defined{"$defs{$d}{OW_FAMILY}.$defs{$d}{OW_ID}"} = $d;
     }
@@ -486,6 +588,21 @@ OWServer_Get($@)
           $ret .= sprintf("%-*s %d\n",$wide,$str,($stat) ? $stat : 0);
         }
         return $ret;
+  } elsif($cmd eq "/uncached/alarm") {
+        # Oliver Vallant, 2017-04-17
+        my $path= $cmd;
+        my @devices= split(",", $owserver->dir($path));
+        my $ret;
+        for my $device (@devices) {
+          my $name= "";
+          my $address= substr($device, rindex($device, "/")+1);
+          my $type= $owserver->read($device . "/type");
+          foreach my $p (keys %defs) {
+             $name= concatc(", ", $name, $p) if($defs{$p}{TYPE} eq "OWDevice" and $defs{$p}{fhem}{address} eq $address);
+          }
+          $ret .= sprintf("%s %10s %s\n", $address, $type, $name);
+        }
+        return $ret;
   } elsif(defined($gets{$cmd})) {
         my $ret;
         my $value= $owserver->read($cmd);
@@ -543,22 +660,50 @@ OWServer_Set($@)
   <a name="OWServerdefine"></a>
   <b>Define</b>
   <ul>
-    <code>define &lt;name&gt; OWServer &lt;protocol&gt;</code>
+    <code>define &lt;name&gt; OWServer &lt;protocol&gt; [&lt;version&gt;]</code>
     <br><br>
 
-    Defines a logical OWServer device. OWServer is the server component of the
-    <a href="http://owfs.org">1-Wire Filesystem</a>. It serves as abstraction layer
+    Defines a logical OWServer device which connects to an owserver.
+    owserver is the server component of the
+    <a href="http://owfs.org">owfs 1-Wire Filesystem</a>. It serves as abstraction layer
     for any 1-wire devices on a host. &lt;protocol&gt; has
-    format &lt;hostname&gt;:&lt;port&gt;. For details see
+    format &lt;hostname&gt;:&lt;port&gt;.
+    For details see
     <a href="http://owfs.org/index.php?page=owserver_protocol">owserver documentation</a>.
     <p>
-    You need <a href="http://owfs.cvs.sourceforge.net/viewvc/owfs/owfs/module/ownet/perl5/OWNet/lib/OWNet.pm">OWNet.pm from owfs.org on Sourceforge</a>, which is normally deployed with FHEM. As at 2012-12-23 the OWNet module
-    on CPAN has an issue which renders it useless for remote connections.
+    The OWServer device uses
+    <a href="http://owfs.cvs.sourceforge.net/viewvc/owfs/owfs/module/ownet/perl5/OWNet/lib/OWNet.pm">OWNet.pm from Sourceforge</a>
+    to connect to the owserver.
+    Currently, OWNet modules for versions 2.8p17 and 3.1p5 are deployed with FHEM.
+    You can manually add more versions by extracting OWNet.pm from
+    <a href="https://sourceforge.net/projects/owfs/files/owfs/">one of the
+    available versions</a> and saving it as as
+    <code>FHEM/lib/OWNet-&lt;version&gt.pm</code> in the FHEM directory
+    structure.
     <p>
-    The ow* version 2.9 packages provided with Debian Jessie in combination with OWNet.pm as deployed with FHEM have issues. 
-    For Debian Jessie please either unzip 
+    The first connection to the owserver is made using version 3.1p5 unless
+    you explicitely suggest another version using the optional
+    <code>&lt;version&gt;</code> parameter. You should suggest a OWNet module
+    version matching your actual owserver version if FHEM hangs after
+    connecting to the owserver.
+    <p>
+    The OWServer device autodetects the owserver version and chooses a matching
+    OWNet module from the list of available OWNet modules. If no matching OWNet
+    module is found, the initially suggested version is used. The nightmare situation of two
+    OWServer devices connecting to owserver instances with different versions is
+    not handled correctly. The server and module versions are stored in the
+    internals of the OWServer device for your reference.
+    <p>
+    The ow* version 3.1p5 packages provided with Debian Stretch and
+    the ow* version 2.8p17 packages provided with Debian Jessie are fine.
+    The ow* version 2.9 packages provided with Debian Jessie in combination with OWNet.pm as
+    deployed with FHEM might have issues (feedback welcome).
+    For Debian Jessie you could unzip
     <a href="http://forum.fhem.de/index.php?action=dlattach;topic=12219.0;attach=2463">owfs_2.8p17-1_all.zip</a> and install
-    owserver, dependencies and what else you require with <code>dpkg -i &lt;package&gt;.deb</code> or use the latest OWNet.pm from Sourceforge. 
+    owserver, dependencies and what else you require with <code>dpkg -i &lt;package&gt;.deb</code>.
+    <p>
+    Please report issues and successes related to versions in the
+    <a href="https://forum.fhem.de/index.php/board,26.0.html">1Wire board of the FHEM Forum</a>.
     <p>
     A typical working configuration file <code>/etc/owfs.conf</code> looks as follows:<p>
     <code>
@@ -583,7 +728,7 @@ OWServer_Set($@)
     Examples:
     <ul>
       <code>define myLocalOWServer OWServer localhost:4304</code><br>
-      <code>define myRemoteOWServer OWServer raspi:4304</code><br>
+      <code>define myRemoteOWServer OWServer raspi:4304 2.8p17</code><br>
     </ul>
     <br><br>
     Notice: if you get no devices add both <code>localhost</code> and the FQDN of your owserver as server directives
@@ -654,6 +799,7 @@ OWServer_Set($@)
         <li><code>/settings/timeout/w1</code></li>
         <li><code>/settings/units/pressure_scale</code></li>
         <li><code>/settings/units/temperature_scale</code></li>
+        <li><code>/uncached/alarm</code></li>
       </ul>
     </li>
     For further informations have look on <a href="http://owfs.org/uploads/owserver.1.html#sect41">owserver manual</a>).
@@ -689,21 +835,57 @@ OWServer_Set($@)
   <a name="OWServerdefine"></a>
   <b>Definition</b>
   <ul>
-    <code>define &lt;name&gt; OWServer &lt;protocol&gt;</code>
+    <code>define &lt;name&gt; OWServer &lt;protocol&gt; [&lt;version&gt;]</code>
     <br><br>
 
-    Definiert eine logische OWServer- Instanz. OWServer ist die Serverkomponente des
-    <a href="http://owfs.org">1-Wire Dateisystems</a>. Sie ermöglicht den Zugriff auf 
-    alle 1-Wire- Busteilnehmer eines Systems.<br><br>
-        &lt;protocol&gt; hat das Format &lt;hostname&gt;:&lt;port&gt;  Nähere Informationen dazu gibt es in der <a href="http://owfs.org/index.php?page=owserver_protocol">owserver Dokumentation</a>.
-        <br><br>
-    Voraussetzung innerhalb von FHEM ist das Modul <a href="http://owfs.cvs.sourceforge.net/viewvc/owfs/owfs/module/ownet/perl5/OWNet/lib/OWNet.pm">OWNet.pm von owfs.org</a>, welches bereits mit FHEM ausgeliefert wird. 
-        Das auf CPAN erhältliche OWNet- Modul beinhaltet seit dem 23.12.2012 einen Fehler, der es für Fernzugriffe unbrauchbar macht.<p>
-        Auf dem Computer, an dem der 1-Wire- Bus angeschlossen ist, muss die Software "owserver" installiert sein. Zusätzlich sollte auf diesem Rechner die Konfigurationsdatei "owfs.conf" eingesehen bzw. angepasst werden. <a href="http://www.fhemwiki.de/wiki/OWServer_%26_OWDevice#Tipps_und_Tricks"> Einen WIKI- Artikel dazu gibt es hier.</a>
-    <br><br>
-    Die ow*-Pakete in der Version 2.9 von Debian Jessie haben Probleme. Bitte entpacke f&uuml;r Debian Jessie entweder
-    <a href="http://forum.fhem.de/index.php?action=dlattach;topic=12219.0;attach=2463">owfs_2.8p17-1_all.zip</a> und installiere
-    owserver, Abh&auml;ngigkeiten und was Du sonst noch brauchst mit <code>dpkg -i &lt;package&gt;.deb</code>, oder benutze die neueste Version von OWNet.pm von Sourceforge.
+    Definiert eine logische OWServer-Instanz, die sich mit einem owserver
+    verbindet. owserver ist die Serverkomponente des
+    <a href="http://owfs.org">1-Wire Dateisystems</a>. Sie ermöglicht den Zugriff auf
+    alle 1-Wire-Busteilnehmer eines Systems.
+    &lt;protocol&gt; hat das Format &lt;hostname&gt;:&lt;port&gt;.
+    Nähere Informationen dazu gibt es in
+     der <a href="http://owfs.org/index.php?page=owserver_protocol">owserver Dokumentation</a>.
+    <p>
+    Die OWServer-Instanz verwendet
+    <a href="http://owfs.cvs.sourceforge.net/viewvc/owfs/owfs/module/ownet/perl5/OWNet/lib/OWNet.pm">OWNet.pm von Sourceforge</a>,
+    um sich mit dem owserver zu verbinden.
+    Gegenw&auml;rtig werden OWNet-Module f&uuml;r die Versionen 2.8p17 and 3.1p5
+    mit FHEM verteilt. Man kann manuell weitere Versionen hinzuf&uuml;gen,
+    indem man OWNet.pm aus
+    <a href="https://sourceforge.net/projects/owfs/files/owfs/">einer der
+    verf&uuml;gbaren Versionen</a> extrahiert und als
+    <code>FHEM/lib/OWNet-&lt;version&gt.pm</code> in der FHEM-Verzeichnisstruktur
+    speichert.
+    <p>
+    Die erste Verbindung mit dem owserver wird mit der Version 3.1p5 aufgebaut,
+    es sei denn, dass man ausdr&uuml;cklich eine andere Version mit dem
+    optionalen Parameter
+    <code>&lt;version&gt;</code> vorschl&auml;gt. Man sollte eine
+    OWNet-Modulversion vorschlagen, die der tats&auml;chlichen Version von
+    owserver entspricht, falls FHEM nach dem Verbindungsaufbau zum owserver
+    h&auml;ngt.
+    <p>
+    Die OWServer-Instanz erkennt die Version von owserver automatisch und
+    w&auml;hlt das passende OWNet-Modul aus der Liste der verf&uuml;gbaren
+    OWNet-Module aus. Wenn kein passendes OWNet-Modul gefunden wird, wird die
+    urspr&uuml;nglich vorgeschlagene Version verwendet. Die alptraumhafte Situation
+    mit zwei OWServer-Instanzen, die sich mit owserver-Instanzen in
+    unterschiedlichen Versionen verbinden, wird nicht korrekt gehandhabt.
+    Die Versionen von Server und Modul werden zum Nachschauen in den Internals der
+    OWServer-Instanz gespeichert.
+    <p>
+    Die ow*-Pakete in der Version 3.1p5 bei Debian Stretch und
+    die ow*-Pakete in der Version 2.8p17 bei Debian Jessie sind gut.
+    Die ow*-Pakete in der Version 2.9 bei Debian Jessie in Kombination mit den
+    OWNet-Modulen bei FHEM k&ouml;nnen Auff&auml;lligkeiten zeigen (R&uuml;ckmeldung
+    willkommen). F&uuml;r
+    Debian Jessie kann man
+    <a href="http://forum.fhem.de/index.php?action=dlattach;topic=12219.0;attach=2463">owfs_2.8p17-1_all.zip</a>
+    auspacken und owserver, Abh&auml;ngigkeiten und was man sonst so braucht
+    mittels <code>dpkg -i &lt;package&gt;.deb</code> installieren.
+    <p>
+    Bitte Auff&auml;lligkeiten und Erfolgsmeldungen zu Versionen im
+    <a href="https://forum.fhem.de/index.php/board,26.0.html">1Wire-Board des FHEM-Forums</a> berichten.
     <p>
     Eine typische funktionierende Konfigurationsdatei <code>/etc/owfs.conf</code> sieht so aus:<p>
     <code>
@@ -798,6 +980,7 @@ OWServer_Set($@)
         <li><code>/settings/timeout/w1</code></li>
         <li><code>/settings/units/pressure_scale</code></li>
         <li><code>/settings/units/temperature_scale</code></li>
+        <li><code>/uncached/alarm</code></li>
       </ul>
     </li>
     Nähere Informationen zu diesen Einstellungen gibt es im <a href="http://owfs.org/uploads/owserver.1.html#sect41">owserver- Manual</a>.
@@ -818,7 +1001,7 @@ OWServer_Set($@)
     <li><a href="#readingFnAttributes">readingFnAttributes</a></li>
   </ul>
   <br>
-  Hinweis: Falls in FHEM trotzdem ungewöhnliche Stillstände auftreten, sollte das Attribut <code>nonblocking</code> wieder deaktiviert werden.<br>  
+  Hinweis: Falls in FHEM trotzdem ungewöhnliche Stillstände auftreten, sollte das Attribut <code>nonblocking</code> wieder deaktiviert werden.<br>
 
 </ul>
 

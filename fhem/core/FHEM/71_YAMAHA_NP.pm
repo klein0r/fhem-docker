@@ -1,4 +1,4 @@
-# $Id: 71_YAMAHA_NP.pm 14630 2017-07-02 16:32:49Z ra666ack $     
+# $Id: 71_YAMAHA_NP.pm 16025 2018-01-28 17:48:28Z ra666ack $     
 ###############################################################################
 #
 # 71_YAMAHA_NP.pm
@@ -1863,7 +1863,7 @@ sub YAMAHA_NP_ParseResponse
               if(AttrVal($name, "autoUpdatePlayerReadings", "1") eq "1" )
               {
                 # Inputs don't use any player readings. Blank them.
-                if($input !~ m/^(aux|digital|spotify|airplay)/)
+                if($input !~ m/^(aux|digital)/)
                 {
                   YAMAHA_NP_SendCmd($hash, "GET:Player,Play_Info:GetParam", "statusRequest", "playerStatus", 0);        
                 }

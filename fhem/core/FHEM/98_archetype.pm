@@ -1,5 +1,5 @@
 # Id ##########################################################################
-# $Id: 98_archetype.pm 14622 2017-07-02 08:36:39Z igami $
+# $Id: 98_archetype.pm 15575 2017-12-09 08:08:00Z igami $
 
 # copyright ###################################################################
 #
@@ -543,7 +543,8 @@ sub archetype_attrCheck($$$$;$) {
       return $ret;
     }
 
-    CommandAttr(undef, "$name $attribute $desired");
+    fhem("attr $name $attribute $desired");
+    # CommandAttr(undef, "$name $attribute $desired");
   }
 
   return;
@@ -676,20 +677,26 @@ sub archetype_devspec($;$) {
       no warnings;
 
       $devspecs .= " a:actual_$attribute=.+";
+      my $actual_attribute = AttrVal($SELF, "actual_$attribute", "");
 
-      my $mandatory = join(" ", archetype_evalSpecials(
-        $SELF, AttrVal($SELF, "actual_$attribute", ""), "mandatory"
-      ));
-
-      while($mandatory =~ m/[^\|]\|[^\|]/){
-        my @parts = split("\\|\\|", $mandatory);;
-        $_ =~ s/(.* )?(\S+)\|(\S+)( .*)?/$1$2$4\|\|$1$3$4/ for(@parts);;
-        $mandatory = join("\|\|", @parts);;
-      }
-
-      for my $mandatory (split("\\|\\|", $mandatory)){
+      if($actual_attribute =~ m/^\{.*\}$/){
         $devspecs .= " .+";
-        $devspecs .= ":FILTER=a:$_=.+" for(split(" ", $mandatory));
+      }
+      else{
+        my $mandatory = join(" ", archetype_evalSpecials(
+          $SELF, $actual_attribute, "mandatory"
+        ));
+
+        while($mandatory =~ m/[^\|]\|[^\|]/){
+          my @parts = split("\\|\\|", $mandatory);;
+          $_ =~ s/(.* )?(\S+)\|(\S+)( .*)?/$1$2$4\|\|$1$3$4/ for(@parts);;
+          $mandatory = join("\|\|", @parts);;
+        }
+
+        for my $mandatory (split("\\|\\|", $mandatory)){
+          $devspecs .= " .+";
+          $devspecs .= ":FILTER=a:$_=.+" for(split(" ", $mandatory));
+        }
       }
     }
   }

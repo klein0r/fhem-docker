@@ -2,7 +2,7 @@
 #
 # Developed with Kate
 #
-#  (c) 2017 Copyright: Marko Oldenburg (leongaultier at gmail dot com)
+#  (c) 2017-2018 Copyright: Marko Oldenburg (leongaultier at gmail dot com)
 #  All rights reserved
 #
 #   Special thanks goes to comitters:
@@ -26,7 +26,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 21_HEOSPlayer.pm 14959 2017-08-25 19:36:55Z CoolTux $
+# $Id: 21_HEOSPlayer.pm 16400 2018-03-13 19:19:38Z CoolTux $
 #
 ###############################################################################
 
@@ -39,7 +39,7 @@ use Encode qw(encode_utf8);
 use URI::Escape;
 #use Data::Dumper;
 
-my $version = "1.0.1";
+my $version = "1.0.4";
 
 
 
@@ -712,6 +712,15 @@ sub HEOSPlayer_Set($$@) {
             $heosCmd = 'playQueueItem';
             $action  = "qid=$cid";
 
+        } elsif ( $sid eq "url" ) {
+        
+            #URL abspielen
+            $heosCmd = 'playStream';
+            #$action  = "url=".substr($param,4);
+            $action  = "url=$cid";
+            
+            #getestet mit "set HEOSPlayer_Name input url,http://sender.eldoradio.de:8000/128.mp3"  ich wollte [cid] nicht nutzen da in einer url ja durchaus mehrere Kommata vorkommen können ob das mit dem substr() so toll ich kann ich leider nicht beurteilen. Auch würde ich bei der $sid ein lc($sid) drum machen aber da es nirgendwo ist :-)
+            
         } else {
             if ( $sid > 0 && $sid < 1024 ) {
                 return "usage: $cmd sid,cid,mid" unless( defined($cid) && defined($mid) );
@@ -781,8 +790,13 @@ sub HEOSPlayer_Parse($$) {
     my $decode_json;
     my $code;
 
+
+    $decode_json = eval{decode_json(encode_utf8($json))};
+    if($@){
+        Log3 $name, 3, "HEOSPlayer ($name) - JSON error while request: $@";
+        return;
+    }
     
-    $decode_json    = decode_json(encode_utf8($json));
     Log3 $name, 4, "HEOSPlayer - ParseFn wurde aufgerufen";
     if( defined($decode_json->{pid}) ) {
     
@@ -924,7 +938,7 @@ sub HEOSPlayer_PreProcessingReadings($$) {
     
         $buffer{'shuffle'}  = $message{shuffle};
         $buffer{'repeat'}   = $message{repeat};
-        $buffer{'repeat'}   =~ s/.*\_(.*)/$1/g;
+        $buffer{'repeat'}   =~ s/.*\_(.*)/$1/g if( defined($buffer{'repeat'}) );
         
     } elsif ( $decode_json->{heos}{command} =~ /get_mute/ ) {
     

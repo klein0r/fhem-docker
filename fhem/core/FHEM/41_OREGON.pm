@@ -1,5 +1,5 @@
 #################################################################################
-# $Id: 41_OREGON.pm 12928 2017-01-02 00:23:46Z Sidey $
+# $Id: 41_OREGON.pm 16945 2018-07-04 20:06:40Z Sidey $
 #
 # Module for FHEM to decode Oregon sensor messages
 #
@@ -312,6 +312,12 @@ sub OREGON_simple_battery {
 		type => 'battery',
 		current => $battery,
 		units => '%',
+	}, 
+	{
+		device => $dev,
+		type => 'batteryState',
+		current => $battery,
+		units => '',
 	}
 }
 
@@ -319,11 +325,14 @@ sub OREGON_percentage_battery {
   my ($bytes, $dev, $res) = @_;
 
   my $battery;
+  my $batteryState;
   my $battery_level = 100-10*OREGON_lo_nibble($bytes->[4]);
   if ($battery_level > 50) {
     $battery = sprintf("ok %d%%",$battery_level);
+    $batteryState="ok";
   } else {
     $battery = sprintf("low %d%%",$battery_level);
+    $batteryState="low";
   }
 
   push @$res, {
@@ -331,7 +340,20 @@ sub OREGON_percentage_battery {
 		type => 'battery',
 		current => $battery,
 		units => '%',
+	}, {
+		device => $dev,
+		type => 'batteryPercent',
+		current => $battery_level,
+		units => '%',
+	},
+	{
+		device => $dev,
+		type => 'batteryState',
+		current => $batteryState,
+		units => '',
 	}
+	
+	
 }
 
 my @uv_str =
@@ -1012,6 +1034,8 @@ OREGON_Parse($$)
 			##$def->{READINGS}{$sensor}{TIME} = $tm;
 			##$def->{READINGS}{$sensor}{VAL} = $i->{current};
 			##$def->{CHANGED}[$n++] = $sensor . ": " . $i->{current};;
+	}	elsif ($i->{type} eq "batteryPercent" || $i->{type} eq "batteryState") { 
+			readingsBulkUpdate($def,$i->{type},$i->{current});
 	}
 	elsif ($i->{type} eq "pressure") { 
 			#printf "Luftdruck %d %s, Vorhersage=%s ; ",$i->{current},$i->{units},$i->{forecast};

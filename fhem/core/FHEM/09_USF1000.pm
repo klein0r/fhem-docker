@@ -5,7 +5,7 @@
 # e-mail: omega at online dot de
 #
 ##############################################
-# $Id: 09_USF1000.pm 3830 2013-08-31 17:09:10Z borisneubert $
+# $Id: 09_USF1000.pm 16375 2018-03-10 15:40:02Z neubert $
 package main;
 
 use strict;
@@ -175,6 +175,8 @@ USF1000_Parse($$)
 1;
 
 =pod
+=item summary    USF1000S ultrasonic level transmitter communicating over FHZ
+=item summary_DE USF1000S Ultraschall-F&uuml;llstandsmesser angebunden &uuml;ber FHZ
 =begin html
 
 <a name="USF1000"></a>

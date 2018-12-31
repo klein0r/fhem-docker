@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_average.pm 12580 2016-11-15 06:31:47Z rudolfkoenig $
+# $Id: 98_average.pm 16293 2018-02-28 21:33:57Z rudolfkoenig $
 # Average computing
 
 package main;
@@ -290,7 +290,7 @@ average_Notify($$)
       feeding unit. In the first case, the time between the events plays an
       important role, in the second case not. Default is integral.
     <li>nominmax</li>
-      don't compute min and max values. Default is 0 (compute min & max).
+      don't compute min and max values. Default is 0 (compute min &amp; max).
     <li>noaverage</li>
       don't compute average values. Default is 0 (compute avarage).
   </ul>

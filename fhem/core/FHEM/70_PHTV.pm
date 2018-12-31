@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: 70_PHTV.pm 14400 2017-05-28 11:10:33Z loredo $
+# $Id: 70_PHTV.pm 17856 2018-11-27 20:08:51Z loredo $
 package main;
 
 use strict;
@@ -1578,7 +1578,7 @@ sub PHTV_SendCommand($$;$$$) {
                 'Accept-Charset' => 'UTF-8',
             },
             sslargs => {
-                SSL_verify_mode => 'SSL_VERIFY_NONE',
+                SSL_verify_mode => 0,
             },
         }
     );

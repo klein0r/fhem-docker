@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: 70_ENIGMA2.pm 14985 2017-09-01 11:18:48Z loredo $
+# $Id: 70_ENIGMA2.pm 17859 2018-11-27 20:10:17Z loredo $
 package main;
 use strict;
 use warnings;
@@ -872,7 +872,7 @@ sub ENIGMA2_SendCommand($$;$$) {
                     'Accept-Charset' => 'UTF-8',
                 },
                 sslargs => {
-                    SSL_verify_mode => 'SSL_VERIFY_NONE',
+                    SSL_verify_mode => 0,
                 },
             }
         );
@@ -909,7 +909,7 @@ sub ENIGMA2_SendCommand($$;$$) {
                     'Accept-Charset' => 'UTF-8',
                 },
                 sslargs => {
-                    SSL_verify_mode => 'SSL_VERIFY_NONE',
+                    SSL_verify_mode => 0,
                 },
             }
         );

@@ -1,5 +1,6 @@
 ###############################################################################
-# $Id: 98_powerMap.pm 14012 2017-04-17 13:09:41Z loredo $
+# $Id: 98_powerMap.pm 16005 2018-01-27 06:05:51Z igami $
+#     Maintained by igami since 02-2018
 #
 # TODO
 # - document how to include powerMap for other module maintainers

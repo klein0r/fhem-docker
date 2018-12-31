@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_FBAHA.pm 15437 2017-11-16 08:48:48Z rudolfkoenig $
+# $Id: 00_FBAHA.pm 16293 2018-02-28 21:33:57Z rudolfkoenig $
 package main;
 
 use strict;
@@ -411,7 +411,7 @@ FBAHA_Ready($)
 <h3>FBAHA</h3>
 <ul>
   <br>Note: Fritz!OS 6.90 and later does not offer the AHA service needed by
-  this module. Use the successor FBAHAHTTP instead of this module.</b><br>
+  this module. Use the successor FBAHAHTTP instead of this module.<br>
 
   This module connects to the AHA server (AVM Home Automation) on a FRITZ!Box.
   It serves as the "physical" counterpart to the <a href="#FBDECT">FBDECT</a>
@@ -496,7 +496,7 @@ FBAHA_Ready($)
 <h3>FBAHA</h3>
 <ul>
   <br>Achtung: ab Fritz!OS 6.90 ist der ben&ouml;tigte Dienst deaktiviert,
-  bitte den Nachfolger FBAHAHTTP verwenden.</b><br>
+  bitte den Nachfolger FBAHAHTTP verwenden.<br>
 
   Dieses Modul verbindet sich mit dem AHA (AVM Home Automation) Server auf
   einem FRITZ!Box. Es dient als "physikalisches" Gegenst&uuml;ck zum <a
@@ -536,7 +536,7 @@ FBAHA_Ready($)
     Eintrag, siehe auch "get devList".
     </li>
   <li>reopen<br>
-    Schlie&szlig;t und &oulm;ffnet die Verbindung zum AHA Server. Nur f&uuml;r
+    Schlie&szlig;t und &ouml;ffnet die Verbindung zum AHA Server. Nur f&uuml;r
     debugging.
     </li>
   <li>reregister<br>

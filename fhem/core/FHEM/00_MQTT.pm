@@ -2,6 +2,7 @@
 #
 # fhem bridge to mqtt (see http://mqtt.org)
 #
+# Copyright (C) 2018 Alexander Schulz
 # Copyright (C) 2017 Stephan Eisler
 # Copyright (C) 2014 - 2016 Norbert Truchsess
 #
@@ -20,7 +21,7 @@
 #     You should have received a copy of the GNU General Public License
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-# $Id: 00_MQTT.pm 15126 2017-09-24 07:43:17Z eisler $
+# $Id: 00_MQTT.pm 17362 2018-09-17 12:57:29Z hexenmeister $
 #
 ##############################################
 
@@ -54,19 +55,20 @@ sub MQTT_Initialize($) {
   $hash->{DefFn}      = "MQTT::Define";
   $hash->{UndefFn}    = "MQTT::Undef";
   $hash->{DeleteFn}   = "MQTT::Delete";
+  $hash->{RenameFn}   = "MQTT::Rename";
   $hash->{ShutdownFn} = "MQTT::Shutdown";
   $hash->{SetFn}      = "MQTT::Set";
   $hash->{NotifyFn}   = "MQTT::Notify";
   $hash->{AttrFn}     = "MQTT::Attr";
 
-  $hash->{AttrList} = "keep-alive "."last-will "."on-connect on-disconnect on-timeout ".$main::readingFnAttributes;
+  $hash->{AttrList} = "keep-alive "."last-will client-id "."on-connect on-disconnect on-timeout ".$main::readingFnAttributes;
 }
 
 package MQTT;
 
 use Exporter ('import');
 @EXPORT = ();
-@EXPORT_OK = qw(send_publish send_subscribe send_unsubscribe client_attr client_subscribe_topic client_unsubscribe_topic topic_to_regexp);
+@EXPORT_OK = qw(send_publish send_subscribe send_unsubscribe client_attr client_subscribe_topic client_unsubscribe_topic topic_to_regexp parseParams);
 %EXPORT_TAGS = (all => [@EXPORT_OK]);
 
 use strict;
@@ -174,6 +176,13 @@ sub onTimeout($) {
   }
 }
 
+sub isConnected($) {
+  my $hash = shift;
+  my $cstate=ReadingsVal($hash->{NAME}, "connection", "");
+  return 1 if($cstate eq "connected" || $cstate eq "active");
+  return undef;
+}
+
 sub process_event($$) {
   my $hash = shift;
   my $str = shift;
@@ -242,66 +251,142 @@ sub Set($@) {
   };
 }
 
+sub parseParams($;$$$$) {
+
+    my ( $cmd, $separator, $joiner, $keyvalueseparator, $acceptedkeys ) = @_;
+    $separator = ' '        if ( !$separator );
+    $joiner    = $separator if ( !$joiner );   # needed if separator is a regexp
+    $keyvalueseparator = ':' if(!$keyvalueseparator);
+    my ( @a, %h );
+
+    my @params;
+    if ( ref($cmd) eq 'ARRAY' ) {
+        @params = @{$cmd};
+    }
+    else {
+        @params = split( $separator, $cmd );
+    }
+
+    while (@params) {
+        my $param = shift(@params);
+        next if ( $param eq "" );
+        my ( $key, $value ) = split( $keyvalueseparator, $param, 2 );
+
+        if ( !defined($value) ) {
+            $value = $key;
+            $key   = undef;
+
+        # the key can not start with a { -> it must be a perl expression # vim:}
+        }
+        elsif ( $key =~ m/^\s*{/ ) {    # for vim: }
+            $value = $param;
+            $key   = undef;
+        }
+        # the key can not start with a ' or "
+        elsif ( $key =~ m/^\s*('|")/ ) {
+            $value = $param;
+            $key   = undef;
+        } 
+        # accept known keys only (if defined $acceptedkeys)
+        elsif (defined($acceptedkeys) and !defined($acceptedkeys->{$key})) {
+            $value = $param;
+            $key   = undef;
+        }
+
+        #collect all parts until the closing ' or "
+        while ( $param && $value =~ m/^('|")/ && $value !~ m/$1$/ ) {
+            my $next = shift(@params);
+            last if ( !defined($next) );
+            $value .= $joiner . $next;
+        }
+
+        #remove matching ' or " from the start and end
+        if ( $value =~ m/^('|")/ && $value =~ m/$1$/ ) {
+            $value =~ s/^.(.*).$/$1/;
+        }
+
+        #collect all parts until opening { and closing } are matched
+        if ( $value =~ m/^\s*{/ ) {    # } for match
+            my $count = 0;
+            for my $i ( 0 .. length($value) - 1 ) {
+                my $c = substr( $value, $i, 1 );
+                ++$count if ( $c eq '{' );
+                --$count if ( $c eq '}' );
+            }
+
+            while ( $param && $count != 0 ) {
+                my $next = shift(@params);
+                last if ( !defined($next) );
+                $value .= $joiner . $next;
+
+                for my $i ( 0 .. length($next) - 1 ) {
+                    my $c = substr( $next, $i, 1 );
+                    ++$count if ( $c eq '{' );
+                    --$count if ( $c eq '}' );
+                }
+            }
+        }
+
+        if ( defined($key) ) {
+            $h{$key} = $value;
+        }
+        else {
+            push @a, $value;
+        }
+
+    }
+    return ( \@a, \%h );
+}
+
 sub parsePublishCmdStr($) {
   my ($str) = @_;
 
-  if(defined($str) && $str=~m/\s*(?:({.*})\s+)?(.*)/) {
-    my $exp = $1;
-    my $rest = $2;
-    if ($rest){
-      my @lwa = split("[ \t]+",$rest);
-      unshift (@lwa,$exp) if($exp);
-      return parsePublishCmd(@lwa);
-    }    
-  }
-  return undef;
+  return undef unless defined($str);
+  
+  my @lwa = split("[ \t]+",$str);
+  return parsePublishCmd(@lwa);
 }
 
-sub parsePublishCmd(@) {
-  my @a = @_;
-  # [qos:?] [retain:?] topic value
-  
-  return undef if(!@a);
-  return undef if(scalar(@a)<1);
-  
-  my $qos = 0;
-  my $retain = 0;
-  my $topic = undef;
-  my $value = "\0";
-  my $expression = undef;
-  
-  while (scalar(@a)>0) {
-    my $av = shift(@a);
-    if($av =~ /\{.*\}/) {
-      $expression = $av;
-      next;
+sub parsePublishCmd(@) { 
+    my @a = @_;
+    my ( $aa, $bb ) = parseParams(\@a,undef,undef,undef,{qos=>1,retain=>1});
+    
+    my $qos        = 0;
+    my $retain     = 0;
+    my $topic      = undef;
+    my $value      = "\0";
+    my $expression = undef;
+
+    if ( exists( $bb->{'qos'} ) ) {
+        $qos = $bb->{'qos'};
     }
-    my ($pn,$pv) = split(":",$av);
-    if(defined($pv)) {
-      if($pn eq "qos") {
-        if($pv >=0 && $pv <=2) {
-          $qos = $pv;
-        }
-      } elsif($pn eq "retain") {
-        if($pv >=0 && $pv <=1) {
-          $retain = $pv;
-        }
-      } else {
-        # ignore
-        next;
-      }
-    } else {
-      $topic = $av;
-      last;
+
+    if ( exists $bb->{'retain'} ) {
+        $retain = $bb->{'retain'};
     }
-  }
-  
-  if(scalar(@a)>0) {
-    $value = join(" ", @a);
-  }
-  
-  return undef unless $topic || $expression;  
-  return ($qos, $retain,$topic, $value, $expression);
+
+    my @aaa = ();
+    my @xaa = @{$aa};
+
+    while ( scalar(@xaa) > 0 ) {
+        my $av = shift @xaa;
+        if (!defined($expression) and $av =~ /^\{.*\}$/ and scalar(@xaa)>0) {
+            $expression = $av;
+            next;
+        }
+        else {
+            push @aaa, $av;
+        }
+    }
+
+    $topic = shift(@aaa);
+
+    if ( scalar(@aaa) > 0 ) {
+        $value = join( " ", @aaa );
+    }
+    return undef unless $topic || $expression;
+    return ( $qos, $retain, $topic, $value, $expression );
+
 }
 
 sub Notify($$) {
@@ -406,6 +491,7 @@ sub Timer($) {
   unless ($hash->{ping_received}) {
     onTimeout($hash);
     readingsSingleUpdate($hash,"connection","timed-out",1) ;#unless $hash->{ping_received};
+    GP_ForallClients($hash,\&notify_client_connection_timeout);
   }
   $hash->{ping_received} = 0;
   InternalTimer(gettimeofday()+$hash->{timeout}, "MQTT::Timer", $hash, 0);
@@ -429,6 +515,7 @@ sub Read {
         readingsSingleUpdate($hash,"connection","connected",1);
         onConnect($hash);
         GP_ForallClients($hash,\&client_start);
+        GP_ForallClients($hash,\&notify_client_connected);
         foreach my $message_id (keys %{$hash->{messages}}) {
           my $msg = $hash->{messages}->{$message_id}->{message};
           $msg->{dup} = 1;
@@ -564,9 +651,10 @@ sub send_connect($) {
   my $pass = getKeyValue($name."_pass");
   
   my $lw = AttrVal($name,"last-will",undef);
+  my $clientId = AttrVal($name,"client-id",undef);
   my ($willqos, $willretain,$willtopic, $willmessage) = parsePublishCmdStr($lw);
   
-  return send_message($hash, message_type => MQTT_CONNECT, keep_alive_timer => $hash->{timeout}, user_name => $user, password => $pass, will_topic => $willtopic,  will_message => $willmessage, will_retain => $willretain, will_qos => $willqos);
+  return send_message($hash, message_type => MQTT_CONNECT, keep_alive_timer => $hash->{timeout}, user_name => $user, password => $pass, client_id=>$clientId, will_topic => $willtopic,  will_message => $willmessage, will_retain => $willretain, will_qos => $willqos);
 };
 
 sub send_publish($@) {
@@ -602,6 +690,7 @@ sub send_ping($) {
 sub send_disconnect($) {
   my $hash = shift;
   onDisconnect($hash);
+  GP_ForallClients($hash,\&notify_client_disconnected);
   return send_message($hash, message_type => MQTT_DISCONNECT);
 };
 
@@ -623,6 +712,7 @@ sub send_message($$$@) {
 sub topic_to_regexp($) {
   my $t = shift;
   $t =~ s|#$|.\*|;
+  $t =~ s|\$|\\\$|g;
   $t =~ s|\/\.\*$|.\*|;
   $t =~ s|\/|\\\/|g;
   $t =~ s|(\+)([^+]*$)|(+)$2|;
@@ -633,6 +723,7 @@ sub topic_to_regexp($) {
 sub client_subscribe_topic($$;$$) {
   my ($client,$topic,$qos,$retain) = @_;
   push @{$client->{subscribe}},$topic unless grep {$_ eq $topic} @{$client->{subscribe}};
+  $client->{subscribeQos}->{$topic}=$qos;
   my $expr = topic_to_regexp($topic);
   push @{$client->{subscribeExpr}},$expr unless grep {$_ eq $expr} @{$client->{subscribeExpr}};
   if ($main::init_done) {
@@ -651,6 +742,7 @@ sub client_subscribe_topic($$;$$) {
 sub client_unsubscribe_topic($$) {
   my ($client,$topic) = @_;
   $client->{subscribe} = [grep { $_ ne $topic } @{$client->{subscribe}}];
+  delete $client->{subscribeQos}->{$topic};
   my $expr = topic_to_regexp($topic);
   $client->{subscribeExpr} = [grep { $_ ne $expr} @{$client->{subscribeExpr}}];
   if ($main::init_done) {
@@ -672,6 +764,7 @@ sub Client_Define($$) {
   $client->{".qos"}->{'*'} = 0; 
   $client->{".retain"}->{'*'} = "0";
   $client->{subscribe} = [];
+  $client->{subscribeQos} = {};
   $client->{subscribeExpr} = [];
   AssignIoPort($client);
 
@@ -791,7 +884,7 @@ sub client_attr($$$$$) {
         if ($command eq "set") {
           client_stop($client);
           $main::attr{$name}{IODev} = $value;
-          client_start($client);
+          return client_start($client);
         } else {
           client_stop($client);
         }
@@ -801,23 +894,56 @@ sub client_attr($$$$$) {
   }
 };
 
+sub notify_client_connected($) {
+  my $client = shift;
+  CallFn($client->{NAME},"OnClientConnectFn",($client));
+}
+
+sub notify_client_disconnected($) {
+  my $client = shift;
+  CallFn($client->{NAME},"OnClientDisconnectFn",($client));
+}
+
+sub notify_client_connection_timeout($) {
+  my $client = shift;
+  CallFn($client->{NAME},"OnClientConnectionTimeoutFn",($client));
+}
+
 sub client_start($) {
   my $client = shift;
-  my $name = $client->{NAME};
-  if (! (defined AttrVal($name,"stateFormat",undef))) {
-    $main::attr{$name}{stateFormat} = "transmission-state";
+  # probably internal failure
+  unless (defined $client) {
+    Log3("MQTT IODev",1,"no client device hash provided");
+    return "no client device hash provided";
   }
+
+  # client device without IODev. probably internal failure
+  unless (defined $client->{IODev}) {
+    Log3("MQTT IODev",1,"client device hash no IODev provided");
+    return "client device hash no IODev provided"; 
+  }
+  
+  CallFn($client->{NAME},"OnClientStartFn",($client));
+  
+  unless (ref($client->{subscribe}) eq "ARRAY") {
+    Log3($client->{NAME},1,"unknown client or client initialization error");
+    return "unknown client or client initialization error";
+  }
+
   if (@{$client->{subscribe}}) {
     my $msgid = send_subscribe($client->{IODev},
-      topics => [map { [$_ => $client->{".qos"}->{$_} || MQTT_QOS_AT_MOST_ONCE] } @{$client->{subscribe}}],
+      topics => [map { [$_ => $client->{subscribeQos}->{$_} || MQTT_QOS_AT_MOST_ONCE] } @{$client->{subscribe}}],
     );
     $client->{message_ids}->{$msgid}++;
     readingsSingleUpdate($client,"transmission-state","subscribe sent",1);
   }
+  
+  return undef;
 };
 
 sub client_stop($) {
   my $client = shift;
+  
   if (@{$client->{subscribe}}) {
     my $msgid = send_unsubscribe($client->{IODev},
       topics => [@{$client->{subscribe}}],
@@ -825,6 +951,8 @@ sub client_stop($) {
     $client->{message_ids}->{$msgid}++;
     readingsSingleUpdate($client,"transmission-state","unsubscribe sent",1);
   }
+  
+  CallFn($client->{NAME},"OnClientStopFn",($client));
 };
 
 1;
@@ -876,6 +1004,14 @@ sub client_stop($) {
          </p>
       <p>example:<br/>
       <code>attr mqtt last-will /fhem/status crashed</code>
+      </p>
+    </li>
+    <li>
+      <p><code>attr &lt;name&gt; client-id client id</code><br/>
+         redefines client id
+      </p>
+      <p>example:<br/>
+      <code>attr mqtt client-id fhem1234567</code>
       </p>
     </li>
     <li>

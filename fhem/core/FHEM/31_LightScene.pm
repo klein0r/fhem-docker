@@ -1,5 +1,5 @@
 
-# $Id: 31_LightScene.pm 15146 2017-09-28 06:28:07Z justme1968 $
+# $Id: 31_LightScene.pm 17952 2018-12-11 09:50:16Z justme1968 $
 
 package main;
 
@@ -332,6 +332,8 @@ sub
 myStatefileName()
 {
   my $statefile = $attr{global}{statefile};
+  my @t = localtime(gettimeofday());
+  $statefile = ResolveDateWildcards($statefile, @t);
   $statefile = substr $statefile,0,rindex($statefile,'/')+1;
   return $statefile ."LightScenes.save" if( $LightScene_hasJSON );
   return $statefile ."LightScenes.dd.save" if( $LightScene_hasDataDumper );
@@ -400,7 +402,7 @@ LightScene_Load($)
 
     my $decoded;
     if( $LightScene_hasJSON ) {
-      $decoded = decode_json( $encoded );
+      $decoded = eval { decode_json($encoded) };
     } elsif( $LightScene_hasDataDumper ) {
       $decoded = eval $encoded;
     }
@@ -942,46 +944,51 @@ LightScene_editTable($) {
   $dd.=FW_hidden("detail",$hash->{NAME}) . "\n";
   $dd.="</form>\n";
   # make table
-  if ($scn eq "Choose scene" || $scn eq '') {
-    $html.="<table><tr><td>Edit scene</td><td>$dd</td></tr>";
-  } else {
-	$html.="<table><tr><td>Edit scene</td><td>$dd</td></tr></table>";
-    $html .= '<table class="block wide">';
-    $html .= '<tr><th>Device</th><th>Command</th></tr>'."\n";
-    my $row=0;
-	my @devices;
-    if( $scn && defined($hash->{switchingOrder}) && defined($hash->{switchingOrder}{$scn}) ) {
+  my @devices;
+  if( $scn && defined($hash->{SCENES}{$scn}) ) {
+    if( defined($hash->{switchingOrder}) && defined($hash->{switchingOrder}{$scn}) ) {
       @devices = @{$hash->{switchingOrder}{$scn}};
     } else {
       @devices = @{$hash->{devices}};
     }
+  } else {
+    $scn = '';
+  }
+
+  if ($scn eq "Choose scene" || $scn eq '') {
+    $html.="<table><tr><td>Edit scene</td><td>$dd</td></tr>";
+  } else {
+    $html.="<table><tr><td>Edit scene</td><td>$dd</td></tr></table>";
+    $html .= '<table class="block wide">';
+    $html .= '<tr><th>Device</th><th>Command</th></tr>'."\n";
+    my $row=0;
     #table rows
-	my @cmds    = qw(set setcmd);
+    my @cmds    = qw(set setcmd);
     my $set     = "set $hash->{NAME} set $scn";
     my $setcmd  = '';
     foreach my $dev (@devices) {
       $row+=1;
       $html .= "<tr class=\"".(($row&1)?"odd":"even")."\">";
-	  $html .= "<td>$dev</td>";
-	  my $default = $hash->{SCENES}{$scn}{$dev};
+      $html .= "<td>$dev</td>";
+      my $default = $hash->{SCENES}{$scn}{$dev};
 
       if ($hash->{SCENES}{$scn}{$dev} =~ m/^;/) {
-	    $default =~ s/^;//;
-		$setcmd='setcmd';
+        $default =~ s/^;//;
+        $setcmd='setcmd';
       } else {
-		$setcmd='set';
-	  }
-	  $default = $default->{state} if( ref($default) eq 'HASH' );
-	  $html.="<td><form method=\"get\" action=\"" . $FW_ME . "/LightScene\">\n";
+        $setcmd='set';
+      }
+      $default = $default->{state} if( ref($default) eq 'HASH' );
+      $html.="<td><form method=\"get\" action=\"" . $FW_ME . "/LightScene\">\n";
       $html.=FW_select('',"cmd1", \@cmds, $setcmd, 'select')."\n";
-	  $html.=FW_textfieldv("val.$dev", 50, 'class',$default)."\n";
-	  $html.=FW_hidden("dev.$dev", $dev) . "\n";
-	  $html.=FW_hidden("cmd.$dev", $set) . "\n";
+      $html.=FW_textfieldv("val.$dev", 50, 'class',$default)."\n";
+      $html.=FW_hidden("dev.$dev", $dev) . "\n";
+      $html.=FW_hidden("cmd.$dev", $set) . "\n";
       $html.=FW_submit("lse", 'saveline');
-  	  $html.=FW_hidden("scn", $scn) . "\n";
-	  $html.=FW_hidden("detail",$hash->{NAME}) . "\n";
-	  $html .= "</form></td>\n";
-	}
+      $html.=FW_hidden("scn", $scn) . "\n";
+      $html.=FW_hidden("detail",$hash->{NAME}) . "\n";
+      $html .= "</form></td>\n";
+    }
   }
   #table end
   $html .= "</table><br>\n";

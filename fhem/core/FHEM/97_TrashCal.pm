@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 97_TrashCal.pm 12850 2016-12-20 09:39:58Z Tobias $
+# $Id: 97_TrashCal.pm 18014 2018-12-20 16:04:04Z Tobias.Faust $
 #
 # 97_TrashCal.pm
 #
@@ -26,7 +26,7 @@
 package MyTrashCalParser;
 use base qw(HTML::Parser);
 our %dates = ();
-my $lookupTag = "td";
+my $lookupTag = "div";
 my $curTag    = "";
 my $category = "--";
 

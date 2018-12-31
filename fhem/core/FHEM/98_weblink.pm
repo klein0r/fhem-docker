@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_weblink.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
+# $Id: 98_weblink.pm 16293 2018-02-28 21:33:57Z rudolfkoenig $
 package main;
 
 use strict;
@@ -193,7 +193,7 @@ weblink_FwFn($$$$)
       E.g.:<br>
       <ul>
         <code>
-        define yw weblink iframe http://weather.yahooapis.com/forecastrss?w=650272&u=c<br>
+        define yw weblink iframe http://weather.yahooapis.com/forecastrss?w=650272&amp;u=c<br>
         attr yw htmlattr width="480" height="560"<br>
         </code>
       </ul></li>
