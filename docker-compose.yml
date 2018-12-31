@@ -23,7 +23,7 @@ services:
         depends_on:
             - "mysql"
             - "mqtt"
-    
+
     habridge:
         restart: always
         image: habridge/ha-bridge-raspberrypi3
@@ -33,6 +33,20 @@ services:
             - /etc/timezone:/etc/timezone:ro
         network_mode: host
 
+    homebridge:
+        restart: always
+        image: oznu/homebridge:raspberry-pi
+        volumes:
+            - ./homebridge:/homebridge
+        environment:
+            - TZ=Europe/Berlin
+            - PGID=1000
+            - PUID=1000
+            - HOMEBRIDGE_CONFIG_UI=1
+            - HOMEBRIDGE_CONFIG_UI_PORT=8081
+        network_mode: host
+        depends_on:
+            - "fhem"
 
     mysql:
         restart: always
