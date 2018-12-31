@@ -4,7 +4,6 @@
 /fhem/core/FHEM/FhemUtils/uniqueID
 /fhem/core/backup/*
 /fhem/core/cache/*
-/fhem/core/log/*
 /fhem/core/restoreDir/*
 /mysql/data/*
 /mqtt/log/*
