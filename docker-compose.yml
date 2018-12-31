@@ -23,13 +23,16 @@ services:
         depends_on:
             - "mysql"
             - "mqtt"
-
+    
     habridge:
         restart: always
-        build: habridge
-        network_mode: host
+        image: habridge/ha-bridge-raspberrypi3
         volumes:
-            - ./habridge/data/:/opt/habridge/data/
+            - ./habridge/data/:/ha-bridge/data
+            - /etc/localtime:/etc/localtime:ro
+            - /etc/timezone:/etc/timezone:ro
+        network_mode: host
+
 
     mysql:
         restart: always
