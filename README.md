@@ -2,6 +2,8 @@
 
 This is a template for a docker based fhem installation. It contains a lot of services and is preconfigured / ready to start.
 
+**Change all the passwords for mySQL, FHEM, NodeRed, ...**
+
 ## Contains
 
 - FHEM + haus-automatisierung.com FHEM frontend style + Tablet UI + ABFALL Module
@@ -9,7 +11,6 @@ This is a template for a docker based fhem installation. It contains a lot of se
 - mySQL-Logging (configured)
 - NodeRed
 - HA-Bridge
-- Grafana
 
 ## Requirements
 
@@ -33,13 +34,12 @@ docker-compose up -d
 
 - fhem-User: admin
 - fhem-Password: 1LOg2810AGBLmT2fn
+- telnet: ggOCu3IAKbN0x54zN
 
 - mySQL-User: fhemuser
-- mySQL-Password: 2jRHnEi3WuNSQAcX7 (see mysql/init.sql and fhem/core/contrib/dblog/db.conf)
+- mySQL-Password: 2jRHnEi3WuNSQAcX7 (see mysql/init.sql and fhem/core/contrib/configDB/configDB.conf)
 
 ## Additional Information
 
 - FHEM
     - HTTPS is not configured right now
-    - No username and password protection! Create allowed-Device!
-    - Ports 8084 and 8085 are closed

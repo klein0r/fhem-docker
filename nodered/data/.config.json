@@ -512,5 +512,16 @@
    }
   }
  },
- "_credentialSecret": "1eccf44c4ad441ad0f1ba0b4dcdf82700e8a3daa858586d3572acb875ece039f"
+ "_credentialSecret": "1eccf44c4ad441ad0f1ba0b4dcdf82700e8a3daa858586d3572acb875ece039f",
+ "users": {
+  "_": {
+   "editor": {
+    "view": {
+     "view-grid-size": 20,
+     "view-node-status": true,
+     "view-show-tips": true
+    }
+   }
+  }
+ }
 }
