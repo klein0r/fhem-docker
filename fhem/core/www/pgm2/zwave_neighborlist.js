@@ -1,5 +1,5 @@
 "use strict";
-FW_version["zwave_neighborlist.js"] = "$Id: zwave_neighborlist.js 13579 2017-03-02 12:39:59Z rudolfkoenig $";
+FW_version["zwave_neighborlist.js"] = "$Id: zwave_neighborlist.js 18056 2018-12-26 10:12:47Z rudolfkoenig $";
 
 var zw_visible;
 var svgns = 'xmlns="http://www.w3.org/2000/svg"';
@@ -28,6 +28,7 @@ zw_nl(fhemFn)
 
   FW_cmd(FW_root+"?cmd={"+fhemFn+"}&XHR=1", function(r){
     var xpos=20, ypos=20, fnRet = JSON.parse(r);
+    $("#zw_save").toggle(fnRet.saveFn ? true : false);
 
     var cnt=0;
     for(var elName in fnRet.el) {
@@ -56,12 +57,12 @@ zw_nl(fhemFn)
     $('#ZWDongleNr a#zw_al').click(function(){ zw_al(fnRet, width, height); });
 
     $('#ZWDongleNr a#zw_save').click(function(){
-      if(!fnRet.saveFn)
-        return;
       for(var eName in fnRet.el) {
         var el = fnRet.el[eName];
         if(el.pos[0] != el.x || el.pos[1] != el.y) {
           log("SavePos:"+eName);
+          el.x = Math.round(el.x*100)/100;
+          el.y = Math.round(el.y*100)/100;
           el.pos[0] = el.x; el.pos[1] = el.y;
           var cmd = sprintf(fnRet.saveFn, eName, el.x+","+el.y);
           FW_cmd(FW_root+"?cmd="+cmd+"&XHR=1");
@@ -81,14 +82,14 @@ zw_draw(fnRet, width, height)
   svg += '<defs>'+
             '<marker id="endarrow" markerWidth="20" markerHeight="20" '+
                 'refx="50" refy="6" orient="auto" markerUnits="strokeWidth">'+
-              '<path d="M0,0 L0,12 L18,6 z" class="zwArrowHead" />'+
+              '<path d="M0,0 L0,12 L18,6 z" class="zwArrowHead col_link" />'+
              '</marker>'+
             '<marker id="startarrow" markerWidth="20" markerHeight="20" '+
                 'refx="-50" refy="6" orient="auto" markerUnits="strokeWidth">'+
-              '<path d="M18,0 L18,12 L0,6 z" class="zwArrowHead" />'+
+              '<path d="M18,0 L18,12 L0,6 z" class="zwArrowHead col_link" />'+
              '</marker>'+
           '</defs>';
-  svg += '<rect class="zwMargin" x="1" y="1" width="'+
+  svg += '<rect class="zwMargin col_link" x="1" y="1" width="'+
                 (width-1)+'" height="'+(height-1)+'"/>';
   var ld={};
 
@@ -103,7 +104,7 @@ zw_draw(fnRet, width, height)
 
   svg += '</svg>';
 
-  var ox, oy, o;
+  var ox, oy, o, dragged;
   $("#ZWDongleNrSVG")
     .css({width:width, height:height})
     .html(svg);
@@ -133,8 +134,10 @@ zw_draw(fnRet, width, height)
   .bind('mousedown', function(e) {
     o = h[$(e.target).parent().attr("data-name")];
     ox = o.x; oy = o.y;
+    dragged = false;
   })
   .bind('drag', function(e, ui) {
+    dragged = true;
     var p = ui.position, op = ui.originalPosition;
     o.x = ox + (p.left-op.left);
     o.y = oy + (p.top -op.top);
@@ -145,6 +148,10 @@ zw_draw(fnRet, width, height)
       $(o.image).attr("y", o.y+20);
     }
     zw_adjustLines(h, o.name);
+  });
+  $("svg.zw_nr g text").click(function(){
+    if(!dragged)
+      window.open(FW_root+"?detail="+$(this).text(), '_blank');
   });
 }
 
@@ -192,7 +199,7 @@ zw_drawline(ld, h, o, n)
   h[n].lines.push(cl);
   var fr = zw_calcPos(h[o], h[n]);
   var to = zw_calcPos(h[n], h[o]);
-  return '<line class="zwLine" data-name="'+cl+
+  return '<line class="zwLine col_link" data-name="'+cl+
                '" x1="'+fr.x+'" y1="'+fr.y+
                '" x2="'+to.x+'" y2="'+to.y+'"'+
                  ' marker-end="url(#endarrow)"'+

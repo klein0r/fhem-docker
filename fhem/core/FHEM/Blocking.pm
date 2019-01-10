@@ -1,5 +1,5 @@
 ##############################################
-# $Id: Blocking.pm 15412 2017-11-09 14:34:29Z rudolfkoenig $
+# $Id: Blocking.pm 17553 2018-10-17 15:56:35Z rudolfkoenig $
 package main;
 
 =pod
@@ -122,7 +122,7 @@ BlockingStart(;$)
   BC_searchTelnet($curr && $curr->{fn} ? $curr->{fn}: "BlockingStart");
 
   my $chld_alive = 0;
-  my $max = AttrVal('global', 'blockingCallMax', 0);
+  my $max = AttrVal('global', 'blockingCallMax', 32);
 
   for my $bpid (sort { $a <=> $b} keys %BC_hash) {
     my $h = $BC_hash{$bpid};
@@ -131,7 +131,7 @@ BlockingStart(;$)
       if($^O =~ m/Win/) {
         # MaxNr of concurrent forked processes @Win is 64, and must use wait as
         # $SIG{CHLD} = 'IGNORE' does not work.
-        wait if(!$h->{telnet} || !$defs{$h->{telnet}});
+        wait if($h->{terminated});
       } else {
         use POSIX ":sys_wait_h";
         waitpid(-1, WNOHANG); # Forum #58867
@@ -172,6 +172,8 @@ BlockingStart(;$)
     my $pid = fhemFork;
     if(!defined($pid)) {
       Log 1, "Cannot fork: $!";
+      stacktrace() if(AttrVal("global", "stracktrace", 0));
+      DoTrigger("global", "CANNOT_FORK", 1);
       return $curr;
     }
 

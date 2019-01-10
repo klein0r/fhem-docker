@@ -2,6 +2,7 @@
 #
 # fhem bridge to mqtt (see http://mqtt.org)
 #
+# Copyright (C) 2018 Alexander Schulz
 # Copyright (C) 2017 Stephan Eisler
 # Copyright (C) 2014 - 2016 Norbert Truchsess
 #
@@ -20,7 +21,7 @@
 #     You should have received a copy of the GNU General Public License
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-# $Id: 10_MQTT_DEVICE.pm 15202 2017-10-05 20:35:33Z eisler $
+# $Id: 10_MQTT_DEVICE.pm 17362 2018-09-17 12:57:29Z hexenmeister $
 #
 ##############################################
 
@@ -34,6 +35,8 @@ my %gets = (
 sub MQTT_DEVICE_Initialize($) {
 
   my $hash = shift @_;
+
+  require "$main::attr{global}{modpath}/FHEM/00_MQTT.pm";
 
   # Consumer
   $hash->{DefFn}    = "MQTT::DEVICE::Define";
@@ -52,6 +55,7 @@ sub MQTT_DEVICE_Initialize($) {
     "publishSet_.* ".
     "subscribeReading_.* ".
     "autoSubscribeReadings ".
+    "useSetExtensions:1,0 ".
     $main::readingFnAttributes;
     
     main::LoadModule("MQTT");
@@ -64,6 +68,7 @@ use warnings;
 use GPUtils qw(:all);
 
 use Net::MQTT::Constants;
+use SetExtensions qw/ :all /;
 
 BEGIN {
   MQTT->import(qw(:all));
@@ -73,6 +78,8 @@ BEGIN {
     CommandAttr
     readingsSingleUpdate
     Log3
+    SetExtensions
+    SetExtensionsCancel
     fhem
     defs
     AttrVal
@@ -91,6 +98,14 @@ sub Set($$$@) {
   return "Need at least one parameters" unless defined $command;
   my $msgid;
   my $mark=0;
+
+  if (AttrVal($name,"useSetExtensions",undef)) {
+    if ($command =~ m/^(blink|intervals|(off-|on-)(for-timer|till(-overnight)?))(.+)?|toggle$/) {
+      Log3($hash->{NAME},5,"calling SetExtensions(...) for $command");
+      return SetExtensions($hash, join(" ", map {$hash->{sets}->{$_} eq "" ? $_ : "$_:".$hash->{sets}->{$_}} sort keys %{$hash->{sets}}), $name, $command, @values);
+    }
+  }
+
   if($command ne '?') {
     if(defined($hash->{publishSets}->{$command})) {
       my $value = join " ",@values;
@@ -115,8 +130,13 @@ sub Set($$$@) {
     }
   }
   if(!$mark) {
-    return "Unknown argument $command, choose one of " . join(" ", map {$hash->{sets}->{$_} eq "" ? $_ : "$_:".$hash->{sets}->{$_}} sort keys %{$hash->{sets}})
+    if(AttrVal($name,"useSetExtensions",undef)) {
+      return SetExtensions($hash, join(" ", map {$hash->{sets}->{$_} eq "" ? $_ : "$_:".$hash->{sets}->{$_}} sort keys %{$hash->{sets}}), $name, $command, @values);
+    } else {
+      return "Unknown argument $command, choose one of " . join(" ", map {$hash->{sets}->{$_} eq "" ? $_ : "$_:".$hash->{sets}->{$_}} sort keys %{$hash->{sets}})
+    }
   }
+  SetExtensionsCancel($hash);
   $hash->{message_ids}->{$msgid}++ if defined $msgid;
   readingsSingleUpdate($hash,"transmission-state","outgoing publish sent",1);
   return undef;
@@ -171,7 +191,8 @@ sub Attr($$$$) {
     };
     $attribute =~ /^publishSet(_?)(.*)/ and do {
       if ($command eq "set") {
-        my @values = split ("[ \t]+",$value);
+        my ( $aa, $bb ) = parseParams($value,undef,undef,undef,{});
+        my @values = @{$aa};
         my $topic = pop @values;
         $hash->{publishSets}->{$2} = {
           'values' => \@values,
@@ -264,6 +285,12 @@ sub onmessage($$$) {
       <p><code>set &lt;name&gt; &lt;reading&gt; &lt;value&gt;</code><br/>
          sets reading &lt;reading&gt; and publishes the command to topic configured via attr publishSet_&lt;reading&gt;</p>
     </li>
+    <li>
+      <p>The <a href="#setExtensions">set extensions</a> are supported with useSetExtensions attribute.<br/>
+      Set eventMap if your publishSet commands are not on/off.</p>
+      <p>example for true/false:<br/>
+      <code>attr mqttest eventMap { dev=>{ 'true'=>'on', 'false'=>'off' }, usr=>{ '^on$'=>'true', '^off$'=>'false' }, fw=>{ '^on$'=>'on', '^off$'=>'off' } }</code></p>
+    </li>
   </ul>
   <a name="MQTT_DEVICEattr"></a>
   <p><b>Attributes</b></p>
@@ -282,7 +309,8 @@ sub onmessage($$$) {
     <li>
       <p><code>attr &lt;name&gt; autoSubscribeReadings &lt;topic&gt;</code><br/>
          specify a mqtt-topic pattern with wildcard (e.c. 'myhouse/kitchen/+') and MQTT_DEVICE automagically creates readings based on the wildcard-match<br/>
-         e.g a message received with topic 'myhouse/kitchen/temperature' would create and update a reading 'temperature'</p>
+         e.g a message received with topic 'myhouse/kitchen/temperature' would create and update a reading 'temperature'.<br/>
+         Please note that topics with spaces will not work here!</p>
     </li>
     <li>
       <p><code>attr &lt;name&gt; subscribeReading_&lt;reading&gt; [{Perl-expression}] [qos:?] [retain:?] &lt;topic&gt;</code><br/>
@@ -313,6 +341,10 @@ sub onmessage($$$) {
          <code> retain *:0 1 test:1</code><br/>
          defines QOS 0 for all readings/topics except the reading 'test'. Retain for 'test' is 1<br>
        </p>
+    </li>
+    <li>
+      <p><code>attr &lt;name&gt; useSetExtensions &lt;flags&gt;</code><br/>
+         If set to 1, then the <a href="#setExtensions">set extensions</a> are supported.</p>
     </li>
   </ul>
 </ul>

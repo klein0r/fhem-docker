@@ -1,4 +1,4 @@
-# $Id: 57_CALVIEW.pm 15453 2017-11-19 12:26:11Z chris1284 $
+# $Id: 57_CALVIEW.pm 17605 2018-10-23 16:37:40Z chris1284 $
 ############################
 #	CALVIEW
 #	needs a defined Device 57_Calendar
@@ -132,8 +132,8 @@ sub CALVIEW_GetUpdate($){
 		else {$item->[2] = "no enddate"}
 		#replace the "\," with ","
 		if(length($item->[1]) > 0){ $item->[1] =~ s/\\,/,/g; }
-		if( defined($item->[4]) && length($item->[4]) > 0){ $item->[4] =~ s/\\,/,/g; }
-		if( defined($item->[5]) && length($item->[5]) > 0){ $item->[5] =~ s/\\,/,/g; }
+		if( defined($item->[4]) && length($item->[4]) > 0){ $item->[4] =~ s/\\,/,/g; } elsif( !defined($item->[4])){$item->[4] = " ";} 
+		if( defined($item->[5]) && length($item->[5]) > 0){ $item->[5] =~ s/\\,/,/g; } elsif( !defined($item->[5])){$item->[5] = " ";} 
 		#berechnen verbleibender tage bis zum termin
 		my $eventDate = fhemTimeLocal(0,0,0,$D,$M-1,$Y-1900);
 		my $daysleft = floor(($eventDate - time) / 60 / 60 / 24 + 1);
@@ -169,7 +169,8 @@ sub CALVIEW_GetUpdate($){
 			btimestamp => $bts[0],
 			mode => $item->[7],
 			weekday => $weekday,
-			weekdayname => $weekdayname};
+			weekdayname => $weekdayname,
+			duration => $item->[8]};
 	}
 	my $todaycounter = 1;
 	my $tomorrowcounter = 1;
@@ -221,7 +222,8 @@ sub CALVIEW_GetUpdate($){
 					my $nextday = $startday + 1;
 					$nextday = sprintf ('%02d', $nextday);
 					Log3 $name , 5,  "CALVIEW $name - nextday = $nextday , endday = $endday , startday = $startday , btime ".$termin->{btime}." , etime ".$termin->{etime}."";
-					if( $endday eq $nextday && $termin->{btime} eq $termin->{etime} ){ $timeshort = AttrVal($name,"fulldaytext","ganztägig"); }
+					#if( $endday eq $nextday && $termin->{btime} eq $termin->{etime} ){ $timeshort = AttrVal($name,"fulldaytext","ganztägig"); }
+					if( $termin->{duration} == 86400 ){ $termin->{duration} = AttrVal($name,"fulldaytext","ganztägig");$timeshort = AttrVal($name,"fulldaytext","ganztägig"); }
 					else { 
 						if(AttrVal($name,"timeshort","0") eq 0) {$timeshort = $termin->{btime}." - ".$termin->{etime}; }
 						elsif(AttrVal($name,"timeshort","0") eq 1) {
@@ -250,6 +252,7 @@ sub CALVIEW_GetUpdate($){
 					readingsBulkUpdate($hash, "t_".sprintf ('%03d', $counter)."_timeshort", $timeshort );
 					readingsBulkUpdate($hash, "t_".sprintf ('%03d', $counter)."_weekday", $termin->{weekday} );
 					readingsBulkUpdate($hash, "t_".sprintf ('%03d', $counter)."_weekdayname", $termin->{weekdayname} );
+					readingsBulkUpdate($hash, "t_".sprintf ('%03d', $counter)."_duration", $termin->{duration});
 					#wenn termin heute today readings anlegen
 					if ($date eq $termin->{bdate} ){
 						if($isbday == 1 ){ readingsBulkUpdate($hash, "today_".sprintf ('%03d', $todaycounter)."_age", $age);}
@@ -268,6 +271,9 @@ sub CALVIEW_GetUpdate($){
 						readingsBulkUpdate($hash, "today_".sprintf ('%03d', $todaycounter)."_etime", $termin->{etime}); 
 						readingsBulkUpdate($hash, "today_".sprintf ('%03d', $todaycounter)."_mode", $termin->{mode});
 						readingsBulkUpdate($hash, "today_".sprintf ('%03d', $todaycounter)."_timeshort", $timeshort );
+						readingsBulkUpdate($hash, "today_".sprintf ('%03d', $todaycounter)."_weekday", $termin->{weekday} );
+						readingsBulkUpdate($hash, "today_".sprintf ('%03d', $todaycounter)."_weekdayname", $termin->{weekdayname} );
+						readingsBulkUpdate($hash, "today_".sprintf ('%03d', $todaycounter)."_duration", $termin->{duration});
 						$todaycounter ++;
 					}
 					#wenn termin morgen tomorrow readings anlegen
@@ -288,6 +294,9 @@ sub CALVIEW_GetUpdate($){
 						readingsBulkUpdate($hash, "tomorrow_".sprintf ('%03d', $tomorrowcounter)."_etime", $termin->{etime});
 						readingsBulkUpdate($hash, "tomorrow_".sprintf ('%03d', $tomorrowcounter)."_mode", $termin->{mode});
 						readingsBulkUpdate($hash, "tomorrow_".sprintf ('%03d', $tomorrowcounter)."_timeshort", $timeshort );
+						readingsBulkUpdate($hash, "tomorrow_".sprintf ('%03d', $tomorrowcounter)."_weekday", $termin->{weekday} );
+						readingsBulkUpdate($hash, "tomorrow_".sprintf ('%03d', $tomorrowcounter)."_weekdayname", $termin->{weekdayname} );
+						readingsBulkUpdate($hash, "tomorrow_".sprintf ('%03d', $tomorrowcounter)."_duration", $termin->{duration});
 						$tomorrowcounter++;
 					}
 					$endday = '';
@@ -334,34 +343,20 @@ sub getsummery($)
 	my $modi = $attr{$name}{modes};
 	my @modes = split(/,/,$modi);
 	foreach my $calendername (@calendernamen){
-			my $all = CallFn($calendername, "GetFn", $defs{$calendername},(" ","uid", "next"));
+			my $all = CallFn($calendername, "GetFn", $defs{$calendername},("-","events","format:custom='\$U|\$T1|\$T2|\$S|\$L|\$DS|\$CA|\$d'"));
+			Log3 $name , 5,  "CALVIEW $name - All data: \n$all ...";
 			my @termine=split(/\n/,$all);
-			
-			foreach my $uid (@termine){
-				#für jedes event die einzelnen infos holen
-				my $tmpstarts = CallFn($calendername, "GetFn", $defs{$calendername},(" ","start", $uid));
-				my @starts  = split(/\n/,$tmpstarts);
-				my $tmpends = CallFn($calendername, "GetFn", $defs{$calendername},(" ","end", $uid));
-				my @ends  = split(/\n/,$tmpends);
-				my $tmpsummarys = CallFn($calendername, "GetFn", $defs{$calendername},(" ","summary", $uid));
-				my @summarys  = split(/\n/,$tmpsummarys);
-				my $tmplocations = CallFn($calendername, "GetFn", $defs{$calendername},(" ","location", $uid));
-				my @locations = split(/\n/,$tmplocations);				
-				my $tmpdescriptions = CallFn($calendername, "GetFn", $defs{$calendername},(" ","description", $uid));
-				my @description = split(/\n/,$tmpdescriptions);
-				my $tmpcategories = CallFn($calendername, "GetFn", $defs{$calendername},(" ","categories", $uid));
-				my @categories = split(/\n/,$tmpcategories);
-				
-				for(my $i = 1; $i <= (scalar(@starts)); $i++) {
-					my $internali = $i-1;
-					my $terminstart = $starts[$internali];
-					my $termintext = $summarys[$internali];
-					my $terminend = $ends[$internali];
-					my $terminort = $locations[$internali];
-					my $termindescription = $description[$internali];
-					 my $termincategories = $categories[$internali];
-					push(@terminliste, [$terminstart, $termintext, $terminend, $calendername, $terminort, $termindescription, $termincategories, "next"]);
-				}
+			foreach my $line (@termine){
+				Log3 $name , 5,  "CALVIEW $name - Termin: $line";
+				my @lineparts  = split(/\|/,$line);
+				#my $terminstart = $lineparts[1];
+				#my $terminend = $lineparts[2];
+				#my $termintext = $lineparts[3];
+				#my $terminort = $lineparts[4];
+				#my $termindescription = $lineparts[5];
+				#my $termincategories = $lineparts[6];
+				#Log3 $name , 5,  "CALVIEW $name - Termin splitted : $terminstart, $termintext, $terminend, $calendername, $terminort, $termindescription, $termincategories";
+				push(@terminliste, [$lineparts[1], $lineparts[3], $lineparts[2], $calendername, $lineparts[4], $lineparts[5], $lineparts[6], "next", $lineparts[7]]);
 			};
 	};
 	return @terminliste;
@@ -379,8 +374,9 @@ sub CALVIEW_Notify($$)
 		if ($extDevName eq $calendar) {
 			foreach $event (@{$extDevHash->{CHANGED}}) {
 				if ($event eq "triggered") { 
-					Log3 $name , 3,  "CALVIEW $name - CALENDAR:$extDevName triggered, updating CALVIEW $name ...";
+					Log3 $name , 5,  "CALVIEW $name - CALENDAR:$extDevName triggered, updating CALVIEW $name (CALVIEW_Notify) ...";
 					CALVIEW_GetUpdate($hash); 
+					Log3 $name , 5,  "CALVIEW $name - CALENDAR:$extDevName successfully got all updates for CALVIEW $name (CALVIEW_Notify). Now process updates...";
 				}
 			}
 		}
@@ -396,7 +392,7 @@ sub CALVIEW_Notify($$)
 <a name="CALVIEW"></a>
 <h3>CALVIEW</h3>
 <ul>This module creates a device with deadlines based on calendar-devices of the 57_Calendar.pm module. You need to install the  perl-modul Date::Parse!</ul>
-<ul>Actually the module supports only the "get <> next" function of the CALENDAR-Modul.</ul>
+<ul>Please configure the attribut HideOlderThen in your CALENDAR-Device, that controls if old events from past are shown!</ul>
 <b>Define</b>
 <ul><code>define &lt;Name&gt; CALVIEW &lt;calendarname(s) separate with ','&gt; &lt;next&gt; &lt;updateintervall in sec (default 43200)&gt;</code></ul>
 <ul><code>define myView CALVIEW Googlecalendar next</code></ul>
@@ -465,7 +461,7 @@ sub CALVIEW_Notify($$)
 <a name="CALVIEW"></a>
 <h3>CALVIEW</h3>
 <ul>Dieses Modul erstellt ein Device welches als Readings Termine eines oder mehrere Kalender(s), basierend auf dem 57_Calendar.pm Modul, besitzt. Ihr müsst das Perl-Modul Date::Parse installieren!</ul>
-<ul>Aktuell wird nur die "get <> next" Funktion vom CALENDAR untertstützt.</ul>
+<ul>Bitte setzt das Attribut HideOlderThen in eurem CALENDAR_Device, da sonst auch vergangene Termine gezeigt werden.</ul>
 <b>Define</b>
 <ul><code>define &lt;Name&gt; CALVIEW &lt;Kalendername(n) getrennt durch ','&gt; &lt;next&gt; &lt;updateintervall in sek (default 43200)&gt;</code></ul>
 <ul><code>define myView CALVIEW Googlekalender next</code></ul>

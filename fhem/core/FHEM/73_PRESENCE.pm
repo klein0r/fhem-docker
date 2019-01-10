@@ -1,4 +1,4 @@
-﻿# $Id: 73_PRESENCE.pm 15302 2017-10-22 11:32:19Z markusbloch $
+﻿# $Id: 73_PRESENCE.pm 16177 2018-02-14 08:58:43Z markusbloch $
 ##############################################################################
 #
 #     73_PRESENCE.pm
@@ -47,16 +47,22 @@ PRESENCE_Initialize($)
     $hash->{UndefFn}  = "PRESENCE_Undef";
     $hash->{AttrFn}   = "PRESENCE_Attr";
     $hash->{AttrList} = "do_not_notify:0,1 ".
-                       "disable:0,1 ".
-                       "disabledForIntervals ".
-                       "fritzbox_speed:0,1 ".
-                       "ping_count:1,2,3,4,5,6,7,8,9,10 ".
-                       "bluetooth_hci_device ".
-                       "absenceThreshold:1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20 ".
-                       "presenceThreshold:1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20 ".
-                       "absenceTimeout ".
-                       "presenceTimeout ".
-                       "powerCmd ".$readingFnAttributes;
+                        "disable:0,1 ".
+                        "disabledForIntervals ".
+                        "fritzboxCheckSpeed:0,1 ".
+                        "pingCount:1,2,3,4,5,6,7,8,9,10 ".
+                        "bluetoothHciDevice ".
+                        "absenceThreshold ".
+                        "presenceThreshold ".
+                        "absenceTimeout ".
+                        "presenceTimeout ".
+                        "powerCmd ".
+                        $readingFnAttributes;
+                        
+    $hash->{AttrRenameMap} = { "ping_count" => "pingCount",
+                               "bluetooth_hci_device" => "bluetoothHciDevice",
+                               "fritzbox_speed" => "fritzboxCheckSpeed"
+                             };
 
 }
 
@@ -85,8 +91,8 @@ PRESENCE_Define($$)
 
             $hash->{MODE} = "local-bluetooth";
             $hash->{ADDRESS} = $a[3];
-            $hash->{TIMEOUT_NORMAL} = (defined($a[4]) ? $a[4] : 30);
-            $hash->{TIMEOUT_PRESENT} = (defined($a[5]) ? $a[5] : $hash->{TIMEOUT_NORMAL});
+            $hash->{INTERVAL_NORMAL} = (defined($a[4]) ? $a[4] : 30);
+            $hash->{INTERVAL_PRESENT} = (defined($a[5]) ? $a[5] : $hash->{INTERVAL_NORMAL});
         }
         elsif($a[2] eq "fritzbox")
         {
@@ -106,8 +112,8 @@ PRESENCE_Define($$)
 
             $hash->{MODE} = "fritzbox";
             $hash->{ADDRESS} = $a[3];
-            $hash->{TIMEOUT_NORMAL} = (defined($a[4]) ? $a[4] : 30);
-            $hash->{TIMEOUT_PRESENT} = (defined($a[5]) ? $a[5] : $hash->{TIMEOUT_NORMAL});
+            $hash->{INTERVAL_NORMAL} = (defined($a[4]) ? $a[4] : 30);
+            $hash->{INTERVAL_PRESENT} = (defined($a[5]) ? $a[5] : $hash->{INTERVAL_NORMAL});
         }
         elsif($a[2] eq "lan-ping")
         {
@@ -120,8 +126,8 @@ PRESENCE_Define($$)
 
             $hash->{MODE} = "lan-ping";
             $hash->{ADDRESS} = $a[3];
-            $hash->{TIMEOUT_NORMAL} = (defined($a[4]) ? $a[4] : 30);
-            $hash->{TIMEOUT_PRESENT} = (defined($a[5]) ? $a[5] : $hash->{TIMEOUT_NORMAL});
+            $hash->{INTERVAL_NORMAL} = (defined($a[4]) ? $a[4] : 30);
+            $hash->{INTERVAL_PRESENT} = (defined($a[5]) ? $a[5] : $hash->{INTERVAL_NORMAL});
         }
         elsif($a[2] =~ /(shellscript|function)/)
         {
@@ -129,8 +135,8 @@ PRESENCE_Define($$)
             {
                 $hash->{MODE} = $2;
                 $hash->{helper}{call} = $3;
-                $hash->{TIMEOUT_NORMAL} = ($4 ne "" ? $4 : 30);
-                $hash->{TIMEOUT_PRESENT} = ($5 ne "" ? $5 : $hash->{TIMEOUT_NORMAL});
+                $hash->{INTERVAL_NORMAL} = ($4 ne "" ? $4 : 30);
+                $hash->{INTERVAL_PRESENT} = ($5 ne "" ? $5 : $hash->{INTERVAL_NORMAL});
 
                 delete($hash->{helper}{ADDRESS});
 
@@ -162,8 +168,8 @@ PRESENCE_Define($$)
 
             $hash->{MODE} = "lan-bluetooth";
             $hash->{ADDRESS} = $a[3];
-            $hash->{TIMEOUT_NORMAL} = (defined($a[5]) ? $a[5] : 30);
-            $hash->{TIMEOUT_PRESENT} = (defined($a[6]) ? $a[6] : $hash->{TIMEOUT_NORMAL});
+            $hash->{INTERVAL_NORMAL} = (defined($a[5]) ? $a[5] : 30);
+            $hash->{INTERVAL_PRESENT} = (defined($a[6]) ? $a[6] : $hash->{INTERVAL_NORMAL});
 
             $dev = $a[4];
             $dev .= ":5222" if($dev !~ m/:/ && $dev ne "none" && $dev !~ m/\@/);
@@ -201,8 +207,8 @@ PRESENCE_Define($$)
         return $msg;
     }
 
-    my $timeout = $hash->{TIMEOUT_NORMAL};
-    my $presence_timeout = $hash->{TIMEOUT_PRESENT};
+    my $timeout = $hash->{INTERVAL_NORMAL};
+    my $presence_timeout = $hash->{INTERVAL_PRESENT};
 
     if(defined($timeout) and not $timeout =~ /^\d+$/)
     {
@@ -334,6 +340,9 @@ PRESENCE_Set($@)
     my $powerCmd = AttrVal($name, "powerCmd", undef);
     $usage .= " power" if(defined($powerCmd));
 
+    $usage .= " overrideInterval" if($hash->{MODE} !~ /^event|lan-bluetooth$/);
+    $usage .= " clearOverride:noArg" if($hash->{INTERVAL_OVERRIDED});
+
     if($a[1] eq "statusRequest")
     {
         if($hash->{MODE} ne "lan-bluetooth")
@@ -377,13 +386,29 @@ PRESENCE_Set($@)
         {
             readingsSingleUpdate($hash, "powerCmd", "executed",1);
         }
-
-        return undef;
+    }
+    elsif($a[1] eq "overrideInterval")
+    {
+        if($a[2] and $a[2] =~ /^\d+$/)
+        {
+            Log3 $name, 3, "PRESENCE ($name) - overriding regular check intervals to ".$a[2]." seconds";
+            $hash->{INTERVAL_OVERRIDED} = $a[2];
+        }
+        else
+        {
+            return "invalid override interval given (must be a positive integer)"
+        }
+    }
+    elsif($a[1] eq "clearOverride")
+    {
+        delete($hash->{INTERVAL_OVERRIDED});
     }
     else
     {
         return $usage;
     }
+
+    return undef;
 }
 
 
@@ -522,11 +547,11 @@ PRESENCE_Read($)
 
         if($line =~ /^absence|absent/)
         {
-            if(!$hash->{helper}{DISABLED} and $hash->{helper}{CURRENT_TIMEOUT} eq "present" and $hash->{TIMEOUT_NORMAL} != $hash->{TIMEOUT_PRESENT})
+            if(!$hash->{helper}{DISABLED} and $hash->{helper}{CURRENT_TIMEOUT} eq "present" and $hash->{INTERVAL_NORMAL} != $hash->{INTERVAL_PRESENT})
             {
                 $hash->{helper}{CURRENT_TIMEOUT} = "normal";
-                Log3 $name, 4 , "PRESENCE ($name) - changing to normal timeout every ".$hash->{TIMEOUT_NORMAL}." seconds";
-                DevIo_SimpleWrite($hash, $hash->{ADDRESS}."|".$hash->{TIMEOUT_NORMAL}."\n", 2);
+                Log3 $name, 4 , "PRESENCE ($name) - changing to normal timeout every ".$hash->{INTERVAL_NORMAL}." seconds";
+                DevIo_SimpleWrite($hash, $hash->{ADDRESS}."|".$hash->{INTERVAL_NORMAL}."\n", 2);
             }
 
             unless($hash->{helper}{DISABLED})
@@ -541,11 +566,11 @@ PRESENCE_Read($)
         }
         elsif($line =~ /present;(.+?)$/)
         {
-            if(!$hash->{helper}{DISABLED} and $hash->{helper}{CURRENT_TIMEOUT} eq "normal" and $hash->{TIMEOUT_NORMAL} != $hash->{TIMEOUT_PRESENT})
+            if(!$hash->{helper}{DISABLED} and $hash->{helper}{CURRENT_TIMEOUT} eq "normal" and $hash->{INTERVAL_NORMAL} != $hash->{INTERVAL_PRESENT})
             {
                 $hash->{helper}{CURRENT_TIMEOUT} = "present";
-                Log3 $name, 4 , "PRESENCE ($name) - changing to present timeout every ".$hash->{TIMEOUT_PRESENT}." seconds";
-                DevIo_SimpleWrite($hash, $hash->{ADDRESS}."|".$hash->{TIMEOUT_PRESENT}."\n", 2);
+                Log3 $name, 4 , "PRESENCE ($name) - changing to present timeout every ".$hash->{INTERVAL_PRESENT}." seconds";
+                DevIo_SimpleWrite($hash, $hash->{ADDRESS}."|".$hash->{INTERVAL_PRESENT}."\n", 2);
             }
 
             unless($hash->{helper}{DISABLED})
@@ -579,15 +604,15 @@ PRESENCE_Read($)
         {
             readingsBulkUpdate($hash, "command_accepted", "no");
         }
-        elsif($line =~ /socket_closed;(.+?)$/)
+        elsif($line =~ /socket_closed;(?:room='?)?(.+?)'?$/)
         {
             Log3 $name, 3, "PRESENCE ($name) - collectord lost connection to room $1";
         }
-        elsif($line =~ /socket_reconnected;(.+?)$/)
+        elsif($line =~ /socket_reconnected;(?:room='?)?(.+?)'?$/)
         {
             Log3 $name , 3, "PRESENCE ($name) - collectord reconnected to room $1";
         }
-        elsif($line =~ /error;(.+?)$/)
+        elsif($line =~ /error;(?:room='?)?(.+?)'?$/)
         {
             Log3 $name, 3, "PRESENCE ($name) - room $1 cannot execute hcitool to check device";
         }
@@ -643,17 +668,17 @@ sub PRESENCE_StartLocalScan($;$)
         if($mode eq "local-bluetooth")
         {
             Log3 $name, 5, "PRESENCE ($name) - starting blocking call for mode local-bluetooth";
-            $hash->{helper}{RUNNING_PID} = BlockingCall("PRESENCE_DoLocalBluetoothScan", $name."|".$hash->{ADDRESS}."|".$local."|".AttrVal($name, "bluetooth_hci_device", ""), "PRESENCE_ProcessLocalScan", 60, "PRESENCE_ProcessAbortedScan", $hash);
+            $hash->{helper}{RUNNING_PID} = BlockingCall("PRESENCE_DoLocalBluetoothScan", $name."|".$hash->{ADDRESS}."|".$local."|".AttrVal($name, "bluetoothHciDevice", ""), "PRESENCE_ProcessLocalScan", 60, "PRESENCE_ProcessAbortedScan", $hash);
         }
         elsif($mode eq "lan-ping")
         {
             Log3 $name, 5, "PRESENCE ($name) - starting blocking call for mode lan-ping";
-            $hash->{helper}{RUNNING_PID} = BlockingCall("PRESENCE_DoLocalPingScan", $name."|".$hash->{ADDRESS}."|".$local."|".AttrVal($name, "ping_count", "4"), "PRESENCE_ProcessLocalScan", 60, "PRESENCE_ProcessAbortedScan", $hash);
+            $hash->{helper}{RUNNING_PID} = BlockingCall("PRESENCE_DoLocalPingScan", $name."|".$hash->{ADDRESS}."|".$local."|".AttrVal($name, "pingCount", "4"), "PRESENCE_ProcessLocalScan", 60, "PRESENCE_ProcessAbortedScan", $hash);
         }
         elsif($mode eq "fritzbox")
         {
             Log3 $name, 5, "PRESENCE ($name) - starting blocking call for mode fritzbox";
-            $hash->{helper}{RUNNING_PID} = BlockingCall("PRESENCE_DoLocalFritzBoxScan", $name."|".$hash->{ADDRESS}."|".$local."|".AttrVal($name, "fritzbox_speed", "0"), "PRESENCE_ProcessLocalScan", 60, "PRESENCE_ProcessAbortedScan", $hash);
+            $hash->{helper}{RUNNING_PID} = BlockingCall("PRESENCE_DoLocalFritzBoxScan", $name."|".$hash->{ADDRESS}."|".$local."|".AttrVal($name, "fritzboxCheckSpeed", "0"), "PRESENCE_ProcessLocalScan", 60, "PRESENCE_ProcessAbortedScan", $hash);
         }
         elsif($mode eq "shellscript")
         {
@@ -670,7 +695,7 @@ sub PRESENCE_StartLocalScan($;$)
         {
             delete($hash->{helper}{RUNNING_PID});
 
-            my $seconds = (ReadingsVal($name, "state", "absent") eq "present" ? $hash->{TIMEOUT_PRESENT} : $hash->{TIMEOUT_NORMAL});
+            my $seconds = (ReadingsVal($name, "state", "absent") eq "present" ? $hash->{INTERVAL_PRESENT} : $hash->{INTERVAL_NORMAL});
 
             Log3 $hash->{NAME}, 4, "PRESENCE ($name) - fork failed, rescheduling next check in $seconds seconds";
 
@@ -686,7 +711,7 @@ sub PRESENCE_StartLocalScan($;$)
 
         if($local == 0)
         {
-            my $seconds = (ReadingsVal($name, "state", "absent") eq "present" ? $hash->{TIMEOUT_PRESENT} : $hash->{TIMEOUT_NORMAL});
+            my $seconds = (ReadingsVal($name, "state", "absent") eq "present" ? $hash->{INTERVAL_PRESENT} : $hash->{INTERVAL_NORMAL});
 
             Log3 $hash->{NAME}, 4, "PRESENCE ($name) - rescheduling next check in $seconds seconds";
 
@@ -1101,19 +1126,13 @@ sub PRESENCE_ProcessLocalScan($)
 
     if($a[2] eq "present")
     {
-        readingsBulkUpdate($hash, "device_name", $a[3]) if(defined($a[3]) and $hash->{MODE} =~ /^(lan-bluetooth|local-bluetooth)$/ );
+        readingsBulkUpdate($hash, "device_name", $a[3]) if($hash->{MODE} =~ /^(lan-bluetooth|local-bluetooth)$/ and defined($a[3]));
 
-        if($hash->{MODE} eq "fritzbox" and defined($a[4]))
-        {
-            readingsBulkUpdate($hash, "speed", $a[4]);
-        }
+        readingsBulkUpdate($hash, "speed", $a[4]) if($hash->{MODE} eq "fritzbox" and defined($a[4]));
     }
     elsif($a[2] eq "absent")
     {
-        if($hash->{MODE} eq "fritzbox" and defined($a[4]))
-        {
-            readingsBulkUpdate($hash, "speed", $a[4]);
-        }
+        readingsBulkUpdate($hash, "speed", $a[4])  if($hash->{MODE} eq "fritzbox" and defined($a[4]));
     }
     elsif($a[2] eq "error")
     {
@@ -1124,10 +1143,12 @@ sub PRESENCE_ProcessLocalScan($)
 
     readingsEndUpdate($hash, 1);
 
-    #Schedule the next check withing $timeout if it is a regular run
+    #Schedule the next check within $timeout if it is a regular run
     if($local eq "0")
     {
-        my $seconds = ($a[2] eq "present" ? $hash->{TIMEOUT_PRESENT} : $hash->{TIMEOUT_NORMAL});
+        my $seconds = (($a[2] eq "present") ? $hash->{INTERVAL_PRESENT} : $hash->{INTERVAL_NORMAL});
+
+        $seconds = $hash->{INTERVAL_OVERRIDED} if($hash->{INTERVAL_OVERRIDED});
 
         Log3 $hash->{NAME}, 4, "PRESENCE ($name) - rescheduling next check in $seconds seconds";
 
@@ -1139,32 +1160,33 @@ sub PRESENCE_ProcessLocalScan($)
 #####################################
 sub PRESENCE_ProcessAbortedScan($)
 {
-
     my ($hash, $msg) = @_;
     my $name = $hash->{NAME};
     delete($hash->{helper}{RUNNING_PID});
     RemoveInternalTimer($hash);
 
+    my $retry_interval = AttrVal($name,"retryInterval",10);
+
     if(defined($hash->{helper}{RETRY_COUNT}))
     {
-        if($hash->{helper}{RETRY_COUNT} >= 3)
+        if($hash->{helper}{RETRY_COUNT} >= AttrVal($name, "retryCount", 3))
         {
             Log3 $hash->{NAME}, 2, "PRESENCE ($name) - device could not be checked after ".$hash->{helper}{RETRY_COUNT}." ".($hash->{helper}{RETRY_COUNT} > 1 ? "retries" : "retry"). " (resuming normal operation): $msg" if($hash->{helper}{RETRY_COUNT} == 3);
-            InternalTimer(gettimeofday()+10, "PRESENCE_StartLocalScan", $hash, 0) unless($hash->{helper}{DISABLED});
+            InternalTimer(gettimeofday()+$hash->{INTERVAL_NORMAL}, "PRESENCE_StartLocalScan", $hash, 0) unless($hash->{helper}{DISABLED});
             $hash->{helper}{RETRY_COUNT}++;
         }
         else
         {
-            Log3 $hash->{NAME}, 2, "PRESENCE ($name) - device could not be checked after ".$hash->{helper}{RETRY_COUNT}." ".($hash->{helper}{RETRY_COUNT} > 1 ? "retries" : "retry")." (retrying in 10 seconds): $msg";
-            InternalTimer(gettimeofday()+10, "PRESENCE_StartLocalScan", $hash, 0) unless($hash->{helper}{DISABLED});
+            Log3 $hash->{NAME}, 2, "PRESENCE ($name) - device could not be checked after ".$hash->{helper}{RETRY_COUNT}." ".($hash->{helper}{RETRY_COUNT} > 1 ? "retries" : "retry")." (retrying in $retry_interval seconds): $msg";
+            InternalTimer(gettimeofday()+$retry_interval, "PRESENCE_StartLocalScan", $hash, 0) unless($hash->{helper}{DISABLED});
             $hash->{helper}{RETRY_COUNT}++;
         }
     }
     else
     {
         $hash->{helper}{RETRY_COUNT} = 1;
-        InternalTimer(gettimeofday()+10, "PRESENCE_StartLocalScan", $hash, 0) unless($hash->{helper}{DISABLED});
-        Log3 $hash->{NAME}, 2, "PRESENCE ($name) - device could not be checked (retrying in 10 seconds): $msg"
+        InternalTimer(gettimeofday()+$retry_interval, "PRESENCE_StartLocalScan", $hash, 0) unless($hash->{helper}{DISABLED});
+        Log3 $hash->{NAME}, 2, "PRESENCE ($name) - device could not be checked (retrying in $retry_interval seconds): $msg"
     }
 
     readingsSingleUpdate($hash, "state", "timeout",1);
@@ -1186,7 +1208,7 @@ sub PRESENCE_DoInit($)
     {
         readingsSingleUpdate($hash, "state", "active",0);
         $hash->{helper}{CURRENT_TIMEOUT} = "normal";
-        DevIo_SimpleWrite($hash, $hash->{ADDRESS}."|".$hash->{TIMEOUT_NORMAL}."\n", 2);
+        DevIo_SimpleWrite($hash, $hash->{ADDRESS}."|".$hash->{INTERVAL_NORMAL}."\n", 2);
     }
     else
     {
@@ -1419,7 +1441,7 @@ sub PRESENCE_setNotfiyDev($)
   <li>present-check-interval - The interval in seconds between each presence check in case the device is <i>present</i>. Otherwise the normal check-interval will be used.</li>
   </ul>
   <br><br>
-  <a name="PRESENCEdefine"></a>
+  <a name="PRESENCE_define"></a>
   <b>Define</b><br><br>
   <ul><b>Mode: lan-ping</b><br><br>
     <code>define &lt;name&gt; PRESENCE lan-ping &lt;ip-address&gt; [ &lt;check-interval&gt; [ &lt;present-check-interval&gt; ] ]</code><br>
@@ -1490,6 +1512,8 @@ Options:
      PID file for storing the local process id (Default: /var/run/presenced.pid)
   -d, --daemon
      detach from terminal and run as background daemon
+  -n, --no-timestamps
+     do not output timestamps in log messages
   -v, --verbose
      Print detailed log output
   -h, --help
@@ -1505,8 +1529,7 @@ Options:
     The presenced is available as:<br><br>
     <ul>
     <li>direct perl script file: <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/presenced" target="_new">presenced</a></li>
-    <li>.deb package for Debian (noarch): <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/deb/presenced-1.4.deb" target="_new">presenced-1.4.deb</a></li>
-    <li>.deb package for Raspberry Pi (raspbian): <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/deb/presenced-rpi-1.4.deb" target="_new">presenced-rpi-1.4.deb</a></li>
+    <li>.deb package for Debian/Raspbian (noarch): <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/deb/presenced-1.5.deb" target="_new">presenced-1.5.deb</a></li>
     </ul>
     </ul><br><br>
         <u>lepresenced</u><br><br>
@@ -1525,8 +1548,8 @@ valid log levels:
     LOG_CRIT, LOG_ERR, LOG_WARNING, LOG_NOTICE, LOG_INFO, LOG_DEBUG. Default: LOG_INFO
 
 Examples:
-	lepresenced --bluetoothdevice hci0 --listenaddress 127.0.0.1 --listenport 5333 --daemon
-	lepresenced --loglevel LOG_DEBUG --daemon
+    lepresenced --bluetoothdevice hci0 --listenaddress 127.0.0.1 --listenport 5333 --daemon
+    lepresenced --loglevel LOG_DEBUG --daemon
 </PRE>
 
     To detect the presence of a device, it uses the command <i>hcitool lescan</i> (package:
@@ -1562,6 +1585,8 @@ Options:
      PID file for storing the local process id (Default: /var/run/collectord.pid)
   -d, --daemon
      detach from terminal and run as background daemon
+  -n, --no-timestamps
+     do not output timestamps in log messages
   -v, --verbose
      Print detailed log output
   -l, --logfile &lt;logfile&gt;
@@ -1594,21 +1619,23 @@ Options:
 
     <ul>
     <li>direct perl script file: <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/collectord" target="_new">collectord</a></li>
-    <li>.deb package for Debian (noarch): <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/deb/collectord-1.7.deb" target="_new">collectord-1.7.deb</a></li>
+    <li>.deb package for Debian (noarch): <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/deb/collectord-1.8.1.deb" target="_new">collectord-1.8.1.deb</a></li>
     </ul>
     </ul><br><br>
 
   </ul>
   <br>
-  <a name="PRESENCEset"></a>
+  <a name="PRESENCE_set"></a>
   <b>Set</b>
   <ul>
   <li><b>statusRequest</b> - Schedules an immediatly check.</li>
   <li><b>power</b> - Executes the given power command which is set as attribute to power (on or off) the device (only when attribute "powerCmd" is set)</li>
+  <li><b>overrideInterval</b> - Override the check interval to the given number of seconds. (not applicable in mode "event" and "lan-bluetooth")</li>
+  <li><b>clearOverride</b> - clear an active check interval override (only if set command overrideInterval was executed before)</li>
   </ul>
   <br>
 
-  <a name="PRESENCEget"></a>
+  <a name="PRESENCE_get"></a>
   <b>Get</b>
   <ul>
   N/A
@@ -1624,36 +1651,47 @@ Options:
     If this attribute is activated, an active check will be disabled.<br><br>
     Possible values: 0 => not disabled , 1 => disabled<br>
     Default Value is 0 (not disabled)<br><br>
-    <li><a name="PRESENCE_absenceThreshold">absenceThreshold</a></li><br> <i>(Not in Mode "event" applicable)</i><br>
+    <li><a name="PRESENCE_absenceThreshold">absenceThreshold</a></li><br> <i>(not applicable in mode "event" )</i><br>
     The number of checks that have to result in "absent" before the state of the PRESENCE definition is changed to "absent".
     This can be used to verify the absence of a device with multiple check runs before the state is finally changed to "absent".
     If this attribute is set to a value &gt;1, the reading state and presence will be set to "maybe absent" during the absence verification.<br><br>
     Default Value is 1 (no absence verification)<br><br>
-    <li><a name="PRESENCE_presenceThreshold">presenceThreshold</a></li><br> <i>(Not in Mode "event" applicable)</i><br>
+    <li><a name="PRESENCE_presenceThreshold">presenceThreshold</a></li><br> <i>(not applicable in mode "event" )</i><br>
     The number of checks that have to result in "present" before the state of the PRESENCE definition is changed to "present".
     This can be used to verify the permanent presence of a device with multiple check runs before the state is finally changed to "present".
     If this attribute is set to a value &gt;1, the reading state and presence will be set to "maybe present" during the presence verification.<br><br>
     Default Value is 1 (no presence verification)<br><br>
-    <li><a name="PRESENCE_absenceTimeout">absenceTimeout</a></li><br> <i>(Only in Mode "event" applicable)</i><br>
+    <li><a name="PRESENCE_absenceTimeout">absenceTimeout</a></li><br> <i>(only in mode "event" applicable)</i><br>
     The timeout after receiving an "absent" event, before the state of the PRESENCE definition is switched to "absent".
     This can be used to verify the permanent absence by waiting a specific time frame to not receive an "present" event.
     If this timeout is reached with no "present" event received in the meantime, the presence state will finally be set to "absent".
     The timeout is given in HH:MM:SS format, where hours and minutes are optional.
     If this attribute is set to a valid value, the reading state and presence will be set to "maybe absent" during the absence verification.<br><br>
     Default Value is 0 (no absence verification)<br><br>
-    <li><a name="PRESENCE_presenceTimeout">presenceTimeout</a></li><br> <i>(Only in Mode "event" applicable)</i><br>
+    <li><a name="PRESENCE_presenceTimeout">presenceTimeout</a></li><br> <i>(only in mode "event" applicable)</i><br>
     The timeout after receiving an "present" event, before the state of the PRESENCE definition is switched to "present".
     This can be used to verify the permanent presence by waiting a specific time frame to not receive an "absent" event.
     If this timeout is reached with no "absent" event received in the meantime, the presence state will finally be set to "present".
     The timeout is given in HH:MM:SS format, where hours and minutes are optional.
     If this attribute is set to a valid value, the reading state and presence will be set to "maybe present" during the presence verification.<br><br>
     Default Value is 0 (no presence verification)<br><br>
-    <li><a name="PRESENCE_ping_count">ping_count</a></li> (Only in Mode "ping" applicable)<br>
+    <li><a name="PRESENCE_retryInterval">retryInterval</a></li><br> <i>(Not applicable in mode "event" or "lan-bluetooth")</i><br>
+    The check interval in case a check is prematurely aborted and was unable to check the presence. In this case, PRESENCE reschedules
+    the next check as retry within the given retry interval in seconds (usually lower than the regular check interval).
+    <br><br>
+    Default Value is 10 seconds<br><br>
+    <li><a name="PRESENCE_retryCount">retryCount</a></li><br> <i>(Not applicable in mode "event" or "lan-bluetooth")</i><br>
+    The maximum number of checks to perform within the retryInterval in case a check is prematurely aborted and was unable to check the presence.
+    PRESENCE will try to retry after a failed check to a maximum of the given number of tries. If all retries fails also, it will uses afterwards
+    the regular check interval.
+    <br><br>
+    Default Value is 3 (number of check retries)<br><br>
+    <li><a name="PRESENCE_pingCount">pingCount</a></li> (Only in mode "ping" applicable)<br>
     Changes the count of the used ping packets to recognize a present state. Depending on your network performance sometimes a packet can be lost or blocked.<br><br>
     Default Value is 4 (packets)<br><br>
-    <li><a name="PRESENCE_bluetooth_hci_device">bluetooth_hci_device</a></li> (Only in Mode "local-bluetooth" applicable)<br>
+    <li><a name="PRESENCE_bluetoothHciDevice">bluetoothHciDevice</a></li> (Only in Mode "local-bluetooth" applicable)<br>
     Set a specific bluetooth HCI device to use for scanning. If you have multiple bluetooth modules connected, you can select a specific one to use for scanning (e.g. hci0, hci1, ...).<br><br>
-    <li><a name="PRESENCE_fritzbox_speed">fritzbox_speed</a></li> (Only in Mode "fritzbox" applicable)<br>
+    <li><a name="PRESENCE_fritzboxCheckSpeed">fritzboxCheckSpeed</a></li> (Only in Mode "fritzbox" applicable)<br>
     When this attribute is enabled, the network speed is checked in addition to the device state.<br>
     This only makes sense for wireless devices connected directly to the FritzBox.
     <br><br>
@@ -1680,20 +1718,24 @@ Options:
   </ul>
   <br>
 
-  <a name="PRESENCEevents"></a>
-  <b>Generated Events:</b><br><br>
+  <a name="PRESENCE_events"></a>
+  <b>Generated readings/events:</b><br><br>
   <ul>
-    <u>General Events:</u><br><br>
+    <u>General readings/events:</u><br><br>
     <ul>
-    <li><b>state</b>: (absent|maybe absent|present|disabled|error|timeout) - The state of the device, check errors or "disabled" when the <a href="#PRESENCE_disable">disable</a> attribute is enabled</li>
-    <li><b>presence</b>: (absent|maybe absent|present) - The state of the device. The value "maybe absent" only occurs if <a href="#PRESENCE_absenceThreshold">absenceThreshold</a> is activated.</li>
+    <li><b>state</b>: (absent|maybe absent|present|maybe present|disabled|error|timeout) - The state of the device, check errors or "disabled" when the <a href="#PRESENCE_disable">disable</a> attribute is enabled</li>
+    <li><b>presence</b>: (absent|maybe absent|present|maybe present) - The presence state of the device. The value "maybe absent" only occurs if <a href="#PRESENCE_absenceThreshold">absenceThreshold</a> is activated. The value "maybe present" only occurs if <a href="#PRESENCE_presenceThreshold">presenceThreshold</a> is activated.</li>
     <li><b>powerCmd</b>: (executed|failed) - power command was executed or has failed</li>
     </ul><br><br>
-    <u>Bluetooth specific events:</u><br><br>
+    <u>Bluetooth specific readings/events:</u><br><br>
     <ul>
     <li><b>device_name</b>: $name - The name of the Bluetooth device in case it's present</li>
     </ul><br><br>
-    <u>presenced/collectord specific events:</u><br><br>
+    <u>FRITZ!Box specific readings/events:</u><br><br>
+    <ul>
+    <li><b>speed</b>: $speed - The current speed of the checked device if attribute <a href="#PRESENCE_fritzboxCheckSpeed">fritzboxCheckSpeed</a> is activated</li>
+    </ul><br><br>
+    <u>presenced/collectord specific readings/events:</u><br><br>
     <ul>
     <li><b>command_accepted</b>: $command_accepted (yes|no) - Was the last command acknowleged and accepted by the presenced or collectord?</li>
     <li><b>room</b>: $room - If the module is connected with a collector daemon this event shows the room, where the device is located (as defined in the collectord config file)</li>
@@ -1728,7 +1770,7 @@ Options:
   <li>present-check-interval - Das Pr&uuml;finterval in Sekunden, wenn ein Ger&auml;t anwesend (<i>present</i>) ist. Falls nicht angegeben, wird der Wert aus check-interval verwendet</li>
   </ul>
   <br><br>
-  <a name="PRESENCEdefine"></a>
+  <a name="PRESENCE_define"></a>
   <b>Define</b><br><br>
   <ul><b>Modus: lan-ping</b><br><br>
     <code>define &lt;name&gt; PRESENCE lan-ping &lt;IP-Addresse oder Hostname&gt; [ &lt;Interval&gt; [ &lt;Anwesend-Interval&gt; ] ]</code><br>
@@ -1816,8 +1858,7 @@ Options:
     Der presenced ist zum Download verf&uuml;gbar als:<br><br>
     <ul>
     <li>Perl Skript: <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/presenced" target="_new">presenced</a></li>
-    <li>.deb Paket f&uuml;r Debian (architekturunabh&auml;ngig): <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/deb/presenced-1.4.deb" target="_new">presenced-1.4.deb</a></li>
-    <li>.deb Paket f&uuml;r Raspberry Pi (raspbian): <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/deb/presenced-rpi-1.4.deb" target="_new">presenced-rpi-1.4.deb</a></li>
+    <li>.deb Paket f&uuml;r Debian/Raspbian (architekturunabh&auml;ngig): <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/deb/presenced-1.5.deb" target="_new">presenced-1.5.deb</a></li>
     </ul>
     </ul><br><br>
     <u>lepresenced</u><br><br>
@@ -1837,8 +1878,8 @@ valid log levels:
     LOG_CRIT, LOG_ERR, LOG_WARNING, LOG_NOTICE, LOG_INFO, LOG_DEBUG. Default: LOG_INFO
 
 Examples:
-	lepresenced --bluetoothdevice hci0 --listenaddress 127.0.0.1 --listenport 5333 --daemon
-	lepresenced --loglevel LOG_DEBUG --daemon
+    lepresenced --bluetoothdevice hci0 --listenaddress 127.0.0.1 --listenport 5333 --daemon
+    lepresenced --loglevel LOG_DEBUG --daemon
 </PRE>
 
     Zur Bluetooth-Abfrage wird der Befehl <i>hcitool lescan</i> (Paket:
@@ -1906,29 +1947,30 @@ Options:
 
     <ul>
     <li>Perl Skript:  <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/collectord" target="_new">collectord</a></li>
-    <li>.deb Paket f&uuml;r Debian (architekturunabh&auml;ngig):  <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/deb/collectord-1.7.deb" target="_new">collectord-1.7.deb</a></li>
+    <li>.deb Paket f&uuml;r Debian (architekturunabh&auml;ngig):  <a href="https://svn.fhem.de/trac/export/HEAD/trunk/fhem/contrib/PRESENCE/deb/collectord-1.8.1.deb" target="_new">collectord-1.8.1.deb</a></li>
     </ul>
     </ul>
-
   </ul>
   <br>
-  <a name="PRESENCEset"></a>
+
+  <a name="PRESENCE_set"></a>
   <b>Set</b>
   <ul>
-
   <li><b>statusRequest</b> - Startet einen sofortigen Check.</li>
   <li><b>power</b> - Startet den powerCmd-Befehl welche durch den Parameter powerCmd angegeben ist (Nur wenn das Attribut "powerCmd" definiert ist)</li>
+  <li><b>overrideInterval</b> - Übersteuert das Prüfinterval auf die übergebene Dauer in Sekunden (Nicht im Modus "event" und "lan-bluetooth" anwendbar)</li>
+  <li><b>clearOverride</b> - Entfernt eine zuvor gesetzte Übersteuerung des Prüfintervals (Nur anwendbar, wenn zuvor eine Übersteuerung mit dem Set-Befehl overrideInterval stattgefunden hat)</li>
   </ul>
   <br>
 
-  <a name="PRESENCEget"></a>
+  <a name="PRESENCE_get"></a>
   <b>Get</b>
   <ul>
   N/A
   </ul>
   <br>
 
-  <a name="PRESENCEattr"></a>
+  <a name="PRESENCE_attr"></a>
   <b>Attributes</b><br><br>
   <ul>
     <li><a href="#do_not_notify">do_not_notify</a></li>
@@ -1961,14 +2003,24 @@ Options:
     Wenn dieses Attribut auf einen g&uuml;ltigen Wert gesetzt ist, werden die Readings "state" und "presence" bei einem "present"-Event zun&auml;chst auf den Wert "maybe present" gesetzt.
     Sobald das parametrisierte Zeitfenster um ist, wird der Status final auf "present" gesetzt.<br><br>
     Standardwert ist 0 Sekunden (keine Statusverz&ouml;gerung)<br><br>
-    <li><a name="PRESENCE_ping_count">ping_count</a></li> (Nur im Modus "ping" anwendbar)<br>
+    <li><a name="PRESENCE_retryInterval">retryInterval</a></li> <i>(Nicht im Modus "event" oder "lan-bluetooth" anwendbar)</i><br>
+    Das Prüfinterval, welches im Falle eines vorzeitig abgebrochenen Checks genutzt wird, um eine Wiederholung auszuführen. Dazu wird im Falle eines abgebrochenen
+    Checks der nächste Check nach der übergebenen Dauer in Sekunden ausgeführt. Diese sollte geringer sein als das reguläre Prüfinterval.
+    <br><br>
+    Standardwert ist 10 Sekunden<br><br>
+    <li><a name="PRESENCE_retryCount">retryCount</a></li> <i>(Nicht im Modus "event" oder "lan-bluetooth" anwendbar)</i><br>
+    Die maximale Anzahl an Wiederholungen, sollte ein Check vorzeitig abgebrochen werden. Sobald ein Check vorzeitigabbricht, werden maximal die übergebene Anzahl an Wiederholung
+    innerhalb des in retryInterval konfigurierten Interval ausgeführt um in kürzerer Zeit ein valides Ergebnis zu erhalten.
+    <br><br>
+    Standardwert ist 3 Wiederholungen<br><br>
+    <li><a name="PRESENCE_pingCount">pingCount</a></li> (Nur im Modus "ping" anwendbar)<br>
     Ver&auml;ndert die Anzahl der Ping-Pakete die gesendet werden sollen um die Anwesenheit zu erkennen.
     Je nach Netzwerkstabilit&auml;t k&ouml;nnen erste Pakete verloren gehen oder blockiert werden.<br><br>
     Standardwert ist 4 (Versuche)<br><br>
-    <li><a name="PRESENCE_bluetooth_hci_device">bluetooth_hci_device</a></li> (Nur im Modus "local-bluetooth" anwendbar)<br>
+    <li><a name="PRESENCE_bluetoothHciDevice">bluetoothHciDevice</a></li> (Nur im Modus "local-bluetooth" anwendbar)<br>
     Sofern man mehrere Bluetooth-Empf&auml;nger verf&uuml;gbar hat, kann man mit diesem Attribut ein bestimmten Empf&auml;nger ausw&auml;hlen, welcher zur Erkennung verwendet werden soll (bspw. hci0, hci1, ...). Es muss dabei ein vorhandener HCI-Ger&auml;tename angegeben werden wie z.B. <code>hci0</code>.
     <br><br>
-    <li><a name="PRESENCE_fritzbox_speed">fritzbox_speed</a></li> (Nur im Modus "fritzbox")<br>
+    <li><a name="PRESENCE_fritzboxCheckSpeed">fritzboxCheckSpeed</a></li> (Nur im Modus "fritzbox")<br>
     Zus&auml;tzlich zum Status des Ger&auml;ts wird die aktuelle Verbindungsgeschwindigkeit ausgegeben<br>
     Das macht nur bei WLAN Ger&auml;ten Sinn, die direkt mit der FritzBox verbunden sind. Bei abwesenden Ger&auml;ten wird als Geschwindigkeit 0 ausgegeben.
     <br><br>
@@ -1995,20 +2047,24 @@ Options:
     </ul>
   <br>
 
-  <a name="PRESENCEevents"></a>
-  <b>Generierte Events:</b><br><br>
+  <a name="PRESENCE_events"></a>
+  <b>Generierte Readings/Events:</b><br><br>
   <ul>
-    <u>Generelle Events:</u><br><br>
+    <u>Generelle ReadingsEvents:</u><br><br>
     <ul>
-    <li><b>state</b>: (absent|maybe absent|present|disabled|error|timeout) - Der Anwesenheitsstatus eine Ger&auml;tes (absent = abwesend; present = anwesend) oder "disabled" wenn das <a href="#PRESENCE_disable">disable</a>-Attribut aktiviert ist</li>
-    <li><b>presence</b>: (absent|maybe absent|present) - Der Anwesenheitsstatus eine Ger&auml;tes (absent = abwesend; present = anwesend). Der Wert "maybe absent" (vielleicht abwesend) tritt nur auf, sofern das Attribut <a href="#PRESENCE_absenceThreshold">absenceThreshold</a> aktiviert ist.</li>
+    <li><b>state</b>: (absent|maybe absent|present|maybe present|disabled|error|timeout) - Der Anwesenheitsstatus eine Ger&auml;tes (absent = abwesend; present = anwesend) oder "disabled" wenn das <a href="#PRESENCE_disable">disable</a>-Attribut aktiviert ist</li>
+    <li><b>presence</b>: (absent|maybe absent|present|maybe present) - Der Anwesenheitsstatus eine Ger&auml;tes (absent = abwesend; present = anwesend). Der Wert "maybe absent" (vielleicht abwesend) tritt nur auf, sofern das Attribut <a href="#PRESENCE_absenceThreshold">absenceThreshold</a> aktiviert ist. Der Wert "maybe present" (vielleicht anwesend) tritt nur auf, sofern das Attribut <a href="#PRESENCE_presenceThreshold">presenceThreshold</a> aktiviert ist.</li>
     <li><b>powerCmd</b>: (executed|failed) - Ausf&uuml;hrung des power-Befehls war erfolgreich.</li>
     </ul><br><br>
-    <u>Bluetooth-spezifische Events:</u><br><br>
+    <u>Bluetooth-spezifische Readings/Events:</u><br><br>
     <ul>
     <li><b>device_name</b>: $name - Der Name des Bluetooth-Ger&auml;tes, wenn es anwesend (Status: present) ist</li>
     </ul><br><br>
-    <u>presenced-/collectord-spezifische Events:</u><br><br>
+    <u>FRITZ!Box-spezifische Readings/Events:</u><br><br>
+    <ul>
+    <li><b>speed</b>: $speed - Die Netzwerkdeschwindigkeit des Ger&auml;tes, sofern das Attribut <a href="#PRESENCE_fritzboxCheckSpeed">fritzboxCheckSpeed</a> aktiviert ist.</li>
+    </ul><br><br>
+    <u>presenced-/collectord-spezifische Readings/Events:</u><br><br>
     <ul>
     <li><b>command_accepted</b>: $command_accepted (yes|no) - Wurde das letzte Kommando an den presenced/collectord akzeptiert (yes = ja, no = nein)?</li>
     <li><b>room</b>: $room - Wenn das Modul mit einem collectord verbunden ist, zeigt dieses Event den Raum an, in welchem dieses Ger&auml;t erkannt wurde (Raumname entsprechend der Konfigurationsdatei des collectord)</li>

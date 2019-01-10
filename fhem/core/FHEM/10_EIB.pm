@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_EIB.pm 11307 2016-04-25 08:02:06Z rudolfkoenig $
+# $Id: 10_EIB.pm 16389 2018-03-11 20:50:59Z andi291 $
 # MH various changes/fixes from forum e.g dpt9, 0 is not necessarily off, ...
 # MH 20140313 changed Log to Log3, verbose instead of loglevel
 # MH 20140313 testing setstate....
@@ -24,6 +24,7 @@
 # ABU 20160116 fixed motd-error due to debug-mode
 # ABU 20160122 fixed doku, changed return value for EIB_Set from undef to "", reintegrated multiple group sending
 # ABU 20160123 fixed issue for sending with additional groups
+# ABU 20180311 added summary in description
 
 package main;
 
@@ -1247,6 +1248,8 @@ eib_name2hex($)
 1;
 
 =pod
+=item summary    Communicates to EIB via TUL (deprecated, use KNX)
+=item summary_DE Kommuniziert mit EIB über TUL (veraltet, nutze KNX)
 =begin html
 
 <a name="EIB"></a>

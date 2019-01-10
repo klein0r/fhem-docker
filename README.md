@@ -2,9 +2,10 @@
 
 ## Contains
 
-- FHEM + haus-automatisierung.com FHEM frontend style + Tablet UI + ABFALL Module
+- FHEM + haus-automatisierung.com FHEM frontend style
 - MQTT configured
 - mySQL-Logging
+- homebridge
 
 ## Requirements
 
@@ -21,6 +22,7 @@ docker-compose up -d
 
 - FHEM: http://[ip]:8083/fhem
 - Node-Red: http://[ip]:1880/
+- Homebridge UI: http://[ip]:8081/
 
 ## Defaults
 
@@ -29,3 +31,5 @@ docker-compose up -d
 - mySQL-User: fhemuser
 - mySQL-Password: 2jRHnEi3WuNSQAcX7
 - Homekit-Pairing-Code: 012-34-567
+- Homebridge ConfigUI User: admin
+- Homebridge ConfigUI Password: admin

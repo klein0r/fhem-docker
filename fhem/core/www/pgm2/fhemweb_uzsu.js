@@ -1,5 +1,5 @@
 
-FW_version["fhemweb_uzsu.js"] = "$Id: fhemweb_uzsu.js 15190 2017-10-03 18:10:45Z justme1968 $";
+FW_version["fhemweb_uzsu.js"] = "$Id: fhemweb_uzsu.js 15716 2017-12-29 18:38:58Z justme1968 $";
 
 FW_widgets['uzsuToggle'] = {
   createFn:FW_uzsuToggleCreate,
@@ -63,6 +63,7 @@ FW_uzsuDropDownCreate(elName, devName, vArr, currVal, set, params, cmd)
   var select = $(newEl).find("select");
   select.selectmenu();
   select.selectmenu( "option", "width", "auto" );
+  select.selectmenu( "option", "position", {collision: "flipfit"} );
   select.selectmenu( { change: function( event, data ) {
                        if( cmd )
                          cmd(data.item.value);

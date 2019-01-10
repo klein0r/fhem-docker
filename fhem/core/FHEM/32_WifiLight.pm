@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 32_WifiLight.pm 14607 2017-06-30 21:16:09Z herrmannj $
+# $Id: 32_WifiLight.pm 15907 2018-01-16 20:58:44Z herrmannj $
 
 # TODO
 
@@ -159,7 +159,7 @@ WifiLight_Define($$)
     # if so, we need a shared buffer (llCmdQueue), shared socket and we need to check if the requied slot is free
     foreach $key (keys %defs) 
     {
-      if (($defs{$key}{TYPE} eq 'WifiLight') && ($defs{$key}{IP} eq $hash->{IP}) && ($key ne $name))
+      if (($defs{$key}{TYPE} eq 'WifiLight') && ($defs{$key}{IP} eq $hash->{IP}) && ($defs{$key}{PORT} eq $hash->{PORT}) && ($key ne $name))
       {
         #bridge is in use
         Log3 (undef, 3, "WifiLight: requested bridge $hash->{CONNECTION} at $hash->{IP} already in use by $key, copy llCmdQueue");
@@ -3826,15 +3826,8 @@ sub
 WifiLight_HighLevelCmdQueue_Clear(@)
 {
   my ($ledDevice) = @_;
-  foreach my $a (keys %intAt) 
-  {
-    if (($intAt{$a}{ARG} eq $ledDevice) && ($intAt{$a}{FN} eq 'WifiLight_HighLevelCmdQueue_Exec'))
-    {
-
-      Log3 ($ledDevice, 4, "$ledDevice->{NAME} high level cmd queue clear, remove timer at ".$intAt{$a}{TRIGGERTIME} );
-      delete($intAt{$a}) ;
-    }
-  }
+  Log3 ($ledDevice, 4, "$ledDevice->{NAME} high level cmd queue clear");
+  RemoveInternalTimer($ledDevice, 'WifiLight_HighLevelCmdQueue_Exec');
   $ledDevice->{helper}->{hlCmdQueue} = [];
 }
 

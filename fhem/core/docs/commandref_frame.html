@@ -4,25 +4,22 @@
 
 <head>
   <title>FHEM reference</title>
-  <script type="text/javascript" src="fhemdoc.js"></script>
-  <noscript>
-    <link rel="stylesheet" type="text/css" href="../www/pgm2/style.css" />
-  </noscript>
+  <link rel="stylesheet" type="text/css" href="../www/pgm2/style.css" />
   <meta http-equiv="Content-type" content="text/html; charset=UTF-8">
+  <meta name="viewport" content="initial-scale=1.0,user-scalable=1">
   <link rel="shortcut icon" href="/fhem/icons/favicon.ico"/>
 </head>
 
 
-<body style="word-wrap: break-word;">
+<body style="word-wrap: break-word;" class="commandref">
   <div id="menuScrollArea">
     <div id="logo"></div>
     <div id="menu">
       <h3>fhem.pl reference</h3>
-      Version: <b>EN</b>&nbsp;<a href="commandref_DE.html">DE</a>
       <br><br>
-      <a href="#doctop">Scroll to top</a>
+      <a href="#">Scroll to top</a>
       <br><br>
-      <a style="display:none" href="#" name="loadAll">Load complete doc</a>
+      <a style="display:none" href="#" name="loadAll">Load everything</a>
       <br><br>
       <a id="otherLang" style="display:none" href="#" name="otherLang">
         Load <span style="display:none" lang="DE">german</span> 
@@ -33,7 +30,6 @@
   </div>
 
   <div id="right">
-<a name="doctop"></a>
 <h3>Contents</h3>
 <ul>
   <a href="#intro">Introduction</a><br>
@@ -271,8 +267,9 @@ A line ending with \ will be concatenated with the next one, so long lines
   <li>a NAME=VALUE pair, where NAME can be an internal value like TYPE, a
         Reading-Name or an attribute. VALUE is a regexp. To negate the
         comparison, use NAME!=VALUE. To restrict the search, use i: as prefix
-        for internal values, r: for readings and a: for attributes. See the
-        example below.</li>
+        for internal values, r: for readings and a: for attributes. 
+        See the example below.
+        Case sensitivity is being ignored using ~ or !~. </li>
   <li>if the spec is followed by the expression :FILTER=NAME=VALUE, then the
       values found in the first round are filtered by the second expression.
   </ul>
@@ -285,6 +282,7 @@ A line ending with \ will be concatenated with the next one, so long lines
     <code>set room=kitchen:FILTER=STATE=on off</code><br>
     <code>set room=kitchen:FILTER=STATE!=off off</code><br>
     <code>list disabled=</code><br>
+    <code>list room~office</code><br>
     <code>list TYPE=FS20 STATE</code><br>
     <code>list i:TYPE=FS20 STATE</code><br>
   </ul>
@@ -369,10 +367,10 @@ Device specific attributes are documented in the corresponding device section.
         </code></ul>
         The explicit variant of this attribute has the following syntax:
         <ul><code>
-        attr store eventMap { dev=>{"on"=>"open"}, usr=>{"open"=>"on"} }<br>
-        attr store eventMap { dev=>{"^on(-for-timer)?(.*)"=>"open$2"},
-                              usr=>{"^open(.*)"=>"on$1"},
-                              fw=>{"^open(.*)"=>"open"} }
+        attr store eventMap { dev=>{'on'=>'open'}, usr=>{'open'=>'on'} }<br>
+        attr store eventMap { dev=>{'^on(-for-timer)?(.*)'=>'open$2'},
+                              usr=>{'^open(.*)'=>'on$1'},
+                              fw=>{'^open(.*)'=>'open'} }
         </code></ul>
         This variant must be used, if the mapping is not symmetrical, the first
         part (dev) representing the device to user mapping, i.e. if the device
@@ -407,12 +405,13 @@ Device specific attributes are documented in the corresponding device section.
 
     <a name="room"></a>
     <li>room<br>
-        Filter/group devices. Recognized by web-pgm2 and web-pgm3.  A device
-        can appear in more than one room, in this case the rooms have to be
-        specified comma-separated.<br>
+        Filter/group devices in frontends. A device can appear in more than one
+        room, in this case the rooms have to be specified comma-separated.<br>
         Devices in the room hidden will not appear in the web output, or set
-        the <a href="#hiddenroom"> FHEMWEB attribute to selectively disable
-        rooms for certain FHEMWEB instances.
+        the FHEMWEB attribute <a href="#hiddenroom">hiddenroom</a> to
+        selectively disable rooms for certain FHEMWEB instances.
+        The -&gt; string is considered as a structure separator for rooms, e.g.
+        "1st. floor-&gt;Master bedroom".
         </li><br>
 
     <a name="suppressReading"></a>
@@ -579,7 +578,13 @@ attribute list if you want to know if a device supports these attributes.  <br>
     of the matched type. If event-on-change-reading is also specified, they are
     combined with OR: if one of them is true, the event is generated.
     </li>
-    <p>
+
+    <a name="oldreadings"></a>
+    <li>oldreadings<br>
+    This attribute takes a comma-separated list of readings. You may use
+    regular expressions in that list. For each reading in the list FHEM will
+    internaly store the previous value if the readings value changes. To access
+    the storead value use the OldReadings.* functions.</li>
 
     <a name="userReadings"></a>
     <li>userReadings<br>
@@ -675,9 +680,10 @@ The following local attributes are used by a wider range of devices:
 <a name="attr"></a>
 <h3>attr</h3>
 <ul>
-  <code>attr &lt;devspec&gt; &lt;attrname&gt; [&lt;value&gt;] </code><br>
+  <code>attr [-a|-r] &lt;devspec&gt; &lt;attrname&gt; [&lt;value&gt;]</code><br>
 
   <br>Set an attribute for a device defined by <a href="#define">define</a>.
+  The value is optional, and is set to 1 if missing.
   You can define your own <a href="#attributes">attributes</a> too to use them
   in other applications.
 
@@ -685,19 +691,27 @@ The following local attributes are used by a wider range of devices:
   See the <a href="#devspec">Device specification</a> section for details on
   &lt;devspec&gt;.
   After setting the attribute, the global event "ATTR" will be generated.
-  <br><br>
+  <br>
+  If the option -a is specified, append the given value to the currently
+  existing value. Note: if the value does not start with a comma (,), then a
+  space will be added automatically to the old value before appending the
+  new.<br>
+  With the -r option one can remove a part of an attribute value.<br>
+  <br>
 
   Examples:
-  <ul>
-    <code>attr global verbose 3</code><br>
-    <code>attr lamp room kitchen</code><br>
-    <code>attr lamp group lights</code><br>
-    <code>attr lamp loglevel 6</code><br>
-    <code>attr weatherstation event-on-update-reading wind,temperature,humidity</code><br>
-    <code>attr weatherstation event-on-change-reading israining</code><br>
-    <code>attr weatherstation event-on-change-reading israining,state</code><br>
-    <code>attr heating stateFormat Temp:measured-temp, Valve:actuator</code><br>
-  </ul>
+  <ul><code>
+    attr global verbose 3<br>
+    attr lamp room kitchen<br>
+    attr lamp group lights<br>
+    attr lamp loglevel 6<br>
+    attr weatherstation event-on-update-reading wind,temperature,humidity<br>
+    attr weatherstation event-on-change-reading israining<br>
+    attr weatherstation event-on-change-reading israining,state<br>
+    attr heating stateFormat Temp:measured-temp, Valve:actuator<br>
+    attr -a TYPE=SVG room ,SvgRoom</br>
+    attr -r TYPE=SVG room ,SvgRoom</br>
+  </code></ul>
   <br>
 
   Notes:<br>
@@ -750,7 +764,7 @@ The following local attributes are used by a wider range of devices:
 <a name="defmod"></a>
 <h3>defmod</h3>
 <ul>
-  <code>defmod &lt;name&gt; &lt;type&gt; &lt;type-specific&gt;</code><br>
+  <code>defmod [-temporary] &lt;name&gt; &lt;type&gt; &lt;type-specific&gt;</code><br>
   <br>
   Define a device or modify it, if it already exists. E.g. to switch off a lamp
   10 Minutes after the last message from the motion detector, you may use
@@ -887,15 +901,27 @@ The following local attributes are used by a wider range of devices:
 <a name="inform"></a>
 <h3>inform</h3>
 <ul>
-  <code>inform {on|off|timer|raw} [regexp]</code> <br>
+  <code>inform {on|onWithState|off|raw|timer|log|status} [regexp]</code> <br>
   <br>
-  If set to on, and a device state changes, send a notification to the current
-  client. This command can be used by other programs/modules to receive a
-  notification.<br>
-  The option timer prepends a timerstamp to the line. Note: this command is
-  a nice way to check which events are generated, to help you when creating
-  <a href="#notify">notify</a> or <a href="#FileLog">FileLog</a> entries.
-
+  Monitor events via a telnet client.  This command is the telnet equivalent of
+  the FHEMWEB Event monitor, but can also be used by other programs/modules to
+  receive a notification. Options:<br>
+  <ul>
+    <li>on<br>
+      switch the inform mechanism on</li>
+    <li>onWithState<br>
+      show the additional state event too</li>
+    <li>off<br>
+      switch the inform mechanism off (both events and logs, see below)</li>
+    <li>raw<br>
+      show only raw events from physical devices</li>
+    <li>timer<br>
+      prepend a timestamp to each event</li>
+    <li>log<br>
+      show messages written by the FHEM Log interface</li>
+    <li>status<br>
+      show the current status</li>
+  </ul>
   <br>
 </ul>
 <!-- inform end -->
@@ -1178,6 +1204,9 @@ The following local attributes are used by a wider range of devices:
         </br>
         set the device on for the specified intervals, which are all timespecs
         in the form HH:MM[:SS]. The intervals are space separated.</li>
+    <li>toggle<br>
+        Issue the off command, if the current STATE is on, else the on command.
+        dim XX is also interpreted as on, if XX is not 0.</li>
   </ul>
   Examples:
   <ul>
@@ -1188,6 +1217,15 @@ The following local attributes are used by a wider range of devices:
     set switch intervals 08:00-12:00 13:00-18:00<br>
     </code>
   </ul>
+  <br><br>
+
+  <a name="attrTemplate"></a>
+  attrTemplate<br>
+    with this command a set of predefined attributes may be set at once. The
+    template files containing the entries are in FHEM/lib/AttrTemplate
+    directory. Template entries can be module specific, and may require further
+    parameters to be specified.
+
 </ul>
 <!-- set end -->
 
@@ -1448,22 +1486,38 @@ The following local attributes are used by a wider range of devices:
         OS implementation (inet_aton and gethostbyname) will be used.
     </li><br>
 
-    <a name="holiday2we"></a>
-    <li>holiday2we<br>
-        If this attribute is set, then the <a href="#perl">$we</a> variable
-        will be true, if the value of the <a href="#holiday">holiday</a>
-        variable referenced by this attribute is not none.<br>
-        Example:<br>
-        <ul>
-          attr global holiday2we hessen
-        </ul>
-    </li><br>
-
     <a name="featurelevel"></a>
     <li>featurelevel<br>
         Enable/disable old or new features, based on FHEM version.
         E.g. the $value hash for notify is only set for featurelevel up to 5.6,
         as it is deprecated, use the Value() function instead.
+    </li><br>
+
+    <a name="holiday2we"></a>
+    <li>holiday2we<br>
+        If this attribute is set, then the <a href="#perl">$we</a> variable
+        will be true, if the value of the <a href="#holiday">holiday</a>
+        variable referenced by this attribute is not none.<br>
+        If it is a comma separated list, then it is true, if one of the
+        referenced entities is not none.<br>
+        Example:<br>
+        <ul>
+          attr global holiday2we he
+        </ul>
+    </li><br>
+
+    <a name="httpcompress"></a>
+    <li>httpcompress<br>
+        the HttpUtils module is used by a lot of FHEM modules, and enables
+        compression by default. Set httpcompress to 0 to disable this feature.
+    </li><br>
+
+    <a name="keyFileName"></a>
+    <li>keyFileName<br>
+        FHEM modules store passwords and unique IDs in the file
+        FHEM/FhemUtils/uniqueID. In order to start multiple FHEM instances from
+        the same directory, you may set this attribute, whose value will
+        appended to FHEM/FhemUtils/
     </li><br>
 
     <a name="logdir"></a>
@@ -1545,15 +1599,15 @@ The following local attributes are used by a wider range of devices:
     <a name="restoreDirs"></a>
     <li>restoreDirs<br>
         update saves each file before overwriting it with the new version from
-        the Web. For this purpose update creates a directory restoreDir in the
-        global modpath directory, then a subdirectory with the current date,
-        where the old version of the currently replaced file is stored.
+        the Web. For this purpose update creates a directory restoreDir/update
+        in the global modpath directory, then a subdirectory with the current
+        date, where the old version of the currently replaced file is stored.
         The default value of this attribute is 3, meaning that 3 old versions
         (i.e. date-directories) are kept, and the older ones are deleted.<br>
         fhem.cfg and fhem.state will be also copied with this method before
-        executing save. To restore the files, you can use the restore FHEM
-        command.<br>
-        <br>If the attribute is set to 0, the feature is deactivated.
+        executing save into restoreDir/save/YYYY-MM-DD.  To restore the files,
+        you can use the restore FHEM command.<br><br>
+        If the attribute is set to 0, the feature is deactivated.
         </li><br>
 
     <li><a href="#fheminfo">sendStatistics</a><br>
@@ -1566,8 +1620,6 @@ The following local attributes are used by a wider range of devices:
     </li><br>
 
     <li><a href="#title">title</a><br>
-
-    <li><a href="#fheminfo">uniqueID</a><br>
 
     <a name="useInet6"></a>
     <li>useInet6<br>
@@ -1752,6 +1804,20 @@ The following local attributes are used by a wider range of devices:
         <br>
         returns the age of the reading in seconds.
         </li><br>
+
+      <li>
+        OldReadingsVal(&lt;devicename&gt;,&lt;reading&gt;,
+                        &lt;defaultvalue&gt;)<br>
+        OldReadingsNum(&lt;devicename&gt;,&lt;reading&gt;,
+                        &lt;defaultvalue&gt;,&lt;round&gt;)<br>
+        OldReadingsTimestamp(&lt;devicename&gt;,&lt;
+                        reading&gt;,&lt;defaultvalue&gt;)<br>
+        OldReadingsAge(&lt;devicename&gt;,&lt;reading&gt;,
+                        &lt;defaultvalue&gt;)<br>
+        similar to the above functions, but used to access the previous values.
+        see: <a href="#oldreadings">oldreadings</a>
+        </li><br>
+
       <li>
         AttrVal(&lt;devicename&gt;,&lt;attribute&gt;,&lt;defaultvalue&gt;)<br>
         Return the attribute of the device

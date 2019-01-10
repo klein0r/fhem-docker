@@ -1,4 +1,4 @@
-# $Id: 36_LaCrosseGateway.pm 15483 2017-11-23 20:03:23Z HCS $
+# $Id: 36_LaCrosseGateway.pm 17131 2018-08-12 19:01:28Z HCS $
 
 package main;
 
@@ -7,7 +7,7 @@ use warnings;
 use Time::HiRes qw(gettimeofday);
 use Time::Local;
 
-my $clients = ":PCA301:EC3000:LaCrosse:Level:EMT7110:KeyValueProtocol";
+my $clients = ":PCA301:EC3000:LaCrosse:Level:EMT7110:KeyValueProtocol:CapacitiveLevel";
 
 my %matchList = (
   "1:PCA301"           => "^\\S+\\s+24",
@@ -16,6 +16,7 @@ my %matchList = (
   "4:EMT7110"          => "^OK\\sEMT7110\\s",
   "5:Level"            => "^OK\\sLS\\s",
   "6:KeyValueProtocol" => "^OK\\sVALUES\\s",
+  "7:CapacitiveLevel"  => "^OK\\sCL\\s",
 );
 
 sub LaCrosseGateway_Initialize($) {
@@ -491,6 +492,9 @@ sub LaCrosseGateway_HandleKVP($$) {
   if($kvp =~ m/UpTimeText=(.*?)(\,|\ ,)/) {
     readingsBulkUpdate($hash, "UpTime", $1);
   }
+  if($kvp =~ m/UpTimeSeconds=(.*?)(\,|\ ,)/) {
+    readingsBulkUpdate($hash, "UpTimeSeconds", $1);
+  }
   if($kvp =~ m/RSSI=(.*?)(\,|\ ,)/) {
     readingsBulkUpdate($hash, "RSSI", $1);
   }
@@ -579,11 +583,11 @@ sub LaCrosseGateway_HandleOwnSensors($$) {
 
   readingsEndUpdate($hash, 1);
 
-  delete $hash->{READINGS}{"temperature"} if $temperature == undef;
-  delete $hash->{READINGS}{"humidity"} if $humidity == undef;
-  delete $hash->{READINGS}{"pressure"} if $pressure == undef;
-  delete $hash->{READINGS}{"gas"} if $gas == undef;
-  delete $hash->{READINGS}{"debug"} if $debug == undef;
+  delete $hash->{READINGS}{"temperature"} if(!defined($temperature));
+  delete $hash->{READINGS}{"humidity"} if(!defined($humidity));
+  delete $hash->{READINGS}{"pressure"} if(!defined($pressure));
+  delete $hash->{READINGS}{"gas"} if(!defined($gas));
+  delete $hash->{READINGS}{"debug"} if(!defined($debug));
 }
 
 #=======================================================================================

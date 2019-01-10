@@ -5,7 +5,7 @@
 # e-mail: omega at online dot de
 #
 ##############################################
-# $Id: 09_BS.pm 3830 2013-08-31 17:09:10Z borisneubert $
+# $Id: 09_BS.pm 16375 2018-03-10 15:40:02Z neubert $
 package main;
 
 use strict;
@@ -127,6 +127,8 @@ BS_Parse($$)
 1;
 
 =pod
+=item summary    BS brightness sensor communicating over FHZ
+=item summary_DE BS Helligkeitssenor angebunden &uuml;ber FHZ
 =begin html
 
 <a name="BS"></a>

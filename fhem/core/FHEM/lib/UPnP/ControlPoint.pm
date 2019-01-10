@@ -2,7 +2,7 @@
 #
 # ControlPoint.pm
 #
-# $Id: ControlPoint.pm 14715 2017-07-14 10:39:57Z Reinerlein $
+# $Id: ControlPoint.pm 16658 2018-04-25 06:00:12Z Reinerlein $
 #
 # Now (in this version) part of Fhem.
 #
@@ -48,8 +48,48 @@ use constant DEFAULT_SSDP_SEARCH_PORT => 8008;
 use constant DEFAULT_SUBSCRIPTION_PORT => 8058;
 use constant DEFAULT_SUBSCRIPTION_URL => '/eventSub';
 
-our %IGNOREIP;
-our %USEDONLYIP;
+our @IGNOREIP;
+our @USEDONLYIP;
+our $LogLevel;
+our $EnvPrefix;
+
+sub isIgnoreIP($) {
+	my($ip) = @_;
+	
+	foreach my $elem (@IGNOREIP) {
+		if ($elem =~ m/^\/(.*)\/$/) {
+			if ($ip =~ m/^$1$/) {
+				return 1;
+			}
+		} else {
+			if ($ip eq $elem) {
+				return 1;
+			}
+		}
+	}
+	
+	return 0;
+}
+
+sub isUsedOnlyIP($) {
+	my($ip) = @_;
+	
+	return 1 if (!scalar(@USEDONLYIP));
+	
+	foreach my $elem (@USEDONLYIP) {
+		if ($elem =~ m/^\/(.*)\/$/) {
+			if ($ip =~ m/^$1$/) {
+				return 1;
+			}
+		} else {
+			if ($ip eq $elem) {
+				return 1;
+			}
+		}
+	}
+	
+	return 0;
+}
 
 sub new {
     my($self, %args) = @_;
@@ -60,8 +100,10 @@ sub new {
     my $searchPort = defined($args{SearchPort}) ? $args{SearchPort} : DEFAULT_SSDP_SEARCH_PORT;
     my $subscriptionPort = defined($args{SubscriptionPort}) ? $args{SubscriptionPort} : DEFAULT_SUBSCRIPTION_PORT;
 	my $maxWait = $args{MaxWait} || 3;
-	%IGNOREIP = %{$args{IgnoreIP}};
-	%USEDONLYIP = %{$args{UsedOnlyIP}};
+	@IGNOREIP = @{$args{IgnoreIP}};
+	@USEDONLYIP = @{$args{UsedOnlyIP}};
+	$LogLevel = $args{LogLevel} || 0;
+	$EnvPrefix = $args{EnvPrefix} || $SOAP::Constants::PREFIX_ENV;
 	
 	my $reuseport = $args{ReusePort};
 	$reuseport = 0 if (!defined($reuseport));
@@ -187,8 +229,8 @@ sub handleOnce {
 	}
 	elsif ($socket == $self->{_subscriptionSocket}) {
 		if (my $connect = $socket->accept()) {
-			return if (scalar(%USEDONLYIP) && (!$USEDONLYIP{$connect->peerhost()}));
-			return if ($IGNOREIP{$connect->peerhost()});
+			return if (!isUsedOnlyIP($connect->peerhost()));
+			return if (isIgnoreIP($connect->peerhost()));
 			$self->_receiveSubscriptionNotification($connect);
 		}
 	}
@@ -391,8 +433,8 @@ sub _receiveSearchResponse {
 	my $peer = recv($socket, $buf, 2048, 0);
 	my @peerdata = unpack_sockaddr_in($peer);
 	
-	return if (scalar(%USEDONLYIP) && (!$USEDONLYIP{inet_ntoa($peerdata[1])}));
-	return if ($IGNOREIP{inet_ntoa($peerdata[1])});
+	return if (!isUsedOnlyIP(inet_ntoa($peerdata[1])));
+	return if (isIgnoreIP(inet_ntoa($peerdata[1])));
 
 	if ($buf !~ /\015?\012\015?\012/) {
 		return;
@@ -409,6 +451,7 @@ sub _receiveSearchResponse {
         foreach my $searchkey (keys %{$self->{_activeSearches}}) {
             my $search = $self->{_activeSearches}->{$searchkey};
             if ($search->{_type} && $buf =~ $search->{_type}) {
+            	print 'xxxx.xx.xx xx:xx:xx 5: ControlPoint: Accepted Search-Response: "'.$buf.'"'."\n" if ($LogLevel >= 5);
                 $found = 1;
                 last;
             }
@@ -426,7 +469,7 @@ sub _receiveSearchResponse {
         }
 
         if (! $found) {
-            #print "Unknown response: " . Dumper($buf); #ALW uncomment
+            print 'xxxx.xx.xx xx:xx:xx 5: ControlPoint: Unknown Search-Response: "'.$buf.'"'."\n" if ($LogLevel >= 5);
             return;
         } 
 
@@ -454,8 +497,8 @@ sub _receiveSSDPEvent {
 	my @peerdata = unpack_sockaddr_in($peer);
 	return if (!@peerdata);
 	
-	return if (scalar(%USEDONLYIP) && (!$USEDONLYIP{inet_ntoa($peerdata[1])}));
-	return if ($IGNOREIP{inet_ntoa($peerdata[1])});
+	return if (!isUsedOnlyIP(inet_ntoa($peerdata[1])));
+	return if (isIgnoreIP(inet_ntoa($peerdata[1])));
 
 	if ($buf !~ /\015?\012\015?\012/) {
 		return;
@@ -668,6 +711,7 @@ sub queryStateVariable {
         my $result;
         if ($SOAP::Lite::VERSION >= 0.67) {
             $result = SOAP::Lite
+                    ->envprefix($EnvPrefix)
                     ->ns("u")
                     ->uri('urn:schemas-upnp-org:control-1-0')
                     ->proxy($self->controlURL)
@@ -677,6 +721,7 @@ sub queryStateVariable {
                                                ->value($name));
         } else {
             $result = SOAP::Lite
+                    ->envprefix($EnvPrefix)
                     ->uri('urn:schemas-upnp-org:control-1-0')
                     ->proxy($self->controlURL)
                     ->call('QueryStateVariable' => 
@@ -839,12 +884,12 @@ sub new {
         if ($SOAP::Lite::VERSION >= 0.67) {
             return bless {
                     _service => $service,
-                    _proxy => SOAP::Lite->ns("u")->uri($service->serviceType)->proxy($service->controlURL),
+                    _proxy => SOAP::Lite->envprefix($EnvPrefix)->ns("u")->uri($service->serviceType)->proxy($service->controlURL),
             }, $class;
         } else {
             return bless {
                     _service => $service,
-                    _proxy => SOAP::Lite->uri($service->serviceType)->proxy($service->controlURL),
+                    _proxy => SOAP::Lite->envprefix($EnvPrefix)->uri($service->serviceType)->proxy($service->controlURL),
             }, $class;
         }
 }

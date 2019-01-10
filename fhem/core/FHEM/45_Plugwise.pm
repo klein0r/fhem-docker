@@ -29,7 +29,7 @@
 #
 #
 ###########################
-# # $Id: 45_Plugwise.pm 11989 2016-08-19 17:50:52Z icinger $
+# # $Id: 45_Plugwise.pm 17320 2018-09-10 18:12:55Z Icinger $
 package main;
 
 use strict;
@@ -107,7 +107,8 @@ require "$attr{global}{modpath}/FHEM/DevIo.pm";
   $hash->{SetFn}   = "PW_Set";
   $hash->{GetFn}   = "PW_Get";
   $hash->{StateFn} = "PW_SetState";
-  $hash->{AttrList}= "do_not_notify:1,0 interval circlecount WattFormat showCom autosync";
+  $hash->{AttrList}= "do_not_notify:1,0 interval circlecount WattFormat showCom autosync ".
+  					  $readingFnAttributes;;
   $hash->{ShutdownFn} = "PW_Shutdown";
 }
 
@@ -130,12 +131,12 @@ sub PW_Define($$)
   $firstrun=0;
   $hash->{DeviceName} = $dev;
 
-  if( $init_done ) {
-	  $attr{$name}{room}="Plugwise";
-	  $attr{$name}{interval}=10;
-	  $attr{$name}{circlecount}=50;
-	  $attr{$name}{WattFormat}="%0.f";
-  }
+#  if( $init_done ) {
+#	  $attr{$name}{room}="Plugwise";
+#	  $attr{$name}{interval}=10;
+#	  $attr{$name}{circlecount}=50;
+#	  $attr{$name}{WattFormat}="%0.f";
+#  }
   my $ret = DevIo_OpenDev( $hash, 0, undef);
   InternalTimer(gettimeofday()+5, "PW_GetUpdate", $hash, 0);
   return undef;
@@ -171,7 +172,7 @@ sub PW_GetUpdate($)
 			delete $hash->{helper}->{circles}->{$n};
 		} elsif (time > $hash->{helper}->{circles}->{$n}->{lastContact} +900) {
 			command($hash,'history',$hash->{helper}->{circles}->{$n}->{name},4);
-			Log 3,"GetLog offline Circle $n";
+			Log3 $hash,4,"GetLog offline Circle $n";
 		}
 	}
   }
@@ -215,7 +216,7 @@ sub PW_Write
  		command($hash,'history',$reciever,$a) if($a ne -1);
   	}
   	else
-  	{	Log3 $hash,3,$msg;
+  	{	Log3 $hash,4,$msg;
   	}
   	return undef;
 }
@@ -341,7 +342,8 @@ sub PW_Read($)
 		my $v=$1;
  		if ($v=~/\x83?\x05\x05\x03\x03(\w+)/) {
     		$body = process_response($hash,$1);
-			if($body ne undef) {
+    		if (length $body) {
+#			if ($body ne undef) {
 				my $str2=AttrVal($hash->{NAME},"showCom","xyz");
 				my $showcom=qr/$str2/;
 				if ($body->{showCom} =~ $showcom) {readingsSingleUpdate($hash,"communication", $body->{showCom},1)}
@@ -387,6 +389,7 @@ sub PW_Read($)
 	        	        return undef;
 		             }
 	        	 }
+ #   		}
     		}
 		} elsif ($v=~/\x23.*/) {}
 		  elsif ($v=~/[0-9A-F]{16}/){} 

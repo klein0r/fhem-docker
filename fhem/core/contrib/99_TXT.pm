@@ -311,7 +311,7 @@ sub txt_uri_info() {
     # Version
     $TXTVersion = "FHTMTXT:01.07.2012\n";
     # FHEM Version
-    # 5.8 from 2017-02-19 ($Id: fhem.pl 1204 2012-01-22 12:21:05Z rudolfkoenig $)
+    # =VERS= from =DATE= ($Id: fhem.pl 1204 2012-01-22 12:21:05Z rudolfkoenig $)
     my @a = split(/\$/,$attr{global}{version});
     my @b = split(/\s+/,$a[1]);
     $FHEMVersion = "FHEM: " . $b[2] . " " . $b[3];

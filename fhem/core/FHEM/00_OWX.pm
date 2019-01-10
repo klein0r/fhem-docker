@@ -9,7 +9,7 @@
 #
 # Prof. Dr. Peter A. Henning
 #
-# $Id: 00_OWX.pm 15392 2017-11-05 06:46:46Z phenning $
+# $Id: 00_OWX.pm 16671 2018-04-29 05:06:35Z phenning $
 #
 ########################################################################################
 ########################################################################################
@@ -74,6 +74,7 @@ use vars qw{%owg_family %gets %sets $owx_version $owx_debug};
   "3B"  => ["DS1825","OWID 3B"],
   "7E"  => ["OW-ENV","OWID 7E"], #Environmental sensor
   "81"  => ["DS1420","OWID 81"],
+  "A6"  => ["DS2438","OWMULTI DS2438a"],
   "FF"  => ["LCD","OWLCD"]
 );
 
@@ -85,11 +86,11 @@ use vars qw{%owg_family %gets %sets $owx_version $owx_debug};
    "qstatus" => "P"
 );
 
-#-- These occur in a pulldown menu as settable values for the bus master
+#-- These occur in a pulldown menu as settable values for the bus master 
+#   (expert mode: all, standard mode: only reopen)
 %sets = (
    "close"        => "c", 
-   "open"         => "o", 
-   "closeopen"    => "co" ,
+   "open"         => "O", 
    "reopen"       => "R",
    "discover"     => "C",
    "detect"       => "T",
@@ -98,7 +99,7 @@ use vars qw{%owg_family %gets %sets $owx_version $owx_debug};
 );
 
 #-- some globals needed for the 1-Wire module
-$owx_version="7.05";
+$owx_version="7.11";
 
 #-- debugging now verbosity, this is just for backward compatibility
 $owx_debug=0;
@@ -130,6 +131,7 @@ sub OWX_Initialize ($) {
   $hash->{AttrFn}  = "OWX_Attr";
   $hash->{AttrList}= "asynchronous:0,1 dokick:0,1 ".
                      "interval timeout opendelay expert:0_def,1_detail ".
+                     "IODev ".
                      $readingFnAttributes;    
 }
 
@@ -189,9 +191,9 @@ sub OWX_Define ($$) {
     $hwdevice = OWX_I2C->new($hash);
     
   #-- check if we have a COC/CUNO interface attached  
-  }elsif( (defined( $defs{$dev}->{VERSION} ) ? $defs{$dev}->{VERSION} : "") =~ m/CSM|CUNO/ ){
-    require "$attr{global}{modpath}/FHEM/11_OWX_CCC.pm";
-    $hwdevice = OWX_CCC->new($hash);
+  }elsif( $defs{$dev} && $defs{$dev}->{VERSION}  && $defs{$dev}->{VERSION} =~ m/CSM|CUNO|MapleCUN...(4|5|6|7|C|D|E|F)/ ){
+     require "$attr{global}{modpath}/FHEM/11_OWX_CCC.pm";
+     $hwdevice = OWX_CCC->new($hash);
     
   #-- check if we are connecting to Arduino (via FRM):
   } elsif ($dev =~ /.*\:\d{1,2}$/) {
@@ -1045,41 +1047,30 @@ sub OWX_Set($@) {
   my $name = shift @a;
   my $res  = 0;
 
-  #-- for the selector: which values are possible
+  #-- for the selector: all values are possible for expert, otherwise only reopen
   return ( (AttrVal($name,"expert","") eq "1_detail") ? join(":noArg ", sort keys %sets).":noArg" : "reopen:noArg")
     if(!defined($sets{$a[0]}));
   return "OWX_Set: With unknown argument $a[0], choose one of " .
      ( (AttrVal($name,"expert","") eq "1_detail") ? join(" ", sort keys %sets) : "reopen")
     if(!defined($sets{$a[0]}));
-  
-  #-- Set reopen
-  if( $a[0] eq "reopen" ){
-    DevIo_OpenDev($hash, 1, undef);
-    $res = 0;
-  }
-  
-  #-- expert mode
-  #-- Set closedev
-  if( $a[0] eq "close" ){
-    OWX_WDBGL($name,1,"====> CLOSING DEVICE",main::DevIo_CloseDev($hash));
-    $res = 0;
-  }
-  
-  #-- Set opendev
+
+  my $owx   = $hash->{OWX};
+
+  #-- Set open
   if( $a[0] eq "open" ){
-    OWX_WDBGL($name,1,"====> OPENING DEVICE",main::DevIo_OpenDev($hash,0,undef));
+    $owx->Open();
     $res = 0;
-  }
-  
-  #-- Set closeopendev
-  if( $a[0] eq "closeopen" ){
-    OWX_WDBGL($name,1,"====> CLOSING DEVICE",main::DevIo_CloseDev($hash));
-    OWX_WDBGL($name,1,"      OPENING DEVICE",main::DevIo_OpenDev($hash, 0, undef));  
+  } 
+
+  #-- Set close
+  if( $a[0] eq "close" ){
+    $owx->Close();
+    $res = 0;
   }
   
   #-- Set reopen
   if( $a[0] eq "reopen" ){
-    OWX_WDBGL($name,1,"====> REOPENING DEVICE",main::DevIo_OpenDev($hash, 1, undef));
+    $owx->Reopen();
     $res = 0;
   }
   
@@ -1667,6 +1658,7 @@ sub OWX_WDBGL($$$$) {
 
 <a name="OWX"></a>
         <h3>OWX</h3>
+        <ul>
         <p> Backend module to commmunicate with 1-Wire bus devices</p>
         <ul>
             <li>via an active DS2480/DS9097U bus master interface attached to an USB
@@ -1696,7 +1688,7 @@ sub OWX_WDBGL($$$$) {
             <li><a name="owx_reopen">
                     <code>set &lt;name&gt; reopen</code>
                 </a>
-                <br />re-opens the interface ans re-initializes the 1-Wire bus.
+                <br />re-opens the interface and re-initializes the 1-Wire bus.
             </li>
         </ul>
         <br />
@@ -1734,11 +1726,14 @@ sub OWX_WDBGL($$$$) {
                 <br />time interval in seconds for kicking temperature sensors and checking for alarms, default 300 s</li>
             <li><a href="#readingFnAttributes">readingFnAttributes</a></li>
         </ul>
+        </ul>
 =end html
 =begin html_DE
 
 <a name="OWX"></a>
 <h3>OWX</h3>
+<ul>
 <a href="http://fhemwiki.de/wiki/Interfaces_f%C3%BCr_1-Wire">Deutsche Dokumentation im Wiki</a> vorhanden, die englische Version gibt es hier: <a href="/fhem/docs/commandref.html#OWX">OWX</a> 
+</ul>
 =end html_DE
 =cut

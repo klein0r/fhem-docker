@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 90_at.pm 14995 2017-09-03 14:23:14Z rudolfkoenig $
+# $Id: 90_at.pm 17561 2018-10-18 14:45:30Z rudolfkoenig $
 package main;
 
 use strict;
@@ -18,7 +18,7 @@ at_Initialize($)
   $hash->{SetFn}    = "at_Set";
   $hash->{AttrFn}   = "at_Attr";
   $hash->{StateFn}  = "at_State";
-  $hash->{AttrList} = "disable:0,1 disabledForIntervals ".
+  $hash->{AttrList} = "disable:0,1 disabledForIntervals $readingFnAttributes ".
                         "skip_next:0,1 alignTime computeAfterInit";
   $hash->{FW_detailFn} = "at_fhemwebFn";
 }
@@ -61,7 +61,7 @@ at_Define($$)
   }
 
   return "Wrong timespec, use \"[+][*[{count}]]<time or func>\""
-                                        if($tm !~ m/^(\+)?(\*({\d+})?)?(.*)$/);
+                                        if($tm !~ m/^(\+)?(\*(\{\d+\})?)?(.*)$/);
   my ($rel, $rep, $cnt, $tspec) = ($1, $2, $3, $4);
 
   my ($abstime, $err, $hr, $min, $sec, $fn);
@@ -120,9 +120,11 @@ at_Define($$)
     return undef if($cnt eq "0");
     $cnt = 0 if(!$cnt);
     $cnt--;
+    delete($hash->{VOLATILE});  # Modify
     $hash->{REP} = $cnt; 
   } else {
     $hash->{VOLATILE} = 1;      # Write these entries to the statefile
+    delete($hash->{REP});       # Modify
   }
 
   my $alTime = AttrVal($name, "alignTime", undef);
@@ -209,7 +211,7 @@ at_adjustAlign($$)
   my($hash, $attrVal) = @_;
 
   my ($tm, $command) = split("[ \t]+", $hash->{DEF}, 2);
-  $tm =~ m/^(\+)?(\*({\d+})?)?(.*)$/;
+  $tm =~ m/^(\+)?(\*(\{\d+\})?)?(.*)$/;
   my ($rel, $rep, $cnt, $tspec) = ($1, $2, $3, $4);
   return "startTimes: $hash->{NAME} is not relative" if(!$rel);
 
@@ -294,6 +296,12 @@ at_Attr(@)
     return $ret if($ret);
   }
 
+  if($cmd eq "set" && $attrName eq "stateFormat" && !$init_done) {
+    $attr{$name}{stateFormat} = $attrVal;
+    evalStateFormat($hash);
+    return undef;
+  }
+
   if($cmd eq "set" && $attrName eq "disable") {
     $do = (!defined($attrVal) || $attrVal) ? 1 : 2;
   }
@@ -332,7 +340,7 @@ at_fhemwebFn($$$$)
   my $isPerl = ($ts =~ m/^{(.*)}/);
   $ts = $1 if($isPerl);
 
-  my $h1 = "<br>Change Wizard:".
+  my $h1 .= "<div class='makeTable wide'><span>Change wizard</span>".
 "<table class='block wide' id='atWizard' nm='$hash->{NAME}' ts='$ts' ".
        "rl='$hash->{RELATIVE}' ".
        "pr='$hash->{PERIODIC}' ip='$isPerl' class='block wide'>".<<'EOF';
@@ -385,7 +393,7 @@ EOF
   my @d = split(" ",$hash->{DEF},2);
   LoadModule("notify");
   my ($h2, $j2) = notfy_addFWCmd($d, $d[0], 2);
-  return "$h1$h2</table><br>$j1$j2";
+  return "$h1$h2</table></div><br>$j1$j2";
 }
 
 1;
@@ -547,12 +555,15 @@ EOF
         but the next time will be computed.</li><br>
 
     <a name="disabledForIntervals"></a>
-    <li>disabledForIntervals HH:MM-HH:MM HH:MM-HH-MM...<br>
+    <li>disabledForIntervals HH:MM-HH:MM HH:MM-HH:MM ...<br>
         Space separated list of HH:MM or D@HH:MM tupels. If the current time is
         between the two time specifications, the current device is disabled.
         Instead of HH:MM you can also specify HH or HH:MM:SS. D is the day of
-        the week, with 0 indicating Sunday and 3 indicating Wednesday. To
-        specify an interval spawning midnight, you have to specify two
+        the week, with 0 indicating Sunday and 3 indicating Wednesday.
+        Specifying the day for the "from" part does _not_ specify it for the
+        "to" part, i.e.  1@00-24 will disable from monday to the end of the
+        week, but not on sunday (as 1@00 is greater than any time on sunday).
+        To specify an interval spawning midnight, you have to specify two
         intervals, e.g.:
         <ul>
           23:00-24:00 00:00-01:00
@@ -737,13 +748,17 @@ EOF
         Ausf&uuml;hrungszeit berechnet.</li><br>
 
     <a name="disabledForIntervals"></a>
-    <li>disabledForIntervals HH:MM-HH:MM HH:MM-HH-MM...<br>
+    <li>disabledForIntervals HH:MM-HH:MM HH:MM-HH:MM ...<br>
         Das Argument ist eine Leerzeichengetrennte Liste von Minuszeichen-
         getrennten HH:MM oder D@HH:MM Paaren. Falls die aktuelle Uhrzeit
         zwischen diesen Werten f&auml;llt, dann wird die Ausf&uuml;hrung, wie
         beim disable, ausgesetzt. Statt HH:MM kann man auch HH oder HH:MM:SS
         angeben.  D ist der Tag der Woche, mit 0 als Sonntag and 3 als
-        Mittwoch.  Um einen Intervall um Mitternacht zu spezifizieren, muss man
+        Mittwoch. Die Angabe des Wochentags f&uuml;r den "von" Wert impliziert
+        _nicht_ den gleichen Tag f&uuml;r den "bis" Wert, z.Bsp.  deaktiviert
+        1@00-24 die Asf&uuml;hrung von Montag bis Ende der Woche, aber nicht
+        Sonntag (da alle Zeitangaben am Montag vor 1@00 liegen).
+        Um einen Intervall um Mitternacht zu spezifizieren, muss man
         zwei einzelne angeben, z.Bsp.:
         <ul>
           23:00-24:00 00:00-01:00
@@ -761,6 +776,7 @@ EOF
         &uuml;berspringen</li><br>
 
     <li><a href="#perlSyntaxCheck">perlSyntaxCheck</a></li>
+    <li><a href="#readingFnAttributes">readingFnAttributes</a></li>
 
   </ul>
   <br>

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_weekprofile.pm 14084 2017-04-23 11:57:48Z Risiko $
+# $Id: 98_weekprofile.pm 16418 2018-03-16 18:31:01Z Risiko $
 #
 # Usage
 # 
@@ -10,7 +10,11 @@ package main;
 
 use strict;
 use warnings;
-use JSON;     #libjson-perl
+
+use JSON;         #libjson-perl
+use Data::Dumper;
+
+use Storable qw(dclone);
 
 use vars qw(%defs);
 use vars qw($FW_ME);
@@ -20,7 +24,7 @@ use vars qw($init_done);
 
 my @shortDays = ("Mon","Tue","Wed","Thu","Fri","Sat","Sun");
 
-my @DEVLIST_SEND = ("MAX","CUL_HM","weekprofile","dummy");
+my @DEVLIST_SEND = ("MAX","CUL_HM","HMCCUDEV","weekprofile","dummy");
 
 my $CONFIG_VERSION = "1.1";
 
@@ -43,9 +47,53 @@ $DEV_READINGS{"Fri"}{"CUL_HM"} = "6_tempListFri";
 $DEV_READINGS{"Sat"}{"CUL_HM"} = "0_tempListSat";
 $DEV_READINGS{"Sun"}{"CUL_HM"} = "1_tempListSun";
 
+# HMCCUDEV
+$DEV_READINGS{"Mon"}{"HMCCUDEV"} = "MONDAY";
+$DEV_READINGS{"Tue"}{"HMCCUDEV"} = "TUESDAY";
+$DEV_READINGS{"Wed"}{"HMCCUDEV"} = "WEDNESDAY";
+$DEV_READINGS{"Thu"}{"HMCCUDEV"} = "THURSDAY";
+$DEV_READINGS{"Fri"}{"HMCCUDEV"} = "FRIDAY";
+$DEV_READINGS{"Sat"}{"HMCCUDEV"} = "SATURDAY";
+$DEV_READINGS{"Sun"}{"HMCCUDEV"} = "SUNDAY";
 
 sub weekprofile_findPRF($$$$);
 
+############################################## 
+sub weekprofile_minutesToTime($)
+{
+  my ($minutes) = @_;
+  
+  my $hours = $minutes / 60;
+  $minutes = $minutes - $hours * 60;
+
+  if (length($hours) eq 1){
+    $hours = "0$hours";
+  }
+  if (length($minutes) eq 1){
+    $minutes = "0$minutes";
+  }
+  return "$hours:$minutes";
+}
+############################################## 
+sub weekprofile_timeToMinutes($)
+{
+  my ($time) = @_;
+  
+  my ($hours, $minutes) = split(':',$time, 2);
+
+  return $hours * 60 + $minutes;
+}
+############################################## 
+sub myAttrVal($$$)
+{
+	my ($me,$name,$def) = @_;
+	my $val = AttrVal($me, $name, $def);
+	
+	if (defined($val) && ($name eq 'tempON' || $name eq 'tempOFF')) { 
+	  $val = sprintf("%.1f", $val);
+	}
+	return $val;
+}
 ############################################## 
 sub weekprofile_getDeviceType($$;$)
 {
@@ -95,6 +143,10 @@ sub weekprofile_getDeviceType($$;$)
   elsif ($devHash->{TYPE} =~ /dummy/){
     $type = "MAX"     if ($device =~ m/.*MAX.*FAKE.*/);    #dummy (FAKE WT) with name MAX inside for testing
     $type = "CUL_HM"  if ($device =~ m/.*CUL_HM.*FAKE.*/); #dummy (FAKE WT) with name CUL_HM inside for testing
+  }
+  elsif ( $devHash->{TYPE} =~ /HMCCUDEV/){
+	  my $model = $devHash->{ccutype};
+	  $type = "HMCCUDEV" if ( $model =~ /HmIP-eTRV-2/ );
   }
   
   return $type if ($sndrcv eq "RCV");
@@ -149,11 +201,29 @@ sub weekprofile_readDayProfile($@)
       push(@temps, $timeTemp[$i+1]);
     }
   }
+  elsif ($type eq "HMCCUDEV"){
+    my $lastTime = "";
+
+    for (my $i = 1; $i < 14; $i+=1){
+      my $prfTemp = ReadingsVal($device, "R-1.P1_TEMPERATURE_" . $reading . "_$i", "");
+      my $prfTime = ReadingsVal($device, "R-1.P1_ENDTIME_" . $reading . "_$i", "");
+
+      $prfTime = weekprofile_minutesToTime($prfTime);
+
+      if ($lastTime ne $prfTime){
+        $lastTime = $prfTime;
+
+        push(@temps, $prfTemp);
+        push(@times, $prfTime);
+      }
+    }
+  }
   
   for(my $i = 0; $i < scalar(@temps); $i+=1){
+	Log3 $me, 4, "$me(ReadDayProfile): temp $i $temps[$i]";
     $temps[$i] =~s/[^\d.]//g; #only numbers
-    my $tempON = AttrVal($me, "tempON", undef);
-    my $tempOFF = AttrVal($me, "tempOFF", undef);
+    my $tempON = myAttrVal($me, "tempON", undef);
+    my $tempOFF = myAttrVal($me, "tempOFF", undef);
   
     $temps[$i] =~s/$tempOFF/off/g if (defined($tempOFF)); # temp off
     $temps[$i] =~s/$tempON/on/g   if (defined($tempON));  # temp on
@@ -222,12 +292,18 @@ sub weekprofile_sendDevProfile(@)
   return "profile has no data" if (!defined($prf->{DATA}));
 
   if ($type eq "WEEKPROFILE") {
-      my $json = JSON->new;
-      my $json_text = $json->encode($prf->{DATA});
+      my $json = JSON->new->allow_nonref;
+      my $json_text = undef;
+      
+      eval ( $json_text = $json->encode($prf->{DATA}) );
+      return "Error in profile data" if (!defined($json_text));
+      
       return fhem("set $device profile_data $prf->{TOPIC}:$prf->{NAME} $json_text",1);
   }
 
   my $devPrf = weekprofile_readDevProfile($device,$type,$me);
+  
+  
   
   # only send changed days
   my @dayToTransfer = ();
@@ -241,7 +317,7 @@ sub weekprofile_sendDevProfile(@)
     }
     
     my $equal = 1;
-    for (my $i = 0; $i < $tmpCnt; $i++) {
+    for (my $i = 0; $i < $tmpCnt; $i++) {	  
       if ( ($prf->{DATA}->{$day}->{"temp"}[$i] ne $devPrf->{$day}->{"temp"}[$i] ) ||
             $prf->{DATA}->{$day}->{"time"}[$i] ne $devPrf->{$day}->{"time"}[$i] ) {
         $equal = 0; 
@@ -260,22 +336,36 @@ sub weekprofile_sendDevProfile(@)
     return undef;
   }
   
+  #make a copy because of replacements 
+  my $prfData= dclone($prf->{DATA});  
+  my $tempON = myAttrVal($me, "tempON", "30.5");
+  my $tempOFF = myAttrVal($me, "tempOFF", "4.5");
+  
+  #replace variables with values  
+  foreach my $day (@dayToTransfer){
+	my $tmpCnt =  scalar(@{$prfData->{$day}->{"temp"}});
+	for (my $i = 0; $i < $tmpCnt; $i++) {
+      $prfData->{$day}->{"temp"}[$i] = $tempON  if ($prfData->{$day}->{"temp"}[$i] =~/on/i);
+	  $prfData->{$day}->{"temp"}[$i] = $tempOFF if ($prfData->{$day}->{"temp"}[$i] =~/off/i);
+	}
+  }
+    
   my $cmd;
   if($type eq "MAX") {
     $cmd = "set $device weekProfile ";
     foreach my $day (@dayToTransfer){
-      my $tmpCnt =  scalar(@{$prf->{DATA}->{$day}->{"temp"}});
+      my $tmpCnt =  scalar(@{$prfData->{$day}->{"temp"}});
       
       $cmd.=$day.' ';
       
       for (my $i = 0; $i < $tmpCnt; $i++) {
-        my $endTime = $prf->{DATA}->{$day}->{"time"}[$i];
+        my $endTime = $prfData->{$day}->{"time"}[$i];
         
         $endTime = ($endTime eq "24:00") ? ' ' : ','.$endTime.',';
-        $cmd.=$prf->{DATA}->{$day}->{"temp"}[$i].$endTime;
+        $cmd.=$prfData->{$day}->{"temp"}[$i].$endTime;
       }
     }
-  } else { #Homatic
+  } elsif ($type eq "CUL_HM") {
     my $k=0;
     my $dayCnt = scalar(@dayToTransfer);
     foreach my $day (@dayToTransfer){
@@ -283,15 +373,33 @@ sub weekprofile_sendDevProfile(@)
       $cmd .= $day;
       $cmd .= ($k < $dayCnt-1) ? " prep": " exec";
       
-      my $tmpCnt =  scalar(@{$prf->{DATA}->{$day}->{"temp"}});      
+      my $tmpCnt =  scalar(@{$prfData->{$day}->{"temp"}});      
       for (my $i = 0; $i < $tmpCnt; $i++) {
-        $cmd .= " ".$prf->{DATA}->{$day}->{"time"}[$i]." ".$prf->{DATA}->{$day}->{"temp"}[$i];
+        $cmd .= " ".$prfData->{$day}->{"time"}[$i]." ".$prfData->{$day}->{"temp"}[$i];
       }
       $cmd .= ($k < $dayCnt-1) ? "; ": "";
       $k++;
     }
+  } elsif ($type eq "HMCCUDEV"){
+    my $k=0;
+    my $dayCnt = scalar(@dayToTransfer);
+    $cmd .= "set $device config 1";
+    foreach my $day (@dayToTransfer){
+      #Usage: set <device> datapoint [{channel-number}.]{datapoint} {value} 
+      my $reading = $DEV_READINGS{$day}{$type};
+      my $dpTime = "P1_ENDTIME_$reading";
+      my $dpTemp = "P1_TEMPERATURE_$reading";
+   
+      my $tmpCnt =  scalar(@{$prfData->{$day}->{"temp"}});      
+      for (my $i = 0; $i < $tmpCnt; $i++) {
+        $cmd .= " " . $dpTemp . "_" . ($i + 1) . "=" . $prfData->{$day}->{"temp"}[$i];
+        $cmd .= " " . $dpTime . "_" . ($i + 1) . "=" . weekprofile_timeToMinutes($prfData->{$day}->{"time"}[$i]);
+      }
+      
+      #$cmd .= ($k < $dayCnt-1) ? "; ": "";
+      $k++;
+    }
   }
-
   my $ret = undef;
   if ($cmd) {
     $cmd =~ s/^\s+|\s+$//g; 
@@ -366,14 +474,15 @@ sub weekprofile_assignDev($)
   }
   
   if (!defined($prf)) {
-    my $prfDev = weekprofile_createDefaultProfile($hash);  
+	Log3 $me, 5, "create default profile";
+    my $prfDev = weekprofile_createDefaultProfile($hash);
     if(defined($prfDev)) {
       $prf = {};
       $prf->{DATA} = $prfDev;
       $prf->{NAME} = 'default';
       $prf->{TOPIC} = 'default';
-    }
-    $hash->{STATE} = "created";
+      $hash->{STATE} = "created";      
+    }    
   }
   
   if(defined($prf)) {
@@ -414,7 +523,7 @@ sub weekprofile_updateReadings($)
 sub weekprofile_Initialize($)
 {
   my ($hash) = @_;
-
+  
   $hash->{DefFn}    = "weekprofile_Define";
   $hash->{SetFn}    = "weekprofile_Set";
   $hash->{GetFn}    = "weekprofile_Get";
@@ -474,6 +583,21 @@ sub sort_by_name
   return lc("$a->{TOPIC}:$a->{NAME}") cmp lc("$b->{TOPIC}:$b->{NAME}");
 }
 ############################################## 
+sub dumpData($$$) 
+{
+	my ($hash,$prefix,$data) = @_;
+	
+	my $me = $hash->{NAME};	 
+	my $dmp = Dumper($data);
+	
+	$dmp =~ s/^\s+|\s+$//g; #trim whitespace both ends
+	if (AttrVal($me,"verbose",3) < 4) {
+		Log3 $me, 1, "$me$prefix - set verbose to 4 to see the data";
+	} else {
+		Log3 $me, 4, "$me$prefix $dmp";
+	}
+}
+############################################## 
 sub weekprofile_Get($$@)
 {
   my ($hash, $name, $cmd, @params) = @_;
@@ -504,8 +628,12 @@ sub weekprofile_Get($$@)
     return "profile $params[0] not found" if (!defined($prf));    
     return "profile $params[0] has no data" if (!defined($prf->{DATA}));
     
-    my $json = JSON->new;
-    my $json_text = $json->encode($prf->{DATA});
+    my $json = JSON->new->allow_nonref;
+    my $json_text = undef;
+
+    eval { $json_text = $json->encode($prf->{DATA}) };
+    dumpData($hash,"(Get): invalid profile data",$prf->{DATA}) if (!defined($json_text));
+    
     return $json_text;
   } 
   #-----------------------------------------------------------------------------
@@ -563,9 +691,11 @@ sub weekprofile_Get($$@)
   }
   
   if($cmd eq "sndDevList") {
-    my $json = JSON->new;
+    my $json = JSON->new->allow_nonref;
     my @sortDevList = sort {lc($a->{ALIAS}) cmp lc($b->{ALIAS})} @{$hash->{SNDDEVLIST}};
-    my $json_text = $json->encode(\@sortDevList);
+    my $json_text = undef;
+    eval { $json_text = $json->encode(\@sortDevList) };
+    dumpData($hash,"(Get): invalid device list",\@sortDevList) if (!defined($json_text));
     return $json_text;
   }
   
@@ -643,10 +773,11 @@ sub weekprofile_Set($$@)
     
     my $jsonData = $params[1];
 
-    my $json = JSON->new;
+    my $json = JSON->new->allow_nonref;
     my $data = undef;
+
     eval { $data = $json->decode($jsonData); };
-    if ($@) {
+    if (!defined($data)) {
       Log3 $me, 1, "$me(Set): Error parsing profile data.";
       return "Error parsing profile data. No valid json format";
     };
@@ -827,6 +958,22 @@ sub weekprofile_Set($$@)
     return undef;
   }
   
+  #----------------------------------------------------------
+  $list.= " reread_master:noArg" if (defined($hash->{MASTERDEV}));
+  if ($cmd eq 'reread_master') {
+	  return "Error no master device assigned" if (!defined($hash->{MASTERDEV}));
+	  my $devName = $hash->{MASTERDEV}->{NAME};
+	  Log3 $me, 4, "$me(Set): reread master profile from $devName";
+      my $prfDev = weekprofile_readDevProfile($hash->{MASTERDEV}->{NAME},$hash->{MASTERDEV}->{TYPE}, $me);
+      if(defined($prfDev)) {
+        $hash->{PROFILES}[0]->{DATA} = $prfDev;
+        weekprofile_updateReadings($hash);
+        return undef;
+      } else {
+		  return "Error reading master profile";
+	  }
+  }
+  
   $list =~ s/ $//;
   return "Unknown argument $cmd, choose one of $list"; 
 }
@@ -910,10 +1057,28 @@ sub weekprofile_Attr($$$)
   
   my $hash = $defs{$me};
   
-  Log3 $me, 5, "$me(weekprofile_Attr): $cmd, $attrName, $attrVal";
+  return if (!defined($attrVal));
   
+  Log3 $me, 5, "$me(weekprofile_Attr): $cmd, $attrName, $attrVal";
+    
   $attr{$me}{$attrName} = $attrVal;
   weekprofile_writeProfilesToFile($hash) if ($attrName eq 'configFile');
+  
+  if ($attrName eq 'tempON') {	  
+	  my $tempOFF = myAttrVal($me, "tempOFF", $attrVal);
+	  if ($tempOFF > $attrVal) {
+		  Log3 $me, 2, "$me(weekprofile_Attr): warning: tempON must be bigger than tempOFF";
+		 
+	  }
+  }
+  
+  if ($attrName eq 'tempOFF') {
+	  my $tempON = myAttrVal($me, "tempON", $attrVal);
+	  if ($tempON < $attrVal) {
+		  Log3 $me, 2, "$me(weekprofile_Attr): warning: tempOFF must be smaller than tempON";
+	  }
+  }
+  
   return undef;
   
 }
@@ -922,6 +1087,11 @@ sub weekprofile_writeProfilesToFile(@)
 {
   my ($hash) = @_;
   my $me = $hash->{NAME};
+  
+  if (!defined($hash->{PROFILES})) {
+	  Log3 $me, 4, "$me(writeProfileToFile): no pofiles to save";
+	  return;
+  }
   
   my $start = (defined($hash->{MASTERDEV})) ? 1:0;
   my $prfCnt = scalar(@{$hash->{PROFILES}});
@@ -939,7 +1109,7 @@ sub weekprofile_writeProfilesToFile(@)
   print $fh "__version__=".$CONFIG_VERSION."\n";  
   
   Log3 $me, 5, "$me(writeProfileToFile): write profiles to $filename";
-  my $json = JSON->new;
+  my $json = JSON->new->allow_nonref;
   for (my $i = $start; $i < $prfCnt; $i++) {
     print $fh "entry=".$json->encode($hash->{PROFILES}[$i])."\n";
   }  
@@ -972,7 +1142,7 @@ sub weekprofile_readProfilesFromFile(@)
   
   Log3 $me, 5, "$me(readProfilesFromFile): read profiles from $filename";
   
-  my $json = JSON->new;  
+  my $json = JSON->new->allow_nonref;  
   my $rowCnt = 0;
   my $version = undef;
   while (my $row = <$fh>) {
@@ -993,7 +1163,7 @@ sub weekprofile_readProfilesFromFile(@)
     if (!$version || $version < 1.1) {
       my $prfData=undef;
       eval { $prfData = $json->decode($data[1]); };
-      if ($@) {
+      if (!defined($prfData)) {
         Log3 $me, 1, "$me(readProfilesFromFile): Error parsing profile data $data[1]";
         next;
       };
@@ -1013,7 +1183,7 @@ sub weekprofile_readProfilesFromFile(@)
     elsif ($version = 1.1) {
       my $prfNew=undef;
       eval { $prfNew = $json->decode($data[1]); };
-      if ($@) {
+      if (!defined($prfNew)) {
         Log3 $me, 1, "$me(readProfilesFromFile): Error parsing profile data $data[1]";
         next;
       };
@@ -1253,6 +1423,9 @@ sub weekprofile_getEditLNK_MasterDev($$)
       All weekprofiles from the topic will be transfered to the correcponding devices.
       Therefore a user attribute 'weekprofile' with the weekprofile name <b>without the topic name</b> have to exist in the device.
     </li>
+    <li>reread_master<br>
+		Refresh (reread) the master profile from the master device.
+    </li>
   </ul>
   
   <a name="weekprofileget"></a>
@@ -1411,6 +1584,9 @@ sub weekprofile_getEditLNK_MasterDev($$)
       <code>set &lt;name&gt; restore_topic &lt;topic&gt;</code><br>
       Alle Wochenpläne in der Topic werden zu den entsprechenden Geräten übertragen.
       Dazu muss im Gerät ein Userattribut 'weekprofile' mit dem Namen des Wochenplans <b>ohne</b> Topic gesetzt sein.
+    </li>
+    <li>reread_master<br>
+		Aktualisiert das master profile indem das 'Master-Geräte' neu ausgelesen wird.
     </li>
   </ul>
   

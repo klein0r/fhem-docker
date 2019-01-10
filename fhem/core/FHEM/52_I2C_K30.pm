@@ -1,7 +1,7 @@
 ##############################################
 # I2C_K30.pm: heavily based on I2C_SHT21.pm
 #
-# $Id: 52_I2C_K30.pm 11161 2016-03-30 20:48:06Z yoda_gh $
+# $Id: 52_I2C_K30.pm 16408 2018-03-14 20:28:06Z yoda_gh $
 
 package main;
 
@@ -260,6 +260,9 @@ sub I2C_K30_DbLog_splitFn($) {
 1;
 
 =pod
+=item device
+=item summary read SenseAir K30 CO2 sensor via I2C bus
+=item summary_DE SenseAir K30 CO2 Sensor über I2C auslesen
 =begin html
 
 <a name="I2C_K30"></a>

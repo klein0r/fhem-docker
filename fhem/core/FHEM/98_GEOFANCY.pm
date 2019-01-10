@@ -1,10 +1,11 @@
 ###############################################################################
-# $Id: 98_GEOFANCY.pm 14110 2017-04-26 06:54:58Z loredo $
+# $Id: 98_GEOFANCY.pm 17593 2018-10-22 15:35:04Z loredo $
 package main;
 use strict;
 use warnings;
 use Data::Dumper;
 use Time::Local;
+use UConv;
 
 use HttpUtils;
 
@@ -98,20 +99,32 @@ sub GEOFANCY_CGI() {
     my ($request) = @_;
 
     my $hash;
-    my $name        = "";
-    my $link        = "";
-    my $URI         = "";
-    my $device      = "";
-    my $deviceAlias = "-";
-    my $id          = "";
-    my $lat         = "";
-    my $long        = "";
-    my $address     = "-";
-    my $entry       = "";
-    my $msg         = "";
-    my $date        = "";
-    my $time        = "";
-    my $locName     = "";
+    my $name          = "";
+    my $link          = "";
+    my $URI           = "";
+    my $device        = "";
+    my $deviceAlias   = "-";
+    my $id            = "";
+    my $lat           = "";
+    my $long          = "";
+    my $posLat        = "";
+    my $posLong       = "";
+    my $posBeaconUUID = "";
+    my $posTravDist   = "";
+    my $address       = "-";
+    my $posAddress    = "-";
+    my $entry         = "";
+    my $msg           = "";
+    my $date          = "";
+    my $time          = "";
+    my $locName       = "";
+    my $radius        = 0;
+    my $posDistLoc    = "";
+    my $posDistHome   = "";
+    my $locTravDist   = "";
+    my $motion        = "";
+    my $wifiSSID      = "";
+    my $wifiBSSID     = "";
 
     # data received
     if ( $request =~ m,^(\/[^/]+?)(?:\&|\?|\/\?|\/)(.*)?$, ) {
@@ -258,6 +271,34 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
                 || $webArgs->{longitude} > 180 )
           );
 
+        # validate posLAT
+        return (
+            "text/plain; charset=utf-8",
+            "NOK Specified latitude '"
+              . $webArgs->{currentLatitude}
+              . "' has unexpected format"
+          )
+          if (
+            defined $webArgs->{currentLatitude}
+            && (   $webArgs->{currentLatitude} !~ m/^-?\d+(\.\d+)?$/
+                || $webArgs->{currentLatitude} < -90
+                || $webArgs->{currentLatitude} > 90 )
+          );
+
+        # validate posLONG
+        return (
+            "text/plain; charset=utf-8",
+            "NOK Specified longitude '"
+              . $webArgs->{currentLongitude}
+              . "' has unexpected format"
+          )
+          if (
+            defined $webArgs->{currentLongitude}
+            && (   $webArgs->{currentLongitude} !~ m/^-?\d+(\.\d+)?$/
+                || $webArgs->{currentLongitude} < -180
+                || $webArgs->{currentLongitude} > 180 )
+          );
+
         # validate device
         return ( "text/plain; charset=utf-8",
             "NOK Expected value for 'device' cannot be empty" )
@@ -270,14 +311,28 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
           if ( defined( $webArgs->{device} )
             && $webArgs->{device} =~ m/(?:\s)/ );
 
+        # validate motion
+        if ( defined( $webArgs->{motion} ) ) {
+            my @motions = (
+                "unknown",    "stationary", "walking", "running",
+                "automotive", "cycling"
+            );
+            my $motionLc = lc( $webArgs->{motion} );
+            return ( "text/plain; charset=utf-8",
+                "NOK Unknown motion type '" . $webArgs->{motion} . "'" )
+              if ( !grep( /^$motionLc$/, @motions ) );
+        }
+
         # Locative.app
         if ( defined $webArgs->{trigger} ) {
             Log3 $name, 5, "GEOFANCY $name: detected data format: Locative.app";
-            $id     = $webArgs->{id};
-            $entry  = $webArgs->{trigger};
-            $lat    = $webArgs->{latitude};
-            $long   = $webArgs->{longitude};
-            $device = $webArgs->{device};
+            $id      = $webArgs->{id};
+            $entry   = $webArgs->{trigger};
+            $lat     = $webArgs->{latitude};
+            $long    = $webArgs->{longitude};
+            $device  = $webArgs->{device};
+            $posLat  = $lat;
+            $posLong = $long;
 
             if ( defined( $webArgs->{timestamp} ) ) {
                 my ( $sec, $min, $hour, $d, $m, $y ) =
@@ -295,9 +350,36 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
             $date    = GEOFANCY_ISO8601UTCtoLocal( $webArgs->{date} );
             $lat     = $webArgs->{latitude};
             $long    = $webArgs->{longitude};
+            $radius  = $webArgs->{radius}
+              if ( defined( $webArgs->{radius} ) );
             $address = $webArgs->{address}
               if ( defined( $webArgs->{address} ) );
             $device = $webArgs->{device};
+            $motion = $webArgs->{motion}
+              if ( defined( $webArgs->{motion} ) );
+            $wifiSSID = $webArgs->{wifiSSID}
+              if ( defined( $webArgs->{wifiSSID} ) );
+            $wifiBSSID = $webArgs->{wifiBSSID}
+              if ( defined( $webArgs->{wifiBSSID} ) );
+            $posBeaconUUID = $webArgs->{beaconUUID}
+              if ( defined( $webArgs->{beaconUUID} ) );
+
+            if (
+                   !defined( $webArgs->{currentLatitude} )
+                || !defined( $webArgs->{currentLongitude} )
+                || (   $webArgs->{currentLatitude} == 0
+                    && $webArgs->{currentLongitude} == 0 )
+              )
+            {
+                $posLat     = $webArgs->{latitude};
+                $posLong    = $webArgs->{longitude};
+                $posAddress = $address;
+            }
+            else {
+                $posLat     = $webArgs->{currentLatitude};
+                $posLong    = $webArgs->{currentLongitude};
+                $posAddress = $address if ( $posBeaconUUID ne "" );
+            }
         }
 
         # SMART Geofences.app
@@ -312,7 +394,10 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
             $long    = $webArgs->{longitude};
             $address = $webArgs->{address}
               if ( defined( $webArgs->{address} ) );
-            $device = $webArgs->{device};
+            $device     = $webArgs->{device};
+            $posLat     = $lat;
+            $posLong    = $long;
+            $posAddress = $address;
         }
         else {
             return "fatal error";
@@ -406,14 +491,63 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
     }
 
     $deviceAlias = $hash->{helper}{device_aliases}{$device}
-      if ( $hash->{helper}{device_aliases}{$device} && $matchingResident == 0 );
+      if ( $hash->{helper}{device_aliases}{$device}
+        && $matchingResident == 0 );
 
     Log3 $name, 4,
-"GEOFANCY $name: id=$id name=$locName trig=$entry date=$date lat=$lat long=$long address:$address dev=$device devAlias=$deviceAlias";
+"GEOFANCY $name: id=$id name=$locName trig=$entry date=$date lat=$lat long=$long posLat=$posLat posLong=$posLong address:$address dev=$device devAlias=$deviceAlias motion=$motion wifiSSID=$wifiSSID wifiBSSID=$wifiBSSID";
 
     Log3 $name, 3,
 "GEOFANCY $name: Unknown device UUID $device: Set attribute devAlias for $name or assign $device to any ROOMMATE or GUEST device using attribute r*_geofenceUUIDs"
       if ( $deviceAlias eq "-" );
+
+    # distance between home and position
+    my $homeLat  = AttrVal( "global", "latitude",  undef );
+    my $homeLong = AttrVal( "global", "longitude", undef );
+    if ( $homeLat && $homeLong ) {
+        if ( $posLat ne "" && $posLong ne "" ) {
+            $posDistHome =
+              UConv::distance( $posLat, $posLong, $homeLat, $homeLong, 2 );
+        }
+        elsif ( $lat ne "" && $long ne "" ) {
+            $posDistHome =
+              UConv::distance( $lat, $long, $homeLat, $homeLong, 2 );
+        }
+    }
+
+    # distance between location and position
+    if ( $lat ne "" && $long ne "" && $posLat ne "" && $posLong ne "" ) {
+        $posDistLoc = UConv::distance( $posLat, $posLong, $lat, $long, 2 );
+    }
+
+    # travelled distance for location
+    if ( $lat ne "" && $long ne "" ) {
+        my $locLatVal = ReadingsVal( $name, "currLocLat_" . $deviceAlias, "-" );
+        $locLatVal = ReadingsVal( $name, "lastLocLat_" . $deviceAlias, "-" )
+          if ( $locLatVal eq "-" );
+        my $locLongVal =
+          ReadingsVal( $name, "currLocLong_" . $deviceAlias, "-" );
+        $locLongVal = ReadingsVal( $name, "lastLocLong_" . $deviceAlias, "-" )
+          if ( $locLongVal eq "-" );
+
+        if ( $locLatVal ne "-" && $locLongVal ne "-" ) {
+            $locTravDist =
+              UConv::distance( $lat, $long, $locLatVal, $locLongVal, 2 );
+        }
+    }
+
+    # travelled distance for position
+    if ( $posLat ne "" && $posLong ne "" ) {
+        my $currPosLatVal =
+          ReadingsVal( $name, "currPosLat_" . $deviceAlias, "" );
+        my $currPosLongVal =
+          ReadingsVal( $name, "currPosLong_" . $deviceAlias, "" );
+
+        if ( $currPosLatVal ne "" && $currPosLongVal ne "" ) {
+            $posTravDist = UConv::distance( $posLat, $posLong, $currPosLatVal,
+                $currPosLongVal, 2 );
+        }
+    }
 
     readingsBeginUpdate($hash);
 
@@ -436,10 +570,7 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
     readingsBulkUpdate( $hash, "lastDeviceUUID", $device );
     readingsBulkUpdate( $hash, "lastDevice",     $deviceAlias );
 
-    # update local device readings if
-    # - UUID was not assigned to any resident device
-    # - UUID has a defined devAlias
-    if ( $matchingResident == 0 && $deviceAlias ne "-" ) {
+    if ( $deviceAlias ne "-" ) {
 
         $id = $locName if ( defined($locName) && $locName ne "" );
 
@@ -451,6 +582,57 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
           if ( lc($entry) eq "exit"
             || lc($entry) eq "0"
             || lc($entry) eq "leaving" );
+
+        my $currReading;
+        my $lastReading;
+        my $currVal;
+
+        # backup last known position
+        $currReading = "currPosTime_" . $deviceAlias;
+        $currVal = ReadingsVal( $name, $currReading, undef );
+        readingsBulkUpdate( $hash, "lastPosArr_" . $deviceAlias, $currVal );
+        if ($currVal) {
+            readingsBulkUpdate( $hash, "lastPosDep_" . $deviceAlias, $time );
+            readingsBulkUpdate(
+                $hash,
+                "lastPosDur_" . $deviceAlias,
+                UConv::duration( $time, $currVal, "sec" )
+            );
+
+        }
+
+        foreach (
+            'PosSSID',    'PosBSSID',    'PosMotion',     'PosLat',
+            'PosLong',    'PosAddr',     'PosBeaconUUID', 'PosDistHome',
+            'PosDistLoc', 'PosTravDist', 'LocTravDist',   'LocRadius'
+          )
+        {
+            $currReading = "curr" . $_ . "_" . $deviceAlias;
+            $lastReading = "last" . $_ . "_" . $deviceAlias;
+            $currVal     = ReadingsVal( $name, $currReading, undef );
+            readingsBulkUpdate( $hash, $lastReading, $currVal )
+              if ( defined($currVal) );
+        }
+
+        readingsBulkUpdate( $hash, "currPosSSID_" . $deviceAlias,  $wifiSSID );
+        readingsBulkUpdate( $hash, "currPosBSSID_" . $deviceAlias, $wifiBSSID );
+        readingsBulkUpdate( $hash, "currPosMotion_" . $deviceAlias, $motion );
+        readingsBulkUpdate( $hash, "currPosBeaconUUID_" . $deviceAlias,
+            $posBeaconUUID );
+        readingsBulkUpdate( $hash, "currPosLat_" . $deviceAlias,  $posLat );
+        readingsBulkUpdate( $hash, "currPosLong_" . $deviceAlias, $posLong );
+        readingsBulkUpdate( $hash, "currPosAddr_" . $deviceAlias, $posAddress );
+        readingsBulkUpdate( $hash, "currPosTime_" . $deviceAlias, $time );
+        readingsBulkUpdate( $hash, "currPosDistHome_" . $deviceAlias,
+            $posDistHome );
+        readingsBulkUpdate( $hash, "currPosDistLoc_" . $deviceAlias,
+            $posDistLoc );
+        readingsBulkUpdate( $hash, "currLocTravDist_" . $deviceAlias,
+            $locTravDist );
+        readingsBulkUpdate( $hash, "currPosTravDist_" . $deviceAlias,
+            $posTravDist );
+
+        readingsBulkUpdate( $hash, "currLocRadius_" . $deviceAlias, $radius );
 
         if (   lc($entry) eq "enter"
             || lc($entry) eq "1"
@@ -470,26 +652,31 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
             || lc($entry) eq "0"
             || lc($entry) eq "leaving" )
         {
-            my $currReading;
-            my $lastReading;
-
             Log3 $name, 4,
               "GEOFANCY $name: $deviceAlias left $id and is in transit";
 
             # backup last known location if not "underway"
-            $currReading = "currLoc_" . $deviceAlias;
-            my $currVal = ReadingsVal( $name, $currReading, undef );
+            $currReading = "currLocTime_" . $deviceAlias;
+            $currVal = ReadingsVal( $name, $currReading, undef );
             if ( $currVal && $currVal ne "underway" ) {
-                foreach ( 'Loc', 'LocLat', 'LocLong', 'LocAddr' ) {
-                    $currReading = "curr" . $_ . "_" . $deviceAlias;
-                    $lastReading = "last" . $_ . "_" . $deviceAlias;
-                    readingsBulkUpdate( $hash, $lastReading, $currVal );
-                }
-                $currReading = "currLocTime_" . $deviceAlias;
                 readingsBulkUpdate( $hash, "lastLocArr_" . $deviceAlias,
                     $currVal );
                 readingsBulkUpdate( $hash, "lastLocDep_" . $deviceAlias,
                     $time );
+                readingsBulkUpdate(
+                    $hash,
+                    "lastLocDur_" . $deviceAlias,
+                    UConv::duration( $time, $currVal, "sec" )
+                );
+
+                foreach ( 'Loc', 'LocLat', 'LocLong', 'LocAddr' ) {
+                    $currReading = "curr" . $_ . "_" . $deviceAlias;
+                    $lastReading = "last" . $_ . "_" . $deviceAlias;
+                    $currVal     = ReadingsVal( $name, $currReading, "" );
+                    $currVal     = ReadingsVal( $name, $lastReading, "" )
+                      if ( $currVal eq "-" || $currVal eq "" );
+                    readingsBulkUpdate( $hash, $lastReading, $currVal );
+                }
             }
 
             readingsBulkUpdate( $hash, $deviceAlias, "left " . $id );
@@ -514,8 +701,11 @@ m/(19|20)\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([0-1][0-9]|2[0-3]):([0-5
         $locName = $id if ( $locName eq "" );
 
         RESIDENTStk_SetLocation(
-            $deviceAlias, $locName, $trigger, $id, $time,
-            $lat,         $long,    $address, $device
+            $deviceAlias, $locName,       $trigger,     $id,
+            $time,        $lat,           $long,        $address,
+            $device,      $radius,        $posLat,      $posLong,
+            $posAddress,  $posBeaconUUID, $posDistHome, $posDistLoc,
+            $motion,      $wifiSSID,      $wifiBSSID
         ) if ( IsDevice( $deviceAlias, "ROOMMATE|GUEST" ) );
     }
 

@@ -1,4 +1,4 @@
-# $Id: 33_readingsProxy.pm 14044 2017-04-20 07:48:44Z justme1968 $
+# $Id: 33_readingsProxy.pm 16299 2018-03-01 08:06:55Z justme1968 $
 ##############################################################################
 #
 #     This file is part of fhem.
@@ -410,7 +410,7 @@ readingsProxy_Attr($$$;$)
         has access to $DEVICE, $READING, $CMD and $ARGS.<br>
         undef -> do nothing<br>
         ""    -> pass through<br>
-        (<value>,1) -> directly return <value>, don't call parent getFn<br>
+        (&lt;value&gt;,1) -> directly return &lt;value&gt;, don't call parent getFn<br>
         everything else -> use this instead</li>
       <li>setFn<br>
         perl expresion that will return the set command forwarded to the parent device.

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 70_PIONEERAVR.pm 14814 2017-07-29 12:55:21Z 50watt $
+# $Id: 70_PIONEERAVR.pm 17876 2018-12-01 13:19:56Z 50watt $
 #
 #     70_PIONEERAVR.pm
 #
@@ -155,16 +155,13 @@ sub PIONEERAVR_Initialize($) {
 sub PIONEERAVR_Define($$) {
     my ( $hash, $a, $h ) = @_;
     my $name  = $hash->{NAME};
-
-    Log3 $name, 5, "PIONEERAVR $name: called function PIONEERAVR_Define()";
-
     my $protocol = @$a[2];
 
     Log3 $name, 5, "PIONEERAVR $name: called function PIONEERAVR_Define()";
 
     if( int(@$a) != 4 || (($protocol ne "telnet") && ($protocol ne "serial"))) {
         my $msg = "Wrong syntax: define <name> PIONEERAVR telnet <ipaddress[:port]> or define <name> PIONEERAVR serial <devicename[\@baudrate]>";
-        Log3 $name, 3, "PIONEERAVR $name: " . $msg;
+        Log3 $name, 4, "PIONEERAVR $name: " . $msg;
         return $msg;
     }
 
@@ -210,8 +207,8 @@ sub PIONEERAVR_Define($$) {
         );
     }
 
-    $hash->{helper}{receiver} = undef;
-
+     $hash->{helper}{receiver} = undef;
+    
     unless ( exists( $hash->{helper}{AVAILABLE} ) and ( $hash->{helper}{AVAILABLE} == 0 ))
     {
         $hash->{helper}{AVAILABLE} = 1;
@@ -219,9 +216,10 @@ sub PIONEERAVR_Define($$) {
     }
 
     # $hash->{helper}{INPUTNAMES} lists the default input names and their inputNr as provided by Pioneer.
-    # This module tries to read those names and the alias names from the AVR receiver and tries to check if this input is enabled or disabled
-    # So this list is just a fall back if the module can't read the names ...
-    # InputNr with player functions (play,pause,...) ("13","17","18","26","27","33","38","41","44","45","48","53");       # Input number for usbDac, ipodUsb, xmRadio, homeMediaGallery, sirius, adapterPort, internetRadio, pandora, mediaServer, Favorites, mhl, spotify
+    # This module can read those names and the alias names from the AVR receiver and can try to check if this input is enabled or disabled
+    # So this list is a fall back, if the module can't read the names or the reading of the names takes too long (for the user)...
+    # InputNr with player functions (play,pause,...) ("13","17","18","26","27","33","38","41","44","45","48","49","53");       
+    # Input number for usbDac, ipodUsb, xmRadio, homeMediaGallery, sirius, adapterPort, internetRadio, pandora, mediaServer, Favorites, mhl, spotify
     # Additionally this module tries to get information from the Pioneer AVR
     #  - about the input level adjust
     #  - to which connector each input is connected.
@@ -261,9 +259,35 @@ sub PIONEERAVR_Define($$) {
         "41" => {"name" => "pandora",           "aliasName" => "",  "enabled" => "1", "playerCommands" => "1"},
         "44" => {"name" => "mediaServer",       "aliasName" => "",  "enabled" => "1", "playerCommands" => "1"},
         "45" => {"name" => "favorites",         "aliasName" => "",  "enabled" => "1", "playerCommands" => "1"},
+        "46" => {"name" => "airplay",           "aliasName" => "",  "enabled" => "1", "playerCommands" => "1"},
+		"47" => {"name" => "dmr",               "aliasName" => "",  "enabled" => "1", "playerCommands" => "1"},
         "48" => {"name" => "mhl",               "aliasName" => "",  "enabled" => "1", "playerCommands" => "1"},
+        "49" => {"name" => "game",              "aliasName" => "",  "enabled" => "1", "playerCommands" => "1"},
         "53" => {"name" => "spotify",           "aliasName" => "",  "enabled" => "1", "playerCommands" => "1"}
     };
+
+# Input Name aliases and which inputs are enabled/disabled should be available after a restart -> setKeyValue/getKeyValue are used to store those values to a file or database.
+# Here we restore those values after a rebstart
+	my $inputindex = undef;
+	my $inputNr = undef;
+    for ( my $i=0; $i<60; $i++ ) {
+		$inputNr = sprintf '%02d', $i;
+		$inputindex = "PIONEERAVR_InputAlias_".$inputNr;
+		my ($err, $data) = getKeyValue($inputindex);
+		if ((defined $data) && ($data ne '')) {
+			$hash->{helper}{INPUTNAMES}->{$inputNr}{aliasName} = $data;
+		};
+		$inputindex = "PIONEERAVR_InputEnabled_".$inputNr;
+		my ($err1, $data1) = getKeyValue($inputindex);
+		if ((defined $data1) && ($data1 ne '')) {
+			$hash->{helper}{INPUTNAMES}->{$inputNr}{enabled} = $data1;
+		};
+		undef $err;
+		undef $data;
+		undef $err1;
+		undef $data1;
+	};
+
   # ----------------Human Readable command mapping table for "set" commands-----------------------
   $hash->{helper}{SETS} = {
     'main' => {
@@ -1502,6 +1526,7 @@ PIONEERAVR_Set($@)
     my $name           = $hash->{NAME};
     my $cmd            = @$a[1];
     my $arg            = (@$a[2] ? @$a[2] : "");
+	my $arg2           = (@$a[3] ? @$a[3] : "");
     my $presence       = ReadingsVal( $name, "presence", "absent" );
     my @args           = @$a; shift @args; shift @args;
     my @setsPlayer     = ("play",
@@ -1591,6 +1616,8 @@ PIONEERAVR_Set($@)
         . " signalSelect:auto,analog,digital,hdmi,cycle"
         . " speakers:off,A,B,A+B raw"
         . " mcaccMemory:1,2,3,4,5,6 eq:on,off standingWave:on,off"
+        . " renameInputAlias"
+        . " inputSkip"
         . " remoteControl:"
         . join(',', sort keys (%{$hash->{helper}{REMOTECONTROL}}));
 
@@ -1963,6 +1990,44 @@ PIONEERAVR_Set($@)
             }
             return undef;
 
+        # Rename InputAlias (up to 14 chars)
+        } elsif ( $cmd eq "renameInputAlias" ) {
+            Log3 $name, 3, "PIONEERAVR $name: set $cmd for inputName: $arg new name: $arg2 !";
+            my $inputToChange = undef;
+			foreach my $key ( keys %{$hash->{helper}{INPUTNAMES}} ) {
+				if ( $hash->{helper}{INPUTNAMES}->{$key}{aliasName} eq $arg ) {
+					$inputToChange = sprintf "%02d", $key;
+				} elsif ( $hash->{helper}{INPUTNAMES}->{$key}{name} eq $arg ) {
+					$inputToChange = sprintf "%02d", $key;
+				}
+			}
+			if ( defined $inputToChange ) {PIONEERAVR_Write( $hash, $arg2."1RGB".$inputToChange)}
+			else {
+				my $err = "Warning: Could not renameInputAlias as the inputName: $arg was not found!";
+				return $err;
+				};
+            Log3 $name, 3, "PIONEERAVR $name: set $cmd for inputName: $arg new name: $arg2 ! write $arg2 1RGB $inputToChange ";
+            return undef;
+
+        # Change "skip input"
+        } elsif ( $cmd eq "inputSkip" ) {
+            Log3 $name, 3, "PIONEERAVR $name: set $cmd for inputName: $arg skip: $arg2 !";
+            my $inputToChange = undef;
+			foreach my $key ( keys %{$hash->{helper}{INPUTNAMES}} ) {
+				if ( $hash->{helper}{INPUTNAMES}->{$key}{aliasName} eq $arg ) {
+					$inputToChange = sprintf "%02d", $key;
+				} elsif ( $hash->{helper}{INPUTNAMES}->{$key}{name} eq $arg ) {
+					$inputToChange = sprintf "%02d", $key;
+				}
+			}
+			if (( defined $inputToChange) && ($arg2 eq "0" or $arg2 eq "1")) {PIONEERAVR_Write( $hash, $inputToChange."030".$arg2."SSC")}
+			else {
+				my $err = "Warning: Could not modify inputSkip as the inputName: $arg was not found!";
+				return $err;
+				};
+            Log3 $name, 3, "PIONEERAVR $name: set $cmd for inputName: $arg skip: $arg2 !";
+            return undef;
+			
         # selectScreenPage (player command) 
         } elsif ($cmd  eq "selectScreenPage") {
             Log3 $name, 5, "PIONEERAVR $name: set $cmd for inputNr: $inputNr (player command) argument: $arg !";
@@ -2275,7 +2340,7 @@ sub PIONEERAVR_Read($)
             # 14char -> name of the input
         } elsif ( $line=~ m/^RGB(\d\d)(\d)(.*)/ ) {
             my $inputNr = $1;
-            my $isAlias = $2; #1: aliasName; 0: Standard (predefined) name
+            my $isAlias = $2; #1: sy; 0: Standard (predefined) name
             Log3 $hash, 5, "PIONEERAVR $name: ".dq( $line ) ." interpreted as: Name for InputNr: $inputNr is ".dq( $3 );
             # remove non alnum
             $line =~ s/[^a-zA-Z 0-9]/ /g;
@@ -2286,6 +2351,10 @@ sub PIONEERAVR_Read($)
             # lc first
             if ( $isAlias ) {
                 $hash->{helper}{INPUTNAMES}->{$inputNr}{aliasName} = lcfirst( substr( $line,6 ) );
+                # input name aliases should be available after a restart of FHEM -> setKeyValue
+				my $inputindex = "PIONEERAVR_InputAlias_".$inputNr;
+				setKeyValue($inputindex, lcfirst( substr( $line,6 ) ));
+
             } else {
                 $hash->{helper}{INPUTNAMES}->{$inputNr}{name} = lcfirst( substr( $line,6 ) );
             }
@@ -2377,19 +2446,21 @@ sub PIONEERAVR_Read($)
         # input enabled
         } elsif ( $line=~ m/^SSC(\d\d)030(1|0)$/ ) {
 
-            #       select(undef, undef, undef, 0.001);
             # check for input skip information
             # format: ?SSC<2 digit input function nr>03
             # response: SSC<2 digit input function nr>0300: use
             # response: SSC<2 digit input function nr>0301: skip
             # response: E06: inappropriate parameter (input function nr not available on that device)
             # we can not trust "E06" as it is not sure that it is the reply for the current input nr
-
+            # the information, which inputs are enabled/disabled should be available after a restart of FHEM -> setKeyValue
+			my $inputindex = "PIONEERAVR_InputEnabled_".$1;
             if ( $2 == 1 ) {
                 $hash->{helper}{INPUTNAMES}->{$1}{enabled} = 0;
+				setKeyValue($inputindex, 0);
                 Log3 $hash, 5, "PIONEERAVR $name: ".dq( $line ) ." interpreted as: InputNr: $1 is disabled";
             } elsif ( $2 == 0) {
                 $hash->{helper}{INPUTNAMES}->{$1}{enabled} = 1;
+				setKeyValue($inputindex, 1);
                 Log3 $hash, 5, "PIONEERAVR $name: ".dq( $line ) ." interpreted as: InputNr: $1 is enabled";
             }
 
@@ -2770,26 +2841,88 @@ sub PIONEERAVR_Read($)
                 readingsBulkUpdate( $hash, "stateAV", $stateAV )
                     if ( ReadingsVal( $name, "stateAV", "-" ) ne $stateAV );
             }
+        # screen type and screen name for XC-HM72 (XC-HM72 has screen name in $9 and no screen update command)
+        } elsif ( $line =~ m/^(GCP)(\d{2})(\d)(\d)(\d)(\d)(\d)(.*)\"(.*)\"$/ ) {
+            # Format:
+            #   $2: screen type
+            #     00:Message
+            #     01:List
+            #     02:Playing(Play)
+            #     03:Playing(Pause)
+            #     04:Playing(Fwd)
+            #     05:Playing(Rev)
+            #     06:Playing(Stop)
+            #     99:Drawing invalid
+
+            #   $3: 0:Same hierarchy 1:Updated hierarchy (Next or Previous list)
+            #   $4: Top menu key flag
+            #     0:Invalidity
+            #     1:Effectiveness
+            #   $5: Tools (menu, edit,iPod Control) Key Information
+            #     0:Invalidity
+            #     1:Effectiveness
+            #   $6: Return Key Information
+            #     0:Invalidity
+            #     1:Effectiveness
+            #   $7: always 0
+            #   $8: 10 digits (XC-HM72) or nothing
+            #   $9: Screen name (UTF8) max. 128 byte
+            my $screenType = $hash->{helper}{SCREENTYPES}{$2};
+
+            readingsBulkUpdate( $hash, "screenType", $screenType );
+            readingsBulkUpdate( $hash, "screenName", $9 );
+            readingsBulkUpdate( $hash, "screenHierarchy", $3 );
+            readingsBulkUpdate( $hash, "screenTopMenuKey", $4 );
+            readingsBulkUpdate( $hash, "screenToolsKey", $5 );
+            readingsBulkUpdate( $hash, "screenReturnKey", $6 );
+
+            # to update the OSD/screen while playing from iPad/network a command has to be sent regulary
+            if ($2 eq "02" ) {
+                RemoveInternalTimer( $hash, "PIONEERAVR_screenUpdate" );
+                # It seems that XC-HM72 does not support the screen update command
+                ## reset screenUpdate timer -> again in 5s
+                #my $checkInterval = 5;
+                #my $next = gettimeofday() + $checkInterval;
+                #$hash->{helper}{nextScreenUpdate} = $next;
+                #InternalTimer( $next, "PIONEERAVR_screenUpdate", $hash, 0 );
+                #readingsBulkUpdate( $hash, "playStatus", "playing" );
+            } elsif ( $2 eq "03" ) {
+                readingsBulkUpdate( $hash, "playStatus", "paused" );            
+            } elsif ( $2 eq "04" ) {
+                readingsBulkUpdate( $hash, "playStatus", "fast-forward" );          
+            } elsif ( $2 eq "05" ) {
+                readingsBulkUpdate( $hash, "playStatus", "fast-rewind" );           
+            } elsif ( $2 eq "06" ) {
+                readingsBulkUpdate( $hash, "playStatus", "stopped" );           
+            }
+            
+            # stateAV
+            if ( $2 eq "02" || $2 eq "03" || $2 eq "04" || $2 eq "05" || $2 eq "06" ) {
+            
+                my $stateAV = PIONEERAVR_GetStateAV($hash);
+                readingsBulkUpdate( $hash, "stateAV", $stateAV )
+                    if ( ReadingsVal( $name, "stateAV", "-" ) ne $stateAV );
+            }
         # Source information
-        } elsif ( $line =~ m/^(GHH)(\d{2})$/ ) {
+        } elsif ( $line =~ m/^(GHP|GHH)(\d{2})$/ ) {
             my $sourceInfo = $hash->{helper}{SOURCEINFO}{$2};
             readingsBulkUpdate( $hash, "sourceInfo", $sourceInfo );
             Log3 $hash, 5, "PIONEERAVR $name: ".dq( $line ) ." interpreted as: Screen source information: $2 $sourceInfo";
 
         # total screen lines
-        } elsif ( $line =~ m/^(GDH)(\d{5})(\d{5})(\d{5})$/ ) {
+        } elsif ( $line =~ m/^(GDP|GDH)(\d{5})(\d{5})(\d{5})$/ ) {
             readingsBulkUpdate( $hash, "screenLineNumberFirst", $2 + 0 );
             readingsBulkUpdate( $hash, "screenLineNumberLast", $3 + 0 );
             readingsBulkUpdate( $hash, "screenLineNumbersTotal", $4 + 0 );
             Log3 $hash, 5, "PIONEERAVR $name: ".dq( $line ) ." interpreted as: Screen Item number of line 1(5byte): $2, Item number of last line(5byte): $3, Total number of items List(5byte): $4 ";
 
         # Screen line numbers
-        } elsif ( $line =~ m/^(GBH|GBI)(\d{2})$/ ) {
+        } elsif ( $line =~ m/^(GBP|GBH|GBI)(\d{2})$/ ) {
             readingsBulkUpdate( $hash, "screenLineNumbers", $2 + 0 );
             Log3 $hash, 5, "PIONEERAVR $name: ".dq( $line ) ." interpreted as: Screen line numbers = $2";
 
         # screenInformation
-        } elsif ( $line =~ m/^(GEH|GEI)(\d{2})(\d)(\d{2})\"(.*)\"$/ ) {
+        } elsif ( $line =~ m/^(GEP|GEH|GEI)(\d{2})(\d)(\d{2})\"(.*)\"$/ ) {
             # Format:
             #   $2: Line number
             #   $3: Focus (yes(1)/no(0)/greyed out(9)
@@ -3359,6 +3492,7 @@ sub RC_layout_PioneerAVR() {
     <li><b>input <not on the Pioneer hardware deactivated input></b> The list of possible (i.e. not deactivated)
     inputs is read in during Fhem start and with <code>get <name> statusRequest</code>. Renamed inputs are shown with their new (renamed) name</li>
     <li><b>inputDown</b> - Select the next lower input for the Main Zone</li>
+    <li><b>inputSkip <inputName> [0|1]</b> - Enables/disables the input <inputName> (0: enable <inputName>, 1: disable <inputName>)</li>
     <li><b>inputUp</b> - Select the next higher input for the Main Zone</li>
     <li><b>left</b> - "Arrow key left". Available for the same inputs as "play"</li>
     <li><b>listeningMode</b> - Sets a ListeningMode e.g. autoSourround, direct, action,...</li>
@@ -3387,6 +3521,7 @@ sub RC_layout_PioneerAVR() {
     </li>
     <li><b>prev</b> - Changes to the previous title. Available for the same inputs as "play".</li>
     <li><b>raw <PioneerKommando></b> - Sends the command <code>&lt;PioneerCommand&gt;</code> unchanged to the Pioneer AV receiver. A list of all available commands is available in the Pioneer documentation mentioned above</li>
+    <li><b>renameInputAlias <inputName> <newInputAlias></b> - Renames the input as it is displayed on the Pioneer AV receiver (and as it is listed in this module)</li>
     <li><b>remoteControl <attr></b> -  where <attr> is one of:
     <ul>
         <li>cursorDown</li>
@@ -3631,6 +3766,7 @@ sub RC_layout_PioneerAVR() {
     <li><b>input <nicht am Pioneer AV Receiver deaktivierte Eingangsquelle></b> - Schaltet die Eingangsquelle (z.B. CD, HDMI 1,...) auf die Ausgänge der Main-Zone. Die Liste der verfügbaren (also der nicht deaktivierten)
     Eingangsquellen wird beim Start von Fhem und auch mit <code>get <name> statusRequest</code> eingelesen. Wurden die Eingänge am Pioneer AV Receiver umbenannt, wird der neue Name des Eingangs angezeigt.</li>
     <li><b>inputDown</b> - vorherige Eingangsquelle der Main Zone auswählen</li>
+    <li><b>inputSkip <inputName> [0|1]</b> - Aktiviert/deaktiviert den Input <inputName> (0: aktiviert <inputName>, 1: deaktiviert <inputName>)</li>
     <li><b>inputUp</b> - nächste Eingangsquelle der Main Zone auswählen</li>
     <li><b>left</b> - "Pfeiltaste nach links". Für die gleichen Eingangsquellen wie "play"</li>
     <li><b>listeningMode</b> - Setzt einen ListeningMode, z.B. autoSourround, direct, action,...</li>
@@ -3659,6 +3795,7 @@ sub RC_layout_PioneerAVR() {
     </li>
     <li><b>prev</b> - Wechselt zum vorherigen Titel. Für die gleichen Eingangsquellen wie "play".</li>
     <li><b>raw <PioneerKommando></b> - Sendet den Befehl <code><PioneerKommando></code> unverändert an den Pioneer AV Receiver. Eine Liste der verfügbaren Pioneer Kommandos ist in dem Link zur Pioneer Dokumentation oben enthalten</li>
+    <li><b>renameInputAlias <inputName> <neuerInputAlias></b> - Gibt dem Eingang <inputName> am Pioneer AV Receiver (und in diesem Modul) den neuen Namen <neuerInputAlias></li>
     <li><b>remoteControl <attr></b> -  wobei <attr> eines von folgenden sein kann:
     <ul>
         <li>cursorDown</li>

@@ -2,6 +2,7 @@
 #
 # fhem bridge to mqtt (see http://mqtt.org)
 #
+# Copyright (C) 2018 Alexander Schulz
 # Copyright (C) 2017 Stephan Eisler
 # Copyright (C) 2014 - 2016 Norbert Truchsess
 #
@@ -20,7 +21,7 @@
 #     You should have received a copy of the GNU General Public License
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-# $Id: 10_MQTT_BRIDGE.pm 15150 2017-09-28 20:39:00Z eisler $
+# $Id: 10_MQTT_BRIDGE.pm 17362 2018-09-17 12:57:29Z hexenmeister $
 #
 ##############################################
 
@@ -38,6 +39,8 @@ my %gets = (
 sub MQTT_BRIDGE_Initialize($) {
 
   my $hash = shift @_;
+
+  require "$main::attr{global}{modpath}/FHEM/00_MQTT.pm";
 
   # Consumer
   $hash->{DefFn}    = "MQTT::Client_Define";

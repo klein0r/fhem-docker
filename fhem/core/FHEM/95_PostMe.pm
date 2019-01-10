@@ -6,7 +6,7 @@
 #
 # Prof. Dr. Peter A. Henning
 #
-# $Id: 95_PostMe.pm 15213 2017-10-08 17:25:19Z phenning $
+# $Id: 95_PostMe.pm 16217 2018-02-18 16:25:30Z phenning $
 #
 # Not named Post-It, which is a trademark of 3M
 #
@@ -34,7 +34,6 @@ package main;
 use strict;
 use warnings;
 use vars qw(%defs);		        # FHEM device/button definitions
-use vars qw(%intAt);		    # FHEM at definitions
 use vars qw($FW_RET);           # Returned data (html)
 use vars qw($FW_RETTYPE);       # image/png or the like
 use vars qw($FW_wname);         # Web instance
@@ -43,7 +42,7 @@ use Time::Local;
 
 #########################
 # Global variables
-my $postmeversion  = "2.04";
+my $postmeversion  = "2.07";
 my $FW_encoding    = "UTF-8";
 
 #########################################################################################
@@ -186,10 +185,10 @@ sub PostMe_Check($$) {
    for( $loop=1;$loop<=$cnop;$loop++){
      $res = ReadingsVal($devname, sprintf("postme%02dName",$loop), undef);
      last 
-       if($res eq $listname);
+       if(lc($res) eq lc($listname));
    }
    #-- no PostMe with this name
-   if( $res ne $listname ){
+   if( lc($res) ne lc($listname) ){
      return undef;
    }else{
      return $loop;
@@ -1234,7 +1233,8 @@ sub PostMe_detailFn(){
            'else document.getElementById("val_get'.$pmname.'").style.visibility = "visible";};</script>';
            
   $html .= '<table><tr><td>'.
-           '<form method="post" action="/fhem" autocomplete="off"><input type="hidden" name="detail" value="'.$pmname.'"/><input type="hidden" name="dev.set'.$pmname.'" value="'.$pmname.'"/>'.
+           '<form method="post" action="/fhem" autocomplete="off"><input id="pm.setter" type="hidden" name="fwcsrf" value="none"/>'.
+           '<input type="hidden" name="detail" value="'.$pmname.'"/><input type="hidden" name="dev.set'.$pmname.'" value="'.$pmname.'"/>'.
            '<input type="submit" name="cmd.set'.$pmname.'" value="set" class="set"/><div class="set downText">&nbsp;'.$pmname.'&nbsp;</div>'.
            '<select  id="sel_set'.$pmname.'" informId="sel_set'.$pmname.'" name="arg.set'.$pmname.'" class="set" style="width:100px;" '.
            'onchange="dc1(this.selectedIndex)">'.
@@ -1246,7 +1246,8 @@ sub PostMe_detailFn(){
            '<input type="hidden" id="val_set'.$pmname.'" informId="val_set'.$pmname.'" name="val.set'.$pmname.'" class="set" size="30" value="'.$pmfirst.'"/></form></td></tr>';
   
   $html .= '<tr><td>'.
-           '<form method="post" action="/fhem" autocomplete="off"><input type="hidden" name="detail" value="'.$pmname.'"/><input type="hidden" name="dev.get'.$pmname.'" value="'.$pmname.'"/>'.
+           '<form method="post" action="/fhem" autocomplete="off"><input id="pm.getter" type="hidden" name="fwcsrf" value="none"/>'.
+           '<input type="hidden" name="detail" value="'.$pmname.'"/><input type="hidden" name="dev.get'.$pmname.'" value="'.$pmname.'"/>'.
            '<input type="submit" name="cmd.get'.$pmname.'" value="get" class="get"/><div class="get downText">&nbsp;'.$pmname.'&nbsp;</div>'.
            '<select id="sel_get'.$pmname.'" informId="sel_get'.$pmname.'" name="arg.get'.$pmname.'" class="get" style="width:100px;" '.
            'onchange="dc2(this.selectedIndex)">'.
@@ -1255,6 +1256,10 @@ sub PostMe_detailFn(){
            '</select>'.
            '<select type="hidden" id="val_get'.$pmname.'" informId="val_get'.$pmname.'" name="val.get'.$pmname.'" class="get">'.$pmoption.'</select>'.
            '</form></td></tr></table>';
+           
+   $html .= '<script type="text/javascript">var req = new XMLHttpRequest();req.open(\'GET\', document.location.href, false);req.send(null);'.
+           'var csrfToken = req.getResponseHeader(\'X-FHEM-csrfToken\');if( csrfToken == null ){csrfToken = "null";}'.
+           'document.getElementById("pm.setter").value=csrfToken;document.getElementById("pm.getter").value=csrfToken;</script>';
 
   return $html;
 
@@ -1504,10 +1509,12 @@ sub PostMe_widget($) {
 =pod
 =item helper
 =item summary to set up a system of sticky notes, similar to Post-Its&trade;
+=item summary_DE zur Definition eines Systems von Klebezetteln ähnlich des Post-Its&trade;
 =begin html
 
    <a name="PostMe"></a>
         <h3>PostMe</h3>
+        <ul>
         <p> FHEM module to set up a system of sticky notes, similar to Post-Its&trade;</p>
 
         <a name="PostMedefine"></a>
@@ -1653,12 +1660,14 @@ sub PostMe_widget($) {
                     >room</a>, <a href="#eventMap">eventMap</a>, <a href="#loglevel">loglevel</a>,
                     <a href="#webCmd">webCmd</a></li>
         </ul>
+        </ul>
 =end html
 =begin html_DE
 
 <a name="PostMe"></a>
 <h3>PostMe</h3>
-<a href="https://wiki.fhem.de/wiki/Modul_PostMe">Deutsche Dokumentation im Wiki</a> vorhanden, die englische Version gibt es hier: <a href="/fhem/commandref.html#PostMe">PostMe</a> 
-
+<ul>
+<a href="https://wiki.fhem.de/wiki/Modul_PostMe">Deutsche Dokumentation im Wiki</a> vorhanden, die englische Version gibt es hier: <a href="/fhem/docs/commandref.html#PostMe">PostMe</a> 
+</ul>
 =end html_DE
 =cut

@@ -1,4 +1,4 @@
-// $Id: fhemweb_weekprofile.js 13978 2017-04-12 21:02:36Z Risiko $
+FW_version["fhemweb_weekprofile.js"] = "$Id: fhemweb_weekprofile.js 16213 2018-02-18 13:10:19Z Risiko $";
 
 var language = 'de';
 //for tooltip
@@ -199,9 +199,12 @@ function FW_weekprofileRestoreTopic(devName,bnt)
   FW_weekprofileInputDialog(["<p>Restore topic: '"+widget.CURTOPIC+"'&nbsp;?</p>"],["hidden"],null,bnt,function(name,ok){
     if (ok == 1)
         FW_cmd(FW_root+'?cmd=set '+devName+' restore_topic '+widget.CURTOPIC+'&XHR=1',function(data){
-        console.log(devName+" error restore topic '" +data+"'");
-        FW_errmsg(devName+" error restore topic '" +data+"'",5000);
-        return;
+        if (data != "")
+        {
+			console.log(devName+" error restore topic '" +data+"'");
+			FW_errmsg(devName+" error restore topic '" +data+"'",5000);
+			return;
+		}
       });
     });
 }
@@ -563,12 +566,19 @@ function FW_weekprofileEditDay(widget,day)
     //temp
     var tempOn = widget.TEMP_ON;
     var tempOff = widget.TEMP_OFF;
-    
+
     if (tempOn == null)
       tempOn = 30;
     
     if (tempOff == null)
       tempOff = 5;
+      
+    if (tempOff > tempOn)
+    {
+		var tmp = tempOn;
+		tempOn = tempOff;
+		tempOff = tmp;
+	}
     
     html += "<td><select name=\"TEMP\" size=\"1\" onchange=\"FW_weekprofileTemp_chached(this)\">";
     for (var k=tempOff; k <= tempOn; k+=.5)
@@ -685,9 +695,13 @@ function FW_weekprofileBack(widget)
   if (widget.JMPBACK){
     var isInIframe = (window.location != window.parent.location) ? true : false;
     if (isInIframe) {
-      parent.history.back();
+      parent.history.back();      
     } else
-      window.history.back();
+      if (document.referrer) {
+            window.location.assign(document.referrer)
+      } else {
+        window.history.back() //maybe problems with reload
+        }       
   }
   else {
     widget.MODE = "SHOW";
@@ -877,3 +891,15 @@ FW_weekprofileCreate(elName, devName, vArr, currVal, set, params, cmd)
 FW_widgets['weekprofile'] = {
   createFn:FW_weekprofileCreate,
 };
+
+/*
+=pod
+=begin html
+
+=end html
+
+=begin html_DE
+
+=end html_DE
+=cut
+*/

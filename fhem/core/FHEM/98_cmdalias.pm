@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_cmdalias.pm 15161 2017-10-01 10:17:28Z rudolfkoenig $
+# $Id: 98_cmdalias.pm 16300 2018-03-01 08:48:21Z rudolfkoenig $
 # Avarage computing
 
 package main;
@@ -89,7 +89,7 @@ CommandCmdAlias($$$)
       my %specials= ("%EVENT" => $param);
       my $exec = EvalSpecials($h->{NEWCMD}, %specials);
       $h->{InExec} = 1;
-      my $r =  AnalyzeCommandChain(undef, $exec);
+      my $r =  AnalyzeCommandChain($cl, $exec);
       delete $h->{InExec};
       return $r;
     }

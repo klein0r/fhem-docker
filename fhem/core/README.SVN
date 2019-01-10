@@ -1,0 +1,10 @@
+The source of this project is hosted on https://svn.fhem.de
+
+You can download the latest version as a .zip file at
+  https://svn.fhem.de/trac/browser/trunk/fhem?rev=HEAD&format=zip
+
+or you can check out a read-only version with
+  svn co https://svn.fhem.de/fhem/trunk/fhem
+
+If you wish to contribute to the project, then read the details on
+  https://svn.fhem.de/#readwrite

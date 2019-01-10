@@ -1,9 +1,9 @@
 ########################################################################################
 #
-# SONOS.pm (c) by Reiner Leins, July 2017
+# SONOS.pm (c) by Reiner Leins, March 2018
 # rleins at lmsoft dot de
 #
-# $Id: 00_SONOS.pm 15151 2017-09-28 21:49:20Z Reinerlein $
+# $Id: 00_SONOS.pm 16658 2018-04-25 06:00:12Z Reinerlein $
 #
 # FHEM module to commmunicate with a Sonos-System via UPnP
 #
@@ -51,17 +51,25 @@
 # Changelog (last 4 entries only, see Wiki for complete changelog)
 #
 # SVN-History:
-# 28.09.2017
-#	Provider-Icons werden wieder korrekt ermittelt
-#	Das Verarbeiten der Arbeitsschlange im SubProcess wurde optimiert
-#	Die Fehlermeldung mit den redundanten Argumenten bei sprintf wurde umgestellt.
-# 14.07.2017
-#	Änderung in der ControlPoint.pm: Es wurden zuviele Suchantworten berücksichtigt.
-#	Bei einem Modify wird von Fhem nur die DefFn aufgerufen (und nicht vorher UndefFn). Dadurch blieben Reste, die aber vor einer Definition aufgeräumt werden müssen. Resultat war eine 100%-CPU-Last.
-# 09.07.2017
-#	BulkUpdate: Beginn und Ende sind nun sicher davor einen vom SubProzess gestarteten BulkUpdate vorzeitig zu beenden.
-# 05.07.2017
-#	Neue Variante für das Ermitteln der laufenden Favoriten, Radios oder Playlists.
+# 25.04.2018
+#	"Deep Recursion"-Warnung beim loggen wird nun verhindert
+#	Beim Erzeugen der Gruppen-ReadingsGroup ist bei der Verwendung eines Boosts ab und zu ein Fehler aufgetreten
+#	Beim Erzeugen eines ControlPoint-Objekts kann man nun das Envelope-Prefix angeben (nicht für das Sonos-Modul relevant)
+# 15.04.2018
+#	Streams über Alexa (z.B. Sonos One) werden nun korrekt als Radiostreams dargestellt
+#	Es werden nun auch Updateinformationen und die interne Softwareversionsnummer gesucht und als Reading gesetzt: "softwareRevisionAvailable", "softwareRevisionInternal" und "softwareRevisionInternalAvailable"
+# 24.03.2018
+#	Einige Log-Ausgaben haben bei undefinierten Default-Übergaben Fehlermeldungen verursacht.
+#	Bei einigen Positionsabfragen an die Player wurden Sonderfälle (wie NOT_IMPLEMENTED) nicht berücksichtigt.
+#	Slider-Wertebereich für Bass und Treble auf den Bereich -10..10 korrigiert.
+#	Es gibt jetzt ein Reading "IsZoneBridge", das 0 oder 1 sein kann. Danach wird jetzt auch entschieden, ob eine Playersteuerung dargestellt wird, oder nicht.
+# 10.03.2018
+#	Die PlayBase kann nun auch den SPDIF-Eingang aktivieren (wie die PlayBar)
+#	Wenn man über Alexa Musik hört, wird das aktuelle Cover nun auch angezeigt.
+#	Wenn ein Player nach einem Neustart disabled war, und während des Betriebs enabled wird, wird nun versucht ihn wiederzufinden.
+#	Wenn ein Player disabled oder disappeared ist, wird ein Proxy-Cover-Zugriffsversuch auf diesen Player unterbunden.
+#	Ein Modify-Befehlsaufruf wird nun am Vorhandensein von $hash->{OLDDEF} erkannt.
+#	Bei einigen PERL-Installationen stand im Reading 'currentTrackPositionSimulatedSec' eine Kommazahl (da sie von time() aus berechnet wird). Diese Zahl wird nun gerundet.
 #
 ########################################################################################
 #
@@ -127,15 +135,15 @@ no if $] >= 5.017011, warnings => 'experimental::smartmatch';
 # IP-Adressen, die vom UPnP-Modul ignoriert werden sollen.
 # Diese können über ein Attribut gesetzt werden.
 ########################################################
-my %ignoredIPs = ();
-my %usedonlyIPs = ();
+my @ignoredIPs = ();
+my @usedonlyIPs = ();
 my $reusePort = 0;
 
 
 ########################################################
 # Standards aus FHEM einbinden
 ########################################################
-use vars qw{%attr %modules %defs %intAt %data};
+use vars qw{%attr %modules %defs %data};
 
 
 ########################################################
@@ -181,6 +189,8 @@ if (lc(substr($0, -7)) eq 'fhem.pl') {
 	#*UPnP::ControlPoint::carp = \&UPnP::ControlPoint::croak;
 }
 
+my $startedbyfhem = SONOS_isInList('startedbyfhem', @ARGV);
+
 
 ########################################################################################
 # Variable Definitions
@@ -208,15 +218,17 @@ my %sets = (
 
 my @SONOS_PossibleDefinitions = qw(NAME INTERVAL);
 my @SONOS_PossibleAttributes = qw(targetSpeakFileHashCache targetSpeakFileTimestamp targetSpeakDir targetSpeakURL targetSpeakMP3FileDir targetSpeakMP3FileConverter SpeakGoogleURL Speak0 Speak1 Speak2 Speak3 Speak4 SpeakCover Speak1Cover Speak2Cover Speak3Cover Speak4Cover minVolume maxVolume minVolumeHeadphone maxVolumeHeadphone getAlarms disable generateVolumeEvent buttonEvents generateProxyAlbumArtURLs proxyCacheTime bookmarkSaveDir bookmarkTitleDefinition bookmarkPlaylistDefinition coverLoadTimeout getListsDirectlyToReadings getFavouritesListAtNewVersion getPlaylistsListAtNewVersion getRadiosListAtNewVersion getQueueListAtNewVersion getTitleInfoFromMaster stopSleeptimerInAction saveSleeptimerInAction webname SubProcessLogfileName);
-my @SONOS_PossibleReadings = qw(AlarmList AlarmListIDs UserID_Spotify UserID_Napster location SleepTimerVersion Mute OutputFixed HeadphoneConnected Balance Volume Loudness Bass Treble TruePlay SurroundEnable SurroundLevel SubEnable SubGain SubPolarity AudioDelay AudioDelayLeftRear AudioDelayRightRear NightMode DialogLevel AlarmListVersion ZonePlayerUUIDsInGroup ZoneGroupState ZoneGroupID fieldType IsBonded ZoneGroupName roomName roomNameAlias roomIcon currentTransportState transportState TransportState LineInConnected presence currentAlbum currentArtist currentTitle currentStreamAudio GroupVolume GroupMute FavouritesVersion RadiosVersion PlaylistsVersion QueueVersion QueueHash GroupMasterPlayer ShareIndexInProgress DirectControlClientID DirectControlIsSuspended DirectControlAccountID IsMaster MasterPlayer SlavePlayer ButtonState ButtonLockState AllPlayer LineInName LineInIcon MusicServicesListVersion MusicServicesList);
+my @SONOS_PossibleReadings = qw(AlarmList AlarmListIDs UserID_Spotify UserID_Napster location SleepTimerVersion Mute OutputFixed HeadphoneConnected Balance Volume Loudness Bass Treble TruePlay SurroundEnable SurroundLevel SubEnable SubGain SubPolarity AudioDelay AudioDelayLeftRear AudioDelayRightRear NightMode DialogLevel AlarmListVersion ZonePlayerUUIDsInGroup ZoneGroupState ZoneGroupID fieldType IsBonded ZoneGroupName roomName roomNameAlias roomIcon currentTransportState transportState TransportState LineInConnected presence currentAlbum currentArtist currentTitle currentStreamAudio GroupVolume GroupMute FavouritesVersion RadiosVersion PlaylistsVersion QueueVersion QueueHash GroupMasterPlayer ShareIndexInProgress DirectControlClientID DirectControlIsSuspended DirectControlAccountID IsMaster MasterPlayer SlavePlayer ButtonState ButtonLockState AllPlayer LineInName LineInIcon MusicServicesListVersion MusicServicesList WifiEnabled WirelessMode Orientation);
 
 # Communication between the two "levels" of threads
-my $SONOS_ComObjectTransportQueue = Thread::Queue->new();
+my $SONOS_Client_ReceiveQueue = Thread::Queue->new();
 
 my %SONOS_PlayerRestoreRunningUDN :shared = ();
 my $SONOS_PlayerRestoreQueue = Thread::Queue->new();
 
-# For triggering the Main-Thread over Telnet-Session
+my $SONOS_LongJobsQueue = Thread::Queue->new();
+my $SONOS_Thread_LongJobs :shared = -1;
+
 my $SONOS_Thread :shared = -1;
 my $SONOS_Thread_IsAlive :shared = -1;
 my $SONOS_Thread_PlayerRestore :shared = -1;
@@ -429,6 +441,9 @@ sub SONOS_getCoverTitleRG($;$$) {
 	my ($device, $width, $space) = @_;
 	$width = 500 if (!defined($width));
 	
+	my $saveDevice = $device;
+	$saveDevice =~ s/[^a-zA-Z0-9]//g;
+	
 	my $transportState = ReadingsVal($device, 'transportState', '');
 	my $presence = ReadingsVal($device, 'presence', 'disappeared');
 	$presence = 'disappeared' if ($presence =~ m/~~NotLoadedMarker~~/i);
@@ -454,44 +469,44 @@ sub SONOS_getCoverTitleRG($;$$) {
 	$transportState = FW_makeImage('audio_pause', 'Paused', 'SONOS_Transportstate') if ($transportState eq 'PAUSED_PLAYBACK');
 	$transportState = FW_makeImage('audio_stop', 'Stopped', 'SONOS_Transportstate') if ($transportState eq 'STOPPED');
 	
-	my $fullscreenDiv = '<style type="text/css">.SONOS_Transportstate { height: 0.8em; margin-top: -6px; margin-left: 2px; }</style><div id="cover_current'.$device.'" style="position: fixed; top: 0px; left: 0px; width: 100%; height: 100%; z-index: 10000; background-color: rgb(20,20,20);" onclick="document.getElementById(\'cover_current'.$device.'\').style.display = \'none\'; document.getElementById(\'global_fulldiv_'.$device.'\').innerHTML = \'\';"><div style="position: absolute; top: 10px; left: 5px; display: inline-block; height: 35px; width: 35px; background-image: url('.ReadingsVal($device, 'currentTrackProviderIconRoundURL', '').'); background-repeat: no-repeat; background-size: contain; background-position: center center;"></div><div style="width: 100%; top 5px; text-align: center; font-weight: bold; color: lightgray; font-size: 200%;">'.ReadingsVal($device, 'roomName', $device).$transportState.'</div><div style="position: relative; top: 8px; height: 86%; max-width: 100%; text-align: center;"><div style="display: inline-block; height: calc(100% - 70px); width: 100%; background-image: url('.((lc($presence) eq 'disappeared') ? '/'.AttrVal(SONOS_getSonosPlayerByName()->{NAME}, 'webname', 'fhem').'/sonos/cover/empty.jpg' : ReadingsVal($device, 'currentAlbumArtURL', '')).'); background-repeat: no-repeat; background-size: contain; background-position: center center;"/></div><div style="position: absolute; width: 100%; bottom: 8px; padding: 5px; text-align: center; font-weight: bold; color: lightgray; background-color: rgb(20,20,20); font-size: 120%;">'.((lc($presence) eq 'disappeared') ? 'Player disappeared' : ReadingsVal($device, 'infoSummarize1', '')).'</div><div id="hash_'.$device.'" style="display: none; color: white;">'.md5_hex(ReadingsVal($device, 'roomName', $device).ReadingsVal($device, 'infoSummarize2', '').ReadingsVal($device, 'currentTrackPosition', '').ReadingsVal($device, 'currentAlbumArtURL', '')).'</div>'.(($normalAudio) ? '<div id="prog_runtime_'.$device.'" style="display: none; color: white;">'.$currentRuntime.'</div><div id="prog_starttime_'.$device.'" style="display: none; color: white;">'.$currentStarttime.'</div><div id="prog_playing_'.$device.'" style="display: none; color: white;">'.$playing.'</div><div id="progress'.$device.'" style="position: absolute; bottom: 0px; width: 100%; height: 2px; border: 1px solid #000; overflow: hidden;"><div id="progressbar'.$device.'" style="width: '.(($currentPosition * 100) / $currentRuntime).'%; height: 2px; border-right: 1px solid #000000; background: #d65946;"></div></div>' : '').'</div>';
+	my $fullscreenDiv = '<style type="text/css">.SONOS_Transportstate { height: 0.8em; margin-top: -6px; margin-left: 2px; }</style><div id="cover_current'.$saveDevice.'" style="position: fixed; top: 0px; left: 0px; width: 100%; height: 100%; z-index: 10000; background-color: rgb(20,20,20);" onclick="document.getElementById(\'cover_current'.$saveDevice.'\').style.display = \'none\'; document.getElementById(\'global_fulldiv_'.$saveDevice.'\').innerHTML = \'\';"><div style="position: absolute; top: 10px; left: 5px; display: inline-block; height: 35px; width: 35px; background-image: url('.ReadingsVal($device, 'currentTrackProviderIconRoundURL', '').'); background-repeat: no-repeat; background-size: contain; background-position: center center;"></div><div style="width: 100%; top 5px; text-align: center; font-weight: bold; color: lightgray; font-size: 200%;">'.ReadingsVal($device, 'roomName', $device).$transportState.'</div><div style="position: relative; top: 8px; height: 86%; max-width: 100%; text-align: center;"><div style="display: inline-block; height: calc(100% - 70px); width: 100%; background-image: url('.((lc($presence) eq 'disappeared') ? '/'.AttrVal(SONOS_getSonosPlayerByName()->{NAME}, 'webname', 'fhem').'/sonos/cover/empty.jpg' : ReadingsVal($device, 'currentAlbumArtURL', '')).'); background-repeat: no-repeat; background-size: contain; background-position: center center;"/></div><div style="position: absolute; width: 100%; bottom: 8px; padding: 5px; text-align: center; font-weight: bold; color: lightgray; background-color: rgb(20,20,20); font-size: 120%;">'.((lc($presence) eq 'disappeared') ? 'Player disappeared' : ReadingsVal($device, 'infoSummarize1', '')).'</div><div id="hash_'.$saveDevice.'" style="display: none; color: white;">'.md5_hex(ReadingsVal($device, 'roomName', $device).ReadingsVal($device, 'infoSummarize2', '').ReadingsVal($device, 'currentTrackPosition', '').ReadingsVal($device, 'currentAlbumArtURL', '')).'</div>'.(($normalAudio) ? '<div id="prog_runtime_'.$saveDevice.'" style="display: none; color: white;">'.$currentRuntime.'</div><div id="prog_starttime_'.$saveDevice.'" style="display: none; color: white;">'.$currentStarttime.'</div><div id="prog_playing_'.$saveDevice.'" style="display: none; color: white;">'.$playing.'</div><div id="progress'.$saveDevice.'" style="position: absolute; bottom: 0px; width: 100%; height: 2px; border: 1px solid #000; overflow: hidden;"><div id="progressbar'.$saveDevice.'" style="width: '.(($currentPosition * 100) / $currentRuntime).'%; height: 2px; border-right: 1px solid #000000; background: #d65946;"></div></div>' : '').'</div>';
 	
-	my $javascriptTimer = 'function refreshTime'.$device.'() {
-		var playing = document.getElementById("prog_playing_'.$device.'");
+	my $javascriptTimer = 'function refreshTime'.$saveDevice.'() {
+		var playing = document.getElementById("prog_playing_'.$saveDevice.'");
 		if (!playing || (playing && (playing.innerHTML == "0"))) {
 			return;
 		}
 		
-		var runtime = document.getElementById("prog_runtime_'.$device.'");
-		var starttime = document.getElementById("prog_starttime_'.$device.'");
+		var runtime = document.getElementById("prog_runtime_'.$saveDevice.'");
+		var starttime = document.getElementById("prog_starttime_'.$saveDevice.'");
 		if (runtime && starttime) {
 			var now = new Date().getTime();
 			var percent = (Math.round(now / 10.0) -  Math.round(starttime.innerHTML * 100.0)) / runtime.innerHTML;
-			document.getElementById("progressbar'.$device.'").style.width = percent + "%";
+			document.getElementById("progressbar'.$saveDevice.'").style.width = percent + "%";
 			
-			setTimeout(refreshTime'.$device.', 100);
+			setTimeout(refreshTime'.$saveDevice.', 100);
 		}
 	}';
 	
 	my $javascriptText = '<script type="text/javascript">
-		if (!document.getElementById("global_fulldiv_'.$device.'")) {
+		if (!document.getElementById("global_fulldiv_'.$saveDevice.'")) {
 			var newDiv = document.createElement("div");
-			newDiv.setAttribute("id", "global_fulldiv_'.$device.'");
+			newDiv.setAttribute("id", "global_fulldiv_'.$saveDevice.'");
 			document.body.appendChild(newDiv);
 			
 			var newScript = document.createElement("script");
 			newScript.setAttribute("type", "text/javascript");
-			newScript.appendChild(document.createTextNode(\'function refreshFull'.$device.'() {
-				var fullDiv = document.getElementById("element_fulldiv_'.$device.'");
+			newScript.appendChild(document.createTextNode(\'function refreshFull'.$saveDevice.'() {
+				var fullDiv = document.getElementById("element_fulldiv_'.$saveDevice.'");
 				if (!fullDiv) {
 					return;
 				}
 				var elementHTML = decodeURIComponent(fullDiv.innerHTML);
-				var global = document.getElementById("global_fulldiv_'.$device.'");
+				var global = document.getElementById("global_fulldiv_'.$saveDevice.'");
 				var oldGlobal = global.innerHTML;
 				
-				var hash = document.getElementById("hash_'.$device.'");
-				var hashMatch = /<div id="hash_'.$device.'".*?>(.+?)<.div>/i;
+				var hash = document.getElementById("hash_'.$saveDevice.'");
+				var hashMatch = /<div id="hash_'.$saveDevice.'".*?>(.+?)<.div>/i;
 				hashMatch.exec(elementHTML);
 				
 				if ((oldGlobal != "") && (!hash || (hash.innerHTML != RegExp.$1))) {
@@ -499,10 +514,10 @@ sub SONOS_getCoverTitleRG($;$$) {
 				}
 				
 				if (oldGlobal != "") {
-					setTimeout(refreshFull'.$device.', 1000);
-					var playing = document.getElementById("prog_playing_'.$device.'");
+					setTimeout(refreshFull'.$saveDevice.', 1000);
+					var playing = document.getElementById("prog_playing_'.$saveDevice.'");
 					if (playing && playing.innerHTML == "1") {
-						setTimeout(refreshTime'.$device.', 100);
+						setTimeout(refreshTime'.$saveDevice.', 100);
 					}
 				}
 			} '.$javascriptTimer.'\'));
@@ -512,7 +527,7 @@ sub SONOS_getCoverTitleRG($;$$) {
 	</script>';
 	
 	$javascriptText =~ s/\n/ /g;
-	return $javascriptText.'<table cellpadding="0" cellspacing="0" style="padding: 0px; margin: 0px;"><tr><td valign="top" style="padding: 0px; margin: 0px;"><div style="" onclick="document.getElementById(\'global_fulldiv_'.$device.'\').innerHTML = \'&nbsp;\'; refreshFull'.$device.'(); '.($playing ? 'refreshTime'.$device.'();' : '').'">'.SONOS_getCoverRG($device).'</div><div style="display: none;" id="element_fulldiv_'.$device.'">'.SONOS_URI_Escape($fullscreenDiv).'</div></td><td valign="top" style="padding: 0px; margin: 0px;"><div style="margin-left: 0px; min-width: '.$width.'px;">'.SONOS_getTitleRG($device, $space).'</div></td></tr></table>';
+	return $javascriptText.'<table cellpadding="0" cellspacing="0" style="padding: 0px; margin: 0px;"><tr><td valign="top" style="padding: 0px; margin: 0px;"><div style="" onclick="document.getElementById(\'global_fulldiv_'.$saveDevice.'\').innerHTML = \'&nbsp;\'; refreshFull'.$saveDevice.'(); '.($playing ? 'refreshTime'.$saveDevice.'();' : '').'">'.SONOS_getCoverRG($device).'</div><div style="display: none;" id="element_fulldiv_'.$saveDevice.'">'.SONOS_URI_Escape($fullscreenDiv).'</div></td><td valign="top" style="padding: 0px; margin: 0px;"><div style="margin-left: 0px; min-width: '.$width.'px;">'.SONOS_getTitleRG($device, $space).'</div></td></tr></table>';
 }
 
 ########################################################################################
@@ -527,7 +542,7 @@ sub SONOS_getCoverRG($;$) {
 	my $presence = ReadingsVal($device, 'presence', 'disappeared');
 	$presence = 'disappeared' if ($presence =~ m/~~NotLoadedMarker~~/i);
 	
-	return '<div informid="'.$device.'-display_coverrg"><div style="display: inline-block; margin-right: 5px; border: 1px solid lightgray; height: '.$height.'; width: '.$height.'; background-image: url('.((lc($presence) eq 'disappeared') ? '/'.AttrVal(SONOS_getSonosPlayerByName()->{NAME}, 'webname', 'fhem').'/sonos/cover/empty.jpg' : ReadingsVal($device, 'currentAlbumArtURL', '')).'); background-repeat: no-repeat; background-size: contain; background-position: center center;"><div style="position: relative; top: 0px; left: 2px; display: inline-block; height: 15px; width: 15px; background-image: url('.ReadingsVal($device, 'currentTrackProviderIconRoundURL', '').'); background-repeat: no-repeat; background-size: contain; background-position: center center;"></div></div></div>';
+	return '<div informid="'.$device.'-display_covertitle"><div style="display: inline-block; margin-right: 5px; border: 1px solid lightgray; height: '.$height.'; width: '.$height.'; background-image: url('.((lc($presence) eq 'disappeared') ? '/'.AttrVal(SONOS_getSonosPlayerByName()->{NAME}, 'webname', 'fhem').'/sonos/cover/empty.jpg' : ReadingsVal($device, 'currentAlbumArtURL', '')).'); background-repeat: no-repeat; background-size: contain; background-position: center center;"><div style="position: relative; top: 0px; left: 2px; display: inline-block; height: 15px; width: 15px; background-image: url('.ReadingsVal($device, 'currentTrackProviderIconRoundURL', '').'); background-repeat: no-repeat; background-size: contain; background-position: center center;"></div></div></div>';
 }
 
 ########################################################################################
@@ -674,22 +689,41 @@ sub SONOS_FhemWebCallback($) {
 		my $albumurl = uri_unescape($1) if ($URL =~ m/^\/proxy\/aa\?url=(.*)/i);
 		$albumurl =~ s/&apos;/'/ig;
 		
+		SONOS_Log undef, 5, 'FHEMWEB-AlbumURL: '.$albumurl;
+		
 		# Nur für Sonos-Player den Proxy spielen (und für Spotify-Links)
 		my $ip = '';
 		$ip = $1 if ($albumurl =~ m/^http:\/\/(.*?)[:\/]/i);
+		my $player_found = 0;
+		my $player_inactive = 0;
 		for my $player (SONOS_getAllSonosplayerDevices()) {
 			if (ReadingsVal($player->{NAME}, 'location', '') =~ m/^http:\/\/$ip:/i) {
-				undef($ip);
+				if ((ReadingsVal($player->{NAME}, 'presence', '') eq 'disappeared') || AttrVal($player->{NAME}, 'disable', 0)) {
+					$player_inactive = 1;
+				}
+				
+				$player_found = 1;
 				last;
 			}
 		}
-		return ("text/html; charset=UTF8", 'Call for Non-Sonos-Player: '.$URL) 
-			if (defined($ip) 
-			&& $albumurl !~ /\.cloudfront.net\//i 
-			&& $albumurl !~ /\.scdn.co\//i 
-			&& $albumurl !~ /sonos-logo\.ws\.sonos\.com\//i 
-			&& $albumurl !~ /\.tunein\.com/i 
-			&& $albumurl !~ /\/music\/image\?/i);
+		
+		SONOS_Log undef, 5, 'FHEMWEB-PlayerFound: '.$player_found;
+		SONOS_Log undef, 5, 'FHEMWEB-PlayerInactive: '.$player_inactive;
+		
+		# Für Inaktive oder andere Player, einfach das leere Cover liefern...
+		if (!$player_found) {
+			if ($albumurl !~ /\.cloudfront.net\//i 
+				&& $albumurl !~ /\.scdn.co\//i 
+				&& $albumurl !~ /sonos-logo\.ws\.sonos\.com\//i 
+				&& $albumurl !~ /\.tunein\.com/i 
+				&& $albumurl !~ /\/music\/image\?/i
+				&& $albumurl !~ /media-amazon\.com/i) {
+				return ("text/html; charset=UTF8", 'Call for Non-Sonos-Player: '.$URL);
+			}
+		} elsif ($player_inactive) {
+			FW_serveSpecial('sonos_empty', 'jpg', $attr{global}{modpath}.'/FHEM/lib/UPnP', 1);
+			return (undef, undef);
+		}
 		
 		# Generierter Dateiname für die Cache-Funktionalitaet
 		my $albumHash;
@@ -872,7 +906,7 @@ sub SONOS_Define($$) {
 	my @a = split("[ \t]+", $def);
 	
 	# Check if we just want a modify...
-	if ($hash->{NAME}) {
+	if (defined($hash->{OLDDEF})) {
 		SONOS_Log undef, 1, 'Modify Device: '.$hash->{NAME};
 		
 		# Alle Timer entfernen...
@@ -1040,25 +1074,30 @@ sub SONOS_Attribute($$$@) {
 sub SONOS_StopSubProcess($) {
 	my ($hash) = @_;
 	
-	# Den SubProzess beenden, wenn wir ihn selber gestartet haben
+	RemoveInternalTimer($hash);
+	
+	# Wenn wir einen eigenen UPnP-Server gestartet haben, diesen hier auch wieder beenden, 
+	# ansonsten nur die Verbindung kappen
 	if ($SONOS_StartedOwnUPnPServer) {
-		# DevIo_OpenDev($hash, 1, undef);
 		DevIo_SimpleWrite($hash, "shutdown\n", 2);
-		DevIo_CloseDev($hash);
-		setReadingsVal($hash, "state", 'disabled', TimeNow());
-		$hash->{STATE} = 'disabled';
+	} else {
+		DevIo_SimpleWrite($hash, "disconnect\n", 2);
+	}
+	DevIo_CloseDev($hash);
+	
+	setReadingsVal($hash, "state", 'disabled', TimeNow());
+	$hash->{STATE} = 'disabled';
+	
+	# Alle SonosPlayer-Devices disappearen
+	for my $player (SONOS_getAllSonosplayerDevices()) {
+		SONOS_readingsBeginUpdate($player);
+		SONOS_readingsBulkUpdateIfChanged($player, 'presence', 'disappeared');
+		SONOS_readingsBulkUpdateIfChanged($player, 'state', 'disappeared');
+		SONOS_readingsBulkUpdateIfChanged($player, 'transportState', 'STOPPED');
+		SONOS_readingsEndUpdate($player, 1);
 		
-		# Alle SonosPlayer-Devices disappearen
-		for my $player (SONOS_getAllSonosplayerDevices()) {
-			SONOS_readingsBeginUpdate($player);
-			SONOS_readingsBulkUpdateIfChanged($player, 'presence', 'disappeared');
-			SONOS_readingsBulkUpdateIfChanged($player, 'state', 'disappeared');
-			SONOS_readingsBulkUpdateIfChanged($player, 'transportState', 'STOPPED');
-			SONOS_readingsEndUpdate($player, 1);
-			
-			if (AttrVal($player->{NAME}, 'stateVariable', '') eq 'Presence') {
-				$player->{STATE} = 'disappeared';
-			}
+		if (AttrVal($player->{NAME}, 'stateVariable', '') eq 'Presence') {
+			$player->{STATE} = 'disappeared';
 		}
 	}
 }
@@ -1576,8 +1615,8 @@ sub SONOS_Read($) {
 					$nextName = 'Next';
 				}
 					
-				my $tempURI = $3;
-				my $groundURL = $4;
+				my $tempURI = uri_unescape($3);
+				my $groundURL = uri_unescape($4);
 				my $currentValue;
 			
 				my $srcURI = '';
@@ -1708,7 +1747,7 @@ sub SONOS_Read($) {
 	}
 	
 	# LastAnswer aktualisieren...
-	SONOS_readingsSingleUpdate(SONOS_getSonosPlayerByName(), 'LastProcessAnswer', SONOS_TimeNow(), 1);
+	SONOS_readingsSingleUpdate(SONOS_getSonosPlayerByName(), 'LastProcessAnswer', time(), 1);
 	
 	# Checker aktivieren...
 	InternalTimer(gettimeofday() + $hash->{INTERVAL}, 'SONOS_IsSubprocessAliveChecker', $hash, 0);
@@ -1794,7 +1833,7 @@ sub SONOS_StartClientProcessIfNeccessary($) {
 			my $verboselevel = AttrVal(SONOS_getSonosPlayerByName()->{NAME}, 'verbose', $attr{global}{verbose});
 			
 			# Prozess anstarten...
-			exec("$^X $attr{global}{modpath}/FHEM/00_SONOS.pm $port $verboselevel ".(($attr{global}{mseclog}) ? '1' : '0'));
+			exec("$^X $attr{global}{modpath}/FHEM/00_SONOS.pm $port $verboselevel ".(($attr{global}{mseclog}) ? '1' : '0').' startedbyfhem');
 			exit(0);
 		}
 	} else {
@@ -1912,7 +1951,7 @@ sub SONOS_InitClientProcess($) {
 	DevIo_SimpleWrite($hash, "StartThread\n", 2);
 	
 	# Interner Timer für die Überprüfung der Verbindung zum Client (nicht verwechseln mit dem IsAlive-Timer, der die Existenz eines Sonosplayers überprüft)
-	SONOS_readingsSingleUpdate($hash, 'LastProcessAnswer', '2100-01-01 00:00:00', 0);
+	SONOS_readingsSingleUpdate($hash, 'LastProcessAnswer', '0', 0);
 	InternalTimer(gettimeofday() + ($hash->{INTERVAL} * 2), 'SONOS_IsSubprocessAliveChecker', $hash, 0);
 	
 	return undef;
@@ -1928,15 +1967,15 @@ sub SONOS_IsSubprocessAliveChecker() {
 	
 	return undef if (AttrVal($hash->{NAME}, 'disable', 0));
 	
-	my $lastProcessAnswer = SONOS_GetTimeFromString(ReadingsVal(SONOS_getSonosPlayerByName()->{NAME}, 'LastProcessAnswer', '2100-01-01 00:00:00'));
+	my $lastProcessAnswer = ReadingsVal(SONOS_getSonosPlayerByName()->{NAME}, 'LastProcessAnswer', '0');
 	
 	# Wenn länger nichts passiert ist, dann eine Aktualisierung anfordern...
-	SONOS_DoWork('undef', 'refreshProcessAnswer') if ($lastProcessAnswer < gettimeofday() - $hash->{INTERVAL});
+	SONOS_DoWork('undef', 'refreshProcessAnswer') if ($lastProcessAnswer < time() - $hash->{INTERVAL});
 	
 	# Wenn die letzte Antwort zu lange her ist, dann den SubProzess neustarten...
-	if ($lastProcessAnswer < gettimeofday() - (4 * $hash->{INTERVAL})) {
+	if (($lastProcessAnswer != 0) && ($lastProcessAnswer < time() - (4 * $hash->{INTERVAL}))) {
 		# Verbindung beenden, damit der SubProzess die Chance hat neu initialisiert zu werden...
-		SONOS_Log $hash->{UDN}, 2, 'LastProcessAnswer way too old (Lastanswer: '.SONOS_GetTimeString($lastProcessAnswer).')... try to restart the process and connection...';
+		SONOS_Log $hash->{UDN}, 2, 'LastProcessAnswer way too old (Lastanswer: '.$lastProcessAnswer.' ~ '.SONOS_GetTimeString($lastProcessAnswer).')... try to restart the process and connection...';
 		
 		# Letzten Zeitpunkt und Anzahl der Neustarts merken...
 		my $sHash = SONOS_getSonosPlayerByName();
@@ -1956,42 +1995,6 @@ sub SONOS_IsSubprocessAliveChecker() {
 		RemoveInternalTimer($hash, 'SONOS_IsSubprocessAliveChecker');
 		InternalTimer(gettimeofday() + $hash->{INTERVAL}, 'SONOS_IsSubprocessAliveChecker', $hash, 0);
 	}
-	
-	#my $answer;
-	## Neue Verbindung parallel zur bestehenden Kommunikationsleitung.
-	## Nur zum Prüfen, ob der SubProzess noch lebt und antworten kann.
-	#my $socket = new IO::Socket::INET(PeerAddr => $hash->{DeviceName}, Proto => 'tcp');
-	#if ($socket) {
-	#	$socket->sockopt(SO_LINGER, pack("ii", 1, 0));
-	#	
-	#	$socket->recv($answer, 500);
-	#	$socket->send("Test\r\n", 0);
-	#	
-	#	$socket->shutdown(2);
-	#	$socket->close();
-	#}
-	## Ab hier keine Parallelverbindung mehr offen...
-	#
-	#if (defined($answer)) {
-	#	$answer =~ s/[\r\n]//g;
-	#}
-	#
-	#if (!defined($answer) || ($answer !~ m/^This is UPnP-Server listening for commands/)) {
-	#	SONOS_Log undef, 0, 'No (or incorrect) answer from Subprocess. Restart Sonos-Subprocess...';
-	#	
-	#	# Verbindung beenden, damit der SubProzess die Chance hat neu initialisiert zu werden...
-	#	RemoveInternalTimer($hash);
-	#	DevIo_SimpleWrite($hash, "disconnect\n", 2);
-	#	DevIo_CloseDev($hash);
-	#	
-	#	# Neu anstarten...
-	#	SONOS_StartClientProcessIfNeccessary($hash->{DeviceName}) if ($SONOS_StartedOwnUPnPServer);
-	#	InternalTimer(gettimeofday() + $hash->{WAITTIME}, 'SONOS_DelayOpenDev', $hash, 0);
-	#} elsif (defined($answer) && ($answer =~ m/^This is UPnP-Server listening for commands/)) {
-	#	SONOS_Log undef, 4, 'Got correct answer from Subprocess...';
-	#	RemoveInternalTimer($hash, 'SONOS_IsSubprocessAliveChecker');
-	#	InternalTimer(gettimeofday() + $hash->{INTERVAL}, 'SONOS_IsSubprocessAliveChecker', $hash, 0);
-	#}
 }
 
 ########################################################################################
@@ -2098,9 +2101,7 @@ sub SONOS_ConvertZoneGroupState($) {
 			
 			# Etwaig von vorher enthaltene Bridges wieder entfernen (wenn sie bereits als Koordinator eingesetzt wurde)
 			if ($string =~ m/IsZoneBridge="."/) {
-				for(my $i = 0; $i <= $#group; $i++) {
-					delete $group[$i] if ($group[$i] eq $udn.'_MR');
-				}
+				@group = grep { $_ ne $udn.'_MR' } @group;
 			}
 		}
 		
@@ -2285,18 +2286,6 @@ sub SONOS_Set($@) {
 				}
 			}
 		}
-		
-		# Jetzt noch die Mengen sicherstellen
-		# Dazu aktuellen Zustand nochmal holen
-		#@current = ();
-		#$current = SONOS_Get($hash, qw($hash->{NAME} Groups));
-		#$current =~ s/ //g;
-		#while ($current =~ m/(\[.*?\])/ig) {
-		#	my @tmp = split(/,/, substr($1, 1, -1));
-		#	push @current, \@tmp;
-		#}
-		#SONOS_Log undef, 5, "Current after List: ".Dumper(\@current);
-		
 	} elsif (lc($key) =~ m/^(Stop|Pause|Mute|MuteOn|MuteOff)(All|)$/i) {
 		my $commandType = lc($1);
 		my $commandValue = $value;
@@ -2398,7 +2387,7 @@ sub SONOS_DoWork($$;@) {
 #
 ########################################################################################
 sub SONOS_Discover() {
-	SONOS_Log undef, 3, 'UPnP-Thread gestartet.';
+	SONOS_Log undef, 1, 'UPnP-Thread gestartet.';
 	
 	$SIG{'PIPE'} = 'IGNORE';
 	$SIG{'CHLD'} = 'IGNORE';
@@ -2411,8 +2400,8 @@ sub SONOS_Discover() {
 		}
 		
 		# Empfängerliste leeren
-		while ($SONOS_ComObjectTransportQueue->pending()) {
-			$SONOS_ComObjectTransportQueue->dequeue();
+		while ($SONOS_Client_ReceiveQueue->pending()) {
+			$SONOS_Client_ReceiveQueue->dequeue();
 		}
 		
 		# UPnP-Listener beenden
@@ -2429,7 +2418,7 @@ sub SONOS_Discover() {
 		$SONOS_RestartControlPoint = 0;
 		
 		eval {
-			$SONOS_Controlpoint = UPnP::ControlPoint->new(SearchPort => 0, SubscriptionPort => 0, SubscriptionURL => '/fhemmodule', MaxWait => 30, UsedOnlyIP => \%usedonlyIPs, IgnoreIP => \%ignoredIPs, ReusePort => $reusePort);
+			$SONOS_Controlpoint = UPnP::ControlPoint->new(SearchPort => 0, SubscriptionPort => 0, SubscriptionURL => '/fhemmodule', MaxWait => 30, LogLevel => $SONOS_Client_LogLevel, UsedOnlyIP => \@usedonlyIPs, IgnoreIP => \@ignoredIPs, ReusePort => $reusePort);
 			$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
 			
 			#$SONOS_Controlpoint->handle;
@@ -2438,14 +2427,15 @@ sub SONOS_Discover() {
 			
 			while (!$SONOS_RestartControlPoint) {
 				# UPnP-Sockets abfragen...
-				my @sockets = $select->can_read(0.01);
-				for my $sock (@sockets) {
-					$SONOS_Controlpoint->handleOnce($sock);
+				if (my @sockets = $select->can_read(0.01)) {
+					for my $sock (@sockets) {
+						$SONOS_Controlpoint->handleOnce($sock);
+					}
 				}
 				
 				# Befehlsqueue abfragen...
-				while ($SONOS_ComObjectTransportQueue->pending()) {
-					SONOS_Discover_DoQueue($SONOS_ComObjectTransportQueue->dequeue());
+				while ($SONOS_Client_ReceiveQueue->pending()) {
+					SONOS_Discover_DoQueue($SONOS_Client_ReceiveQueue->dequeue());
 				}
 			}
 		};
@@ -2465,7 +2455,7 @@ sub SONOS_Discover() {
 	
 	SONOS_SaveBookmarkValues();
 	
-	SONOS_Log undef, 3, 'UPnP-Thread wurde beendet.';
+	SONOS_Log undef, 1, 'UPnP-Thread wurde beendet.';
 	$SONOS_Thread = -1;
 	
 	return 1;
@@ -2556,6 +2546,9 @@ sub SONOS_Discover_DoQueue($) {
 			if (SONOS_CheckProxyObject($udn, $SONOS_AVTransportControlProxy{$udn})) {
 				if (SONOS_Client_Data_Retreive('undef', 'attr', 'getListsDirectlyToReadings', 0)) {
 					my $position = $SONOS_AVTransportControlProxy{$udn}->GetPositionInfo(0)->getValue('RelTime');
+					if ($position !~ /\d+:\d+:\d+/i) { # e.g. NOT_IMPLEMENTED
+						$position = '0:00:00';
+					}
 					
 					SONOS_Client_Notifier('ReadingsBeginUpdate:'.$udn);
 					my $modus = 'ReadingsBulkUpdate'.((SONOS_Client_Data_Retreive($udn, 'reading', 'currentStreamAudio', 0)) ? 'IfChanged' : '');
@@ -2565,7 +2558,11 @@ sub SONOS_Discover_DoQueue($) {
 					
 					SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': DirectlySet');
 				} else {
-					SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': '.$SONOS_AVTransportControlProxy{$udn}->GetPositionInfo(0)->getValue('RelTime'));
+					my $position = $SONOS_AVTransportControlProxy{$udn}->GetPositionInfo(0)->getValue('RelTime');
+					if ($position !~ /\d+:\d+:\d+/i) { # e.g. NOT_IMPLEMENTED
+						$position = '0:00:00';
+					}
+					SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': '.$position);
 				}
 			}
 		} elsif ($workType eq 'setCurrentTrackPosition') {
@@ -2582,6 +2579,9 @@ sub SONOS_Discover_DoQueue($) {
 					# Positionswerte abfragen...
 					my $result = $SONOS_AVTransportControlProxy{$udn}->GetPositionInfo(0);
 					my $pos = SONOS_GetTimeSeconds($result->getValue('RelTime'));
+					if ($pos !~ /\d+:\d+:\d+/i) { # e.g. NOT_IMPLEMENTED
+						$pos = '0:00:00';
+					}
 					my $duration = SONOS_GetTimeSeconds($result->getValue('TrackDuration'));
 					
 					# Neue Position berechnen...
@@ -2604,7 +2604,11 @@ sub SONOS_Discover_DoQueue($) {
 					$SONOS_AVTransportControlProxy{$udn}->Seek(0, 'REL_TIME', $value1);
 				}
 				
-				SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': '.$SONOS_AVTransportControlProxy{$udn}->GetPositionInfo(0)->getValue('RelTime'));
+				my $trackPosition = $SONOS_AVTransportControlProxy{$udn}->GetPositionInfo(0)->getValue('RelTime');
+				if ($trackPosition !~ /\d+:\d+:\d+/i) { # e.g. NOT_IMPLEMENTED
+					$trackPosition = '0:00:00';
+				}
+				SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': '.$trackPosition);
 			}
 		} elsif ($workType eq 'reportUnresponsiveDevice') {
 			my $value1 = $params[0];
@@ -3063,35 +3067,7 @@ sub SONOS_Discover_DoQueue($) {
 				SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': "'.join('","', sort values %resultHash).'"');
 			}
 		} elsif ($workType eq 'exportSonosBibliothek') {
-			my $filename = $params[0];
-			
-			# Anfragen durchführen...
-			if (SONOS_CheckProxyObject($udn, $SONOS_ContentDirectoryControlProxy{$udn})) {
-				my $exports = {'Structure' => {}, 'Titles' => {}};
-				
-				SONOS_Log undef, 3, 'ExportSonosBibliothek-Start';
-				my $startTime = gettimeofday();
-				SONOS_RecursiveStructure($udn, 'A:', $exports->{Structure}, $exports->{Titles});
-				SONOS_Log undef, 3, 'ExportSonosBibliothek-End. Runtime (in seconds): '.int(gettimeofday() - $startTime);
-				
-				my $countTitles = scalar(keys %{$exports->{Titles}});
-				
-				# In Datei wegschreiben
-				eval {
-					open FILE, '>'.$filename;
-					binmode(FILE, ':encoding(utf-8)');
-					print FILE SONOS_Dumper($exports);
-					close FILE;
-				};
-				if ($@) {
-					SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': Error during filewriting: '.$@);
-					return;
-				}
-				
-				$exports = undef;
-				
-				SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': Successfully written to file "'.$filename.'", Titles: '.$countTitles.', Duration: '.int(gettimeofday() - $startTime).'s');
-			}
+			SONOS_AddToLongJobsQueue($udn, $workType, \@params);
 		} elsif ($workType eq 'loadSearchlist') {
 			# Category holen
 			my $regSearch = ($params[0] =~ m/^ *\/(.*)\/ *$/);
@@ -3633,30 +3609,6 @@ sub SONOS_Discover_DoQueue($) {
 				}
 				
 				SONOS_StartMetadata($workType, $udn, $resultHash{$favouriteName}{RES}, $resultHash{$favouriteName}{METADATA}, $nostart);
-				
-#						if (SONOS_CheckProxyObject($udn, $SONOS_AVTransportControlProxy{$udn})) {
-#							# Entscheiden, ob eine Abspielliste geladen und gestartet werden soll, oder etwas direkt abgespielt werden kann
-#							if ($resultHash{$favouriteName}{METADATA} =~ m/<upnp:class>object\.container.*?<\/upnp:class>/i) {
-#								SONOS_Log $udn, 5, 'StartFavourite AddToQueue-Res: "'.$resultHash{$favouriteName}{RES}.'", -Meta: "'.$resultHash{$favouriteName}{METADATA}.'"';
-#								
-#								# Queue leeren
-#								$SONOS_AVTransportControlProxy{$udn}->RemoveAllTracksFromQueue(0);
-#								
-#								# Queue wieder füllen
-#								SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': '.SONOS_UPnPAnswerMessage($SONOS_AVTransportControlProxy{$udn}->AddURIToQueue(0, $resultHash{$favouriteName}{RES}, $resultHash{$favouriteName}{METADATA}, 0, 1)));
-#								
-#								# Queue aktivieren
-#								$SONOS_AVTransportControlProxy{$udn}->SetAVTransportURI(0, SONOS_GetTagData('res', $SONOS_ContentDirectoryControlProxy{$udn}->Browse('Q:0', 'BrowseMetadata', '', 0, 0, '')->getValue('Result')), '');
-#							} else {
-#								SONOS_Log $udn, 5, 'StartFavourite SetAVTransport-Res: "'.$resultHash{$favouriteName}{RES}.'", -Meta: "'.$resultHash{$favouriteName}{METADATA}.'"';
-#								
-#								# Stück aktivieren
-#								SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': '.SONOS_UPnPAnswerMessage($SONOS_AVTransportControlProxy{$udn}->SetAVTransportURI(0, $resultHash{$favouriteName}{RES}, $resultHash{$favouriteName}{METADATA})));
-#							}
-#							
-#							# Abspielen starten, wenn nicht absichtlich verhindert
-#							$SONOS_AVTransportControlProxy{$udn}->Play(0, 1) if (!$nostart);
-#						}
 			}
 		} elsif ($workType eq 'loadPlaylist') {
 			my $answer = '';
@@ -4043,222 +3995,15 @@ sub SONOS_Discover_DoQueue($) {
 			
 			SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': '.SONOS_AnswerMessage(1));
 		} elsif ($workType eq 'renewSubscription') {
-			if (defined($SONOS_TransportSubscriptions{$udn}) && (Time::HiRes::time() - $SONOS_TransportSubscriptions{$udn}->{_startTime} > $SONOS_SUBSCRIPTIONSRENEWAL)) {
-				eval {
-					$SONOS_TransportSubscriptions{$udn}->renew();
-					SONOS_Log $udn, 3, 'Transport-Subscription for ZonePlayer "'.$udn.'" has expired and is now renewed.';
-				};
-				if ($@) {
-					SONOS_Log $udn, 3, 'Error! Transport-Subscription for ZonePlayer "'.$udn.'" has expired and could not be renewed: '.$@;
-					
-					# Wenn der Player nicht erreichbar war, dann entsprechend entfernen...
-					# Hier aber nur eine kleine Lösung, da es nur ein Notbehelf sein soll...
-					if ($@ =~ m/Can.t connect to/) {
-						SONOS_DeleteProxyObjects($udn);
-						
-						# Player-Informationen aktualisieren...
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'presence', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'state', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'transportState', 'STOPPED');
-						
-						# Discovery neu anstarten, falls der Player irgendwie doch noch erreichbar sein sollte...
-						$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
-					}
-				}
-			}
-			
-			if (defined($SONOS_RenderingSubscriptions{$udn}) && (Time::HiRes::time() - $SONOS_RenderingSubscriptions{$udn}->{_startTime} > $SONOS_SUBSCRIPTIONSRENEWAL)) {
-				eval {
-					$SONOS_RenderingSubscriptions{$udn}->renew();
-					SONOS_Log $udn, 3, 'Rendering-Subscription for ZonePlayer "'.$udn.'" has expired and is now renewed.';
-				};
-				if ($@) {
-					SONOS_Log $udn, 3, 'Error! Rendering-Subscription for ZonePlayer "'.$udn.'" has expired and could not be renewed: '.$@;
-					
-					# Wenn der Player nicht erreichbar war, dann entsprechend entfernen...
-					# Hier aber nur eine kleine Lösung, da es nur ein Notbehelf sein soll...
-					if ($@ =~ m/Can.t connect to/) {
-						SONOS_DeleteProxyObjects($udn);
-						
-						# Player-Informationen aktualisieren...
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'presence', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'state', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'transportState', 'STOPPED');
-						
-						# Discovery neu anstarten, falls der Player irgendwie doch noch erreichbar sein sollte...
-						$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
-					}
-				}
-			}
-			
-			if (defined($SONOS_GroupRenderingSubscriptions{$udn}) && (Time::HiRes::time() - $SONOS_GroupRenderingSubscriptions{$udn}->{_startTime} > $SONOS_SUBSCRIPTIONSRENEWAL)) {
-				eval {
-					$SONOS_GroupRenderingSubscriptions{$udn}->renew();
-					SONOS_Log $udn, 3, 'GroupRendering-Subscription for ZonePlayer "'.$udn.'" has expired and is now renewed.';
-				};
-				if ($@) {
-					SONOS_Log $udn, 3, 'Error! GroupRendering-Subscription for ZonePlayer "'.$udn.'" has expired and could not be renewed: '.$@;
-					
-					# Wenn der Player nicht erreichbar war, dann entsprechend entfernen...
-					# Hier aber nur eine kleine Lösung, da es nur ein Notbehelf sein soll...
-					if ($@ =~ m/Can.t connect to/) {
-						SONOS_DeleteProxyObjects($udn);
-						
-						# Player-Informationen aktualisieren...
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'presence', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'state', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'transportState', 'STOPPED');
-						
-						# Discovery neu anstarten, falls der Player irgendwie doch noch erreichbar sein sollte...
-						$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
-					}
-				}
-			}
-			
-			if (defined($SONOS_ContentDirectorySubscriptions{$udn}) && (Time::HiRes::time() - $SONOS_ContentDirectorySubscriptions{$udn}->{_startTime} > $SONOS_SUBSCRIPTIONSRENEWAL)) {
-				eval {
-					$SONOS_ContentDirectorySubscriptions{$udn}->renew();
-					SONOS_Log $udn, 3, 'ContentDirectory-Subscription for ZonePlayer "'.$udn.'" has expired and is now renewed.';
-				};
-				if ($@) {
-					SONOS_Log $udn, 3, 'Error! ContentDirectory-Subscription for ZonePlayer "'.$udn.'" has expired and could not be renewed: '.$@;
-					
-					# Wenn der Player nicht erreichbar war, dann entsprechend entfernen...
-					# Hier aber nur eine kleine Lösung, da es nur ein Notbehelf sein soll...
-					if ($@ =~ m/Can.t connect to/) {
-						SONOS_DeleteProxyObjects($udn);
-						
-						# Player-Informationen aktualisieren...
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'presence', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'state', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'transportState', 'STOPPED');
-						
-						# Discovery neu anstarten, falls der Player irgendwie doch noch erreichbar sein sollte...
-						$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
-					}
-				}
-			}
-			
-			if (defined($SONOS_AlarmSubscriptions{$udn}) && (Time::HiRes::time() - $SONOS_AlarmSubscriptions{$udn}->{_startTime} > $SONOS_SUBSCRIPTIONSRENEWAL)) {
-				eval {
-					$SONOS_AlarmSubscriptions{$udn}->renew();
-					SONOS_Log $udn, 3, 'Alarm-Subscription for ZonePlayer "'.$udn.'" has expired and is now renewed.';
-				};
-				if ($@) {
-					SONOS_Log $udn, 3, 'Error! Alarm-Subscription for ZonePlayer "'.$udn.'" has expired and could not be renewed: '.$@;
-					
-					# Wenn der Player nicht erreichbar war, dann entsprechend entfernen...
-					# Hier aber nur eine kleine Lösung, da es nur ein Notbehelf sein soll...
-					if ($@ =~ m/Can.t connect to/) {
-						SONOS_DeleteProxyObjects($udn);
-						
-						# Player-Informationen aktualisieren...
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'presence', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'state', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'transportState', 'STOPPED');
-						
-						# Discovery neu anstarten, falls der Player irgendwie doch noch erreichbar sein sollte...
-						$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
-					}
-				}
-			}
-			
-			if (defined($SONOS_ZoneGroupTopologySubscriptions{$udn}) && (Time::HiRes::time() - $SONOS_ZoneGroupTopologySubscriptions{$udn}->{_startTime} > $SONOS_SUBSCRIPTIONSRENEWAL)) {
-				eval {
-					$SONOS_ZoneGroupTopologySubscriptions{$udn}->renew();
-					SONOS_Log $udn, 3, 'ZoneGroupTopology-Subscription for ZonePlayer "'.$udn.'" has expired and is now renewed.';
-				};
-				if ($@) {
-					SONOS_Log $udn, 3, 'Error! ZoneGroupTopology-Subscription for ZonePlayer "'.$udn.'" has expired and could not be renewed: '.$@;
-					
-					# Wenn der Player nicht erreichbar war, dann entsprechend entfernen...
-					# Hier aber nur eine kleine Lösung, da es nur ein Notbehelf sein soll...
-					if ($@ =~ m/Can.t connect to/) {
-						SONOS_DeleteProxyObjects($udn);
-						
-						# Player-Informationen aktualisieren...
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'presence', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'state', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'transportState', 'STOPPED');
-						
-						# Discovery neu anstarten, falls der Player irgendwie doch noch erreichbar sein sollte...
-						$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
-					}
-				}
-			}
-			
-			if (defined($SONOS_DevicePropertiesSubscriptions{$udn}) && (Time::HiRes::time() - $SONOS_DevicePropertiesSubscriptions{$udn}->{_startTime} > $SONOS_SUBSCRIPTIONSRENEWAL)) {
-				eval {
-					$SONOS_DevicePropertiesSubscriptions{$udn}->renew();
-					SONOS_Log $udn, 3, 'DeviceProperties-Subscription for ZonePlayer "'.$udn.'" has expired and is now renewed.';
-				};
-				if ($@) {
-					SONOS_Log $udn, 3, 'Error! DeviceProperties-Subscription for ZonePlayer "'.$udn.'" has expired and could not be renewed: '.$@;
-					
-					# Wenn der Player nicht erreichbar war, dann entsprechend entfernen...
-					# Hier aber nur eine kleine Lösung, da es nur ein Notbehelf sein soll...
-					if ($@ =~ m/Can.t connect to/) {
-						SONOS_DeleteProxyObjects($udn);
-						
-						# Player-Informationen aktualisieren...
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'presence', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'state', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'transportState', 'STOPPED');
-						
-						# Discovery neu anstarten, falls der Player irgendwie doch noch erreichbar sein sollte...
-						$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
-					}
-				}
-			}
-			
-			if (defined($SONOS_AudioInSubscriptions{$udn}) && (Time::HiRes::time() - $SONOS_AudioInSubscriptions{$udn}->{_startTime} > $SONOS_SUBSCRIPTIONSRENEWAL)) {
-				eval {
-					$SONOS_AudioInSubscriptions{$udn}->renew();
-					SONOS_Log $udn, 3, 'AudioIn-Subscription for ZonePlayer "'.$udn.'" has expired and is now renewed.';
-				};
-				if ($@) {
-					SONOS_Log $udn, 3, 'Error! AudioIn-Subscription for ZonePlayer "'.$udn.'" has expired and could not be renewed: '.$@;
-					
-					# Wenn der Player nicht erreichbar war, dann entsprechend entfernen...
-					# Hier aber nur eine kleine Lösung, da es nur ein Notbehelf sein soll...
-					if ($@ =~ m/Can.t connect to/) {
-						SONOS_DeleteProxyObjects($udn);
-						
-						# Player-Informationen aktualisieren...
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'presence', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'state', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'transportState', 'STOPPED');
-						
-						# Discovery neu anstarten, falls der Player irgendwie doch noch erreichbar sein sollte...
-						$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
-					}
-				}
-			}
-			
-			if (defined($SONOS_MusicServicesSubscriptions{$udn}) && (Time::HiRes::time() - $SONOS_MusicServicesSubscriptions{$udn}->{_startTime} > $SONOS_SUBSCRIPTIONSRENEWAL)) {
-				eval {
-					$SONOS_MusicServicesSubscriptions{$udn}->renew();
-					SONOS_Log $udn, 3, 'MusicServices-Subscription for ZonePlayer "'.$udn.'" has expired and is now renewed.';
-				};
-				if ($@) {
-					SONOS_Log $udn, 3, 'Error! MusicServices-Subscription for ZonePlayer "'.$udn.'" has expired and could not be renewed: '.$@;
-					
-					# Wenn der Player nicht erreichbar war, dann entsprechend entfernen...
-					# Hier aber nur eine kleine Lösung, da es nur ein Notbehelf sein soll...
-					if ($@ =~ m/Can.t connect to/) {
-						SONOS_DeleteProxyObjects($udn);
-						
-						# Player-Informationen aktualisieren...
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'presence', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'state', 'disappeared');
-						SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'transportState', 'STOPPED');
-						
-						# Discovery neu anstarten, falls der Player irgendwie doch noch erreichbar sein sollte...
-						$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
-					}
-				}
-			}
-
+			SONOS_ProcessRenew($udn, 'Transport', \%SONOS_TransportSubscriptions);
+			SONOS_ProcessRenew($udn, 'Rendering', \%SONOS_RenderingSubscriptions);
+			SONOS_ProcessRenew($udn, 'GroupRendering', \%SONOS_GroupRenderingSubscriptions);
+			SONOS_ProcessRenew($udn, 'ContentDirectory', \%SONOS_ContentDirectorySubscriptions);
+			SONOS_ProcessRenew($udn, 'Alarm', \%SONOS_AlarmSubscriptions);
+			SONOS_ProcessRenew($udn, 'ZoneGroupTopology', \%SONOS_ZoneGroupTopologySubscriptions);
+			SONOS_ProcessRenew($udn, 'DeviceProperties', \%SONOS_DevicePropertiesSubscriptions);
+			SONOS_ProcessRenew($udn, 'AudioIn', \%SONOS_AudioInSubscriptions);
+			SONOS_ProcessRenew($udn, 'MusicServices', \%SONOS_MusicServicesSubscriptions);
 		} elsif ($workType eq 'startHandle') {
 			if ($params[0] =~ m/^(.+)\|(.+)$/) {
 				my $songURI = $1;
@@ -4414,6 +4159,41 @@ sub SONOS_Discover_DoQueue($) {
 	};
 	if ($@) {
 		SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', 'DoWork-Exception ERROR: '.$@);
+	}
+}
+
+########################################################################################
+#
+#  SONOS_ProcessRenew - Process the renewal of sbscriptions
+#
+########################################################################################
+sub SONOS_ProcessRenew($$$) {
+	my ($udn, $subscriptionName, $subscriptionHash) = @_;
+	
+	if (defined($subscriptionHash->{$udn}) && (Time::HiRes::time() - $subscriptionHash->{$udn}->{_startTime} > $SONOS_SUBSCRIPTIONSRENEWAL)) {
+		eval {
+			$SIG{__WARN__} = sub { $_ = shift; };
+			
+			$subscriptionHash->{$udn}->renew();
+			SONOS_Log $udn, 3, $subscriptionName.'-Subscription for ZonePlayer "'.$udn.'" has expired and is now renewed.';
+		};
+		if ($@) {
+			SONOS_Log $udn, 3, 'Error! '.$subscriptionName.'-Subscription for ZonePlayer "'.$udn.'" has expired and could not be renewed: '.$@;
+			
+			# Wenn der Player nicht erreichbar war, dann entsprechend entfernen...
+			# Hier aber nur eine kleine Lösung, da es nur ein Notbehelf sein soll...
+			if ($@ =~ m/Can.t connect to/i) {
+				SONOS_DeleteProxyObjects($udn);
+				
+				# Player-Informationen aktualisieren...
+				SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'presence', 'disappeared');
+				SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'state', 'disappeared');
+				SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'transportState', 'STOPPED');
+				
+				# Discovery neu anstarten, falls der Player irgendwie doch noch erreichbar sein sollte...
+				$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
+			}
+		}
 	}
 }
 
@@ -5212,12 +4992,18 @@ sub SONOS_RestoreOldPlaystate() {
 	SONOS_Log undef, 1, 'Restore-Thread gestartet. Warte auf Arbeit...';
 	
 	my $runEndlessLoop = 1;
-	my $controlPoint = UPnP::ControlPoint->new(SearchPort => 0, SubscriptionPort => 0, SubscriptionURL => '/fhemmodule', MaxWait => 20, UsedOnlyIP => \%usedonlyIPs, IgnoreIP => \%ignoredIPs, ReusePort => $reusePort);
+	my $controlPoint = UPnP::ControlPoint->new(SearchPort => 0, SubscriptionPort => 0, SubscriptionURL => '/fhemmodule', MaxWait => 20, LogLevel => $SONOS_Client_LogLevel, UsedOnlyIP => \@usedonlyIPs, IgnoreIP => \@ignoredIPs, ReusePort => $reusePort);
 	
 	$SIG{'PIPE'} = 'IGNORE';
 	$SIG{'CHLD'} = 'IGNORE';
 	
 	$SIG{'INT'} = sub {
+		# Alle noch offenen Restore-Aufträge löschen..-
+		%SONOS_PlayerRestoreRunningUDN = ();
+		while ($SONOS_PlayerRestoreQueue->pending()) {
+			$SONOS_PlayerRestoreQueue->dequeue();
+		}
+		
 		$runEndlessLoop = 0;
 	};
 	
@@ -5341,6 +5127,9 @@ sub SONOS_PlayURITemp($$$) {
 		my $result = $SONOS_AVTransportControlProxy{$udn}->GetPositionInfo(0);
 		$old{Track} = $result->getValue('Track');
 		$old{RelTime} = $result->getValue('RelTime');
+		if ($old{RelTime} !~ /\d+:\d+:\d+/i) { # e.g. NOT_IMPLEMENTED
+			$old{RelTime} = '0:00:00';
+		}
 		
 		$result = $SONOS_AVTransportControlProxy{$udn}->GetMediaInfo(0);
 		$old{CurrentURI} = $result->getValue('CurrentURI');
@@ -5447,7 +5236,10 @@ sub SONOS_GetTrackProvider($;$) {
 	}
 	
 	my ($a, $b, $c) = eval {
-		my %musicServices = %{eval(SONOS_Client_Data_Retreive('undef', 'reading', 'MusicServicesList', '()'))};
+		my $musicServicesReading = SONOS_Client_Data_Retreive('undef', 'reading', 'MusicServicesList', undef);
+		my %musicServices = ();
+		%musicServices = %{eval($musicServicesReading)} if (defined($musicServicesReading));
+		
 		if ($songURI =~ m/sid=(\d+)/i) {
 			my $sid = $1;
 			
@@ -5467,6 +5259,8 @@ sub SONOS_GetTrackProvider($;$) {
 				return ($result, $roundIcon, $quadraticIcon);
 			}
 		}
+		
+		return ('', '', '');
 	};
 	if ($@) {
 		SONOS_Log undef, 2, 'Unable to identify TrackProvider for "'.$songURI.'". Revert to empty default! Errormessage: '.$@;
@@ -5974,6 +5768,7 @@ sub SONOS_Discover_Callback($$$) {
 		my $saveRoomName = '';
 		my $modelNumber = '';
 		my $displayVersion = '';
+		my $internalVersion = '';
 		my $serialNum = '';
 		my $iconURI = '';
 	
@@ -5995,7 +5790,10 @@ sub SONOS_Discover_Callback($$$) {
 		
 		# DisplayVersion ermitteln
 		$displayVersion = decode_entities($1) if ($descriptionDocument =~ m/<displayVersion>(.*?)<\/displayVersion>/im);
-	
+		
+		# Interne Version ermitteln
+		$internalVersion = decode_entities($1) if ($descriptionDocument =~ m/<softwareVersion>(.*?)<\/softwareVersion>/im);
+		
 		# SerialNum ermitteln
 		$serialNum = decode_entities($1) if ($descriptionDocument =~ m/<serialNum>(.*?)<\/serialNum>/im);
 	
@@ -6190,6 +5988,15 @@ sub SONOS_Discover_Callback($$$) {
 		# Wenn der Player noch nicht auf der "Aktiv"-Liste steht, dann draufpacken...
 		push @{$SONOS_Client_Data{PlayerAlive}}, $udn if (!SONOS_isInList($udn, @{$SONOS_Client_Data{PlayerAlive}}));
 		
+		# Verfügbare Software herausfinden...
+		my $internalVersionAvailable = '';
+		my $softwareVersionAvailable = '';
+		my $updateItem = $SONOS_ZoneGroupTopologyProxy{$udn}->CheckForUpdate('Software', 'false', '')->getValue('UpdateItem');
+		if ($updateItem =~ m/<UpdateItem xmlns=".*?" Type="Software" Version="(.+?)" UpdateURL=".+?v(.+?)-.+?" DownloadSize=".+?" ManifestURL=".+?"\/>/i) {
+			$internalVersionAvailable = $1;
+			$softwareVersionAvailable = $2;
+		}
+		
 		# Readings aktualisieren
 		SONOS_Client_Notifier('ReadingsBeginUpdate:'.$udn);
 		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'presence', 'appeared');
@@ -6202,10 +6009,14 @@ sub SONOS_Discover_Callback($$$) {
 		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'Volume', $currentVolume);
 		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'location', $device->location);
 		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'softwareRevision', $displayVersion);
+		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'softwareRevisionAvailable', $softwareVersionAvailable);
+		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'softwareRevisionInternal', $internalVersion);
+		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'softwareRevisionInternalAvailable', $internalVersionAvailable);
 		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'serialNum', $serialNum);
 		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'fieldType', $fieldType);
 		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'IsBonded', (($fieldType eq '') || ($fieldType eq 'LF') || ($fieldType eq 'LF_RF')) ? '0' : '1');
 		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'IsMaster', $master ? '1' : '0');
+		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'IsZoneBridge', $isZoneBridge ? '1' : '0');
 		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'MasterPlayer', $masterPlayerName);
 		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'SlavePlayer', SONOS_Dumper(\@slavePlayerNames));
 		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'SlavePlayerNotBonded', SONOS_Dumper(\@slavePlayerNotBondedNames));
@@ -6233,8 +6044,13 @@ sub SONOS_Discover_Callback($$$) {
 					SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'currentTrackDurationSec', SONOS_GetTimeSeconds($result->getValue('TrackDuration')));
 					
 					my $modus = 'ReadingsBulkUpdate'.((SONOS_Client_Data_Retreive($udn, 'reading', 'currentStreamAudio', 0)) ? 'IfChanged' : '');
-					SONOS_Client_Data_Refresh($modus, $udn, 'currentTrackPosition', $result->getValue('RelTime'));
-					SONOS_Client_Data_Refresh($modus, $udn, 'currentTrackPositionSec', SONOS_GetTimeSeconds($result->getValue('RelTime')));
+					
+					my $trackPosition = $result->getValue('RelTime');
+					if ($trackPosition !~ /\d+:\d+:\d+/i) { # e.g. NOT_IMPLEMENTED
+						$trackPosition = '0:00:00';
+					}
+					SONOS_Client_Data_Refresh($modus, $udn, 'currentTrackPosition', $trackPosition);
+					SONOS_Client_Data_Refresh($modus, $udn, 'currentTrackPositionSec', SONOS_GetTimeSeconds($trackPosition));
 					
 					SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'currentTrack', $result->getValue('Track'));
 					
@@ -6623,8 +6439,6 @@ sub SONOS_IsAlive($) {
 				$result = 0;
 				
 				SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'presence', 'disappeared');
-				# Brauchen wir das wirklich? Dabei werden die lokalen Infos nicht aktualisiert...
-				#SONOS_Client_Notifier('deleteCurrentNextTitleInformationAndDisappear:'.$udn);
 				SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'state', 'disappeared');
 				SONOS_Client_Data_Refresh('ReadingsSingleUpdateIfChanged', $udn, 'transportState', 'STOPPED');
 				$doDeleteProxyObjects = 1;
@@ -6645,7 +6459,7 @@ sub SONOS_IsAlive($) {
 		my @params = ();
 		$data{Params} = \@params;
 		
-		$SONOS_ComObjectTransportQueue->enqueue(\%data);
+		$SONOS_Client_ReceiveQueue->enqueue(\%data);
 	}
 	
 	return $result;
@@ -7069,14 +6883,14 @@ sub SONOS_TransportCallback($$) {
 		my $tempURI = '';
 		$tempURI = ($1) if ($tempURIground =~ m/<upnp:albumArtURI>(.*?)<\/upnp:albumArtURI>/i);
 		# Wenn in der URI bereits ein kompletter Pfad drinsteht, dann diese Basis verwenden (passiert bei Wiedergabe vom iPad z.B.)
-		if ($tempURI =~ m/^(http:\/\/.*?\/)(.*)/) {
+		if ($tempURI =~ m/^(http(s|):\/\/.*?\/)(.*)/) {
 			$groundURL = $1;
-			$tempURI = $2;
+			$tempURI = $3;
 		}
-		SONOS_Client_Notifier('ProcessCover:'.$udn.':0:'.$tempURI.':'.$groundURL);
+		SONOS_Client_Notifier('ProcessCover:'.$udn.':0:'.SONOS_URI_Escape($tempURI).':'.SONOS_URI_Escape($groundURL));
 		
 		# Auch hier den XML-Parser verhindern, und alles per regulärem Ausdruck ermitteln...
-		if ($currentTrackMetaData =~ m/<dc:title>x-(sonosapi|rincon)-(stream|mp3radio):.*?<\/dc:title>/) {
+		if ($currentTrackMetaData =~ m/(<dc:title>x-(sonosapi|rincon)-(stream|mp3radio):.*?<\/dc:title>|<res protocolInfo="x-(sonosapi|rincon)-(stream|mp3radio):.*?">)/) {
 			# Wenn es ein Stream ist, dann muss da was anderes erkannt werden
 			SONOS_Log $udn, 4, "Transport-Event: Stream erkannt!";
 			SONOS_Client_Notifier('SetCurrent:StreamAudio:1');
@@ -7140,7 +6954,7 @@ sub SONOS_TransportCallback($$) {
 				}
 				SONOS_Client_Notifier('SetCurrent:Artist:');
 				
-				SONOS_Client_Notifier('ProcessCover:'.$udn.':0:/'.SONOS_Client_Data_Retreive('undef', 'attr', 'webname', 'fhem').'/sonos/cover/input_default.jpg:');
+				SONOS_Client_Notifier('ProcessCover:'.$udn.':0:'.SONOS_URI_Escape('/'.SONOS_Client_Data_Retreive('undef', 'attr', 'webname', 'fhem').'/sonos/cover/input_default.jpg').':');
 			} elsif ($currentTrackURI =~ m/x-sonos-dock:(RINCON_[\dA-Z]+)/) {
 				# Dock-Wiedergabe feststellen, und dann andere Informationen anzeigen
 				SONOS_Client_Notifier('SetCurrent:Album:'.SONOS_Client_Data_Retreive($1.'_MR', 'reading', 'currentAlbum', SONOS_Client_Data_Retreive($1.'_MR', 'reading', 'roomName', $1)));
@@ -7152,7 +6966,7 @@ sub SONOS_TransportCallback($$) {
 				
 				$SONOS_BookmarkSpeicher{OldTitles}{$udn} = SONOS_Client_Data_Retreive($1.'_MR', 'reading', 'currentTitle', $tmpTitle);
 				
-				SONOS_Client_Notifier('ProcessCover:'.$udn.':0:/'.SONOS_Client_Data_Retreive('undef', 'attr', 'webname', 'fhem').'/sonos/cover/input_dock.jpg:');
+				SONOS_Client_Notifier('ProcessCover:'.$udn.':0:'.SONOS_URI_Escape('/'.SONOS_Client_Data_Retreive('undef', 'attr', 'webname', 'fhem').'/sonos/cover/input_dock.jpg').':');
 			} elsif ($currentTrackURI =~ m/x-sonos-htastream:(RINCON_[\dA-Z]+):spdif/) {
 				# LineIn-Wiedergabe der Playbar feststellen, und dann andere Informationen anzeigen
 				SONOS_Client_Notifier('SetCurrent:Album:'.SONOS_Client_Data_Retreive($1.'_MR', 'reading', 'roomName', $1));
@@ -7161,7 +6975,7 @@ sub SONOS_TransportCallback($$) {
 				
 				$SONOS_BookmarkSpeicher{OldTitles}{$udn} = 'SPDIF-Wiedergabe von '.SONOS_Client_Data_Retreive($1.'_MR', 'reading', 'roomName', $1);
 				
-				SONOS_Client_Notifier('ProcessCover:'.$udn.':0:/'.SONOS_Client_Data_Retreive('undef', 'attr', 'webname', 'fhem').'/sonos/cover/input_tv.jpg:');
+				SONOS_Client_Notifier('ProcessCover:'.$udn.':0:'.SONOS_URI_Escape('/'.SONOS_Client_Data_Retreive('undef', 'attr', 'webname', 'fhem').'/sonos/cover/input_tv.jpg').':');
 			} else {
 				# Titel ermitteln
 				if ($currentTrackMetaData =~ m/<dc:title>(.*?)<\/dc:title>/i) {
@@ -7223,7 +7037,7 @@ sub SONOS_TransportCallback($$) {
 		
 		$tempURI = '';
 		$tempURI = ($1) if ($tempURIground =~ m/<upnp:albumArtURI>(.*?)<\/upnp:albumArtURI>/i);
-		SONOS_Client_Notifier('ProcessCover:'.$udn.':1:'.$tempURI.':'.$groundURL);
+		SONOS_Client_Notifier('ProcessCover:'.$udn.':1:'.SONOS_URI_Escape($tempURI).':'.SONOS_URI_Escape($groundURL));
 		
 		SONOS_Client_Notifier('SetCurrent:nextTitle:'.$1) if ($nextTrackMetaData =~ m/<dc:title>(.*?)<\/dc:title>/i);
 		
@@ -8820,6 +8634,27 @@ sub SONOS_DevicePropertiesCallback($$) {
 		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'ButtonLockState', $buttonLockState);
 	}
 	
+	# WifiEnabled wurde angepasst?
+	my $wifiEnabled = SONOS_Client_Data_Retreive($udn, 'reading', 'WifiEnabled', '');
+	if (defined($properties{WifiEnabled}) && $properties{WifiEnabled} ne '') {
+		$wifiEnabled = $properties{WifiEnabled};
+		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'WifiEnabled', $wifiEnabled);
+	}
+	
+	# WirelessMode wurde angepasst?
+	my $wirelessMode = SONOS_Client_Data_Retreive($udn, 'reading', 'WirelessMode', '');
+	if (defined($properties{WirelessMode}) && $properties{WirelessMode} ne '') {
+		$wirelessMode = $properties{WirelessMode};
+		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'WirelessMode', $wirelessMode);
+	}
+	
+	# Orientation wurde angepasst?
+	my $orientation = SONOS_Client_Data_Retreive($udn, 'reading', 'Orientation', '');
+	if (defined($properties{Orientation}) && $properties{Orientation} ne '') {
+		$orientation = $properties{Orientation};
+		SONOS_Client_Data_Refresh('ReadingsBulkUpdateIfChanged', $udn, 'Orientation', $orientation);
+	}
+	
 	SONOS_Client_Notifier('ReadingsEndUpdate:'.$udn);
 	
 	$SONOS_Client_SendQueue_Suspend = 0;
@@ -9722,7 +9557,7 @@ sub SONOS_getSonosPlayerByUDN(;$) {
 		return SONOS_getSonosPlayerByName();
 	}
 	
-	SONOS_Log $udn, 0, "The Method 'SONOS_getSonosPlayerByUDN' cannot find the FHEM-Device according to '".(defined($udn) ? $udn : 'undef')."'. This should not happen!";
+	SONOS_Log undef, 0, "The Method 'SONOS_getSonosPlayerByUDN' cannot find the FHEM-Device according to '".(defined($udn) ? $udn : 'undef')."'. This should not happen!";
 	
 	return undef;
 }
@@ -9813,7 +9648,7 @@ sub SONOS_Shutdown ($$) {
 
 ########################################################################################
 #
-#  SONOS_isInList - Checks, at which position the given value is in the given list
+#  SONOS_posInList - Checks, at which position the given value is in the given list
 # 									Results in -1 if element not found
 #
 ########################################################################################
@@ -9916,7 +9751,7 @@ sub SONOS_GetTimeFromString($) {
 	eval {
 		use Time::Local;
 		if($timeStr =~ m/^(\d{4})-(\d{2})-(\d{2})( |_)([0-2]\d):([0-5]\d):([0-5]\d)$/) {
-				return timelocal($7, $6, $5, $3, $2 - 1, $1 - 1900);
+			return timelocal($7, $6, $5, $3, $2 - 1, $1 - 1900);
 		}
 	}
 }
@@ -9999,6 +9834,12 @@ if (defined($SONOS_ListenPort)) {
 	my $runEndlessLoop = 1;
 	my $lastRenewSubscriptionCheckTime = time();
 	
+	if ($startedbyfhem) {
+		SONOS_Log undef, 1, "$0 is started by fhem...";
+	} else {
+		SONOS_Log undef, 1, "$0 is started as standalone process...";
+	}
+	
 	$SIG{'PIPE'} = 'IGNORE';
 	$SIG{'CHLD'} = 'IGNORE';
 	
@@ -10009,6 +9850,9 @@ if (defined($SONOS_ListenPort)) {
 		# Sub-Threads beenden, sofern vorhanden
 		if (($SONOS_Thread != -1) && defined(threads->object($SONOS_Thread))) {
 			threads->object($SONOS_Thread)->kill('INT')->detach();
+		}
+		if (($SONOS_Thread_LongJobs != -1) && defined(threads->object($SONOS_Thread_LongJobs))) {
+			threads->object($SONOS_Thread_LongJobs)->kill('INT')->detach();
 		}
 		if (($SONOS_Thread_IsAlive != -1) && defined(threads->object($SONOS_Thread_IsAlive))) {
 			threads->object($SONOS_Thread_IsAlive)->kill('INT')->detach();
@@ -10055,17 +9899,17 @@ if (defined($SONOS_ListenPort)) {
 				my @params = ();
 				$data{Params} = \@params;
 				
-				$SONOS_ComObjectTransportQueue->enqueue(\%data);
+				$SONOS_Client_ReceiveQueue->enqueue(\%data);
 			}
 		}
-	 	
-	 	# Alle Bereit-Schreibenden verarbeiten
-	 	if ($SONOS_Client_SendQueue->pending() && !$SONOS_Client_SendQueue_Suspend) {
-	 		my @receiver = $SONOS_Client_Selector->can_write(0);
-	 		
-	 		# Prüfen, ob überhaupt ein Empfänger bereit ist. Sonst würden Befehle verloren gehen...
-	 		if (scalar(@receiver) > 0) {
-		 		while ($SONOS_Client_SendQueue->pending()) {
+		
+		# Alle Bereit-Schreibenden verarbeiten
+		if ($SONOS_Client_SendQueue->pending() && !$SONOS_Client_SendQueue_Suspend) {
+			my @receiver = $SONOS_Client_Selector->can_write(0);
+			
+			# Prüfen, ob überhaupt ein Empfänger bereit ist. Sonst würden Befehle verloren gehen...
+			if (scalar(@receiver) > 0) {
+				while ($SONOS_Client_SendQueue->pending()) {
 					my $line = $SONOS_Client_SendQueue->dequeue();
 					foreach my $so (@receiver) {
 						send($so, $line, 0);
@@ -10073,52 +9917,71 @@ if (defined($SONOS_ListenPort)) {
 				}
 			}
 		}
-	 	
-	 	# Alle Bereit-Lesenden verarbeiten
+		
+		# Alle Bereit-Lesenden verarbeiten
 		# Das ganze blockiert eine kurze Zeit, um nicht 100% CPU-Last zu erzeugen
 		# Das bedeutet aber auch, dass Sende-Vorgänge um maximal den Timeout-Wert verzögert werden
 		my @ready = $SONOS_Client_Selector->can_read(0.1);
 		for (my $i = 0; $i < scalar(@ready); $i++) {
 			my $so = $ready[$i];
-	 		if ($so == $sock) { # New Connection read
-	 			my $client;
-	 			
-	 			my $addrinfo = accept($client, $sock);
+			if ($so == $sock) { # New Connection read
+				my $client;
+				
+				my $addrinfo = accept($client, $sock);
 				setsockopt($client, SOL_SOCKET, SO_LINGER, pack("ii", 1, 0));
-	 			my ($port, $iaddr) = sockaddr_in($addrinfo);
-	 			my $name = gethostbyaddr($iaddr, AF_INET);
-	 			$name = $iaddr if (!defined($name) || $name eq '');
-	 			
-	 			SONOS_Log undef, 3, "Connection accepted from $name:$port";
-	 			
-	 			# Send Welcome-Message
-	 			send($client, "This is UPnP-Server listening for commands\r\n", 0);
-	 			select(undef, undef, undef, 0.5);
-	 			
-	 			# Antwort lesen, und nur wenn es eine dauerhaft gedachte Verbindung ist, dann auch merken...
-	 			my $answer = '';
-	 			recv($client, $answer, 500, 0);
-	 			if ($answer eq "Establish connection\r\n") {
-	 				$SONOS_Client_Selector->add($client);
-	 			}
-	 		} else { # Existing client calling
-	 			if (!$so->opened()) {
-	 				$SONOS_Client_Selector->remove($so);
-	 				next;
-	 			}
-	 			
-	 			my $inp = <$so>;
-	 			
-	 			if (defined($inp)) {
-		 			# Abschließende Zeilenumbrüche abschnippeln
-		 			$inp =~ s/[\r\n]*$//;
-		 			
-		 			# Consume and send evt. reply
-		 			SONOS_Log undef, 5, "Received: '$inp'";
-		 			SONOS_Client_ConsumeMessage($so, $inp);
-		 		}
-	 		}
-	 	}
+				my ($port, $iaddr) = sockaddr_in($addrinfo);
+				my $name = gethostbyaddr($iaddr, AF_INET);
+				$name = $iaddr if (!defined($name) || $name eq '');
+				
+				SONOS_Log undef, 3, "Connection accepted from $name:$port";
+				
+				# Send Welcome-Message
+				send($client, "This is UPnP-Server listening for commands\r\n", 0);
+				select(undef, undef, undef, 0.5);
+				
+				# Antwort lesen, und nur wenn es eine dauerhaft gedachte Verbindung ist, dann auch merken...
+				my $answer = '';
+				recv($client, $answer, 500, 0);
+				if ($answer eq "Establish connection\r\n") {
+					$SONOS_Client_Selector->add($client);
+					
+					SONOS_Log undef, 4, 'A new Connector to list added. There are now '.$SONOS_Client_Selector->count().' connectors in list.';
+				}
+			} else { # Existing client calling
+				if (!$so->opened()) {
+					$SONOS_Client_Selector->remove($so);
+					last;
+				}
+				
+				my $inp = <$so>;
+				
+				if (defined($inp)) {
+					# Abschließende Zeilenumbrüche abschnippeln
+					$inp =~ s/[\r\n]*$//;
+					
+					# Consume and send evt. reply
+					SONOS_Log undef, 5, "Received: '$inp'";
+					SONOS_Client_ConsumeMessage($so, $inp);
+				} else {
+					# Wenn es der letzte war, dann Threads beenden, sonst nur aus der Liste werfen...
+					# Größer Zwei, weil der Listener und der aktuell verstorbene Connector enthalten sind...
+					if ($SONOS_Client_Selector->count() > 2) {
+						SONOS_Log undef, 1, "A Listener seems to be died, but other Listeners exists... leaving Threads alive...";
+						$SONOS_Client_Selector->remove($so);
+					} else {
+						if ($startedbyfhem) {
+							SONOS_Log undef, 1, "Last Listener seems to be died and process started by fhem... stopping Threads and process...";
+							SONOS_Client_ConsumeMessage($so, 'shutdown');
+						} else {
+							SONOS_Log undef, 1, "Last Listener seems to be died... stopping Threads...";
+							SONOS_Client_ConsumeMessage($so, 'disconnect');
+						}
+					}
+					
+					last;
+				}
+			}
+		}
 	}
 	 
 	SONOS_Log undef, 0, 'Das Lauschen auf der Schnittstelle wurde beendet. Prozess endet nun auch...';
@@ -10144,7 +10007,7 @@ sub SONOS_Client_Notifier($) {
 	my ($msg) = @_;
 	$| = 1;
 	
-	state $setCurrentUDN;
+	state $setCurrentUDN = '';
 	
 	# Wenn hier ein SetCurrent ausgeführt werden soll, dann auch den lokalen Puffer aktualisieren
 	if ($msg =~ m/SetCurrent:(.*?):(.*)/) {
@@ -10195,10 +10058,10 @@ sub SONOS_Client_Data_Retreive($$$$;$) {
 	
 	# Anfrage zulässig, also ausliefern...
 	if (defined($SONOS_Client_Data{Buffer}->{$udnBuffer}) && defined($SONOS_Client_Data{Buffer}->{$udnBuffer}->{$name})) {
-		SONOS_Log undef, 4, "SONOS_Client_Data_Retreive($udnBuffer, $reading, $name, $default) -> ".$SONOS_Client_Data{Buffer}->{$udnBuffer}->{$name} if (!$nologging);
+		SONOS_Log undef, 4, "SONOS_Client_Data_Retreive($udnBuffer, $reading, $name, ".((defined($default)) ? $default : 'undef').") -> ".$SONOS_Client_Data{Buffer}->{$udnBuffer}->{$name} if (!$nologging);
 		return $SONOS_Client_Data{Buffer}->{$udnBuffer}->{$name};
 	} else {
-		SONOS_Log undef, 4, "SONOS_Client_Data_Retreive($udnBuffer, $reading, $name, $default) -> DEFAULT" if (!$nologging);
+		SONOS_Log undef, 4, "SONOS_Client_Data_Retreive($udnBuffer, $reading, $name, ".((defined($default)) ? $default : 'undef').") -> DEFAULT" if (!$nologging);
 		return $default;
 	}
 }
@@ -10211,11 +10074,16 @@ sub SONOS_Client_Data_Refresh($$$$) {
 	
 	my $udnBuffer = ($udn eq 'undef') ? 'SONOS' : $udn;
 	
-	SONOS_Log undef, 4, "SONOS_Client_Data_Refresh(".(defined($sendCommand) ? $sendCommand : 'undef').", $udn, $name, $value)";
+	SONOS_Log undef, 4, 'SONOS_Client_Data_Refresh('.(defined($sendCommand) ? $sendCommand : 'undef').", $udn, $name, ".(defined($value) ? $value : 'undef').')';
 	
-	$SONOS_Client_Data{Buffer}->{$udnBuffer}->{$name} = $value;
+	if (!defined($value)) {
+		undef($SONOS_Client_Data{Buffer}->{$udnBuffer}->{$name});
+	} else {
+		$SONOS_Client_Data{Buffer}->{$udnBuffer}->{$name} = $value;
+	}
+	
 	if (defined($sendCommand) && ($sendCommand ne '')) {
-		SONOS_Client_Notifier($sendCommand.':'.$udn.':'.$name.':'.$value);
+		SONOS_Client_Notifier($sendCommand.':'.$udn.':'.$name.':'.(defined($value) ? $value : 'undef'));
 	}
 }
 
@@ -10239,6 +10107,16 @@ sub SONOS_Client_ConsumeMessage($$) {
 				$thr->kill('INT')->detach();
 			} else {
 				SONOS_Log undef, 3, 'Sonos_Thread is already killed!';
+			}
+		}
+		if ($SONOS_Thread_LongJobs != -1) {
+			my $thr = threads->object($SONOS_Thread_LongJobs);
+			
+			if ($thr) {
+				SONOS_Log undef, 3, 'Trying to kill LongJobs_Thread...';
+				$thr->kill('INT')->detach();
+			} else {
+				SONOS_Log undef, 3, 'LongJobs_Thread is already killed!';
 			}
 		}
 		if ($SONOS_Thread_IsAlive != -1) {
@@ -10278,17 +10156,11 @@ sub SONOS_Client_ConsumeMessage($$) {
 		$SONOS_Client_LogfileName = $3;
 		$SONOS_Client_Data{pingType} = $4;
 		
-		my @usedonlyIPs = split(/,/, $5);
+		@usedonlyIPs = split(/,/, $5);
 		$SONOS_Client_Data{usedonlyIPs} = shared_clone(\@usedonlyIPs);
-		for my $elem (@usedonlyIPs) {
-			$usedonlyIPs{SONOS_Trim($elem)} = 1;
-		}
 		
-		my @ignoredIPs = split(/,/, $6);
+		@ignoredIPs = split(/,/, $6);
 		$SONOS_Client_Data{ignoredIPs} = shared_clone(\@ignoredIPs);
-		for my $elem (@ignoredIPs) {
-			$ignoredIPs{SONOS_Trim($elem)} = 1;
-		}
 		
 		$reusePort = $7;
 		
@@ -10429,14 +10301,16 @@ sub SONOS_Client_ConsumeMessage($$) {
 			$data{Params} = \@params;
 		}
 		
-		# Auf die Queue legen wenn Thread läuft und Signalhandler aufrufen, wenn er nicht sowieso noch läuft...
+		# Auf die Queue legen, wenn Thread läuft...
 		if ($SONOS_Thread != -1) {
-			$SONOS_ComObjectTransportQueue->enqueue(\%data);
-			#threads->object($SONOS_Thread)->kill('HUP') if ($SONOS_ComObjectTransportQueue->pending() == 1);
+			$SONOS_Client_ReceiveQueue->enqueue(\%data);
 		}
 	} elsif (lc($msg) eq 'startthread') {
 		# Discover-Thread
 		$SONOS_Thread = threads->create(\&SONOS_Discover)->tid();
+		
+		# LongJobs-Thread
+		$SONOS_Thread_LongJobs = threads->create(\&SONOS_Client_LongJobs)->tid();
 		
 		# IsAlive-Checker-Thread
 		if (lc($SONOS_Client_Data{pingType}) ne 'none') {
@@ -10475,7 +10349,162 @@ sub SONOS_getBookmarkGroupKeys($$;$) {
 }
 
 ########################################################################################
-# SONOS_Client_IsAlive: Checks of the clients are already available
+# SONOS_Client_LongJobs: Longjobs-Thread
+########################################################################################
+sub SONOS_Client_LongJobs() {
+	my $stepInterval = 0.5;
+	
+	SONOS_Log undef, 1, 'LongJobs-Thread gestartet. Prüfe auf LongJobs...';
+	
+	my $runEndlessLoop = 1;
+	
+	$SIG{'PIPE'} = 'IGNORE';
+	$SIG{'CHLD'} = 'IGNORE';
+	
+	$SIG{'INT'} = sub {
+		$runEndlessLoop = 0;
+	};
+	
+	# Endlos-Schleife für Jobs...
+	while($runEndlessLoop) {
+		select(undef, undef, undef, $stepInterval);
+		
+		if ($SONOS_LongJobsQueue->pending() != 0) {
+			my $job = $SONOS_LongJobsQueue->dequeue();
+			next if !defined($job);
+			
+			SONOS_Log undef, 3, 'LongJobs: DoQueue of "'.$job->{WorkType}.'"';
+			SONOS_Client_LongJobs_DoQueue($job);
+		}
+	}
+	
+	SONOS_Log undef, 1, 'LongJobs-Thread wurde beendet.';
+	$SONOS_Thread_LongJobs = -1;
+}
+
+########################################################################################
+# SONOS_AddToLongJobsQueue: Adds a job to Longjobs
+########################################################################################
+sub SONOS_AddToLongJobsQueue($$;$) {
+	my ($udn, $workType, $params) = @_;
+	
+	# Grunddaten
+	my %data;
+	$data{WorkType} = $workType;
+	$data{UDN} = $udn;
+	
+	# Location mitsichern, damit die Proxies neu geholt werden können
+	my %revUDNs = reverse %SONOS_Locations;
+	$data{Location} = $revUDNs{$udn};
+	
+	# Parmeter übergeben
+	if (defined($params)) {
+		my @params = @{$params};
+		$data{Params} = \@params;
+	} else {
+		my @params = ();
+		$data{Params} = \@params;
+	}
+	
+	# Auf die Queue legen, wenn Thread läuft...
+	if ($SONOS_Thread_LongJobs != -1) {
+		$SONOS_LongJobsQueue->enqueue(\%data);
+	}
+}
+
+########################################################################################
+# SONOS_LongJobsAnswer: Adds an answer from Longjobs
+########################################################################################
+#sub SONOS_LongJobsAnswer() {
+#	my ($udn, $workType, $params) = @_;
+#	
+#	my %data;
+#	$data{WorkType} = $workType;
+#	$data{UDN} = $udn;
+#	my @params = ();
+#	@params = split(/--#--/, decode_utf8($3));
+#	$data{Params} = \@params;
+#	
+#	$SONOS_Client_ReceiveQueue->enqueue(\%data);
+#}
+
+########################################################################################
+# SONOS_Client_LongJobs_DoQueue: Do Longjobs
+########################################################################################
+sub SONOS_Client_LongJobs_DoQueue($) {
+	my ($data) = @_;
+	
+	my $workType = $data->{WorkType};
+	return if (!defined($workType));
+	
+	my $udn = $data->{UDN};
+	my @params = ();
+	@params = @{$data->{Params}} if (defined($data->{Params}));
+	
+	# Hier die ursprünglichen Proxies wiederherstellen/neu verbinden...
+	my $controlPoint = UPnP::ControlPoint->new(SearchPort => 0, SubscriptionPort => 0, SubscriptionURL => '/fhemmodule', MaxWait => 20, LogLevel => $SONOS_Client_LogLevel, UsedOnlyIP => \@usedonlyIPs, IgnoreIP => \@ignoredIPs, ReusePort => $reusePort);
+	my $device = $controlPoint->_createDevice($data->{Location});
+	for my $subdevice ($device->children) {
+		if ($subdevice->UDN =~ /.*_MR/i) {
+			#$AVProxy = $subdevice->getService('urn:schemas-upnp-org:service:AVTransport:1')->controlProxy();
+			#$GRProxy = $subdevice->getService('urn:schemas-upnp-org:service:GroupRenderingControl:1')->controlProxy();
+		}
+		
+		if ($subdevice->UDN =~ /.*_MS/i) { 
+			$SONOS_ContentDirectoryControlProxy{$udn} = $subdevice->getService('urn:schemas-upnp-org:service:ContentDirectory:1')->controlProxy();
+		}
+	}
+	
+	eval {
+		if ($workType eq 'exportSonosBibliothek') {
+			my $filename = $params[0];
+			
+			# Anfragen durchführen...
+			if (SONOS_CheckProxyObject($udn, $SONOS_ContentDirectoryControlProxy{$udn})) {
+				my $exports = {'Structure' => {}, 'Titles' => {}};
+				
+				SONOS_Log undef, 4, 'ExportSonosBibliothek-Start';
+				my $startTime = gettimeofday();
+				SONOS_RecursiveStructure($udn, 'A:', $exports->{Structure}, $exports->{Titles});
+				SONOS_Log undef, 4, 'ExportSonosBibliothek-End. Runtime (in seconds): '.int(gettimeofday() - $startTime);
+				
+				my $countTitles = scalar(keys %{$exports->{Titles}});
+				
+				SONOS_Log undef, 5, 'ExportSonosBibliothek. Titles: '.$countTitles;
+				
+				# In Datei wegschreiben
+				eval {
+					open FILE, '>'.$filename;
+					SONOS_Log undef, 5, 'ExportSonosBibliothek. File "'.$filename.'" opened.';;
+					binmode(FILE, ':encoding(utf-8)');
+					print FILE SONOS_Dumper($exports);
+					SONOS_Log undef, 5, 'ExportSonosBibliothek. File written.';
+					close FILE;
+					SONOS_Log undef, 5, 'ExportSonosBibliothek. File closed.';
+				};
+				if ($@) {
+					SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': Error during filewriting: '.$@);
+					return;
+				}
+				
+				$exports = undef;
+				
+				SONOS_Log undef, 5, 'ExportSonosBibliothek. Internal Data deleted.';
+				
+				SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': Successfully written to file "'.$filename.'", Titles: '.$countTitles.', Duration: '.int(gettimeofday() - $startTime).'s');
+			}
+		}
+	};
+	if ($@) {
+		SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', 'LongJobs-DoWork-Exception ERROR: '.$@);
+	}
+	
+	$SONOS_ContentDirectoryControlProxy{$udn} = 0;
+	undef($controlPoint);
+}
+
+########################################################################################
+# SONOS_Client_IsAlive: Checks if the clients (Zoneplayers) are already available
 ########################################################################################
 sub SONOS_Client_IsAlive() {
 	my $interval = SONOS_Max(10, SONOS_Client_Data_Retreive('undef', 'def', 'INTERVAL', 0));
@@ -10536,7 +10565,7 @@ sub SONOS_Client_IsAlive() {
 						push @params, $toDeleteElem;
 						$data{Params} = \@params;
 						
-						$SONOS_ComObjectTransportQueue->enqueue(\%data);
+						$SONOS_Client_ReceiveQueue->enqueue(\%data);
 						
 						# Da ich das nur an den ersten verfügbaren Player senden muss, kann hier die Schleife direkt beendet werden
 						last;

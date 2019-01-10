@@ -1,4 +1,4 @@
-# $Id: 44_S7_DWrite.pm 14965 2017-08-27 05:25:39Z charlie71 $
+# $Id: 44_S7_DWrite.pm 15539 2017-12-01 21:52:13Z charlie71 $
 ##############################################
 package main;
 
@@ -478,7 +478,7 @@ sub S7_DWrite_setABit($$) {
 					my @a;
 					if($attreocr) {
 						@a = split(/,/,$attreocr);
-						$hash->{".attreocr"} = \@a;
+						$h->{".attreocr"} = \@a;
 					}
 					# determine whether the reading is listed in any of the attributes
 					my @eocrv;
@@ -495,13 +495,13 @@ sub S7_DWrite_setABit($$) {
 
 					  if($valueText =~ m/([\d\.\-eE]+)/ && looks_like_number($1)) { #41083, #62190
 						my $mv = $1;
-						my $last_value = $hash->{".attreocr-threshold$reading"};
+						my $last_value = $h->{".attreocr-threshold$reading"};
 						if( !defined($last_value) ) {
-						  $h->{".attreocr-threshold$reading"} = $mv;
+						  # $h->{".attreocr-threshold$reading"} = $mv;
 						} elsif( abs($mv - $last_value) < $threshold ) {
 						  $eocr = 0;
 						} else {
-						  $h->{".attreocr-threshold$reading"} = $mv;
+						  # $h->{".attreocr-threshold$reading"} = $mv;
 						}
 					  }
 					}

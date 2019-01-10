@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_FBAHAHTTP.pm 15437 2017-11-16 08:48:48Z rudolfkoenig $
+# $Id: 00_FBAHAHTTP.pm 17700 2018-11-07 11:35:48Z rudolfkoenig $
 package main;
 
 # Documentation: AHA-HTTP-Interface.pdf, AVM_Technical_Note_-_Session_ID.pdf
@@ -21,7 +21,7 @@ FBAHAHTTP_Initialize($)
   $hash->{RenameFn} = "FBAHAHTTP_RenameFn";
   $hash->{DeleteFn} = "FBAHAHTTP_Delete";
   $hash->{AttrList} = "dummy:1,0 fritzbox-user polltime async_delay ".
-                      "disable:0,1 disabledForIntervals";
+                      "disable:0,1 disabledForIntervals fbTimeout";
 }
 
 
@@ -39,13 +39,17 @@ FBAHAHTTP_Define($$)
   my %matchList = ( "1:FBDECT" => ".*" );
   $hash->{MatchList} = \%matchList;
 
+  # Moving definition from FBAHA to FBAHAHTTP
   for my $d (devspec2array("TYPE=FBDECT")) {
     if($defs{$d}{IODev} && $defs{$d}{IODev}{TYPE} eq "FBAHA") {
       my $n = $defs{$d}{IODev}{NAME};
       CommandAttr(undef, "$d IODev $hash->{NAME}");
       CommandDelete(undef, $n) if($defs{$n});
+      $defs{$d}{IODev} = $hash;
+
+      my $oldNr = $defs{$d}{IODev}{NR}; # Forum #92286
+      $hash->{NR} = $oldNr if($hash->{NR} > $oldNr);
     }
-    $defs{$d}{IODev} = $hash
   }
   $hash->{CmdStack} = ();
 
@@ -62,6 +66,7 @@ FBAHAHTTP_Delete($)
   my ($hash) = @_;
   my $name = $hash->{NAME};
   my ($err, $fb_pw) = setKeyValue("FBAHAHTTP_PASSWORD_$name", undef);
+  return $err;
 }
 
 sub
@@ -74,6 +79,7 @@ FBAHAHTTP_connect($)
   my $dr = sub {
     $hash->{STATE} = $_[0];
     Log 2, $hash->{STATE};
+    $hash->{CmdStack} = ();
     return $hash->{STATE};
   };
 
@@ -127,11 +133,13 @@ FBAHAHTTP_Poll($)
     return $ret if($ret);
   }
   my $sid = $hash->{".SID"};
+  my $host = ($hash->{DEF} =~ m/^http/i ? $hash->{DEF} : "http://$hash->{DEF}");
 
   HttpUtils_NonblockingGet({
-    url=>"http://$hash->{DEF}/webservices/homeautoswitch.lua?sid=$sid".
+    url=>"$host/webservices/homeautoswitch.lua?sid=$sid".
          "&switchcmd=getdevicelistinfos",
     loglevel => AttrVal($name, "verbose", 4),
+    timeout => AttrVal($name, "fbTimeout", 4),
     callback => sub {
       if($_[1]) {
         Log3 $name, 3, "$name: $_[1]";
@@ -219,9 +227,13 @@ FBAHAHTTP_ProcessStack($)
   my ($hash) = @_;
   my $name = $hash->{NAME};
   my $msg = $hash->{CmdStack}->[0];
+  my $host = ($hash->{DEF} =~ m/^http/i ? $hash->{DEF} : "http://$hash->{DEF}");
+  my $sid = $hash->{".SID"};
+  return if(!$sid);
   HttpUtils_NonblockingGet({
-    url=>"http://$hash->{DEF}/webservices/homeautoswitch.lua?$msg",
+    url=>"$host/webservices/homeautoswitch.lua?sid=$sid&$msg",
     loglevel => AttrVal($name, "verbose", 4),
+    timeout => AttrVal($name, "fbTimeout", 4),
     callback => sub {
       if($_[1]) {
         Log3 $name, 3, "$name: $_[1]";
@@ -234,6 +246,7 @@ FBAHAHTTP_ProcessStack($)
       if(!defined($_[2]) || $_[2] eq "") {
         if($hash->{RetriedCmd}) {
           Log3 $name, 1, "No sensible respone after reconnect, giving up";
+          $hash->{CmdStack} = ();
           return;
         }
         return if(FBAHAHTTP_connect($hash));
@@ -269,7 +282,7 @@ FBAHAHTTP_Write($$$)
     return $ret if($ret);
     $sid = $hash->{".SID"};
   }
-  push(@{$hash->{CmdStack}}, "sid=$sid&ain=$fn&switchcmd=$msg");
+  push(@{$hash->{CmdStack}}, "ain=$fn&switchcmd=$msg");
   FBAHAHTTP_ProcessStack($hash) if(@{$hash->{CmdStack}} == 1);
 }
 
@@ -308,6 +321,9 @@ FBAHAHTTP_Write($$$)
     <ul>
       <code>define fb1 FBAHAHTTP fritz.box</code><br>
     </ul>
+    Note: to specify HTTPS for the connection use https://fritz.box as
+    hostname. To explicitly specify the port, postfix the hostname with :port,
+    as in https://fritz.box:443
   </ul>
   <br>
 
@@ -332,6 +348,12 @@ FBAHAHTTP_Write($$$)
   <a name="FBAHAHTTPattr"></a>
   <b>Attributes</b>
   <ul>
+    <li><a href="#async_delay">async_delay</a><br>
+      additional delay inserted, when switching more than one device, default
+      is 0.2 seconds. Note: even with async_delay 0 there will be a delay, as
+      FHEM avoids sending commands in parallel, to avoid malfunctioning of the
+      Fritz!BOX AHA server).
+      </li>
     <li><a href="#disable">disable</a></li>
     <li><a href="#disabledForIntervals">disabledForIntervals</a></li>
     <li><a href="#dummy">dummy</a></li>
@@ -339,14 +361,9 @@ FBAHAHTTP_Write($$$)
     <li><a name="polltime">polltime</a><br>
       measured in seconds, default is 300 i.e. 5 minutes
       </li>
-
-    <li><a href="#async_delay">async_delay</a><br>
-      additional delay inserted, when switching more than one device, default
-      is 0.2 seconds. Note: even with async_delay 0 there will be a delay, as
-      FHEM avoids sending commands in parallel, to avoid malfunctioning of the
-      Fritz!BOX AHA server).
+    <li><a name="fbTimeout">fbTimeout</a><br>
+      timeout for getting answer from the Fritz!BOX. Default is 4 (seconds).
       </li>
-
   </ul>
   <br>
 </ul>

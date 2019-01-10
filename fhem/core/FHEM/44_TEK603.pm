@@ -1,4 +1,4 @@
-# $Id: 44_TEK603.pm 11877 2016-08-02 11:10:12Z eisler $
+# $Id: 44_TEK603.pm 17651 2018-10-31 12:05:23Z eisler $
 ####################################################################################################
 #
 #	44_TEK603.pm
@@ -49,7 +49,8 @@ sub TEK603_Initialize($) {
 	$hash->{DefFn}		= 'TEK603_define';
 	$hash->{UndefFn}	= 'TEK603_undef';
 
-	$hash->{AttrList}	= 'do_not_notify:0,1 dummy:1,0 loglevel:0,1,2,3,4,5,6 ';
+	$hash->{AttrList}	= 'do_not_notify:0,1 dummy:1,0 loglevel:0,1,2,3,4,5,6 ' .
+				   $readingFnAttributes;
 }
 
 sub TEK603_define($$) {
@@ -211,6 +212,7 @@ sub TEK603_reconnect($) {
 1;
 
 =pod
+=item summary devices communicating with TEK603
 =begin html
 
 <a name="TEK603"></a>

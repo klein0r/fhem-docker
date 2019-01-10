@@ -1,4 +1,4 @@
-/* $Id: fhem_codemirror.js 11619 2016-06-05 14:41:13Z rapster $ */
+/* $Id: fhem_codemirror.js 16926 2018-07-01 09:15:20Z rudolfkoenig $ */
 
 var cm_loaded = 0;
 var cm_active = 0;
@@ -57,6 +57,16 @@ var cm_attr = {
 };
 
 function AddCodeMirror(e, cb) {
+    if(e instanceof jQuery) {
+	AddCodeMirror(e.get(0), cb);
+	return;
+    }
+
+    if(e == undefined || e.editor) {
+	return;
+    }
+    e.editor = true;
+
     if(cm_active && cm_loaded == cm_active)
         return cm_wait(e, cb);
         
@@ -152,16 +162,21 @@ function cm_wait(cm_editor, callback, recursions) {
         return;
     }
 
-    var cm = CodeMirror.fromTextArea(cm_editor, cm_attr);
+    // setTimeout needed for FireFox 58+, Forum #87740
+    setTimeout(function(){
+        var cm = CodeMirror.fromTextArea(cm_editor, cm_attr);
 
-    if (cm_attr.autocomplete && cm_attr.autocompleteAlways) {
-        cm.on("keyup", function (cm, event) {
-            if ( !cm.state.completionActive && String.fromCharCode(event.keyCode).match(/\w/) ) {
-                CodeMirror.commands.autocomplete(cm, null, {completeSingle: false});
-            }
-        });
-    }
+        if (cm_attr.autocomplete && cm_attr.autocompleteAlways) {
+            cm.on("keyup", function (cm, event) {
+                if ( !cm.state.completionActive &&
+                     String.fromCharCode(event.keyCode).match(/\w/) ) {
+                    CodeMirror.commands.autocomplete(cm, null, 
+                        {completeSingle: false});
+                }
+            });
+        }
 
-    if(callback)
-        callback(cm);
+        if(callback)
+            callback(cm);
+      }, 10);
 }

@@ -1,5 +1,5 @@
 # Id ##########################################################################
-# $Id: 98_monitoring.pm 15160 2017-10-01 10:17:12Z igami $
+# $Id: 98_monitoring.pm 17223 2018-08-28 15:51:43Z igami $
 
 # copyright ###################################################################
 #
@@ -9,18 +9,17 @@
 #
 # This file is part of FHEM.
 #
-# FHEM is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 2 of the License, or
-# (at your option) any later version.
+# FHEM is free software: you can redistribute it and/or modify it under the
+# terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 2 of the License, or (at your option) any later
+# version.
 #
-# FHEM is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+# FHEM is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License
-# along with FHEM.  If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU General Public License along with
+# FHEM.  If not, see <http://www.gnu.org/licenses/>.
 
 # packages ####################################################################
 package main;
@@ -54,23 +53,23 @@ sub monitoring_Initialize($) {
   $hash->{AttrFn}   = $TYPE."_Attr";
   $hash->{NotifyFn} = $TYPE."_Notify";
 
-  $hash->{AttrList} = ""
-    . "addStateEvent:1,0 "
-    . "blacklist:textField-long "
-    . "disable:1,0 "
-    . "disabledForIntervals "
-    . "errorFuncAdd:textField-long "
-    . "errorFuncRemove:textField-long "
-    . "errorWait "
-    . "errorReturn:textField-long "
-    . "getDefault:all,error,warning "
-    . "setActiveFunc:textField-long "
-    . "warningFuncAdd:textField-long "
-    . "warningFuncRemove:textField-long "
-    . "warningWait "
-    . "warningReturn:textField-long "
-    . "whitelist:textField-long "
-    . $readingFnAttributes
+  $hash->{AttrList} =
+    "addStateEvent:1,0 ".
+    "blacklist:textField-long ".
+    "disable:1,0 ".
+    "disabledForIntervals ".
+    "errorFuncAdd:textField-long ".
+    "errorFuncRemove:textField-long ".
+    "errorWait ".
+    "errorReturn:textField-long ".
+    "getDefault:all,error,warning ".
+    "setActiveFunc:textField-long ".
+    "warningFuncAdd:textField-long ".
+    "warningFuncRemove:textField-long ".
+    "warningWait ".
+    "warningReturn:textField-long ".
+    "whitelist:textField-long ".
+    $readingFnAttributes
   ;
 }
 
@@ -82,6 +81,7 @@ sub monitoring_Define($$) {
   return("Usage: define <name> $TYPE <add-event> [<remove-event>]")
     if(int(@re) < 1 || int(@re) > 2);
 
+  monitoring_NOTIFYDEV($hash);
   monitoring_setActive($hash) if($init_done);
 
   return;
@@ -105,20 +105,20 @@ sub monitoring_Set($@) {
   my $argument = shift @a;
   my $value    = join(" ", @a) if (@a);
   my %monitoring_sets = (
-      "active"        => "active:noArg"
-    , "clear"         => "clear:all,error,warning"
-    , "errorAdd"      => "errorAdd:textField"
-    , "errorRemove"   => "errorRemove:"
-                         . join(",", ReadingsVal($SELF, "error", ""))
-    , "inactive"      => "inactive:noArg"
-    , "warningAdd"    => "warningAdd:textField"
-    , "warningRemove" => "warningRemove:"
-                         . join(",", ReadingsVal($SELF, "warning", ""))
+    "active"        => "active:noArg",
+    "clear"         => "clear:all,error,warning",
+    "errorAdd"      => "errorAdd:textField",
+    "errorRemove"   => "errorRemove:".
+                       join(",", ReadingsVal($SELF, "error", "")),
+    "inactive"      => "inactive:noArg",
+    "warningAdd"    => "warningAdd:textField",
+    "warningRemove" => "warningRemove:".
+                       join(",", ReadingsVal($SELF, "warning", ""))
   );
 
   return(
-    "Unknown argument $argument, choose one of "
-    . join(" ", sort(values %monitoring_sets))
+    "Unknown argument $argument, choose one of ".
+    join(" ", sort(values %monitoring_sets))
   ) unless(exists($monitoring_sets{$argument}));
 
   if($argument eq "active"){
@@ -136,6 +136,7 @@ sub monitoring_Set($@) {
 
     if($value =~ m/^(warning|all)$/){
       readingsBulkUpdate($hash, "warning", "", 0);
+      readingsBulkUpdate($hash, "warningCount", 0, 0);
 
       foreach my $r (keys %{$hash->{READINGS}}){
         if($r =~ m/(warning)Add_(.+)/){
@@ -147,6 +148,7 @@ sub monitoring_Set($@) {
     }
     if($value =~ m/^(error|all)$/){
       readingsBulkUpdate($hash, "error", "", 0);
+      readingsBulkUpdate($hash, "errorCount", 0, 0);
 
       foreach my $r (keys %{$hash->{READINGS}}){
         if($r =~ m/(error)Add_(.+)/){
@@ -182,16 +184,16 @@ sub monitoring_Get($@) {
   my $value = join(" ", @a) if (@a);
   my $default = AttrVal($SELF, "getDefault", "all");
   my %monitoring_gets = (
-      "all"     => "all:noArg"
-    , "default" => "default:noArg"
-    , "error"   => "error:noArg"
-    , "warning" => "warning:noArg"
+    "all"     => "all:noArg",
+    "default" => "default:noArg",
+    "error"   => "error:noArg",
+    "warning" => "warning:noArg"
   );
   my @ret;
 
   return(
-    "Unknown argument $argument, choose one of "
-    . join(" ", sort(values %monitoring_gets))
+    "Unknown argument $argument, choose one of ".
+    join(" ", sort(values %monitoring_gets))
   ) unless(exists($monitoring_gets{$argument}));
 
   if($argument eq "all" || ($argument eq "default" && $default eq "all")){
@@ -228,15 +230,19 @@ sub monitoring_Attr(@) {
       monitoring_modify("$SELF|error|remove|$name");
     }
   }
-  elsif($attribute eq "whitelist" && $value){
-    my @whitelist;
+  elsif($attribute eq "whitelist"){
+    monitoring_NOTIFYDEV($hash);
 
-    push(@whitelist, devspec2array($_)) foreach (split(/[\s]+/, $value));
+    if($value){
+      my @whitelist;
 
-    foreach my $list ("warning", "error"){
-      foreach my $name (split(",", ReadingsVal($SELF, $list, ""))){
-        monitoring_modify("$SELF|$list|remove|$name")
-          unless(grep(/$name/, @whitelist));
+      push(@whitelist, devspec2array($_)) foreach (split(/[\s]+/, $value));
+
+      foreach my $list ("warning", "error"){
+        foreach my $name (split(",", ReadingsVal($SELF, $list, ""))){
+          monitoring_modify("$SELF|$list|remove|$name")
+            unless(grep(/$name/, @whitelist));
+        }
       }
     }
   }
@@ -260,10 +266,10 @@ sub monitoring_Notify($$) {
   my $TYPE = $hash->{TYPE};
 
   return if(
-       !$init_done
-    || IsDisabled($SELF)
-    || IsDisabled($name)
-    || $SELF eq $name # do not process own events
+    !$init_done ||
+    IsDisabled($SELF) ||
+    IsDisabled($name) ||
+    $SELF eq $name # do not process own events
   );
 
   my $events = deviceEvents($dev_hash, AttrVal($SELF, "addStateEvent", 0));
@@ -279,9 +285,9 @@ sub monitoring_Notify($$) {
   my ($addRegex, $removeRegex) = split(/[\s]+/, InternalVal($SELF, "DEF", ""));
 
   return unless(
-       $addRegex =~ m/^$name:/
-    || $removeRegex && $removeRegex =~ m/^$name:/
-    || $events
+    $addRegex =~ m/^$name:/ ||
+    $removeRegex && $removeRegex =~ m/^$name:/ ||
+    $events
   );
 
   my @blacklist;
@@ -308,23 +314,23 @@ sub monitoring_Notify($$) {
 
     Log3($SELF, 4 , "$TYPE ($SELF) triggered by \"$name $event\"");
 
-    foreach my $list ("warning", "error"){
+    foreach my $list ("error", "warning"){
       my $listFuncAdd = AttrVal($SELF, $list."FuncAdd", "preset");
       my $listFuncRemove = AttrVal($SELF, $list."FuncRemove", "preset");
       my $listWait = eval(AttrVal($SELF, $list."Wait", 0));
       $listWait = 0 unless(looks_like_number($listWait));
 
       if($listFuncAdd eq "preset" && $listFuncRemove eq "preset"){
-        Log3($SELF, 5
-          , "$TYPE ($SELF) "
-          . $list."FuncAdd and "
-          . $list."FuncRemove are preset"
+        Log3(
+          $SELF, 5, "$TYPE ($SELF) ".
+          $list."FuncAdd and $list"."FuncRemove are preset"
         );
         if(!$removeRegex){
           if($listWait == 0){
-            Log3($SELF, 2
-              , "$TYPE ($SELF) set \"$list"."Wait\" while \"$list"
-              . "FuncAdd\" and \"$list"."FuncRemove\" are same"
+            Log3(
+              $SELF, 2, "$TYPE ($SELF) ".
+              "set \"$list"."Wait\" while \"$list".
+              "FuncAdd\" and \"$list"."FuncRemove\" are same"
             ) if($list eq "error");
 
             next;
@@ -333,18 +339,16 @@ sub monitoring_Notify($$) {
           Log3($SELF, 5, "$TYPE ($SELF) only addRegex is defined");
 
           monitoring_modify("$SELF|$list|remove|$name");
-          monitoring_modify(
-            "$SELF|$list|add|$name|$listWait"
-          );
+          monitoring_modify("$SELF|$list|add|$name|$listWait");
 
           next;
         }
         else{
           next unless($list eq "error" || AttrVal($SELF, "errorWait", undef));
 
-          Log3($SELF, 5
-            , "$TYPE ($SELF) addRegex ($addRegex) "
-            . "and removeRegex ($removeRegex) are defined"
+          Log3(
+            $SELF, 5, "$TYPE ($SELF) ".
+            "addRegex ($addRegex) and removeRegex ($removeRegex) are defined"
           );
 
           monitoring_modify("$SELF|$list|remove|$name") if($removeMatch);
@@ -361,9 +365,10 @@ sub monitoring_Notify($$) {
 
         if($listFuncRemove eq "preset"){
           if($listWait == 0){
-            Log3($SELF, 2
-              , "$TYPE ($SELF) set \"$list"."Wait\" while \"$list"
-              . "FuncAdd\" and \"$list"."FuncRemove\" are same"
+            Log3(
+              $SELF, 2, "$TYPE ($SELF) ".
+              "set \"$list"."Wait\" while \"$list".
+              "FuncAdd\" and \"$list"."FuncRemove\" are same"
             ) if($list eq "error");
 
             next;
@@ -373,9 +378,9 @@ sub monitoring_Notify($$) {
         }
       }
       else{
-        Log3($SELF, 5
-          , "$TYPE ($SELF) addRegex ($addRegex) "
-          . "and removeRegex ($removeRegex) are defined"
+        Log3(
+          $SELF, 5, "$TYPE ($SELF) ".
+          "addRegex ($addRegex) and removeRegex ($removeRegex) are defined"
         );
 
         $listFuncRemove = 1 if($listFuncRemove eq "preset" && $removeMatch);
@@ -405,7 +410,7 @@ sub monitoring_modify($) {
   return unless(defined($hash));
   return if(IsDisabled($SELF));
 
-  my $at = eval($wait + gettimeofday()) if($wait);
+  my $at = eval($wait + gettimeofday()) if($wait && $wait ne "quiet");
   my $TYPE = $hash->{TYPE};
   my (@change, %readings);
   %readings = map{$_, 1} split(",", ReadingsVal($SELF, $list, ""));
@@ -413,28 +418,31 @@ sub monitoring_modify($) {
   my $reading = $list."Add_".$value;
 
   Log3(
-    $SELF, 5 , "$TYPE ($SELF)"
-    . "\n    entering monitoring_modify"
-    . "\n        reading:   $list"
-    . "\n        operation: $operation"
-    . "\n        value:     $value"
-    . "\n        at:        ".($at ? FmtDateTime($at) : "now")
+    $SELF, 5 , "$TYPE ($SELF)".
+    "\n    entering monitoring_modify".
+    "\n        reading:   $list".
+    "\n        operation: $operation".
+    "\n        value:     $value".
+    "\n        at:        ".($at ? FmtDateTime($at) : "now")
   );
 
   if($operation eq "add"){
-    return if($readings{$value});
+    return if(
+      $readings{$value} ||
+      ReadingsVal($SELF, "error", "") =~ m/(?:^|,)$value(?:,|$)/
+    );
+
     if($at){
       return if($hash->{READINGS}{$reading});
 
-      readingsSingleUpdate(
-        $hash, $reading, FmtDateTime($at), 0
-      );
+      readingsSingleUpdate($hash, $reading, FmtDateTime($at), 0);
       InternalTimer($at, "monitoring_modify", $arg);
 
       return;
     }
     else{
-      monitoring_modify("$SELF|warning|remove|$value") if($list eq "error");
+      monitoring_modify("$SELF|warning|remove|$value|quiet")
+        if($list eq "error");
       $readings{$value} = 1;
       delete $hash->{READINGS}{$reading};
     }
@@ -448,12 +456,32 @@ sub monitoring_modify($) {
 
   return unless(@change || $operation eq "add");
 
+  my $allCount =
+    int(keys %readings) +
+    ReadingsNum($SELF, ($list eq "warning" ? "error" : "warning")."Count", 0)
+  ;
+
   readingsBeginUpdate($hash);
   readingsBulkUpdate($hash, "state", "$list $operation: $value");
   readingsBulkUpdate($hash, $list, join(",", sort(keys %readings)));
+  readingsBulkUpdate($hash, $list."Count", int(keys %readings));
+  readingsBulkUpdate($hash, "allCount", $allCount)
+    unless($wait &&$wait eq "quiet");
   readingsEndUpdate($hash, 1);
 
   return;
+}
+
+sub monitoring_NOTIFYDEV($) {
+  my ($hash) = @_;
+  my $SELF = $hash->{NAME};
+  my $NOTIFYDEV =
+    AttrVal($SELF, "whitelist", undef) ||
+    join(",", (InternalVal($SELF, "DEF", undef) =~ m/(?:^|\s)([^:\s]+):/g))
+  ;
+  $NOTIFYDEV =~ s/\s/,/g;
+
+  notifyRegexpChanged($hash, $NOTIFYDEV);
 }
 
 sub monitoring_RemoveInternalTimer($) {
@@ -489,7 +517,7 @@ sub monitoring_setActive($) {
   readingsSingleUpdate($hash, "state", "active", 0);
   Log3($SELF, 3, "$TYPE ($SELF) set $SELF active");
 
-  foreach my $reading (sort(keys %{$hash->{READINGS}})){
+  foreach my $reading (reverse sort(keys %{$hash->{READINGS}})){
     if($reading =~ m/(error|warning)Add_(.+)/){
       my $wait = time_str2num(ReadingsVal($SELF, $reading, ""));
 
@@ -565,7 +593,7 @@ sub monitoring_setActive($) {
     <b>Define</b>
     <ul>
       <code>
-        define &lt;name&gt; &lt;add-event&gt; [&lt;remove-event&gt;]
+        define &lt;name&gt; monitoring  &lt;add-event&gt; [&lt;remove-event&gt;]
       </code>
       <br>
       The syntax for &lt;add-event&gt; and &lt;remove-event&gt; is the
@@ -647,12 +675,20 @@ sub monitoring_setActive($) {
     <b>Readings</b><br>
     <ul>
       <li>
+        <code>allCount</code><br>
+        Displays the amount of devices on the warning and error list..
+      </li>
+      <li>
         <code>error</code><br>
         Comma-separated list of devices.
       </li>
       <li>
         <code>errorAdd_&lt;name&gt;</code><br>
         Displays the time when the device will be set to the error list.
+      </li>
+      <li>
+        <code>errorCount</code><br>
+        Displays the amount of devices on the error list.
       </li>
       <li>
         <code>state</code><br>
@@ -667,6 +703,10 @@ sub monitoring_setActive($) {
       <li>
         <code>warningAdd_&lt;name&gt;</code><br>
         Displays the time when the device will be set to the warning list.
+      </li>
+      <li>
+        <code>warningCount</code><br>
+        Displays the amount of devices on the warning list.
       </li>
     </ul>
     <br>
@@ -885,7 +925,9 @@ attr Activity_monitoring warningWait 60*60*12</pre>
         If the device does not trigger another event in 12 hours, it will be
         set to the warning list. If the device does not trigger another event
         within 24 hours, it will be moved from the warning list to the error
-        list.
+        list.<br>
+        <br>
+        Note: It is recommended to use the whitelist attribute.
       </li>
       <br>
       <li>
@@ -954,6 +996,7 @@ attr BeamerFilter_monitoring errorFuncAdd {return 1\
  return;;\
 }
 attr BeamerFilter_monitoring errorFuncRemove {return unless($removeMatch);;\
+ $name = "Beamer_HourCounter";;\
  fhem(\
     "setreading $name pulseTimeService "\
    .ReadingsVal($name, "pulseTimeOverall", 0)\
@@ -1026,7 +1069,7 @@ attr BeamerFilter_monitoring warningFuncRemove {return}</pre>
     <b>Define</b>
     <ul>
       <code>
-        define &lt;name&gt; &lt;add-event&gt; [&lt;remove-event&gt;]
+        define &lt;name&gt; mointoring &lt;add-event&gt; [&lt;remove-event&gt;]
       </code>
       <br>
       Die Syntax f&uuml;r &lt;add-event&gt; und &lt;remove-event&gt; ist die
@@ -1116,6 +1159,10 @@ attr BeamerFilter_monitoring warningFuncRemove {return}</pre>
     <b>Readings</b><br>
     <ul>
       <li>
+        <code>allCount</code><br>
+        Zeigt die Anzahl der Geräte in der warning- und error-Liste an.
+      </li>
+      <li>
         <code>error</code><br>
         Durch Komma getrennte Liste von Ger&auml;ten.
       </li>
@@ -1123,6 +1170,10 @@ attr BeamerFilter_monitoring warningFuncRemove {return}</pre>
         <code>errorAdd_&lt;name&gt;</code><br>
         Zeigt den Zeitpunkt an wann das Ger&auml;t auf die error-Liste gesetzt
         wird.
+      </li>
+      <li>
+        <code>errorCount</code><br>
+        Zeigt die Anzahl der Geräte in der error-Liste an.
       </li>
       <li>
         <code>state</code><br>
@@ -1138,6 +1189,10 @@ attr BeamerFilter_monitoring warningFuncRemove {return}</pre>
         <code>warningAdd_&lt;name&gt;</code><br>
         Zeigt den Zeitpunkt an wann das Ger&auml;t auf die warning-Liste
         gesetzt wird.
+      </li>
+      <li>
+        <code>warningCount</code><br>
+        Zeigt die Anzahl der Geräte in der warning-Liste an.
       </li>
     </ul>
     <br>
@@ -1366,7 +1421,9 @@ attr Activity_monitoring warningWait 60*60*12</pre>
         ausgel&ouml;st haben. Sollte das Ger&auml;t in 12 Stunden kein weiterer
         Event ausl&ouml;sen, wird es auf die warning-Liste gesetzt. Sollte das
         Ger&auml;t in 24 Stunden kein weiteres Event ausl&ouml;sen, wird es von
-        der warning- auf die error-Liste verschoben.
+        der warning- auf die error-Liste verschoben.<br>
+        <br>
+        Hinweis: Es ist empfehlenswert das whitelist Attribut zu verwenden.
       </li>
       <br>
       <li>
@@ -1442,6 +1499,7 @@ attr BeamerFilter_monitoring errorFuncAdd {return 1\
  return;;\
 }
 attr BeamerFilter_monitoring errorFuncRemove {return unless($removeMatch);;\
+ $name = "Beamer_HourCounter";;\
  fhem(\
     "setreading $name pulseTimeService "\
    .ReadingsVal($name, "pulseTimeOverall", 0)\

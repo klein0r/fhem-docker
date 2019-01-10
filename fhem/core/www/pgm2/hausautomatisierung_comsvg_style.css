@@ -23,12 +23,12 @@ svg circle#svgmarker { color: #278727; opacity: 0.5; }
 svg path.SVGplot { stroke: black; fill: none; }
 svg rect.SVGplot { stroke: black; fill: none; }
 svg polyline.SVGplot { fill: none; }
-svg .border { stroke: #e56524; }
+svg .border { stroke: #e56524; fill: #fff; }
 svg .vgrid { stroke: gray; stroke-dasharray: 2, 6; }
 svg .hgrid { stroke: gray; stroke-dasharray: 2, 6; }
 svg .pasted { stroke: black; stroke-dasharray: 1, 1; }
-svg text { stroke: none !important; fill: #fff; font-size: 11px; }
-svg text.title { fill: #fff; font-size: 16px; text-transform: uppercase; letter-spacing: 10px; }
+svg text { stroke: none !important; fill: #676f7a; font-size: 11px; }
+svg text.title { fill: #676f7a; font-size: 16px; text-transform: uppercase; letter-spacing: 10px; }
 svg text.legend { cursor: pointer; }
 
 .SVGplot.l0 { stroke: #215A94; }

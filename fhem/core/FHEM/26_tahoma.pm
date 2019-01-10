@@ -1,4 +1,4 @@
-# $Id: 26_tahoma.pm 15245 2017-10-13 18:26:18Z mike3436 $
+# $Id: 26_tahoma.pm 16851 2018-06-11 21:30:34Z mike3436 $
 ################################################################
 #
 #  Copyright notice
@@ -49,6 +49,10 @@
 # 2017-07-08 V 0215 login delay increased automatically up to 160s if login failed
 # 2017-07-08 V 0215 default set commands on devices without commands deleted
 # 2017-10-08 V 0216 group definition added
+# 2018-05-10 V 0217 disable activated on devices
+# 2018-05-25 V 0218 keepalive of http connection corrected
+# 2018-06-01 V 0219 new Attributes for time interval of getEvents, getStates and refreshAllStates
+# 2018-06-11 V 0220 HttpUtils_Close before login, some newer Debug outputs deleted, Apply command separated, command responds verified
 
 package main;
 
@@ -85,6 +89,9 @@ sub tahoma_Initialize($)
                       "debug:1 ".
                       "disable:1 ".
                       "interval ".
+                      "intervalRefresh ".
+                      "intervalEvents ".
+                      "intervalStates ".
                       "logfile ".
                       "url ".
                       "placeClasses ".
@@ -121,7 +128,7 @@ sub tahoma_Define($$)
 
   my @a = split("[ \t][ \t]*", $def);
 
-  my $ModuleVersion = "0216";
+  my $ModuleVersion = "0220";
   
   my $subtype;
   my $name = $a[0];
@@ -134,7 +141,7 @@ sub tahoma_Define($$)
     $hash->{device} = $device;
     $hash->{fid} = $fid;
 
-    $hash->{INTERVAL} = 0;
+    #$hash->{INTERVAL} = 0;
 
     my $d = $modules{$hash->{TYPE}}{defptr}{"$fid"};
     return "device $device already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
@@ -150,13 +157,13 @@ sub tahoma_Define($$)
     $hash->{oid} = $oid;
     $hash->{fid} = $fid;
 
-    $hash->{INTERVAL} = 0;
+    #$hash->{INTERVAL} = 0;
 
     my $d = $modules{$hash->{TYPE}}{defptr}{"$fid"};
     return "place oid $oid already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
 
     $modules{$hash->{TYPE}}{defptr}{"$fid"} = $hash;
-
+    
   } elsif( $a[2] eq "GROUP" && @a == 4 ) {
     $subtype = "GROUP";
 
@@ -167,7 +174,7 @@ sub tahoma_Define($$)
     $hash->{oid} = $oid;
     $hash->{fid} = $fid;
 
-    $hash->{INTERVAL} = 0;
+    #$hash->{INTERVAL} = 0;
 
     my $d = $modules{$hash->{TYPE}}{defptr}{"$fid"};
     return "group oid $oid already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
@@ -183,7 +190,7 @@ sub tahoma_Define($$)
     $hash->{oid} = $oid;
     $hash->{fid} = $fid;
 
-    $hash->{INTERVAL} = 0;
+    #$hash->{INTERVAL} = 0;
 
     my $d = $modules{$hash->{TYPE}}{defptr}{"$fid"};
     return "scene oid $oid already defined as $d->{NAME}" if( defined($d) && $d->{NAME} ne $name );
@@ -201,8 +208,10 @@ sub tahoma_Define($$)
     $hash->{helper}{username} = $username;
     $hash->{helper}{password} = $password;
     $hash->{BLOCKING} = 0;
-    $hash->{INTERVAL} = 0;
     $hash->{VERSION} = $ModuleVersion;
+    $hash->{getEventsInterval} = 2;
+    $hash->{refreshStatesInterval} = 120;
+    $hash->{getStatesInterval} = 0;
 
   } else {
     return "Usage: define <name> tahoma device\
@@ -278,6 +287,7 @@ sub tahoma_login($)
   my $name = $hash->{NAME};
   Log3 $name, 3, "$name: tahoma_login";
 
+  HttpUtils_Close($hash);
   $hash->{logged_in} = undef;
   $hash->{startup_run} = undef;
   $hash->{startup_done} = undef;
@@ -397,6 +407,7 @@ sub tahoma_getEvents($)
     noshutdown => 1,
     hash => $hash,
     page => 'getEvents',
+    method => 'PUSH',
     callback => \&tahoma_dispatch,
     nonblocking => 1,
   });
@@ -412,7 +423,7 @@ sub tahoma_readStatusTimer($)
   RemoveInternalTimer($hash);
   
   my ($seconds) = gettimeofday();
-  $hash->{refreshStateTimer} = $seconds + 10 if ( (!defined($hash->{refreshStateTimer})) || (!$hash->{logged_in}) );
+  $hash->{refreshStatesTimer} = $seconds + 10 if ( (!defined($hash->{refreshStatesTimer})) || (!$hash->{logged_in}) );
   
   if( $hash->{request_active} ) {
       Log3 $name, 3, "$name: request active";
@@ -434,23 +445,32 @@ sub tahoma_readStatusTimer($)
     $timeinfo = "tahoma_startup";
     if ( $hash->{startup_done} ) {
       tahoma_getStates($hash) ;
-      $hash->{refreshStateTimer} = $seconds + $hash->{INTERVAL};
+      $hash->{refreshStatesTimer} = $seconds + $hash->{refreshStatesInterval};
+      $hash->{getStatesTimer} = $seconds + $hash->{getStatesInterval};
+      $hash->{getEventsTimer} = $seconds + $hash->{getEventsInterval};
       $timeinfo = "tahoma_getStates";
     }
   }
-  elsif( ($seconds < $hash->{refreshStateTimer}) || ($hash->{INTERVAL} <= 0) )
+  elsif( ($seconds >= $hash->{refreshStatesTimer}) && ($hash->{refreshStatesInterval} > 0) )
+  {
+    Log3 $name, 4, "$name: refreshing all states";
+    tahoma_refreshAllStates($hash);
+    $hash->{refreshStatesTimer} = $seconds + $hash->{refreshStatesInterval};
+    $timeinfo = "tahoma_refreshAllStates";
+  }
+  elsif( ($seconds >= $hash->{getStatesTimer}) && ($hash->{getStatesInterval} > 0) )
+  {
+    Log3 $name, 4, "$name: get all states";
+    tahoma_getStates($hash);
+    $hash->{getStatesTimer} = $seconds + $hash->{getStatesInterval};
+    $timeinfo = "tahoma_getStates";
+  }
+  elsif( ($seconds >= $hash->{getEventsTimer}) || ($hash->{getEventsInterval} <= 0) )
   {
     Log3 $name, 4, "$name: refreshing event";
     tahoma_getEvents($hash);
+    $hash->{getEventsTimer} = $seconds + $hash->{getEventsInterval};
     $timeinfo = "tahoma_getEvents";
-  }
-  else
-  {
-    Log3 $name, 4, "$name: refreshing state";
-    tahoma_refreshAllStates($hash);
-    tahoma_getStates($hash);
-    $hash->{refreshStateTimer} = $seconds + $hash->{INTERVAL};
-    $timeinfo = "tahoma_refreshAllStates tahoma_getStates";
   }
 
   my $timedelta = time -$timestart;
@@ -473,7 +493,7 @@ sub tahoma_connect($)
   tahoma_login($hash);
 
   my ($seconds) = gettimeofday();
-  $hash->{refreshStateTimer} = $seconds + 10;
+  $hash->{refreshStatesTimer} = $seconds + 10;
   tahoma_readStatusTimer($hash);
 }
 
@@ -561,11 +581,13 @@ sub tahoma_updateDevices($)
         $def->{inOID} = $device->{oid};
         $def->{inClass} = 'RollerShutter';
         $def->{inClass} = $attr{$def->{NAME}}{placeClasses} if (defined $attr{$def->{NAME}}{placeClasses});
+        $device->{NAME} = $def->{NAME};
       }
       elsif( defined($device) && ($subtype eq 'SCENE') ) {
         Log3 $name, 4, "$name: I/O device is label=".$device->{label};
         $def->{inLabel} = $device->{label};
         $def->{inOID} = $device->{oid};
+        $device->{NAME} = $def->{NAME};
       }
     }
     elsif (defined($def->{device}) && !defined($def->{inType}))
@@ -580,6 +602,7 @@ sub tahoma_updateDevices($)
         $def->{inPlaceOID} = $device->{placeOID};
         $def->{inClass} = $device->{uiClass};
         $device->{levelInvert} = $attr{$def->{NAME}}{levelInvert} if (defined $attr{$def->{NAME}}{levelInvert});
+        $device->{NAME} = $def->{NAME};
       }
     }
   }
@@ -671,7 +694,7 @@ sub tahoma_getDeviceList($$$$)
   foreach my $device (@{$devices}) {
     if ( defined($device->{deviceURL}) && defined($device->{placeOID}) && defined($device->{uiClass}) ) {
       if (( grep { $_ eq $device->{uiClass}} @classes ) && ($device->{placeOID} eq $oid)) {
-        push ( @{$deviceList}, { device => $device->{deviceURL}, class => $device->{uiClass}, levelInvert => $device->{levelInvert} } ) ;
+        push ( @{$deviceList}, { device => $device->{deviceURL}, class => $device->{uiClass}, levelInvert => $device->{levelInvert} } ) if !($attr{$device->{NAME}}{disable});
         #print "tahoma_getDeviceList url=$device->{deviceURL} devices=".scalar @{$deviceList}."\n";
       }
     } elsif ( defined($device->{oid}) && defined($device->{subPlaces}) ) {
@@ -693,7 +716,7 @@ sub tahoma_getGroupList($$$)
   my @groupDevices = split(',',$oid);
   foreach my $module (@groupDevices) {
     if (defined($defs{$module}) && defined($defs{$module}{device}) && defined($defs{$module}{inClass})) {
-      push ( @{$deviceList}, { device => $defs{$module}{device}, class => $defs{$module}{inClass}, levelInvert => $attr{$module}{levelInvert} } ) ;
+      push ( @{$deviceList}, { device => $defs{$module}{device}, class => $defs{$module}{inClass}, levelInvert => $attr{$module}{levelInvert} } ) if !($attr{$module}{disable});
     }
   }
 }
@@ -900,21 +923,21 @@ sub tahoma_dispatch($$$)
     # perl exception while parsing json string captured
     my $json = {};
     eval { $json = JSON->new->utf8(0)->decode($data); };
-    if ($@) {
-      Log3 $name, 3, "$name: tahoma_dispatch json string is faulty";
-      $hash->{lastError} = 'json string is faulty';
+    if ($@ || ((ref $json ne 'HASH') && (ref $json ne 'ARRAY')) ) {
+      Log3 $name, 3, "$name: tahoma_dispatch json string is faulty" . substr($data,0,40) . ' ...';
+      $hash->{lastError} = 'json string is faulty: ' . substr($data,0,40) . ' ...';
       $hash->{logged_in} = 0;
       return;
     }
     
-    if( (ref $json ne 'ARRAY') && ($json->{errorResponse}) ) {
+    if( (ref $json eq 'HASH') && ($json->{errorResponse}) ) {
       $hash->{lastError} = $json->{errorResponse}{message};
       $hash->{logged_in} = 0;
       Log3 $name, 3, "$name: tahoma_dispatch error: $hash->{lastError}";
       return;
     }
 
-    if( (ref $json ne 'ARRAY') && ($json->{error}) ) {
+    if( (ref $json eq 'HASH') && ($json->{error}) ) {
       $hash->{lastError} = $json->{error};
       $hash->{logged_in} = 0;
       Log3 $name, 3, "$name: tahoma_dispatch error: $hash->{lastError}";
@@ -1047,13 +1070,18 @@ sub tahoma_parseLogin($$)
   my($hash, $json) = @_;
   my $name = $hash->{NAME};
   Log3 $name, 4, "$name: tahoma_parseLogin";
+  if (ref($json) ne 'HASH')
+  {
+    Log3 $name, 3, "$name: tahoma_parseLogin response is not a valid hash";
+    return;
+  }
   if (defined $json->{errorResponse}) {
     $hash->{logged_in} = 0;
     $hash->{STATE} = $json->{errorResponse}{message};
   } else {
     $hash->{inVersion} = $json->{version};
     $hash->{logged_in} = 1;
-    $hash->{loginRetryTimer} = 5,
+    $hash->{loginRetryTimer} = 5;
   }
   Log3 $name, 2, "$name: login end, logged_in=".$hash->{logged_in};
 }
@@ -1062,7 +1090,7 @@ sub tahoma_parseGetEvents($$)
 {
   my($hash, $json) = @_;
   my $name = $hash->{NAME};
-  Log3 $name, 5, "$name: tahoma_parseGetEvent";
+  Log3 $name, 5, "$name: tahoma_parseGetEvents";
 
   $hash->{refresh_event} = $json;
 
@@ -1134,6 +1162,10 @@ sub tahoma_parseApplyRequest($$)
   my $name = $hash->{NAME};
   Log3 $name, 4, "$name: tahoma_parseApplyRequest";
   $hash->{inExecState} = 0;
+  if (ref($json) ne 'HASH') {
+    Log3 $name, 3, "$name: tahoma_parseApplyRequest response is not a valid hash";
+    return;
+  }
   if (defined($json->{execId})) {
     $hash->{inExecId} = $json->{execId};
   } else {
@@ -1149,7 +1181,11 @@ sub tahoma_parseGetSetup($$)
 {
   my($hash, $json) = @_;
   my $name = $hash->{NAME};
-  
+  if (ref($json) ne 'HASH') {
+    Log3 $name, 3, "$name: tahoma_parseGetSetup response is not a valid hash";
+    return;
+  }
+
   $hash->{gatewayId} = $json->{setup}{gateways}[0]{gatewayId};
 
   my @devices = ();
@@ -1201,6 +1237,10 @@ sub tahoma_parseGetActionGroups($$)
   my($hash, $json) = @_;
   my $name = $hash->{NAME};
   Log3 $name, 4, "$name: tahoma_parseGetActionGroups";
+  if (ref($json) ne 'HASH') {
+    Log3 $name, 3, "$name: tahoma_parseGetActionGroups response is not a valid hash";
+    return;
+  }
   
   my $devices = $hash->{helper}{devices};
   foreach my $action (@{$json->{actionGroups}}) {
@@ -1223,6 +1263,10 @@ sub tahoma_parseGetStates($$)
   my($hash, $states) = @_;
   my $name = $hash->{NAME};
   Log3 $name, 4, "$name: tahoma_parseGetStates";
+  if (ref($states) ne 'HASH') {
+    Log3 $name, 3, "$name: tahoma_parseGetStates response is not a valid hash";
+    return;
+  }
 
   if( defined($states->{devices}) ) {
     foreach my $devices ( @{$states->{devices}} ) {
@@ -1258,6 +1302,10 @@ sub tahoma_parseEnduserAPISetupGateways($$)
   my($hash, $json) = @_;
   my $name = $hash->{NAME};
   Log3 $name, 4, "$name: tahoma_parseEnduserAPISetupGateways";
+  if (ref($json) ne 'HASH') {
+    Log3 $name, 3, "$name: tahoma_parseEnduserAPISetupGateways response is not a valid hash";
+    return;
+  }
   
   eval { $hash->{inGateway} = $json->{result}; };
   eval { $hash->{inGateway} = $json->[0]{gatewayId}; };
@@ -1268,6 +1316,10 @@ sub tahoma_parseGetCurrentExecutions($$)
   my($hash, $json) = @_;
   my $name = $hash->{NAME};
   Log3 $name, 4, "$name: tahoma_parseGetCurrentExecutions";
+  if (ref($json) ne 'HASH') {
+    Log3 $name, 3, "$name: tahoma_parseGetCurrentExecutions response is not a valid hash";
+    return;
+  }
 }
 
 sub tahoma_parseScheduleActionGroup($$)
@@ -1275,6 +1327,10 @@ sub tahoma_parseScheduleActionGroup($$)
   my($hash, $json) = @_;
   my $name = $hash->{NAME};
   Log3 $name, 4, "$name: tahoma_parseScheduleActionGroup";
+  if (ref($json) ne 'HASH') {
+    Log3 $name, 3, "$name: tahoma_parseScheduleActionGroup response is not a valid hash";
+    return;
+  }
   if (defined $json->{actionGroup})
   {
     $hash->{inTriggerState} = 0;
@@ -1295,6 +1351,10 @@ sub tahoma_parseLaunchActionGroup($$)
   my($hash, $json) = @_;
   my $name = $hash->{NAME};
   Log3 $name, 4, "$name: tahoma_parseLaunchActionGroup";
+  if (ref($json) ne 'HASH') {
+    Log3 $name, 3, "$name: tahoma_parseLaunchActionGroup response is not a valid hash";
+    return;
+  }
   if (defined $json->{actionGroup})
   {
     $hash->{inExecState} = 0;
@@ -1327,7 +1387,8 @@ sub tahoma_Get($$@)
 
     if( $cmd eq "updateAll" ) {
       my ($seconds) = gettimeofday();
-      $hash->{refreshStateTimer} = $seconds;
+      $hash = $hash->{IODev} if (defined ($hash->{IODev}));
+      $hash->{refreshStatesTimer} = $seconds;
       return undef;
     }
 
@@ -1386,7 +1447,7 @@ sub tahoma_Set($$@)
     {
       if( $cmd eq (split(":",$command))[0])
       {
-        tahoma_applyRequest($hash,$cmd,$val);
+        tahoma_applyRequest($hash,$cmd,$val) if !($attr{$hash->{NAME}}{disable});
         return undef;
       }
     }
@@ -1396,12 +1457,12 @@ sub tahoma_Set($$@)
     $list = "start:noArg startAt cancel:noArg";
 
     if( $cmd eq "start" ) {
-      tahoma_launchActionGroup($hash);
+      tahoma_launchActionGroup($hash) if !($attr{$hash->{NAME}}{disable});
       return undef;
     }
     
     if( $cmd eq "startAt" ) {
-      tahoma_scheduleActionGroup($hash,$val);
+      tahoma_scheduleActionGroup($hash,$val) if !($attr{$hash->{NAME}}{disable});
       return undef;
     }
     
@@ -1412,10 +1473,24 @@ sub tahoma_Set($$@)
   }
 
   if( $hash->{SUBTYPE} eq "ACCOUNT") {
-    $list = "cancel:noArg";
+    $list = "cancel:noArg reset:noArg refreshAllStates:noArg getStates:noArg";
 
     if( $cmd eq "cancel" ) {
       tahoma_cancelExecutions($hash);
+      return undef;
+    }
+    elsif( $cmd eq "reset" ) {
+      HttpUtils_Close($hash);
+      $hash->{logged_in} = undef;
+      $hash->{loginRetryTimer} = undef;
+      return undef;
+    }
+    elsif( $cmd eq "refreshAllStates" ) {
+      tahoma_refreshAllStates($hash);
+      return undef;
+    }
+    elsif( $cmd eq "getStates" ) {
+      tahoma_getStates($hash);
       return undef;
     }
   }
@@ -1427,13 +1502,38 @@ sub tahoma_Attr($$$)
 {
   my ($cmd, $name, $attrName, $attrVal) = @_;
 
+  Log3 $name, 3, "$name: tahoma_Attr $cmd $attrName $attrVal";
+  
   my $orig = $attrVal;
 
   if( $attrName eq "interval" ) {
     my $hash = $defs{$name};
+    return "Attribut 'interval' only usable for type ACCOUNT" if $hash->{SUBTYPE} ne "ACCOUNT";
+    $attrVal = defined $attrVal ? int($attrVal) : 0;
     $attrVal = int($attrVal);
-    $attrVal = 60*5 if ($attrVal < 60*5 && $attrVal != 0);
-    $hash->{INTERVAL} = $attrVal;
+    $attrVal = 120 if ($attrVal < 120 && $attrVal != 0);
+    $hash->{refreshStatesInterval} = $attrVal ? $attrVal / 2 : 120;
+    $hash->{getStatesInterval} = $attrVal;
+  } elsif( $attrName eq "intervalRefresh" ) {
+    my $hash = $defs{$name};
+    return "Attribut 'intervalRefresh' only usable for type ACCOUNT" if $hash->{SUBTYPE} ne "ACCOUNT";
+    $attrVal = defined $attrVal ? int($attrVal) : 120;
+    $attrVal = 60 if ($attrVal < 60 && $attrVal != 0);
+    $hash->{refreshStatesInterval} = $attrVal;
+  } elsif( $attrName eq "intervalStates" ) {
+    my $hash = $defs{$name};
+    return "Attribut 'intervalStates' only usable for type ACCOUNT" if $hash->{SUBTYPE} ne "ACCOUNT";
+    $attrVal = defined $attrVal ? int($attrVal) : 0;
+    $attrVal = int($attrVal);
+    $attrVal = 120 if ($attrVal < 120 && $attrVal != 0);
+    $hash->{getStatesInterval} = $attrVal;
+  } elsif( $attrName eq "intervalEvents" ) {
+    my $hash = $defs{$name};
+    return "Attribut 'intervalEvents' only usable for type ACCOUNT" if $hash->{SUBTYPE} ne "ACCOUNT";
+    $attrVal = defined $attrVal ? int($attrVal) : 2;
+    $attrVal = int($attrVal);
+    $attrVal = 2 if ($attrVal < 2 && $attrVal != 0);
+    $hash->{getEventsInterval} = $attrVal;
   } elsif( $attrName eq "disable" ) {
     my $hash = $defs{$name};
     RemoveInternalTimer($hash);
@@ -1443,13 +1543,19 @@ sub tahoma_Attr($$$)
     }
   } elsif( $attrName eq "blocking" ) {
     my $hash = $defs{$name};
+    return "Attribut 'blocking' only usable for type ACCOUNT" if $hash->{SUBTYPE} ne "ACCOUNT";
+    $attrVal = defined $attrVal ? int($attrVal) : 0;
     $hash->{BLOCKING} = $attrVal;
   } elsif( $attrName eq "placeClasses" ) {
     my $hash = $defs{$name};
-    $hash->{inClass} = $attrVal if $hash->{SUBTYPE} eq "PLACE";
+    return "Attribut 'placeClasses' only usable for type PLACE" if $hash->{SUBTYPE} ne "PLACE";
+    $attrVal = defined $attrVal ? $attrVal : 'RollerShutter';
+    $hash->{inClass} = $attrVal;
   }
   elsif ( $attrName eq "levelInvert" ) {
     my $hash = $defs{$name};
+    return "Attribut 'placeClasses' only usable for type DEVICE" if $hash->{SUBTYPE} ne "DEVICE";
+    $attrVal = defined $attrVal ? int($attrVal) : 0;
     my $device = tahoma_getDeviceDetail( $hash, $hash->{device} );
     $device->{levelInvert} = $attrVal if (defined $device);
   }
@@ -1469,6 +1575,28 @@ sub tahoma_UserAgent_NonblockingGet($)
 	my ($param) = @_;
   my ($hash) = $param->{hash};
   $hash = $hash->{IODev} if (defined ($hash->{IODev}));
+  
+  # restore parameter from last HttpUtils call
+  if (defined $hash->{paramHash} && $hash->{paramHash}{keepalive} && !$hash->{request_active})
+  {
+    my $paramHash = $hash->{paramHash};
+    if (defined $paramHash)
+    {
+        delete $paramHash->{timeout};
+        delete $paramHash->{noshutdown};
+        delete $paramHash->{hash};
+        delete $paramHash->{page};
+        delete $paramHash->{subpage};
+        delete $paramHash->{data};
+        delete $paramHash->{method};
+        delete $paramHash->{callback};
+        delete $paramHash->{nonblocking};
+    }
+    $paramHash = {} if !(defined $paramHash);
+    $paramHash->{$_} = $param->{$_} for (keys %$param);
+    $param = $paramHash;
+  }
+  $hash->{paramHash} = $param;
 
   my $name = $hash->{NAME};
   Log3 $name, 5, "$name: tahoma_UserAgent_NonblockingGet page=$param->{page}";
@@ -1583,7 +1711,7 @@ sub tahoma_decrypt($)
 <h3>tahoma</h3>
 <ul>
   The module realizes the communication with io-homecontrol&reg; Devices e.g. from Somfy&reg; or Velux&reg;<br>
-  A registered TaHoma&reg; Connect gateway from Overkiz&reg; sold by Somfy&reg; which is continously connected to the internet is necessary for the module.<br>
+  A registered TaHoma&reg; Connect gateway from Overkiz&reg; sold by Somfy&reg; which is continuously connected to the internet is necessary for the module.<br>
   <br><br>
 
   Notes:
@@ -1604,9 +1732,9 @@ sub tahoma_decrypt($)
     <br>
     A definition is only necessary for a tahoma device:<br>
     <code>define &lt;name&gt; tahoma ACCOUNT &lt;username&gt; &lt;password&gt;</code><br>
-    <b>If a tahoma device of the type ACCOUNT is created, all other devices acessable by the tahoma gateway are automaticaly created!</b><br>
+    <b>If a tahoma device of the type ACCOUNT is created, all other devices accessible by the tahoma gateway are automatically created!</b><br>
     If the account is valid, the setup will be read from the server.<br>
-    All registrated devices are automatically created with name tahoma_12345 (device number 12345 is used from setup)<br>
+    All registered devices are automatically created with name tahoma_12345 (device number 12345 is used from setup)<br>
     All defined rooms will be are automatically created.<br>
     Also all defined scenes will be automatically created.<br>
     Groups of devices can be manually added to send out one group command for all attached devices<br>
@@ -1620,25 +1748,72 @@ sub tahoma_decrypt($)
     <br>
     <b>local Attributes for ACCOUNT:</b>
     <ul>
-      Normally, the web commands will be send asynchron, and this can be forced to wait of the result by blocking=1<br>
-      <code>attr tahoma1 blocking 1</code><br>
+      Normally, the web commands will be send asynchronous, and this can be forced to wait of the result by blocking=1<br>
+      <code>attr tahoma1 blocking 1</code><br><br>
     </ul>
     <ul>
       Normally, the login data is stored encrypted after the first start, but this functionality can be disabled by cryptLoginData=0<br>
-      <code>attr tahoma1 cryptLoginData 0</code><br>
+      <code>attr tahoma1 cryptLoginData 0</code><br><br>
+    </ul>
+    <ul>
+      The account can be completely disabled, so no communication to server is running:<br>
+      <code>attr tahoma1 disable 1</code><br><br>
+    </ul>
+    <ul>
+      The interval [seconds] for refreshing and fetching all states can be set:<br>
+      This is an old attribute, the default is 0 = off.<br>
+      <code>attr tahoma1 interval 300</code><br><br>
+    </ul>
+    <ul>
+      The interval [seconds] for refreshing states can be changed:<br>
+      The default is 120s, allowed minimum is 60s, 0 = off.<br>
+      This command actualizes the states of devices, which will be externally changed e.g. by controller.<br>
+      <code>attr tahoma1 intervalRefresh 120</code><br><br>
+    </ul>
+    <ul>
+      The interval [seconds] for fetching all states can be set:<br>
+      The default is 0 = off, allowed minimum is 120s.<br>
+      Normally this isn't necessary to set, because all states will be actualized by events.<br>
+      <code>attr tahoma1 intervalStates 300</code><br><br>
+    </ul>
+    <ul>
+      The interval [seconds] for fetching new events can be changed:<br>
+      The default is 2s, allowed minimum is 2s.<br>
+      <code>attr tahoma1 intervalEvents 300</code><br>
     </ul>
     <br>
     <b>local Attributes for DEVICE:</b>
     <ul>
       If the closure value 0..100 should be 100..0, the level can be inverted:<br>
-      <code>attr tahoma_23234545 levelInvert 1</code><br>
+      <code>attr tahoma_23234545 levelInvert 1</code><br><br>
+    </ul>
+    <ul>
+      The device can be disabled:<br>
+      The device is disabled then for direct access and indirect access by GROUP and PLACE, but not by SCENE.<br>
+      <code>attr tahoma_23234545 disable 1</code><br>
     </ul>
     <br>
     <b>local Attributes for PLACE:</b>
     <ul>
       The commands in a room will only affect the devices in the room with inClass=RollerShutter.<br>
-      This can be extend or changed by setting the placeClasses attribut:<br>
-      <code>attr tahoma_abc12345 placeClasses RollerShutter ExteriorScreen Window</code><br>
+      This can be extend or changed by setting the placeClasses attribute:<br>
+      <code>attr tahoma_abc12345 placeClasses RollerShutter ExteriorScreen Window</code><br><br>
+    </ul>
+    <ul>
+      The place and its sub places can be disabled:<br>
+      <code>attr tahoma_abc12345 disable 1</code><br>
+    </ul>
+    <br>
+    <b>local Attributes for SCENE:</b>
+    <ul>
+      The scene can be disabled:<br>
+      <code>attr tahoma_4ef30a23 disable 1</code><br>
+    </ul>
+    <br>
+    <b>local Attributes for GROUP:</b>
+    <ul>
+      The group can be disabled:<br>
+      <code>attr tahoma_group1 disable 1</code><br>
     </ul>
     <br>
     <b>Examples:</b>

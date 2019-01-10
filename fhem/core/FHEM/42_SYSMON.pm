@@ -27,7 +27,7 @@
 #
 ################################################################
 
-# $Id: 42_SYSMON.pm 15378 2017-11-01 20:36:57Z hexenmeister $
+# $Id: 42_SYSMON.pm 17227 2018-08-29 19:58:18Z hexenmeister $
 
 package main;
 
@@ -42,7 +42,7 @@ use Data::Dumper;
 my $missingModulRemote;
 eval "use Net::Telnet;1" or $missingModulRemote .= "Net::Telnet ";
 
-my $VERSION = "2.3.3";
+my $VERSION = "2.3.4";
 
 use constant {
   PERL_VERSION    => "perl_version",
@@ -2263,7 +2263,11 @@ sub SYSMON_getRamAndSwap($$) {
   if($hash->{helper}->{excludes}{'ramswap'}) {return $map;}
 
   #my @speicher = qx(free -m);
-  my @speicher = SYSMON_execute($hash, "LANG=en free");
+  #my @speicher = SYSMON_execute($hash, "LANG=en free");
+  my $free_version = SYSMON_execute($hash, 'free -V');
+  $free_version =~ s/\D//g;
+  my @speicher = SYSMON_execute($hash, 'LANG=en ' . ($free_version > 339 ? 'free -w' : 'free'));
+
 
   if(!@speicher) {
     return $map;
@@ -2312,7 +2316,8 @@ sub SYSMON_getRamAndSwap($$) {
     }
     #$used_clean = $used - $buffers - $cached;
     #$ram = sprintf("Total: %.2f MB, Used: %.2f MB, %.2f %%, Free: %.2f MB", $total, $used_clean, ($used_clean / $total * 100), ($free + $buffers + $cached));
-    if ($total > 2048) {
+    #if ($total > 2048) {
+    if ($free_version > 339) {
        $used_clean = $used;
        $ram = sprintf("Total: %.2f MB, Used: %.2f MB, %.2f %%, Free: %.2f MB", $total, $used_clean, ($used_clean / $total * 100), ($free));
      } else {
@@ -4196,11 +4201,11 @@ SYSMON_Exec_Ssh($$)
    
    SYSMON_Log($hash, 5, "Execute '".$cmd."' by SSH");
    my $p_tmp = '';
-   if(!defined($port)) {
+   if(defined($port)) {
      $p_tmp = ' -p '.$port.' ';
    }
    
-   my $call = "ssh ".$p_tmp.$user."\@".$host." ".$cmd;
+   my $call = "ssh ".$p_tmp.$user."\@".$host." ".'"'.$cmd.'"';
    SYSMON_Log ($hash, 5, "Call: '".$call."'");
    $call = $t_sshpass.$call;
    

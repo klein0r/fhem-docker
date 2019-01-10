@@ -1,12 +1,43 @@
-##############################################
-# $Id: 20_FRM_OUT.pm 5927 2014-05-21 21:56:37Z ntruchsess $
-##############################################
+########################################################################################
+#
+# $Id: 20_FRM_OUT.pm 15928 2018-01-19 21:07:42Z jensb $
+#
+# FHEM module for one Firmata digial output pin
+#
+########################################################################################
+#
+#  LICENSE AND COPYRIGHT
+#
+#  Copyright (C) 2013 ntruchess
+#  Copyright (C) 2016 jensb
+#
+#  All rights reserved
+#
+#  This script is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#
+#  The GNU General Public License can be found at
+#  http://www.gnu.org/copyleft/gpl.html.
+#  A copy is found in the textfile GPL.txt and important notices to the license
+#  from the author is found in LICENSE.txt distributed with these scripts.
+#
+#  This script is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#  GNU General Public License for more details.
+#
+#  This copyright notice MUST APPEAR in all copies of the script!
+#
+########################################################################################
+
 package main;
 
 use strict;
 use warnings;
 
-#add FHEM/lib to @INC if it's not allready included. Should rather be in fhem.pl than here though...
+#add FHEM/lib to @INC if it's not already included. Should rather be in fhem.pl than here though...
 BEGIN {
 	if (!grep(/FHEM\/lib$/,@INC)) {
 		foreach my $inc (grep(/FHEM$/,@INC)) {
@@ -31,7 +62,7 @@ FRM_OUT_Initialize($)
   $hash->{AttrFn}    = "FRM_OUT_Attr";
   $hash->{StateFn}   = "FRM_OUT_State";
   
-  $hash->{AttrList}  = "restoreOnReconnect:on,off restoreOnStartup:on,off activeLow:yes,no IODev $main::readingFnAttributes";
+  $hash->{AttrList}  = "restoreOnReconnect:on,off restoreOnStartup:on,off activeLow:yes,no IODev valueMode:send,receive,bidirectional $main::readingFnAttributes";
   main::LoadModule("FRM");
 }
 
@@ -41,12 +72,20 @@ FRM_OUT_Init($$)
 	my ($hash,$args) = @_;
 	my $ret = FRM_Init_Pin_Client($hash,$args,PIN_OUTPUT);
 	return $ret if (defined $ret);
+	eval {
+      my $firmata = FRM_Client_FirmataDevice($hash);
+      my $pin = $hash->{PIN};
+      $firmata->observe_digital($pin,\&FRM_OUT_observer,$hash);
+	};  
 	my $name = $hash->{NAME};
 	if (! (defined AttrVal($name,"stateFormat",undef))) {
 		$main::attr{$name}{"stateFormat"} = "value";
 	}
 	my $value = ReadingsVal($name,"value",undef);
-	if (defined $value and AttrVal($hash->{NAME},"restoreOnReconnect","on") eq "on") {
+	if (!defined($value)) {
+		readingsSingleUpdate($hash,"value","off",0);
+	}  
+	if (AttrVal($hash->{NAME},"restoreOnReconnect", "on") eq "on") {
 		FRM_OUT_Set($hash,$name,$value);
 	}
 	main::readingsSingleUpdate($hash,"state","Initialized",1);
@@ -54,24 +93,46 @@ FRM_OUT_Init($$)
 }
 
 sub
+FRM_OUT_observer($$$$)
+{
+  my ($pin,$old,$new,$hash) = @_;
+  my $name = $hash->{NAME};
+  Log3 $name, 5, "onDigitalMessage for pin ".$pin.", old: ".(defined $old? $old : "--").", new: ".(defined $new? $new : "--");
+  if (AttrVal($hash->{NAME}, "activeLow", "no") eq "yes") {
+    $old = $old == PIN_LOW ? PIN_HIGH : PIN_LOW if (defined $old);
+    $new = $new == PIN_LOW ? PIN_HIGH : PIN_LOW;
+  }
+  my $changed = !defined($old) || ($old != $new);
+  if ($changed && (AttrVal($hash->{NAME}, "valueMode", "send") ne "send")) {
+    main::readingsSingleUpdate($hash, "value", $new == PIN_HIGH? "on" : "off", 1);
+  }
+}
+
+sub
 FRM_OUT_Set($$$)
 {
   my ($hash, $name, $cmd, @a) = @_;
   my $value;
-  my $invert = AttrVal($hash->{NAME},"activeLow","no");
-  if ($cmd eq "on") {
-  	$value = $invert eq "yes" ? PIN_LOW : PIN_HIGH;
-  } elsif ($cmd eq "off") {
-  	$value = $invert eq "yes" ? PIN_HIGH : PIN_LOW;
+  my $invert = AttrVal($hash->{NAME},"activeLow", "no");
+  if (defined ($cmd)) {
+    if ($cmd eq "on") {
+      $value = $invert eq "yes" ? PIN_LOW : PIN_HIGH;
+    } elsif ($cmd eq "off") {
+      $value = $invert eq "yes" ? PIN_HIGH : PIN_LOW;
+    } else {
+      my $list = "on off";
+      return SetExtensions($hash, $list, $name, $cmd, @a);
+    }
+    eval {
+      FRM_Client_FirmataDevice($hash)->digital_write($hash->{PIN},$value);
+      if (AttrVal($hash->{NAME}, "valueMode", "send") ne "receive") {
+        main::readingsSingleUpdate($hash,"value",$cmd, 1);
+      }
+    };
+    return $@;
   } else {
-  	my $list = "on off";
-    return SetExtensions($hash, $list, $name, $cmd, @a);
+    return "no command specified";
   }
-  eval {
-    FRM_Client_FirmataDevice($hash)->digital_write($hash->{PIN},$value);
-    main::readingsSingleUpdate($hash,"value",$cmd, 1);
-  };
-  return $@;
 }
 
 sub FRM_OUT_State($$$$)
@@ -80,7 +141,7 @@ sub FRM_OUT_State($$$$)
 	
 STATEHANDLER: {
 		$sname eq "value" and do {
-			if (AttrVal($hash->{NAME},"restoreOnStartup","on") eq "on") { 
+			if (AttrVal($hash->{NAME},"restoreOnStartup", "on") eq "on") { 
 				FRM_OUT_Set($hash,$hash->{NAME},$sval);
 			}
 			last;
@@ -102,6 +163,18 @@ FRM_OUT_Attr($$$$) {
           }
           last;
         };
+        $attribute eq "activeLow" and do {
+          my $oldval = AttrVal($hash->{NAME},"activeLow", "no");
+          if ($oldval ne $value) {
+            # toggle output with attribute change
+            $main::attr{$hash->{NAME}}{activeLow} = $value;
+            if ($main::init_done) {
+              my $value = ReadingsVal($name,"value",undef);
+              FRM_OUT_Set($hash,$hash->{NAME},$value);
+            }
+          };
+          last;
+        };
       }
     }
   };
@@ -115,23 +188,45 @@ FRM_OUT_Attr($$$$) {
 1;
 
 =pod
+
+  CHANGES
+
+  2016 jensb
+    o new sub FRM_OUT_observer, modified sub FRM_OUT_Init
+      to receive output state from Firmata device
+    o support attribute "activeLow"
+  01.01.2018 jensb
+    o create reading "value" in FRM_OUT_Init if missing
+  02.01.2018 jensb
+    o new attribute "valueMode" to control how "value" reading is updated
+  14.01.2018 jensb
+    o fix "uninitialised" when calling FRM_OUT_Set without command
+
+=cut
+
+=pod
+=item device
+=item summary Firmata: digital output
+=item summary_DE Firmata: digitaler Ausang
 =begin html
 
 <a name="FRM_OUT"></a>
 <h3>FRM_OUT</h3>
 <ul>
-  represents a pin of an <a href="http://www.arduino.cc">Arduino</a> running <a href="http://www.firmata.org">Firmata</a>
-  configured for digital output.<br>
-  Requires a defined <a href="#FRM">FRM</a>-device to work.<br><br> 
+  This module represents a pin of a <a href="http://www.firmata.org">Firmata device</a> 
+  that should be configured as a digital output.<br><br>
+  
+  Requires a defined <a href="#FRM">FRM</a> device to work. The pin must be listed in
+  the internal reading "<a href="#FRMinternals">output_pins</a>"<br>
+  of the FRM device (after connecting to the Firmata device) to be used as digital output.<br><br> 
   
   <a name="FRM_OUTdefine"></a>
   <b>Define</b>
   <ul>
   <code>define &lt;name&gt; FRM_OUT &lt;pin&gt;</code> <br>
   Defines the FRM_OUT device. &lt;pin&gt> is the arduino-pin to use.
-  </ul>
+  </ul><br>
   
-  <br>
   <a name="FRM_OUTset"></a>
   <b>Set</b><br>
   <ul>
@@ -139,27 +234,57 @@ FRM_OUT_Attr($$$$) {
   </ul>
   <ul>
   <a href="#setExtensions">set extensions</a> are supported<br>
-  </ul>
+  </ul><br>
+  
   <a name="FRM_OUTget"></a>
   <b>Get</b><br>
   <ul>
   N/A
   </ul><br>
+  
   <a name="FRM_OUTattr"></a>
   <b>Attributes</b><br>
   <ul>
-      <li>restoreOnStartup &lt;on|off&gt;</li>
-      <li>restoreOnReconnect &lt;on|off&gt;</li>
-      <li>activeLow &lt;yes|no&gt;</li>
+      <li>restoreOnStartup &lt;on|off&gt;, default: on<br>
+      Set output value in Firmata device on FHEM startup (if device is already connected) and
+      whenever the <em>setstate</em> command is used.
+      </li>
+      <li>restoreOnReconnect &lt;on|off&gt;, default: on<br>
+      Set output value in Firmata device after IODev is initialized.
+      </li>
+      <li>activeLow &lt;yes|no&gt;, default: no</li>
       <li><a href="#IODev">IODev</a><br>
       Specify which <a href="#FRM">FRM</a> to use. (Optional, only required if there is more
       than one FRM-device defined.)
       </li>
+      <li>valueMode &lt;send|receive|bidirectional&gt;, default: send<br>
+      Define how the reading <em>value</em> is updated:<br>
+      <ul>
+        <li>send - after sending</li>
+        <li>receive - after receiving</li>
+        <li>bidirectional - after sending and receiving</li>
+      </ul>
+      </li>
       <li><a href="#eventMap">eventMap</a><br></li>
       <li><a href="#readingFnAttributes">readingFnAttributes</a><br></li>
-    </ul>
+  </ul><br>
+  
+  <a name="FRM_OUTnotes"></a>
+  <b>Notes</b><br>
+  <ul>
+      <li>attribute <i>stateFormat</i><br>
+      In most cases it is a good idea to assign "value" to the attribute <i>stateFormat</i>. This will show the state
+      of the pin in the web interface.
+      </li>
+      <li>attribute <i>valueMode</i><br>
+      For modes "receive<" and "bidirectional" to work the default Firmata application code must 
+      be modified in function "<code>setPinModeCallback</code>":<br>
+      add "<ins> || mode == OUTPUT</ins>" to the if condition for "<code>portConfigInputs[pin / 8] |= (1 << (pin & 7));</code>" to enable<br>
+      reporting the output state (as if the pin were an input). This is of interest if you have custom code in your Firmata device that can change<br>
+      the state of an output or you want a feedback from the Firmata device after the output state was changed.
+      </li>
   </ul>
-<br>
+</ul><br>
 
 =end html
 =cut

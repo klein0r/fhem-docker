@@ -1,5 +1,5 @@
 "use strict";
-FW_version["console.js"] = "$Id: console.js 14668 2017-07-08 12:06:55Z rudolfkoenig $";
+FW_version["console.js"] = "$Id: console.js 16348 2018-03-07 21:02:42Z rudolfkoenig $";
 
 var consConn;
 
@@ -8,7 +8,7 @@ var consLastIndex = 0;
 var withLog = 0;
 var mustScroll = 1;
 
-log("Console is opening");
+log("Event monitor is starting");
 
 function
 cons_closeConn()
@@ -84,14 +84,14 @@ consFill()
 
   var loc = (""+location).replace(/\?.*/,"");
   if($("body").attr("longpoll") == "websocket") {
-    if(consConn) {
+    if(consConn)
       consConn.close();
-    }
     consConn = new WebSocket(loc.replace(/[&?].*/,'')
                                 .replace(/^http/i, "ws")+query);
     consConn.onclose = 
     consConn.onerror = 
     consConn.onmessage = consUpdate;
+    consConn.onopen = function(){FW_wsPing(consConn);};
 
   } else {
     if(consConn) {

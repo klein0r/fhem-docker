@@ -5,7 +5,7 @@
 # e-mail: omega at online dot de
 #
 ##############################################
-# $Id: 80_M232.pm 3830 2013-08-31 17:09:10Z borisneubert $
+# $Id: 80_M232.pm 16375 2018-03-10 15:40:02Z neubert $
 package main;
 
 use strict;
@@ -347,6 +347,8 @@ DONE:
 1;
 
 =pod
+=item summary    connection to ELV M232 module
+=item summary_DE Anbindung eines ELV-M232-Moduls
 =begin html
 
 <a name="M232"></a>

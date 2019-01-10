@@ -22,7 +22,7 @@
 #  This copyright notice MUST APPEAR in all copies of the script!
 #
 ################################################################
-# $Id: 20_X10.pm 10401 2016-01-07 19:26:18Z borisneubert $
+# $Id: 20_X10.pm 17421 2018-09-28 19:18:37Z neubert $
 
 
 #
@@ -89,15 +89,18 @@ my %unitcodes_snd  = qw( 1 0110   2 1110   3 0010   4 1010
                         13 0000  14 1000  15 0100  16 1100);
 
 
-my %functions_set = ( "on"      => 0,
-                      "off"     => 0,
-                      "dimup"   => 1,
+my %functions_set = ( "on" => 0,
+                      "off" => 0,
+                      "dimup" => 1,
                       "dimdown" => 1,
-		      "dimto"   => 1,
+		                  "dimto" => 1,
                       "on-till" => 1,
-		      "on-for-timer" => 1,
+            		      "on-for-timer" => 1,
+                      "all_units_off" => 0,
+                      "all_units_on" => 0,
+                      "all_lights_off" => 0,
+                      "all_lights_on" => 0,
                     );
-
 
 my %models = (
     lm12	=> 'dimmer',
@@ -533,6 +536,8 @@ X10_Parse($$)
 1;
 
 =pod
+=item summary    devices communicating via the X10 protocol
+=item summary_DE Anbindung von X10-Ger&auml;ten
 =begin html
 
 <a name="X10"></a>

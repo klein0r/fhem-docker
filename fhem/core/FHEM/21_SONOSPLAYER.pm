@@ -1,9 +1,9 @@
 ########################################################################################
 #
-# SONOSPLAYER.pm (c) by Reiner Leins, July 2017
+# SONOSPLAYER.pm (c) by Reiner Leins, March 2018
 # rleins at lmsoft dot de
 #
-# $Id: 21_SONOSPLAYER.pm 14715 2017-07-14 10:39:57Z Reinerlein $
+# $Id: 21_SONOSPLAYER.pm 16478 2018-03-24 22:47:43Z Reinerlein $
 #
 # FHEM module to work with Sonos-Zoneplayers
 #
@@ -82,6 +82,7 @@ my %gets = (
 	'QueueWithCovers' => '',
 	'Alarm' => 'ID',
 	'EthernetPortStatus' => 'PortNum(0..3)',
+	'WifiPortStatus' => '',
 	'SupportLinks' => '',
 	'PossibleRoomIcons' => '',
 	'SearchlistCategories' => ''
@@ -128,8 +129,8 @@ my %sets = (
 	'VolumeRestore' => '',
 	'Balance' => 'balancevalue(-100..100)',
 	'Loudness' => 'state',
-	'Bass' => 'basslevel(0..100)',
-	'Treble' => 'treblelevel(0..100)',	
+	'Bass' => 'basslevel(-10..10)',
+	'Treble' => 'treblelevel(-10..10)',	
 	'CurrentTrackPosition' => 'timeposition',
 	'Track' => 'tracknumber|Random',
 	'currentTrack' => 'tracknumber',
@@ -209,7 +210,7 @@ sub SONOSPLAYER_Define ($$) {
 	my ($hash, $def) = @_;
 	
 	# Check if we just want a modify...
-	if ($hash->{NAME}) {
+	if (defined($hash->{OLDDEF})) {
 		SONOS_Log undef, 1, 'Modify SonosPlayer-Device: '.$hash->{NAME};
 		
 		# Alle Timer entfernen...
@@ -255,10 +256,10 @@ sub SONOSPLAYER_Detail($$$;$) {
 	
 	my $hash = $defs{$d};
 	
-	return '' if (!ReadingsVal($d, 'IsMaster', 0) || (ReadingsVal($d, 'playerType', '') eq 'ZB100'));
+	return '' if (!ReadingsVal($d, 'IsMaster', 0) || (ReadingsVal($d, 'IsZoneBridge', 0) == 1));
 	
 	# Open incl. Inform-Div
-	my $html .= '<html><div informId="'.$d.'-display_covertitle">';
+	my $html .= '<html><div informid="'.$d.'-display_covertitle">';
 	
 	# Cover-/TitleView
 	$html .= '<div style="border: 1px solid gray; border-radius: 10px; padding: 5px;">';
@@ -296,29 +297,26 @@ sub SONOSPLAYER_Detail($$$;$) {
 ########################################################################################
 sub SONOSPLAYER_Attribute($$$@) {
 	my ($mode, $devName, $attrName, $attrValue) = @_;
+	my $hash = SONOS_getSonosPlayerByName($devName);
 	
 	if ($mode eq 'set') {
 		if ($attrName =~ m/^(min|max)Volume(|Headphone)$/) {
-			my $hash = SONOS_getSonosPlayerByName($devName);
-			
 			SONOS_DoWork($hash->{UDN}, 'setMinMaxVolumes', $attrName, $attrValue);
+		} elsif ($attrName eq 'disable' && $attrValue == 0) {
+			SONOS_DoWork($hash->{UDN}, 'setAttribute', $attrName, $attrValue);
+			SONOS_DoWork('SONOS', 'rescanNetwork');
 		} elsif ($attrName =~ m/^(getTitleInfoFromMaster|stopSleeptimerInAction|saveSleeptimerInAction)$/) {
-			my $hash = SONOS_getSonosPlayerByName($devName);
-			
 			SONOS_DoWork($hash->{UDN}, 'setAttribute', $attrName, $attrValue);
 		}
 	} elsif ($mode eq 'del') {
 		if ($attrName =~ m/^minVolume(|Headphone)$/) {
-			my $hash = SONOS_getSonosPlayerByName($devName);
-			
 			SONOS_DoWork($hash->{UDN}, 'setMinMaxVolumes', $attrName, 0);
 		} elsif ($attrName =~ m/^maxVolume(|Headphone)$/) {
-			my $hash = SONOS_getSonosPlayerByName($devName);
-			
 			SONOS_DoWork($hash->{UDN}, 'setMinMaxVolumes', $attrName, 100);
+		} elsif ($attrName eq 'disable') {
+			SONOS_DoWork($hash->{UDN}, 'deleteAttribute', $attrName);
+			SONOS_DoWork('SONOS', 'rescanNetwork');
 		} elsif ($attrName =~ m/^(getTitleInfoFromMaster|stopSleeptimerInAction|saveSleeptimerInAction)$/) {
-			my $hash = SONOS_getSonosPlayerByName($devName);
-			
 			SONOS_DoWork($hash->{UDN}, 'deleteAttribute', $attrName);
 		}
 	}
@@ -421,7 +419,7 @@ sub SONOSPLAYER_SimulateCurrentTrackPosition() {
 	
 	my $trackPositionSec = 0;
 	if (ReadingsVal($hash->{NAME}, 'transportState', 'STOPPED') eq 'PLAYING') {
-		$trackPositionSec = time - SONOS_GetTimeFromString(ReadingsTimestamp($hash->{NAME}, 'currentTrackPositionSec', 0)) + ReadingsVal($hash->{NAME}, 'currentTrackPositionSec', 0);
+		$trackPositionSec = sprintf("%.0f", time - SONOS_GetTimeFromString(ReadingsTimestamp($hash->{NAME}, 'currentTrackPositionSec', 0)) + ReadingsVal($hash->{NAME}, 'currentTrackPositionSec', 0));
 	} else {
 		$trackPositionSec = ReadingsVal($hash->{NAME}, 'currentTrackPositionSec', 0);
 	}
@@ -508,13 +506,24 @@ sub SONOSPLAYER_Get($@) {
 	} elsif (lc($reading) eq 'ethernetportstatus') {
 		my $portNum = $a[2];
 		
-		SONOS_readingsSingleUpdate($hash, 'LastActionResult', 'Portstatus properly returned', 1);
+		SONOS_readingsSingleUpdate($hash, 'LastActionResult', 'Ethernet-Portstatus properly returned', 1);
 	
 		my $url = ReadingsVal($name, 'location', '');
 		$url =~ s/(^http:\/\/.*?)\/.*/$1\/status\/enetports/;
 		
 		my $statusPage = GetFileFromURL($url);
 		return (($1 == 0) ? 'Inactive' : 'Active') if ($statusPage =~ m/<Port port='$portNum'><Link>(\d+)<\/Link><Speed>.*?<\/Speed><\/Port>/i);
+		return 'Inactive';
+	} elsif (lc($reading) eq 'wifiportstatus') {
+		my $portNum = $a[2];
+		
+		SONOS_readingsSingleUpdate($hash, 'LastActionResult', 'Wifi-Portstatus properly returned', 1);
+	
+		my $url = ReadingsVal($name, 'location', '');
+		$url =~ s/(^http:\/\/.*?)\/.*/$1\/status\/ifconfig/;
+		
+		my $statusPage = GetFileFromURL($url);
+		return 'Active' if ($statusPage =~ m/(ath0 +?Link encap:Ethernet)/i);
 		return 'Inactive';
 	} elsif (lc($reading) eq 'supportlinks') {
 		my $playerurl = ReadingsVal($name, 'location', '');
@@ -559,8 +568,8 @@ sub SONOSPLAYER_Set($@) {
 			if (AttrVal($hash, 'generateVolumeSlider', 1) == 1) {
 				$key = $key.':slider,0,1,100' if ($key eq 'Volume');
 				$key = $key.':slider,0,1,100' if ($key eq 'GroupVolume');
-				$key = $key.':slider,0,1,100' if ($key eq 'Treble');
-				$key = $key.':slider,0,1,100' if ($key eq 'Bass');
+				$key = $key.':slider,-10,1,10' if ($key eq 'Treble');
+				$key = $key.':slider,-10,1,10' if ($key eq 'Bass');
 				$key = $key.':slider,-100,1,100' if ($key eq 'Balance');
 				$key = $key.':slider,-15,1,15' if ($key eq 'SubGain');
 				$key = $key.':slider,-15,1,15' if ($key eq 'SurroundLevel');
@@ -902,7 +911,7 @@ sub SONOSPLAYER_Set($@) {
 				my $udnShort = $1 if ($dHash->{UDN} =~ m/(.*)_MR/); 
 				
 				# Wenn dieses Quell-Device eine Playbar ist, dann den optischen Eingang als Quelle wählen...
-				if (ReadingsVal($dHash->{NAME}, 'playerType', '') eq 'S9') {
+				if ((ReadingsVal($dHash->{NAME}, 'playerType', '') eq 'S9') || (ReadingsVal($dHash->{NAME}, 'playerType', '') eq 'S11')) {
 					# Das ganze geht nur bei dem eigenen Eingang, ansonsten eine Gruppenwiedergabe starten
 					if ($dHash->{NAME} eq $hash->{NAME}) {
 						$value = 'x-sonos-htastream:'.$udnShort.':spdif';
@@ -1556,6 +1565,9 @@ sub SONOSPLAYER_Log($$$) {
 <li><a name="SONOSPLAYER_getter_SupportLinks">
 <b><code>SupportLinks</code></b></a>
 <br /> Shows a list with direct links to the player-support-sites.</li>
+<li><a name="SONOSPLAYER_getter_WifiPortStatus">
+<b><code>WifiPortStatus</code></b></a>
+<br /> Gets the Wifi-Portstatus. Can be 'Active' or 'Inactive'.</li>
 </ul></li>
 <li><b>Lists</b><ul>
 <li><a name="SONOSPLAYER_getter_Favourites">
@@ -1937,6 +1949,9 @@ Here an event is defined, where in time of 2 seconds the Mute-Button has to be p
 <li><a name="SONOSPLAYER_getter_SupportLinks">
 <b><code>SupportLinks</code></b></a>
 <br /> Ausnahmefall. Diese Get-Anweisung liefert eine Liste mit passenden Links zu den Supportseiten des Player.</li>
+<li><a name="SONOSPLAYER_getter_WifiPortStatus">
+<b><code>WifiPortStatus</code></b></a>
+<br /> Liefert den Wifi-Portstatus. Kann 'Active' oder 'Inactive' liefern.</li>
 </ul></li>
 <li><b>Listen</b><ul>
 <li><a name="SONOSPLAYER_getter_Favourites">

@@ -1,14 +1,23 @@
 #############################################################
 #
-# EQ3BT.pm (c) by Dominik Karall, 2016-2017
+# EQ3BT.pm (c) by Dominik Karall, 2016-2018
 # dominik karall at gmail dot com
-# $Id: 10_EQ3BT.pm 15447 2017-11-18 19:48:43Z dominik $
+# $Id: 10_EQ3BT.pm 17484 2018-10-07 18:54:14Z dominik $
 #
 # FHEM module to communicate with EQ-3 Bluetooth thermostats
 #
-# Version: 2.0.2
-#
 #############################################################
+#
+# v2.0.5 - 20181007
+# - BUGFIX:  ssh bugfixes by CoolTux
+#
+# v2.0.4 - 20180224
+# - FEATURE: support childlock
+#
+# v2.0.3 - 20171218
+# - FEATURE: support maxRetries and timeout attribute
+#            maxRetries...number of tries before error is counted
+#            timeout...timeout for the command
 #
 # v2.0.2 - 20171118
 # - FEATURE: support remote bluetooth interfaces via SSH (thx@Cooltux!)
@@ -150,7 +159,7 @@ sub EQ3BT_Initialize($) {
     $hash->{GetFn}    = 'EQ3BT_Get';
     $hash->{SetFn}    = 'EQ3BT_Set';
     $hash->{AttrFn}   = 'EQ3BT_Attribute';
-    $hash->{AttrList}  = 'sshHost '.
+    $hash->{AttrList}  = 'sshHost maxRetries timeout blockingCallLoglevel '.
                             $readingFnAttributes;
     
     return undef;
@@ -165,7 +174,8 @@ sub EQ3BT_Define($$) {
     my $sshHost;
     
     $hash->{STATE} = "initialized";
-    $hash->{VERSION} = "2.0.2";
+    $hash->{VERSION} = "2.0.5";
+    $hash->{loglevel} = 4;
     Log3 $hash, 3, "EQ3BT: EQ-3 Bluetooth Thermostat ".$hash->{VERSION};
     
     if (int(@a) > 4) {
@@ -229,12 +239,20 @@ sub EQ3BT_pairDevice {
 }
 
 sub EQ3BT_Attribute($$$$) {
-    my ($mode, $devName, $attrName, $attrValue) = @_;
+    my ( $cmd, $name, $attrName, $attrVal ) = @_;
+    my $hash                                = $defs{$name};
     
-    if($mode eq "set") {
-        
-    } elsif($mode eq "del") {
-        
+    if($cmd eq "set") {
+        if( $attrName eq "blockingCallLoglevel" ) {
+            $hash->{loglevel} = $attrVal;
+            Log3 $name, 3, "EQ3BT ($name) - set blockingCallLoglevel to $attrVal";
+        }
+    
+    } elsif($cmd eq "del") {
+        if( $attrName eq "blockingCallLoglevel" ) {
+            $hash->{loglevel} = 4;
+            Log3 $name, 3, "EQ3BT ($name) - set blockingCallLoglevel to $attrVal";
+        }
     }
     
     return undef;
@@ -249,7 +267,7 @@ sub EQ3BT_Set($@) {
     my ($hash, $name, @params) = @_;
     my $workType = shift(@params);
     my $list = "desiredTemperature:slider,4.5,0.5,29.5,1 updateStatus:noArg boost:on,off mode:manual,automatic eco:noArg comfort:noArg ".
-               "resetErrorCounters:noArg resetConsumption:noArg";
+               "resetErrorCounters:noArg resetConsumption:noArg childlock:on,off";
 
     # check parameters for set function
     if($workType eq "?") {
@@ -493,15 +511,19 @@ sub EQ3BT_execGatttool($) {
     my ($name, $mac, $workType, $handle, $value, $listen) = split("\\|", $string);
     my $wait = 1;
     my $hash = $main::defs{$name};
+    my $sshHost     = AttrVal($name,"sshHost","none");
+    my $gatttool;   # = qx(which gatttool);
     
-    my $gatttool = qx(which gatttool);
+    $gatttool                               = qx(which gatttool) if($sshHost eq 'none');
+    $gatttool                               = qx(ssh $sshHost 'which gatttool') if($sshHost ne 'none');
     chomp $gatttool;
     
-    if(-x $gatttool) {
+    #if(-x $gatttool) {
+    if(defined($gatttool) and ($gatttool)) {
         my $gtResult;
         my $cmd;
-        my $sshHost     = AttrVal($name,"sshHost","none");
-
+        my $hciDevice = "hci".$hash->{helper}{hcidevices}[$hash->{helper}{currenthcidevice}];
+    
         while($wait) {
             my $grepGatttool = qx(ps ax| grep -E \'gatttool -b $mac\' | grep -v grep);
             if(not $grepGatttool =~ /^\s*$/) {
@@ -512,6 +534,18 @@ sub EQ3BT_execGatttool($) {
                 $wait = 0;
             }
         }
+        
+        
+        $cmd .= "ssh $sshHost '" if($sshHost ne 'none');
+        $cmd .= "timeout " . AttrVal($name, "timeout", 15) . " " if($listen);
+        $cmd .= "gatttool -i $hciDevice -b $mac ";
+        $cmd .= "--char-write-req -a $handle -n $value";
+        $cmd .= " --listen" if($listen);
+        $cmd .= " 2>&1 /dev/null";
+        $cmd .= "'" if($sshHost ne 'none');
+        
+        
+        
 
         if($value eq "03") {
             my ($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst) = localtime(time);
@@ -519,24 +553,24 @@ sub EQ3BT_execGatttool($) {
             $value .= $currentDate;
         }
 
-        my $hciDevice = "hci".$hash->{helper}{hcidevices}[$hash->{helper}{currenthcidevice}];
+        
         #my $cmd = "gatttool -b $mac -i $hciDevice --char-write-req --handle=$handle --value=$value";
-        if( $sshHost ne 'none' ) {
-            $cmd = "ssh $sshHost 'gatttool -b $mac -i $hciDevice --char-write-req --handle=$handle --value=$value";
-        } else {
-            $cmd = "gatttool -b $mac -i $hciDevice --char-write-req --handle=$handle --value=$value";
-        }
-        
-        if(defined($listen) && $listen eq "listen") {
-            $cmd = "timeout 15 ".$cmd." --listen";
-        }
-        
-        #redirect stderr to stdout
-        if( $sshHost ne 'none' ) {
-            $cmd .= " 2>&1'";
-        } else {
-            $cmd .= " 2>&1";
-        }
+#         if( $sshHost ne 'none' ) {
+#             $cmd = "ssh $sshHost 'gatttool -b $mac -i $hciDevice --char-write-req --handle=$handle --value=$value";
+#         } else {
+#             $cmd = "gatttool -b $mac -i $hciDevice --char-write-req --handle=$handle --value=$value";
+#         }
+#         
+#         if(defined($listen) && $listen eq "listen") {
+#             $cmd = "timeout ".AttrVal($name, "timeout", 15)." ".$cmd." --listen";
+#         }
+#         
+#         #redirect stderr to stdout
+#         if( $sshHost ne 'none' ) {
+#             $cmd .= " 2>&1'";
+#         } else {
+#             $cmd .= " 2>&1";
+#         }
 
         Log3 $name, 5, "EQ3BT ($name): $cmd";
         $gtResult = qx($cmd);
@@ -606,7 +640,7 @@ sub EQ3BT_processGatttoolResult($) {
         $hash->{helper}{"retryCounter$workType"} = 0 if(!defined($hash->{helper}{"retryCounter$workType"}));
         $hash->{helper}{"retryCounter$workType"}++;
         Log3 $hash, 4, "EQ3BT ($name): $workType failed ($handle, $value, $notification)";
-        if ($hash->{helper}{"retryCounter$workType"} > 20) {
+        if ($hash->{helper}{"retryCounter$workType"} > AttrVal($name, "maxRetries", 20)) {
             my $errorCount = ReadingsVal($hash->{NAME}, "errorCount-$workType", 0);
             readingsSingleUpdate($hash, "errorCount-$workType", $errorCount+1, 1);
             Log3 $hash, 3, "EQ3BT ($name): $workType, $handle, $value failed 20 times.";
@@ -668,8 +702,8 @@ sub EQ3BT_processNotification {
         my $isBoost = (hex($vals[2]) & 4) >> 2;
         my $dst  = (hex($vals[2]) & 8) >> 3;
         my $wndOpen = (hex($vals[2]) & 16) >> 4;
-        my $unknown = (hex($vals[2]) & 32) >> 5;
-        $unknown = (hex($vals[2]) & 64) >> 6;
+        my $locked = (hex($vals[2]) & 32) >> 5;
+        my $unknown = (hex($vals[2]) & 64) >> 6;
         my $isLowBattery = (hex($vals[2]) & 128) >> 7;
         my $batteryStr = "ok";
         if($isLowBattery > 0) {
@@ -704,6 +738,7 @@ sub EQ3BT_processNotification {
         readingsSingleUpdate($hash, "valvePosition", $pct, 1);
         #changes below this line will set lastchangeby
         EQ3BT_readingsSingleUpdateIfChanged($hash, "windowOpen", $wndOpen, 1);
+        EQ3BT_readingsSingleUpdateIfChanged($hash, "childlock", $locked, 1);
         EQ3BT_readingsSingleUpdateIfChanged($hash, "ecoMode", $eco, 1);
         EQ3BT_readingsSingleUpdateIfChanged($hash, "battery", $batteryStr, 1);
         EQ3BT_readingsSingleUpdateIfChanged($hash, "boost", $isBoost, 1);
@@ -739,7 +774,26 @@ sub EQ3BT_setNightmode($) {
 }
 
 sub EQ3BT_setChildlock($$) {
-    my ($hash, $desiredState) = @_;
+    my ($hash, $onoff) = @_;
+    my $name = $hash->{NAME};
+    my $data = "01";
+    $data = "00" if($onoff eq "off");
+    
+    $hash->{helper}{RUNNING_PID} = BlockingCall("EQ3BT_execGatttool", $name."|".$hash->{MAC}."|setChildlock|0x0411|80".$data, "EQ3BT_processGatttoolResult", 60, "EQ3BT_killGatttool", $hash);
+    return undef;
+}
+
+sub EQ3BT_setChildlockSuccessful {
+    my ($hash, $handle, $value) = @_;
+    my $val = (hex($value) - 0x8000);
+    readingsSingleUpdate($hash, "childlock", $val, 1);
+    return undef;
+}
+
+sub EQ3BT_setChildlockRetry {
+    my ($hash) = @_;
+    EQ3BT_retryGatttool($hash, "setChildlock");
+    return undef;
 }
 
 sub EQ3BT_setHolidaymode($$) {

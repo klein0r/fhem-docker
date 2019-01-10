@@ -1,5 +1,5 @@
 #####################################################################################
-# $Id: 98_Hyperion.pm 15463 2017-11-19 23:42:14Z DeeSPe $
+# $Id: 98_Hyperion.pm 15533 2017-12-01 11:40:09Z DeeSPe $
 #
 # Usage
 # 
@@ -402,7 +402,7 @@ sub Hyperion_GetConfigs($)
   }
   Log3 $name,4,"$name: lsCmd: $com";
   $com = encode_base64($com);
-  $hash->{helper}{RUNNING_PID} = BlockingCall("Hyperion_ExecCmd","$name|$com","Hyperion_GetConfigs_finished");
+  $hash->{helper}{RUNNING_PID} = BlockingCall("Hyperion_ExecCmd","$name|$com","Hyperion_GetConfigs_finished",20,"Hyperion_ExecCmd_aborted",$hash);
   return "Working in background...";
 }
 
@@ -421,7 +421,7 @@ sub Hyperion_GetConfigs_finished($)
   foreach (@files)
   {
     my $file = $_;
-    next if ($file !~ /^([-\.\w]+)\.config\.json$/);
+    next if ($file !~ /^([\-\.\w]+)\.config\.json$/);
     $file = $1;
     push @filelist,$file;
     Log3 $name,4,"$name: matching config file: \"$_\"";
@@ -472,8 +472,9 @@ sub Hyperion_ExecCmd($)
   foreach (@qx)
   {
     chomp $_;
-    $_ =~ s/^[\s\t]{1,}/ /;
-    push @ret,$_;
+    $_ =~ s/[\s\t\| ;]{1,}/ /g;
+    $_ =~ s/(^ {1,}| {1,}$)//g;
+    push @ret,$_ if ($_);
   }
   $re .= join " ",@ret if (@ret);
   return "$name|$re";
@@ -489,8 +490,15 @@ sub Hyperion_Kill_finished($)
   delete $hash->{helper}{RUNNING_PID};
   if ($error)
   {
-    Log3 $name,3,"$name: Not able to stop Hyperion! Error: $error";
-    readingsSingleUpdate($hash,"lastError",$error,1);
+    if ($error =~ /^Usage:/)
+    {
+      Log3 $name,3,"$name: Hyperion couldn't be stopped because no running pid was found!";
+    }
+    else
+    {
+      Log3 $name,3,"$name: Not able to stop Hyperion! Error: $error";
+      readingsSingleUpdate($hash,"lastError",$error,1);
+    }
   }
   else
   {
@@ -498,6 +506,19 @@ sub Hyperion_Kill_finished($)
     RemoveInternalTimer($hash);
     DevIo_Disconnected($hash);
   }
+  return undef;
+}
+
+sub Hyperion_ExecCmd_aborted($)
+{
+  my ($hash)    = @_;
+  my $name        = $hash->{NAME};
+  delete $hash->{helper}{RUNNING_PID};
+  delete $hash->{helper}{configFile} if ($hash->{helper}{configFile});
+  delete $hash->{helper}{startCmd} if ($hash->{helper}{startCmd});
+  my $er = "Hyperion_ExecCmd aborted due to timeout of 20 sec.";
+  Log3 $name,2,"$name: $er";
+  readingsSingleUpdate($hash,"lastError",$er,1);
   return undef;
 }
 
@@ -509,7 +530,7 @@ sub Hyperion_Restart($)
   my $error       = $a[1];
   my $hash        = $defs{$name};
   delete $hash->{helper}{RUNNING_PID};
-  if ($error)
+  if ($error && $error !~ /^Usage:/)
   {
     Log3 $name,3,"$name: Not able to stop Hyperion! Error: $error";
     readingsSingleUpdate($hash,"lastError",$error,1);
@@ -517,7 +538,7 @@ sub Hyperion_Restart($)
   else
   {
     my $cmd = $hash->{helper}{startCmd};
-    $hash->{helper}{RUNNING_PID} = BlockingCall("Hyperion_ExecCmd","$name|$cmd","Hyperion_Restart_finished");
+    $hash->{helper}{RUNNING_PID} = BlockingCall("Hyperion_ExecCmd","$name|$cmd","Hyperion_Restart_finished",20,"Hyperion_ExecCmd_aborted",$hash);
   }
   return undef;
 }
@@ -557,8 +578,8 @@ sub Hyperion_Set($@)
   return if (IsDisabled($name) && $cmd ne "?");
   my $value = (defined($args[0])) ? $args[0] : undef;
   return "\"set $name\" needs at least one argument and maximum five arguments" if (@aa < 1 || @aa > 5);
-  my $duration = (defined $args[1]) ? int $args[1] : int AttrVal($name,"hyperionDefaultDuration",0);
-  my $priority = (defined $args[2]) ? int $args[2] : int AttrVal($name,"hyperionDefaultPriority",0);
+  my $duration = defined $args[1] ? int $args[1] : AttrNum($name,"hyperionDefaultDuration",0);
+  my $priority = defined $args[2] ? int $args[2] : AttrNum($name,"hyperionDefaultPriority",0);
   my %Hyperion_sets_local = %Hyperion_sets;
   if (ReadingsVal($name,".configs",""))
   {
@@ -595,7 +616,7 @@ sub Hyperion_Set($@)
     my $user  = AttrVal($name,"hyperionSshUser","pi");
     my $ip = $hash->{IP};
     my $sudo = ($user eq "root" || int AttrVal($name,"hyperionNoSudo",0) == 1) ? "" : "sudo ";
-    my $kill = $sudo."kill `pidof $bin`";
+    my $kill = $sudo."kill `pidof $bin` 2>&1 1>/dev/null";
     my $ssh;
     if (!Hyperion_isLocal($ip))
     {
@@ -606,7 +627,7 @@ sub Hyperion_Set($@)
     my $com = Hyperion_isLocal($ip)?"":"$ssh $user\@$ip '";
     if ($cmd eq "binary")
     {
-      return "Value of $cmd has to be 'stop' or 'restart'" if ($value !~ /^(stop|restart)$/);
+      return "Value of $cmd has to be 'restart' or 'stop'" if ($value !~ /^(stop|restart)$/);
     }
     else
     {
@@ -618,7 +639,7 @@ sub Hyperion_Set($@)
       $com .= Hyperion_isLocal($ip)?"":"'";
       Log3 $name,4,"$name: stopCmd: $com";
       $com = encode_base64($com);
-      $hash->{helper}{RUNNING_PID} = BlockingCall("Hyperion_ExecCmd","$name|$com","Hyperion_Kill_finished");
+      $hash->{helper}{RUNNING_PID} = BlockingCall("Hyperion_ExecCmd","$name|$com","Hyperion_Kill_finished",20,"Hyperion_ExecCmd_aborted",$hash);
     }
     elsif (($cmd eq "binary" && $value eq "restart") || $cmd eq "configFile")
     {
@@ -646,7 +667,7 @@ sub Hyperion_Set($@)
       $com = encode_base64($com);
       $hash->{helper}{configFile} = $file;
       $hash->{helper}{startCmd} = encode_base64($start);
-      $hash->{helper}{RUNNING_PID} = BlockingCall("Hyperion_ExecCmd","$name|$com","Hyperion_Restart");
+      $hash->{helper}{RUNNING_PID} = BlockingCall("Hyperion_ExecCmd","$name|$com","Hyperion_Restart",20,"Hyperion_ExecCmd_aborted",$hash);
     }
     return;
   }
@@ -977,6 +998,7 @@ sub Hyperion_Attr(@)
       return $err if ($err);
       if ($attr_value == 1)
       {
+        BlockingKill($hash->{helper}{RUNNING_PID}) if ($hash->{helper}{RUNNING_PID});
         RemoveInternalTimer($hash);
         DevIo_Disconnected($hash);
       }
@@ -992,8 +1014,7 @@ sub Hyperion_Attr(@)
     Hyperion_GetUpdate($hash) if (!IsDisabled($name));
     Hyperion_OpenDev($hash) if ($attr_name eq "disable");
   }
-  return $err if ($err);
-  return;
+  return $err ? $err : undef;
 }
 
 sub Hyperion_Call($;$)

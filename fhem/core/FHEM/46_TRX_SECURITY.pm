@@ -1,10 +1,11 @@
-# $Id: 46_TRX_SECURITY.pm 11452 2016-05-15 19:05:17Z wherzig $
+# $Id: 46_TRX_SECURITY.pm 18096 2018-12-30 14:37:52Z KernSani $
 ##############################################################################
 #
 #     46_TRX_SECURITY.pm
 #     FHEM module for X10, KD101, Visonic
 #
 #     Copyright (C) 2012/2013 Willi Herzig
+#	  Maintenance since 2018 by KernSani
 #
 #     This file is part of fhem.
 #
@@ -27,7 +28,16 @@
 # values for "set global verbose"
 # 4: log unknown protocols
 # 5: log decoding hexlines for debugging
+##############################################################################
 #
+#	CHANGELOG
+#	
+#	30.12.2018	Added standardized Reading batteryState	
+#	29.03.2018	Summary for Commandref
+#		
+#		
+##############################################################################
+
 package main;
 
 use strict;
@@ -192,9 +202,10 @@ TRX_SECURITY_Set($@)
 		if ($sensor ne "none") { readingsBulkUpdate($hash, $sensor, $command); }
 
 		# Set battery
-	  	$sensor = "battery";
-		readingsBulkUpdate($hash, $sensor, "ok");
-
+	  	#$sensor = "battery";
+		readingsBulkUpdate($hash, "battery", "ok");
+		readingsBulkUpdate($hash, "batteryState", "ok");
+		
   		readingsEndUpdate($hash, 1);
 	}
 
@@ -498,7 +509,8 @@ sub TRX_SECURITY_parse_X10Sec($$) {
 	$current = "Error";
 	$current = "ok" if ($battery eq "batt_ok");
 	$current = "low" if ($battery eq "batt_low");
-	readingsBulkUpdate($def, $sensor, $current);
+	readingsBulkUpdate($def, "battery", $current);
+	readingsBulkUpdate($def, "batteryState", $current);
   }
 
   if ($rssi ne "") {
@@ -582,6 +594,9 @@ TRX_SECURITY_Parse($$)
 1;
 
 =pod
+=item device
+=item summary    interprets messages of security sensors received by TRX
+=item summary_DE interpretiert Nachrichten von Sicherheitssensoren des TRX
 =begin html
 
 <a name="TRX_SECURITY"></a>
