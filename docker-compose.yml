@@ -69,6 +69,7 @@ services:
         ports:
             - "1880:1880"
         image: nodered/node-red-docker:0.18.4
+        user: "1000:1000"
         volumes:
             - ./nodered/data/:/data/
         networks:
