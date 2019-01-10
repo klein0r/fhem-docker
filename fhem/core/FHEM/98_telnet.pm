@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_telnet.pm 15006 2017-09-05 09:37:33Z rudolfkoenig $
+# $Id: 98_telnet.pm 17529 2018-10-14 12:57:06Z rudolfkoenig $
 
 # Note: this is not really a telnet server, but a TCP server with slight telnet
 # features (disable echo on password)
@@ -20,11 +20,24 @@ telnet_Initialize($)
   $hash->{AsyncOutputFn}  = "telnet_Output";
   $hash->{UndefFn} = "telnet_Undef";
   $hash->{AttrFn}  = "telnet_Attr";
-  $hash->{NotifyFn}= "telnet_SecurityCheck";
-  $hash->{AttrList} = "globalpassword password prompt allowedCommands ".
-                        "allowfrom SSL connectTimeout connectInterval ".
-                        "encoding:utf8,latin1 sslVersion";
+  no warnings 'qw';
+  my @attrList = qw(
+    SSL
+    allowedCommands
+    allowfrom
+    connectInterval
+    connectTimeout
+    encoding:utf8,latin1
+    globalpassword
+    password
+    prompt
+    sslCertPrefix
+    sslVersion
+  );
+  use warnings 'qw';
+  $hash->{AttrList} = join(" ", @attrList);
   $hash->{ActivateInformFn} = "telnet_ActivateInform";
+  $hash->{CanAuthenticate} = 2;
 
   $cmds{encoding} = { Fn=>"CommandTelnetEncoding",
             ClientFilter => "telnet",
@@ -55,39 +68,6 @@ CommandTelnetEncoding($$)
   }
 
   return $ret;
-}
-
-#####################################
-sub
-telnet_SecurityCheck($$)
-{
-  my ($ntfy, $dev) = @_;
-  return if($dev->{NAME} ne "global" ||
-            !grep(m/^INITIALIZED$/, @{$dev->{CHANGED}}));
-  my $motd = AttrVal("global", "motd", "");
-  if($motd =~ "^SecurityCheck") {
-    my @list1 = devspec2array("TYPE=telnet");
-    my @list2 = devspec2array("TYPE=allowed");
-    my @list3;
-    for my $l (@list1) { # This is a hack, as hardcoded to basicAuth
-      next if(!$defs{$l} || $defs{$l}{TEMPORARY}); # Blocking.pm /Forum #47022
-      my $fnd = 0;
-      for my $a (@list2) {
-        next if(!$defs{$a});
-        my $vf = AttrVal($a, "validFor","");
-        $fnd = 1 if(($vf && $vf =~ m/\b$l\b/) && 
-                    (AttrVal($a, "password","") ||
-                     AttrVal($a, "globalpassword","")));
-      }
-      push @list3, $l if(!$fnd);
-    }
-    $motd .= (join(",", sort @list3).
-            " has no associated allowed device with password/globalpassword.\n")
-        if(@list3);
-    $attr{global}{motd} = $motd;
-  }
-  delete $modules{telnet}{NotifyFn};
-  return;
 }
 
 ##########################
@@ -262,9 +242,9 @@ telnet_Read($)
     }
 
     $gotCmd = 1;
-    if($cmd) {
-      if($cmd =~ m/\\ *$/) {                     # Multi-line
-        $cmd =~ s/\\ *$//;
+    if($cmd || $hash->{prevlines}) {
+      if($cmd =~ m/\\\s*$/) {                     # Multi-line
+        $cmd =~ s/\\\s*$//;
         $hash->{prevlines} .= $cmd . "\n";
       } else {
         if($hash->{prevlines}) {
@@ -438,7 +418,7 @@ telnet_ActivateInform($)
     [global|hostname]</code><br>
 
     or<br>
-    <code>define &lt;name&gt; telnet &lt;servername&gt:&lt;portNumber&gt;</code>
+    <code>define &lt;name&gt; telnet &lt;servername&gt;:&lt;portNumber&gt;</code>
     <br><br>
 
     First form, <b>server</b> mode:<br>
@@ -547,6 +527,10 @@ telnet_ActivateInform($)
      <li>sslVersion<br>
         See the global attribute sslVersion.
         </li><br>
+     <li>sslCertPrefix<br>
+        Set the prefix for the SSL certificate, default is certs/server-, see
+        also the SSL attribute.
+        </li><br>
 
   </ul>
 
@@ -566,7 +550,7 @@ telnet_ActivateInform($)
     <code>define &lt;name&gt; telnet &lt;portNumber&gt;
     [global|hostname]</code><br> oder<br>
 
-    <code>define &lt;name&gt; telnet &lt;servername&gt:&lt;portNummer&gt;</code>
+    <code>define &lt;name&gt; telnet &lt;servername&gt;:&lt;portNummer&gt;</code>
     <br><br>
 
     Erste Form, <b>Server</b>-mode:<br>
@@ -688,6 +672,11 @@ telnet_ActivateInform($)
      <li>sslVersion<br>
         Siehe das global Attribut sslVersion.
         </li><br>
+
+     <li>sslCertPrefix<br>
+       Setzt das Pr&auml;fix der SSL-Zertifikate, die Voreinstellung ist
+       certs/server-, siehe auch das SSL Attribut.
+      </li><br>
 
   </ul>
 

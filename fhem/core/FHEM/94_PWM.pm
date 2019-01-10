@@ -26,9 +26,15 @@
 # 01.08.17 GA add attribute disable to stop calculations of PWM
 # 01.08.17 GA fix OverallHeatingSwitch (without threshold) now independent from ValveProtection
 # 17.08.17 GA add attribute overallHeatingSwitchThresholdTemp define a threshold temperature to prevent switch to "on"
+# 30.11.17 GA add helper for last pulses of rooms
+# 30.11.17 GA fix clear roomsToStayOn and roomsToStayOnList if not used
+# 05.12.17 GA add extend helper for last pulses by $roomsWaitOffset{$wkey}
+# 13.12.17 GA fix consider $roomsWaitOffset{$wkey} in oldpulse set for each room
+# 31.01.18 GA add support for stateFormat
+# 05.02.18 GA fix typo overallHeatingSwitchThresholdTemup
 
 ##############################################
-# $Id: 94_PWM.pm 14918 2017-08-18 15:47:43Z jamesgo $
+# $Id: 94_PWM.pm 16090 2018-02-05 11:04:56Z jamesgo $
 
 
 # module for PWM (Pulse Width Modulation) calculation
@@ -79,8 +85,9 @@ PWM_Initialize($)
   $hash->{UndefFn}   = "PWM_Undef";
   $hash->{AttrFn}    = "PWM_Attr";
 
-  $hash->{AttrList}  = "disable:1,0 event-on-change-reading event-min-interval valveProtectIdlePeriod overallHeatingSwitchRef:pulseMax,pulseSum,pulseAvg,pulseAvg2,pulseAvg3,avgPulseRoomsOn".
-		       " overallHeatingSwitchThresholdTemp";
+  $hash->{AttrList}  = "disable:1,0 valveProtectIdlePeriod overallHeatingSwitchRef:pulseMax,pulseSum,pulseAvg,pulseAvg2,pulseAvg3,avgPulseRoomsOn".
+		       " overallHeatingSwitchThresholdTemp ".$readingFnAttributes;
+
   #$hash->{GetList}   = "status timers";
 
 }
@@ -112,19 +119,21 @@ PWM_Calculate($)
 
   if (defined($attr{$name}{disable}) and $attr{$name}{disable} == 1) {
     Log3 ($hash, 3, "PWM_Calculate $name");
-    $hash->{STATE} = "disabled";
+    #$hash->{STATE} = "disabled";
+    readingsSingleUpdate ($hash,  "state", "disabled", 1);
     readingsSingleUpdate ($hash,  "lastrun", "disabled", 0);
     return;
   }
 
   Log3 ($hash, 3, "PWM_Calculate $name");
 
+  $hash->{helper}{pulses} = ();
+
   readingsBeginUpdate ($hash);
 
-  #$hash->{STATE} = "lastrun: ".TimeNow();
-  #$hash->{STATE} = "calculating";
   readingsBulkUpdate ($hash,  "lastrun", "calculating");
-  $hash->{STATE} = "lastrun: ".$hash->{READINGS}{lastrun}{TIME};
+  #$hash->{STATE} = "lastrun: ".$hash->{READINGS}{lastrun}{TIME};
+  readingsBulkUpdate ($hash,  "state", "lastrun: ".$hash->{READINGS}{lastrun}{TIME});
 
   # loop over all devices
   #  fetch all PWMR devices
@@ -145,9 +154,6 @@ PWM_Calculate($)
           # $newstate may be "on_vp" or "off_vp" if valve protection is active
 	  my ($newstate, $newpulse, $cycletime, $oldstate) = PWM_CalcRoom($hash, $defs{$d});
 
-	  $defs{$d}->{READINGS}{oldpulse}{TIME} = TimeNow();
-	  $defs{$d}->{READINGS}{oldpulse}{VAL}  = $newpulse;
-
           my $onoff = $newpulse * $cycletime;
           if ($newstate =~ "off.*") {
             $onoff = (1 - $newpulse) * $cycletime
@@ -161,11 +167,16 @@ PWM_Calculate($)
 	  
           $wkey = $name."_".$d;
           if (defined ($roomsWaitOffset{$wkey})) {
+            $hash->{helper}{pulses}{$d} = $newpulse." / ".$roomsWaitOffset{$wkey}; 
             $newpulse += $roomsWaitOffset{$wkey};
             
           } else {
             $roomsWaitOffset{$wkey} = 0;
+            $hash->{helper}{pulses}{$d} = $newpulse." / ".$roomsWaitOffset{$wkey}; 
           }
+
+	  $defs{$d}->{READINGS}{oldpulse}{TIME} = TimeNow();
+	  $defs{$d}->{READINGS}{oldpulse}{VAL}  = $newpulse;
 
           $roomsActive++;
           $RoomsPulses{$d} = $newpulse;
@@ -509,7 +520,11 @@ PWM_Calculate($)
   if ( $hash->{NoRoomsToStayOn} > 0) {
     readingsBulkUpdate ($hash,  "roomsToStayOn", $minRoomsOn);
     readingsBulkUpdate ($hash,  "roomsToStayOnList", $minRoomsOnList);
+  } else {
+    readingsBulkUpdate ($hash,  "roomsToStayOn", 0);
+    readingsBulkUpdate ($hash,  "roomsToStayOnList", "");
   }
+	
 
   if ( defined ($hash->{OverallHeatingSwitch}) ) {
     if ( $hash->{OverallHeatingSwitch} ne "") {
@@ -883,9 +898,6 @@ Log3 ($hash, 1, "PWM_Get $name collect $room->{NAME} $reading");
   } else {
     return "Unknown argument $a[1], choose one of status timers";
   }
-  
-  #return $hash->{READINGS}{STATE}{VAL};
-  #return $hash->{STATE};
 }
 
 #############################

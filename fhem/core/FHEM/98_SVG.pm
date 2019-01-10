@@ -1,10 +1,11 @@
 ##############################################
-# $Id: 98_SVG.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
+# $Id: 98_SVG.pm 17779 2018-11-18 17:49:14Z rudolfkoenig $
 package main;
 
 use strict;
 use warnings;
 use POSIX;
+use HttpUtils;
 #use Devel::Size qw(size total_size);
 
 # This block is only needed when SVG is loaded bevore FHEMWEB
@@ -27,6 +28,7 @@ use vars qw(%FW_webArgs); # all arguments specified in the GET
 use vars qw($FW_formmethod);
 use vars qw($FW_userAgent);
 use vars qw($FW_hiddenroom);
+use vars qw($FW_CSRF);
 
 my $SVG_RET;        # Returned data (SVG)
 sub SVG_calcOffsets($$);
@@ -68,7 +70,7 @@ SVG_Initialize($)
     nrAxis
     plotWeekStartDay:0,1,2,3,4,5,6
     plotfunction
-    plotmode
+    plotmode:gnuplot-scroll,gnuplot-scroll-svg,SVG
     plotsize
     plotReplace:textField-long
     startDate
@@ -173,33 +175,6 @@ SVG_Rename($$)
   SVG_Set($hash, $new, "copyGplotFile");   # Forum #59786
 }
 
-##################
-sub
-SVG_FwDetail($@)
-{
-  my ($d, $text, $nobr)= @_;
-  return "" if(AttrVal($d, "group", ""));
-  my $alias= AttrVal($d, "alias", $d);
-
-  my $ret = ($nobr ? "" : "<br>");
-  $ret .= "$text " if($text);
-  $ret .= FW_pH("detail=$d", $alias,0, "SVGlabel SVG_$d", 1,0) if(!$FW_subdir);
-  $ret .= "<br>";
-  return $ret;
-}
-
-
-sub
-jsSVG_getAttrs($;$)
-{
-  my ($d , $flt) = @_;
-  return join("&#01;", map { #00 arrives as 65533 in JS
-     my $v=$attr{$d}{$_};
-     $v =~ s/'/&#39;/g;
-    "$_=$v";
-  } grep { $flt ? $flt->{$_} : 1 } keys %{$attr{$d}});
-}
-
 sub
 SVG_getplotsize($)
 {
@@ -211,8 +186,7 @@ SVG_getplotsize($)
 sub
 SVG_isEmbed($)
 {
-  return (AttrVal($FW_wname, "plotEmbed", 1));
-                        # $FW_userAgent !~ m/(iPhone|iPad|iPod).*OS (8|9)/));
+  return AttrVal($FW_wname, "plotEmbed", 0);
 }
 
 sub
@@ -234,52 +208,25 @@ SVG_FwFn($$$$)
   my $hash = $defs{$d};
   my $ret = "";
 
-  if(!$pageHash || !$pageHash->{jsLoaded}) {
-    $ret .= "<script type='text/javascript' src='$FW_ME/pgm2/svg.js'></script>";
-    $pageHash->{jsLoaded} = 1 if($pageHash);
-  }
+  my $isFirst = (!$pageHash || !$pageHash->{svgLoaded});
+  $isFirst = 0 if($pageHash && $pageHash->{svgIdx} && $pageHash->{svgIdx} != 1);
+  $pageHash->{svgLoaded} = 1 if($pageHash);
+  $ret .= "<script type='text/javascript' src='$FW_ME/pgm2/svg.js'></script>"
+    if($isFirst);
 
   # plots navigation buttons
   my $pm = AttrVal($d,"plotmode",$FW_plotmode);
-  if((!$pageHash || !$pageHash->{buttons}) &&
-     AttrVal($d, "fixedrange", "x") !~ m/^[ 0-9:-]*$/) {
-
+  if($isFirst) {
+    $ret .= '<div class="SVGlabel" data-name="svgZoomControl">';
     $ret .= SVG_zoomLink("zoom=-1", "Zoom-in", "zoom in");
     $ret .= SVG_zoomLink("zoom=1",  "Zoom-out","zoom out");
     $ret .= SVG_zoomLink("off=-1",  "Prev",    "prev");
     $ret .= SVG_zoomLink("off=1",   "Next",    "next");
+    $ret .= '</div>';
     $pageHash->{buttons} = 1 if($pageHash);
     $ret .= "<br>";
   }
 
-
-  if($pm eq "jsSVG") {
-    my @d=split(":",$defs{$d}{DEF});
-    my ($err, @svgplotfile) = FileRead("$FW_gplotdir/$d[1].gplot");
-       ($err, @svgplotfile) = FileRead("$FW_gplotdir/template.gplot") if($err);
-    my $gplot = join("&#01;", @svgplotfile);
-    $gplot =~ s/'/&#39;/g;
-    my %webattrflt = ( endPlotNow=>1, endPlotToday=>1, plotmode=>1,
-                       plotsize=>1,   nrAxis=>1,       stylesheetPrefix=>1 );
-    if(!$pageHash || !$pageHash->{jssvgLoaded}) {
-      $ret .=
-          "<script type='text/javascript' src='$FW_ME/pgm2/jsSVG.js'></script>";
-      $pageHash->{jssvgLoaded} = 1 if($pageHash);
-    }
-
-    SVG_calcOffsets($d[0], $d);
-    $ret .= "<div id='jsSVG_$d' class='jsSVG' ".
-                "data-webAttr='".jsSVG_getAttrs($FW_wname, \%webattrflt)."' ".
-                "data-svgAttr='".jsSVG_getAttrs($d)."' ".
-                "data-svgName='".$d."' ".
-                "data-from='".$SVG_devs{$d[0]}{from}."' ".
-                "data-to='"  .$SVG_devs{$d[0]}{to}  ."' ".
-                "data-gplotFile='$gplot' source='$d[0]'>".
-            "</div>";
-    $ret .= (SVG_PEdit($FW_wname,$d,$room,$pageHash) . "<br>")
-      if(!$pageHash);
-    return $ret;
-  }
 
   my $arg="$FW_ME/SVG_showLog?dev=$d".
                 "&logdev=$hash->{LOGDEVICE}".
@@ -319,8 +266,13 @@ SVG_FwFn($$$$)
     }
 
   } else {
-    $ret .= SVG_FwDetail($d, "", 1) if(!$FW_hiddenroom{detail});
-
+    if(!AttrVal($d, "group", "") && !$FW_subdir) {
+      my $alias = AttrVal($d, "alias", $d);
+      my $clAdd = "\" data-name=\"$d";
+      $clAdd .= "\" style=\"display:none;" if($FW_hiddenroom{detail});
+      $ret .= FW_pH("detail=$d", $alias, 0, "SVGlabel SVG_$d $clAdd", 1, 0);
+      $ret .= "<br>";
+    }
   }
 
   return $ret;
@@ -339,6 +291,7 @@ SVG_txt($$$$)
 {
   my ($v,$t,$c,$sz) = @_;
   $c = "" if(!defined($c));
+  $c =~ s/&/\&amp;/g;
   $c =~ s/"/\&quot;/g;
   return "$t&nbsp;<input type=\"text\" name=\"$v\" size=\"$sz\" ".
                 "value=\"$c\"/>";
@@ -364,7 +317,12 @@ SVG_PEdit($$$$)
 
   return "" if( $pe eq 'never' );
 
-  my $gp = "$FW_gplotdir/$defs{$d}{GPLOTFILE}.gplot";
+  my $gpf = $defs{$d}{GPLOTFILE};
+  my $gpfEsc = $gpf;
+  $gpfEsc =~ s,\.,\\\\.,g;
+  my $link = "$FW_ME?cmd=style edit $gpf.gplot".
+               (configDBUsed() ? " configDB" : "").$FW_CSRF;
+  my $gp = "$FW_gplotdir/$gpf.gplot";
   my $pm = AttrVal($d,"plotmode",$FW_plotmode);
 
   my ($err, $cfg, $plot, $srcDesc) = SVG_readgplotfile($d, $gp, $pm);
@@ -379,17 +337,18 @@ SVG_PEdit($$$$)
                "s.display = s.display=='none' ? 'block' : 'none';".
                "s=document.getElementById('pdisp').style;".
                "s.display = s.display=='none' ? 'block' : 'none';";
-    $ret .= "<a id=\"pdisp\" style=\"cursor:pointer\" onClick=\"$pgm\">Show Plot Editor</a>";
+    $ret .= "<a id=\"pdisp\" style=\"cursor:pointer\" onClick=\"$pgm\">".
+                "Show Plot Editor</a>";
     $pestyle = 'style="display:none"';
   }
 
-  $ret .= "<form $pestyle id=\"pedit\" method=\"$FW_formmethod\" autocomplete=\"off\" ".
-                "action=\"$FW_ME/SVG_WriteGplot\">";
-  $ret .= "Plot Editor";
+  $ret.="<form $pestyle id='pedit' method='$FW_formmethod' autocomplete='off' ".
+              "action='$FW_ME/SVG_WriteGplot'>";
   $ret .= FW_hidden("detail", $d); # go to detail after save
   if(defined($FW_pos{zoom}) && defined($FW_pos{off})) { # for showData
     $ret .= FW_hidden("pos", "zoom=$FW_pos{zoom};off=$FW_pos{off}");
   }
+  $ret .= "<div class='makeTable wide'><span>Plot Editor</span>";
   $ret .= "<table class=\"block wide plotEditor\">";
   $ret .= "<tr class=\"even\">";
   $ret .= "<td>Plot title</td>";
@@ -500,7 +459,8 @@ SVG_PEdit($$$$)
     $o .= SVG_sel("axes_${idx}", "left,right,left log,right log", $sel );
     $o .= SVG_sel("type_${idx}",
                 "lines,points,steps,fsteps,histeps,bars,ibars,".
-                        "cubic,quadratic,quadraticSmooth",
+                "horizontalLineFrom,horizontalLineTo,".
+                "cubic,quadratic,quadraticSmooth",
                 $conf{lType}[$idx]);
     my $ls = $conf{lStyle}[$idx]; 
     if($ls) {
@@ -513,7 +473,7 @@ SVG_PEdit($$$$)
       $lw =~ s/.*stroke-width://g;
       $lw =~ s/"//g; 
     }
-    $o .= SVG_sel("width_$idx", "0.2,0.5,1,1.5,2,3,4", ($lw ? $lw : 1));
+    $o .= SVG_sel("width_$idx", "0.2,0.5,1,1.5,2,3,4,8,12,16,24",($lw ? $lw:1));
     $o .= "</td></tr>";
     $output[$idx] = $o;
   }
@@ -541,7 +501,7 @@ SVG_PEdit($$$$)
           FW_submit("showFileLogData", "Show preprocessed input").
           "</td></tr>";
 
-  $ret .= "</table></form>";
+  $ret .= "</table></div></form>";
 
   my $sl = "$FW_ME/SVG_WriteGplot?detail=$d&showFileLogData=1";
   if(defined($FW_pos{zoom}) && defined($FW_pos{off})) {
@@ -561,10 +521,14 @@ SVG_PEdit($$$$)
     e.preventDefault();
 EOF
     $ret .= 
-    "FW_cmd('$sl', function(arg){" .<<'EOF';
+    "FW_cmd('$sl', function(arg){" .<<"EOF";
       FW_okDialog(arg);
     });
   });
+  setTimeout(function(){
+    \$("table.internals div[informid=$gpfEsc-GPLOTFILE]")
+      .html("<a href='$link'>$gpf</a>");
+    }, 10);
 </script>
 EOF
   return $ret;
@@ -586,12 +550,12 @@ SVG_zoomLink($$$)
   my ($d,$off) = split("=", $cmd, 2);
 
   my $val = $FW_pos{$d};
-  $cmd = ($FW_detail ? "detail=$FW_detail":
-                        ($prf ? $prf : "room=$FW_room")) . "&pos=";
+  $cmd = ($FW_detail ? "detail=".urlEncode($FW_detail):
+                        ($prf ? $prf : "room=".urlEncode($FW_room))) . "&pos=";
   if($d eq "zoom") {
 
     my $n = 0;
-    my @FW_zoom = ("hour","qday","day","week","month","year");
+    my @FW_zoom=("hour","qday","day","week","month","year","10years","20years");
     my %FW_zoom = map { $_, $n++ } @FW_zoom;
 
     $val = "day" if(!$val);
@@ -616,6 +580,10 @@ SVG_zoomLink($$$)
       $w_off = ($off < 0) ? $w_off*12: int($w_off/4);
     } elsif($val eq "year") {
       $w_off =                         int($w_off/12);
+    } elsif($val eq "10years") {
+      $w_off =                         int($w_off/120);
+    } elsif($val eq "20years") {
+      $w_off =                         int($w_off/240);
     }
     $cmd .= "zoom=$val;off=$w_off";
 
@@ -741,7 +709,7 @@ SVG_WriteGplot($)
 # - {src}{X}: hash (X is an order element), consisting of
 #     {arg}: plot arguments for one dev, space separated
 #     {idx}: number of lines requested from the same source
-#     {num}: number or this src in the order array
+#     {num}: number of this src in the order array
 # - {rev}{orderIdx}{localIdx} = N: reverse lookup of the plot argument index,
 #      using {src}{X}{num} as orderIdx and {src}{X}{idx} as localIdx
 sub
@@ -753,17 +721,19 @@ SVG_readgplotfile($$$)
   # Read in the template gnuplot file.  Digest the #FileLog lines.  Replace
   # the plot directive with our own, as we offer a file for each line
   my (%srcDesc, @data, $plot);
+  my ($err1, $err2, @svgplotfile);
 
+  return ("Nonexisting device $wl specified", @svgplotfile)
+        if(!$defs{$wl});
   my $ld = $defs{$wl}{LOGDEVICE}
-     if($defs{$wl} && $defs{$wl}{LOGDEVICE});
+     if($defs{$wl}{LOGDEVICE});
   my $ldType = $defs{$defs{$wl}{LOGDEVICE}}{TYPE}
      if($ld && $defs{$ld});
-  if(!$ldType && $defs{$wl}) {
+  if(!$ldType) {
     $ldType = $defs{$wl}{TYPE};
     $ld = $wl;
   }
 
-  my ($err1, $err2, @svgplotfile);
   ($err1, @svgplotfile) = FileRead($gplot_pgm);
   ($err2, @svgplotfile) = FileRead("$FW_gplotdir/template.gplot") if($err1);
   return ($err1, undef) if($err2);
@@ -808,7 +778,7 @@ SVG_readgplotfile($$$)
     }
 
     if($plotfn) {
-      Log 3, "$wl: space is not allowed in $ldType definition: $plotfn"
+      Log 3, "$wl: space is not allowed in >$ldType< definition: $plotfn"
         if($plotfn =~ m/\s/);
       if ($specval) {
         my @spec = split(" ",$specval);
@@ -867,6 +837,18 @@ SVG_substcfg($$$$$$)
   my $gplot_script = join("", @{$cfg});
   $gplot_script .=  $plot if(!$splitret);
 
+  my $plotReplace = AttrVal($wl, "plotReplace", undef);
+  if($plotReplace) {
+    my ($list, $pr) = parseParams($plotReplace, "\\s"," ");
+    for my $k (keys %$pr) {
+      if($pr->{$k} =~ m/^{.*}$/) {
+        $cmdFromAnalyze = $pr->{$k};
+        $pr->{$k} = eval $cmdFromAnalyze;
+      }
+      $gplot_script =~ s/<$k>/$pr->{$k}/g;
+    }
+  }
+
   $gplot_script =~ s/<OUT>/$tmpfile/g;
   $gplot_script =~ s/<IN>/$file/g;
 
@@ -883,18 +865,6 @@ SVG_substcfg($$$$$$)
     }
   }
 
-  my $plotReplace = AttrVal($wl, "plotReplace", undef);
-  if($plotReplace) {
-    my ($list, $pr) = parseParams($plotReplace, "\\s"," ");
-    for my $k (keys %$pr) {
-      if($pr->{$k} =~ m/^{.*}$/) {
-        $cmdFromAnalyze = $pr->{$k};
-        $pr->{$k} = eval $cmdFromAnalyze;
-      }
-      $gplot_script =~ s/<$k>/$pr->{$k}/g;
-    }
-  }
-
   $plot =~ s/\r//g;             # For our windows friends...
   $gplot_script =~ s/\r//g;
 
@@ -907,14 +877,10 @@ SVG_substcfg($$$$$$)
 }
 
 sub
-SVG_tspec($$@)
+SVG_tspec(@)
 {
-  my ($n,$e) = (shift,shift);
-  for(my $i=1; $i<$n; $i++) {
-    $_[$i] = 0;
-  }
   return sprintf("%04d-%02d-%02d_%02d:%02d:%02d",
-                 $_[5]+1900,$_[4]+1,$_[3],$_[2],$_[1],$e);
+                 $_[5]+1900,$_[4]+1,$_[3],$_[2],$_[1],$_[0]);
 }
 
 ##################
@@ -933,7 +899,9 @@ SVG_calcOffsets($$)
     $fr = AttrVal($wl, "fixedrange", undef);
     if($fr) {
       if($fr =~ "^(hour|qday|day|week|month|year)" ||
-         $fr =~ m/^\d+days$/ ) { #fixedrange with offset
+         $fr =~ m/^\d+hour/  || #fixedrange with offset
+         $fr =~ m/^\d+day/   ||
+         $fr =~ m/^\d+year/ ) {
         $frx=$fr; #fixedrange with offset
 
       } else {
@@ -969,52 +937,52 @@ SVG_calcOffsets($$)
   if(defined($zrange[1])) { $off += $zrange[1]; $zoom=$zrange[0]; }  #fixedrange with offset
 
   my $endPlotNow = (SVG_Attr($FW_wname, $wl, "endPlotNow", undef) && !$st);
-  if($zoom eq "hour") {
+  if($zoom =~ m/^(\d+)?hour/) {
+    my $nHours = $1 ? ($1-1) : 0;
     if($endPlotNow) {
-      my $t = int(($now + $off*3600 - 3600)/300.0)*300 + 300;
+      my $t = int(($now + ($off-$nHours-1)*3600)/300.0)*300 + 300;
       my @l = localtime($t);
-      $SVG_devs{$d}{from} = SVG_tspec(1,0,@l);
-      @l = localtime($t+3600);
-      $SVG_devs{$d}{to}   = SVG_tspec(1,1,@l);
+      $SVG_devs{$d}{from} = SVG_tspec(@l);
+      @l = localtime($t+$nHours*3600+3599);
+      $SVG_devs{$d}{to}   = SVG_tspec(@l);
     } else { 
-      my $t = $now + $off*3600;
+      my $t = int($now/3600)*3600 + ($off-$nHours)*3600;
       my @l = localtime($t);
-      $SVG_devs{$d}{from} = SVG_tspec(2,0,@l);
-      @l = localtime($t+3600);
-      $SVG_devs{$d}{to}   = SVG_tspec(2,1,@l);
+      $SVG_devs{$d}{from} = SVG_tspec(@l);
+      @l = localtime($t+($nHours+1)*3600-1);
+      $SVG_devs{$d}{to}   = SVG_tspec(@l);
     }
 
   } elsif($zoom eq "qday") {
     if($endPlotNow) {
-      my $t = int(($now + $off*21600 - 21600)/300.0)*300 + 300;
+      my $t = int($now/300)*300+300 + ($off-1)*21600;
       my @l = localtime($t);
-      $SVG_devs{$d}{from} = SVG_tspec(1,0,@l);
-      @l = localtime($t+21600);
-      $SVG_devs{$d}{to}   = SVG_tspec(1,1,@l);
+      $SVG_devs{$d}{from} = SVG_tspec( 0,$l[1],$l[2],$l[3],$l[4],$l[5]);
+      @l = localtime($t+21600-1);
+      $SVG_devs{$d}{to}   = SVG_tspec(59,$l[1],$l[2],$l[3],$l[4],$l[5]);
     } else { 
-      my $t = $now + $off*21600;
+      my $t = int($now/3600)*3600 + $off*21600;
       my @l = localtime($t);
       $l[2] = int($l[2]/6)*6;
-      $SVG_devs{$d}{from} = SVG_tspec(2,0,@l);
-      @l = localtime($t+21600);
-      $l[2] = int($l[2]/6)*6;
-      $SVG_devs{$d}{to}   = SVG_tspec(2,1,@l);
+      $SVG_devs{$d}{from} = SVG_tspec( 0, 0,$l[2],$l[3],$l[4],$l[5]);
+      $l[2] += 5;
+      $SVG_devs{$d}{to}   = SVG_tspec(59,59,$l[2],$l[3],$l[4],$l[5]);
     }
 
   } elsif($zoom =~ m/^(\d+)?day/) {
     my $nDays = $1 ? ($1-1) : 0;
     if($endPlotNow) {
-      my $t = int(($now + ($off-$nDays-1)*86400)/900.0)*900 + 900;
+      my $t = int($now/300)*300+300 + ($off-$nDays-1)*86400;
       my @l = localtime($t);
-      $SVG_devs{$d}{from} = SVG_tspec(1,0,@l);
-      @l = localtime($t+(1+$nDays)*86400);
-      $SVG_devs{$d}{to}   = SVG_tspec(1,1,@l);
+      $SVG_devs{$d}{from} = SVG_tspec(0,$l[1],$l[2],$l[3],$l[4],$l[5]);
+      @l = localtime($t+(1+$nDays)*86400-1);
+      $SVG_devs{$d}{to}   = SVG_tspec(59,$l[1],$l[2],$l[3],$l[4],$l[5]);
     } else { 
       my $t = $now + ($off-$nDays)*86400;
       my @l = localtime($t);
-      $SVG_devs{$d}{from} = SVG_tspec(3,0,@l);
-      @l = localtime($t+(1+$nDays)*86400);
-      $SVG_devs{$d}{to}   = SVG_tspec(3,1,@l);
+      $SVG_devs{$d}{from} = SVG_tspec( 0, 0, 0,$l[3],$l[4],$l[5]);
+      @l = localtime($t+$nDays*86400);
+      $SVG_devs{$d}{to}   = SVG_tspec(59,59,23,$l[3],$l[4],$l[5]);
     }
 
   } elsif($zoom eq "week") {
@@ -1024,37 +992,64 @@ SVG_calcOffsets($$)
     $start += 7 if($start < 0);
     my $t = $now - ($start*86400) + ($off*86400)*7;
     @l = localtime($t);
-    $SVG_devs{$d}{from} = SVG_tspec(3,0,@l);
-    @l = localtime($t+7*86400);
-    $SVG_devs{$d}{to}   = SVG_tspec(3,1,@l);
+    $SVG_devs{$d}{from} = SVG_tspec( 0, 0, 0,$l[3],$l[4],$l[5]);
+    @l = localtime($t+6*86400);
+    $SVG_devs{$d}{to}   = SVG_tspec(59,59,23,$l[3],$l[4],$l[5]);
 
  } elsif($zoom eq "month") {
-    my ($endDay, @l);
-    if(SVG_Attr($FW_wname, $wl, "endPlotToday", undef)) {
-      @l = localtime($now+86400);
-      $endDay = $l[3];
-      $off--;
-    } else {
-      @l = localtime($now);
-      $endDay = 1;
-    }
+    my ($sd,$ed,$sm,$em,$sy,$ey);
+    my @l = localtime($now);
     while($off < -12) { # Correct the year
       $off += 12; $l[5]--;
     }
     $l[4] += $off;
     $l[4] += 12, $l[5]-- if($l[4] < 0);
-    $l[3] = $endDay;
-    $SVG_devs{$d}{from} = SVG_tspec(3,0,@l);
-    $l[4]++;
-    $l[4] = 0, $l[5]++ if($l[4] == 12);
-    $SVG_devs{$d}{to}   = SVG_tspec(3,1,@l);
+    my @me = (31,28,31,30,31,30,31,31,30,31,30,31);
 
-  } elsif($zoom eq "year") {
+    if(SVG_Attr($FW_wname, $wl, "endPlotToday", undef)) {
+      $sy = $ey = $l[5];
+      $sm = $l[4]-1; $em = $l[4];
+      $sm += 12, $sy-- if($sm < 0);
+      $sd = $l[3]+1; $ed = $l[3];
+      $sd=1, $sm=$em, $sy=$ey if($sd > $me[$sm]);
+
+    } else {
+      $sy = $ey = $l[5];
+      $sm = $em = $l[4];
+      $sd = 1; $ed = $me[$l[4]];
+      $ed++ if($l[4]==1 && !(($sy+1900)%4)); # leap year
+    }
+    $SVG_devs{$d}{from} = SVG_tspec( 0, 0, 0,$sd,$sm,$sy);
+    $SVG_devs{$d}{to}   = SVG_tspec(59,59,23,$ed,$em,$ey);
+
+  } elsif($zoom =~ m/^(\d+)?year/) {
+    my $nyear = $1 ? ($1-1) : 0;
     my @l = localtime($now);
-    $l[5] += $off;
-    $SVG_devs{$d}{from} = sprintf("%04d-01-01_00:00:00", $l[5]+1900);
-    $SVG_devs{$d}{to}   = sprintf("%04d-01-01_00:00:01", $l[5]+1901);
+    $l[5] += ($off-1);
+    if ($st) { #
+      $l[5]++;
+      $SVG_devs{$d}{from} = SVG_tspec( 0, 0, 0, 1, 0,$l[5] ); #Jan01 00:00:00
+      $SVG_devs{$d}{to}   = SVG_tspec(59,59,23,31,11,$l[5]+$nyear);
 
+    } elsif(SVG_Attr($FW_wname, $wl, "endPlotToday", undef)) {
+      $SVG_devs{$d}{from} = SVG_tspec( 0, 0, 0,$l[3],$l[4],$l[5] - $nyear);
+      $l[5]++; # today, 23:59
+      $SVG_devs{$d}{to}   = SVG_tspec(59,59,23,$l[3],$l[4],$l[5]);
+
+    } elsif(SVG_Attr($FW_wname, $wl, "endPlotNow", undef)) {
+      #$SVG_devs{$d}{from} = SVG_tspec(0, $l[0], @l);
+      $SVG_devs{$d}{from}  = SVG_tspec($l[0], $l[1], $l[2],$l[3],$l[4],
+                                       $l[5] - $nyear);
+      #$SVG_devs{$d}{from} = SVG_tspec(@l);
+      $l[5]++; # now
+      $SVG_devs{$d}{to}   = SVG_tspec(@l);
+
+    } else {
+      $l[5]++;
+      $SVG_devs{$d}{from} = SVG_tspec( 0, 0, 0, 1, 0,$l[5]-$nyear);
+      $SVG_devs{$d}{to}   = SVG_tspec(59,59,23,31,11,$l[5]); #Dec31 23:59:59
+
+    }
   }
 }
 
@@ -1079,10 +1074,10 @@ SVG_doShowLog($$$$;$)
 
   my ($err, $cfg, $plot, $srcDesc) = SVG_readgplotfile($wl, $gplot_pgm, $pm);
   if($err || !$defs{$d}) {
-    my $msg = ($defs{$d} ? "Cannot read $gplot_pgm" : "No Logdevice $d");
+    my $msg = ($err ? $err : "No Logdevice >$d<");
     Log3 $FW_wname, 1, $msg;
 
-    if($pm =~ m/SVG/) { # FW_fatal for SVG:
+    if($pm && $pm =~ m/SVG/) { # FW_fatal for SVG:
       $FW_RETTYPE = "image/svg+xml";
       FW_pO '<svg xmlns="http://www.w3.org/2000/svg">';
       FW_pO '<text x="20" y="20">'.$msg.'</text>';
@@ -1129,22 +1124,24 @@ SVG_doShowLog($$$$;$)
     my $gplot_script = SVG_substcfg(0, $wl, $cfg, $plot, $file, $tmpfile);
     $gplot_script =~ s/<TMPFILE>/$tmpfile/g;
 
-    $plot =~ s/ls \w+//g;
-    open(FH, "|gnuplot >> $errfile 2>&1");# feed it to gnuplot
-    print FH $gplot_script;
-    close(FH);
-    unlink($tmpfile);
-
     my $ext;
     if($pm eq "gnuplot-scroll") {
       $FW_RETTYPE = "image/png";
       $ext = "png";
     }
     else {
+      $gplot_script =~ s/set terminal png transparent/set terminal svg/;
+      $gplot_script =~ s/set terminal (.*) crop/set terminal $1/;
+      $gplot_script =~ s/set output (.*).png'/set output $1.svg'/;
       $FW_RETTYPE = "image/svg+xml";
       $ext = "svg";
     }
-    
+    $gplot_script =~ s/ls \w+//g;
+    open(FH, "|gnuplot >> $errfile 2>&1");# feed it to gnuplot
+    print FH $gplot_script;
+    close(FH);
+    unlink($tmpfile);
+
     open(FH, "$tmpfile.$ext");         # read in the result and send it
     binmode (FH); # necessary for Windows
     FW_pO join("", <FH>);
@@ -1197,7 +1194,7 @@ SVG_getData($$$$$)
   my ($d, $f,$t,$srcDesc,$showData) = @_;
   my (@da, $ret, @vals); 
   my @keys = ("min","mindate","max","maxdate","currval","currdate",
-              "firstval","firstdate","avg","cnt","lastraw");
+              "firstval","firstdate","avg","cnt","lastraw","sum");
 
   foreach my $src (@{$srcDesc->{order}}) {
     my $s = $srcDesc->{src}{$src};
@@ -1217,7 +1214,6 @@ SVG_getData($$$$$)
         }
         push @vals, \%h;
       }
-
     }
   }
 
@@ -1281,8 +1277,7 @@ SVG_digestConf($$)
     $lAxis[$i] = "x1y2" if(!$lAxis[$i]);
     $lStyle[$i] = "class=\"SVGplot ".
                         (defined($lStyle[$i]) ? $lStyle[$i] : "l$i")."\"";
-    $lWidth[$i] = (defined($lWidth[$i]) ?
-                        "style=\"stroke-width:$lWidth[$i]\"" :"");
+    $lWidth[$i] = (defined($lWidth[$i]) ? "stroke-width:$lWidth[$i]" :"");
   }
 
   $conf{lAxis}  = \@lAxis;
@@ -1392,7 +1387,7 @@ SVG_render($$$$$$$$$$)
   # SVG Header
   my $svghdr = 'version="1.1" xmlns="http://www.w3.org/2000/svg" '.
                'xmlns:xlink="http://www.w3.org/1999/xlink" '.
-               "id='SVGPLOT_$name' $filter";
+               "id='SVGPLOT_$name' $filter data-origin='FHEM'";
   if(!$noHeader) {
     SVG_pO '<?xml version="1.0" encoding="UTF-8"?>';
     SVG_pO '<!DOCTYPE svg>';
@@ -1421,16 +1416,27 @@ SVG_render($$$$$$$$$$)
   }
 
   ######################
+  # Mask:
+  SVG_pO "<defs>".
+           "<mask id='mask_$name' maskUnits='userSpaceOnUse' ".
+                  "x='0' y='0' width ='$ow' height ='$oh'>".
+             sprintf("<rect x='%d' y='%d' width='%d' height='%d' ",
+                     $x-2, $y-1, $w+2, $h+1).
+                "style='stroke:none; fill:#ffffff'/>".
+           "</mask>".
+         "</defs>";
+
+  ######################
   # Rectangle
-  SVG_pO "<rect x=\"$x\" y=\"$y\" width =\"$w\" height =\"$h\" rx=\"8\" ry=\"8\" ".
-        "fill=\"none\" class=\"border\"/>";
+  SVG_pO "<rect x='$x' y='$y' width ='$w' height ='$h' rx='8' ry='8' ".
+        "fill='none' class='border'/>";
 
   my ($off1,$off2) = ($x+$w/2, 3*$y/4);
   my $title = ($conf{title} ? $conf{title} : " ");
   $title =~ s/</&lt;/g;
   $title =~ s/>/&gt;/g;
-  SVG_pO "<text id=\"svg_title\" x=\"$off1\" y=\"$off2\" " .
-        "class=\"title\" text-anchor=\"middle\">$title</text>";
+  SVG_pO "<text id='svg_title' x='$off1' y='$off2' " .
+        "class='title' text-anchor='middle'>$title</text>";
 
   ######################
   # Left label = ylabel and right label = y2label
@@ -1469,7 +1475,7 @@ SVG_render($$$$$$$$$$)
       $idx++;
     }
     #main::Debug "xmin= $xmin   xmax=$xmax";
-    $conf{xrange} = AnalyzeCommand(undef, $1) if($conf{xrange} =~ /^({.*})$/);
+    $conf{xrange} = AnalyzeCommand(undef, $1) if($conf{xrange} =~ /^(\{.*\})$/);
     if($conf{xrange} =~ /\[(.*):(.*)\]/) {
       $xmin = $1 if($1 ne "");
       $xmax = $2 if($2 ne "");
@@ -1580,19 +1586,36 @@ SVG_render($$$$$$$$$$)
   my $ddur = ($tosec-$fromsec)/86400;
   my ($first_tag, $tag, $step, $tstep, $aligntext,  $aligntics);
 
-  if($ddur <= 0.1) {
+  if($ddur <= 0.05) {
     $first_tag=". 2 1"; $tag=": 3 4"; $step = 300; $tstep = 60;
+
+  } elsif($ddur <= 0.2) {
+    $first_tag=". 2 1"; $tag=": 3 4"; $step = 1200; $tstep = 300;
+
   } elsif($ddur <= 0.5) {
     $first_tag=". 2 1"; $tag=": 3 4"; $step = 3600; $tstep = 900;
+
   } elsif($ddur <= 1.1) {       # +0.1 -> DST
     $first_tag=". 2 1"; $tag=": 3 4"; $step = 4*3600; $tstep = 3600;
+
   } elsif ($ddur <= 7.1) {
     $first_tag=". 6";   $tag=". 2 1"; $step = 24*3600; $tstep = 6*3600;
+
   } elsif ($ddur <= 31.1) {
     $first_tag=". 6";   $tag=". 2 1"; $step = 7*24*3600; $tstep = 24*3600;
     $aligntext = 1;
-  } else {
+
+  } elsif ($ddur <= 732.1) {
     $first_tag=". 6";   $tag=". 1";   $step = 28*24*3600; $tstep = 28*24*3600;
+    $aligntext = 2; $aligntics = 2;
+
+  } else {
+    $step = (($ddur / 365.2425) / 20) * 365 * 86400;
+    if($step < 365 * 86400) {
+      $step = 365 * 86400;
+    }
+    $tstep = $step;
+    $first_tag="";   $tag=". 6";
     $aligntext = 2; $aligntics = 2;
   }
 
@@ -1703,7 +1726,7 @@ SVG_render($$$$$$$$$$)
     #-- yrange is specified in plotfile
     if($conf{$yra}) {
       $conf{$yra} = AnalyzeCommand(undef, $1)
-                         if($conf{$yra} =~ /^({.*})$/);
+                         if($conf{$yra} =~ /^(\{.*\})$/);
       if($conf{$yra} =~ /\[(.*):(.*)\]/) {
         $hmin{$a} = $1 if($1 ne "");
         $hmax{$a} = $2 if($2 ne "");
@@ -1838,7 +1861,8 @@ SVG_render($$$$$$$$$$)
         }
         $off2 += $th/4;
         #--  text   
-        my $txt = sprintf("%g", $i);
+        my $name = ($axis==1 ? "y":"y$axis")."sprintf"; # Forum #88460
+        my $txt = sprintf($conf{$name} ? $conf{$name} : "%g", $i);
         SVG_pO
           "<text x=\"$off1\" y=\"$off2\" class=\"ylabel\"$align>$txt</text>";
       }
@@ -1885,12 +1909,13 @@ SVG_render($$$$$$$$$$)
     my $dec = length(sprintf("%d",$hmul*3))-1;
     $dec = 0 if($dec < 0);
     my $attributes = "id=\"line_$idx\" decimals=\"$dec\" ".
+          "style='mask:url(#mask_$name); $conf{lWidth}[$idx]' ".
           "x_min=\"$x\" ".
           ($conf{xrange}?"x_off=\"$xmin\" ":"x_off=\"$fromsec\" ").
           ($conf{xrange}?"x_mul=\"$xmul\" ":"t_mul=\"$tmul\" ").
           "y_h=\"$yh\" y_min=\"$min\" y_mul=\"$hmul\" title=\"$tl\" ".
           ($log eq 'log'?"log_scale=\"$f_log\" ":"").
-          "onclick=\"parent.svg_click(evt)\" $conf{lWidth}[$idx]";
+          "onclick=\"parent.svg_click(evt)\"";
     my $lStyle = $conf{lStyle}[$idx];
     my $isFill = ($conf{lStyle}[$idx] =~ m/fill/);
     my $doClose = $isFill;
@@ -1917,15 +1942,24 @@ SVG_render($$$$$$$$$$)
           $ret .=  sprintf(" %d,%d %d,%d %d,%d %d,%d",
                 $x,$y+$h, $x,$y1, $x+$w,$y1, $x+$w,$y+$h);
       } else {
-        foreach my $i (1..int(@{$dxp})-1) {
+        my $nEl = int(@{$dxp})-1;
+        foreach my $i (1..$nEl) {
           my ($x1, $y1) = ($x+$dxp->[$i-1], $y+$h-($dyp->[$i-1]-$min)*$hmul);
           my ($x2, $y2) = ($x+$dxp->[$i],   $y+$h-($dyp->[$i]  -$min)*$hmul);
-          next if(int($x2) == $lx && int($y1) == $ly);
+          next if(int($x2) == $lx && int($y2) == $ly);
           $lx = int($x2); $ly = int($y2);
-          if($lType eq "steps") {
-            $ret .=  sprintf(" %d,%d %d,%d %d,%d", $x1,$y1, $x2,$y1, $x2,$y2);
+          if($i == $nEl) {
+            if($lType eq "steps") {
+              $ret .=  sprintf(" %d,%d %d,%d %d,%d", $x1,$y1, $x2,$y1, $x2,$y2);
+            } else {
+              $ret .=  sprintf(" %d,%d %d,%d %d,%d", $x1,$y1, $x1,$y2, $x2,$y2);
+            }
           } else {
-            $ret .=  sprintf(" %d,%d %d,%d %d,%d", $x1,$y1, $x1,$y2, $x2,$y2);
+            if($lType eq "steps") {
+              $ret .=  sprintf(" %d,%d %d,%d", $x1,$y1, $x2,$y1);
+            } else {
+              $ret .=  sprintf(" %d,%d %d,%d", $x1,$y1, $x1,$y2);
+            }
           }
         }
       }
@@ -1968,6 +2002,7 @@ SVG_render($$$$$$$$$$)
         SVG_pO "<rect $attributes $lStyle x=\"$x1\" y=\"$y1\" ".
                     "width=\"$x2\" height=\"$y2\"/>";
       }
+
     } elsif( $lType eq "ibars" ) { # Forum #35268
       if(@{$dxp} == 1) {
         my $y1 = $y+$h-($dyp->[0]-$min)*$hmul;
@@ -1989,6 +2024,17 @@ SVG_render($$$$$$$$$$)
                         "width=\"$bw\" height=\"$height\"/>";
         }
       }
+
+    } elsif($lType =~ m/^horizontalLine(From|To)$/) {
+      $attributes =~ s/id=\"line_[^\"]+\"//;    # no id for each line
+      foreach my $i (0..int(@{$dxp})-2) {
+        my ($x1, $y1) = ($x+$dxp->[$i],   $y+$h-($dyp->[$i]  -$min)*$hmul);
+        my ($x2, $y2) = ($x+$dxp->[$i+1], $y+$h-($dyp->[$i+1]-$min)*$hmul);
+        $x2 += 0.2 if($x1 == $x2);
+        my $Y = ($lType eq "horizontalLineFrom" ? $y1 : $y2);
+        SVG_pO "<line $attributes $lStyle x1='$x1' y1='$Y' x2='$x2' y2='$Y'/>";
+      }
+
     } else {                            # lines and everything else
       my ($ymin, $ymax) = (99999999, -99999999);
       my %lt =(cubic=>"C",quadratic=>"Q",quadraticSmooth=>"T");
@@ -2233,14 +2279,17 @@ SVG_calcControlPoints($$$$$$)
       $iloc++;
     }
 
-    # Calulcation of first control Point using first 3 Points around actual Point
+    # Calulcation of first control Point using first 3 Points around actual
+    # Point
     my $m1x = ($lxp[0]+$lxp[1])/2.0;
     my $m1y = ($lyp[0]+$lyp[1])/2.0;
     my $m2x = ($lxp[1]+$lxp[2])/2.0;
     my $m2y = ($lyp[1]+$lyp[2])/2.0;
     
-    my $l1 = sqrt(($lxp[0]-$lxp[1])*($lxp[0]-$lxp[1])+($lyp[0]-$lyp[1])*($lyp[0]-$lyp[1]));
-    my $l2 = sqrt(($lxp[1]-$lxp[2])*($lxp[1]-$lxp[2])+($lyp[1]-$lyp[2])*($lyp[1]-$lyp[2]));
+    my $l1 = sqrt(($lxp[0]-$lxp[1])*($lxp[0]-$lxp[1]) +
+                  ($lyp[0]-$lyp[1])*($lyp[0]-$lyp[1]));
+    my $l2 = sqrt(($lxp[1]-$lxp[2])*($lxp[1]-$lxp[2]) +
+                  ($lyp[1]-$lyp[2])*($lyp[1]-$lyp[2]));
     
     my $dxm = ($m1x - $m2x);
     my $dym = ($m1y - $m2y);
@@ -2254,14 +2303,17 @@ SVG_calcControlPoints($$$$$$)
     $px1->[$i] = $m2x + $tx;
     $py1->[$i] = $m2y + $ty;
 
-    # Calulcation of second control Point using last 3 Points around actual Point
+    # Calulcation of second control Point using last 3 Points around actual
+    # Point
     $m1x = ($lxp[1]+$lxp[2])/2.0;
     $m1y = ($lyp[1]+$lyp[2])/2.0;
     $m2x = ($lxp[2]+$lxp[3])/2.0;
     $m2y = ($lyp[2]+$lyp[3])/2.0;
     
-    $l1 = sqrt(($lxp[1]-$lxp[2])*($lxp[1]-$lxp[2])+($lyp[1]-$lyp[2])*($lyp[1]-$lyp[2]));
-    $l2 = sqrt(($lxp[2]-$lxp[3])*($lxp[2]-$lxp[3])+($lyp[2]-$lyp[3])*($lyp[2]-$lyp[3]));
+    $l1 = sqrt(($lxp[1]-$lxp[2])*($lxp[1]-$lxp[2])+
+               ($lyp[1]-$lyp[2])*($lyp[1]-$lyp[2]));
+    $l2 = sqrt(($lxp[2]-$lxp[3])*($lxp[2]-$lxp[3])+
+               ($lyp[2]-$lyp[3])*($lyp[2]-$lyp[3]));
     
     $dxm = ($m1x - $m2x);
     $dym = ($m1y - $m2y);
@@ -2286,6 +2338,7 @@ SVG_fmtTime($$)
   my @tarr = split("[ :]+", localtime($sec));
   my ($sep, $fmt) = split(" ", $sepfmt, 2);
   my $ret = "";
+  $fmt = "" if(!defined($fmt));
   for my $f (split(" ", $fmt)) {
     $ret .= $sep if($ret);
     $ret .= $tarr[$f];
@@ -2476,11 +2529,12 @@ plotAsPng(@)
         In plotmode gnuplot-scroll(-svg) or SVG the given time-range will be
         used, and no scrolling for this SVG will be possible. Needed e.g. for
         looking at last-years data without scrolling.<br><br> If the value is
-        one of hour, day, &lt;N&gt;days, week, month, year than set the zoom
-        level for this SVG independently of the user specified zoom-level. This
-        is useful for pages with multiple plots: one of the plots is best
-        viewed in with the default (day) zoom, the other one with a week
-        zoom.<br>
+        one of hour, &lt;N&gt;hours, day, &lt;N&gt;days, week, month, year,
+        &lt;N&gt;years then set the zoom level for this SVG independently of
+        the user specified zoom-level. This is useful for pages with multiple
+        plots: one of the plots is best viewed in with the default (day) zoom,
+        the other one with a week zoom.
+        <br>
 
         If given, the optional integer parameter offset refers to a different
         period (e.g. last year: fixedrange year -1, 2 days ago: fixedrange day
@@ -2537,13 +2591,13 @@ plotAsPng(@)
       With this attribute you can use the same .gplot file for multiple devices
       with the same logdevice.
       <ul><b>Example:</b><br>
-        <li>#FileLog <SPEC1><br>
-            with: attr <SVGdevice> plotfunction "4:IR\x3a:0:"<br>
+        <li>#FileLog &lt;SPEC1&gt;<br>
+            with: attr &lt;SVGdevice&gt; plotfunction "4:IR\x3a:0:"<br>
             instead of<br>  
             #FileLog 4:IR\x3a:0:
         </li>
-        <li>#DbLog <SPEC1><br>
-            with: attr <SVGdevice> plotfunction
+        <li>#DbLog &lt;SPEC1&gt;<br>
+            with: attr &lt;SVGdevice&gt; plotfunction
             "Garage_Raumtemp:temperature::"<br> instead of<br>
             #DbLog Garage_Raumtemp:temperature::
         </li>
@@ -2700,23 +2754,23 @@ plotAsPng(@)
 
     <a name="fixedrange"></a>
     <li>fixedrange [offset]<br>
-      Version 1<br>
+      Erste Alternative:<br>
       Enth&auml;lt zwei Zeit-Spezifikationen in der Schreibweise YYYY-MM-DD,
-      getrennt durch ein Leerzeichen. Im Plotmodus gnuplot-scroll(-svg) oder
-      SVG wird das vorgegebene Intervall verwendet und ein Scrolling der
-      Zeitachse ist nicht m&ouml;glich. Dies wird z.B. verwendet, um sich die
-      Daten des vergangenen Jahres ohne Scrollen anzusehen.<br><br>   
+      getrennt durch ein Leerzeichen. scrollen der Zeitachse ist nicht
+      m&ouml;glich, es wird z.B. verwendet, um sich die Daten verschiedener
+      Jahre auf eine Seite anzusehen.<br><br>
 
-      Version 2<br>
-      Wenn der Wert entweder Tag, &lt;N&gt;Tage, Woche, Monat oder Jahr lautet,
-      kann der Zoom-Level f&uuml;r dieses SVG unabh&auml;ngig vom
-      User-spezifischen Zoom eingestellt werden. Diese Einstellung ist
-      n&uuml;tzlich f&uuml;r mehrere Plots auf einer Seite: Eine Grafik ist mit
-      dem Standard-Zoom am aussagekr&auml;ftigsten, die anderen mit einem Zoom
-      &uuml;ber eine Woche.
-      Der optionale ganzzahlige Parameter [offset] setzt ein anderes
-      Zeitintervall (z.B. letztes Jahr: <code> fixedrange year -1</code>,
-      vorgestern: <code> fixedrange day -2</code>).
+      Zweite Alternative:<br>
+      Wenn der Wert entweder hour, &lt;N&gt;hours, day, &lt;N&gt;days, week,
+      month, year oder &lt;N&gt;years lautet, kann der Zoom-Level f&uuml;r
+      dieses SVG unabh&auml;ngig vom User-spezifischen Zoom eingestellt werden.
+      Diese Einstellung ist n&uuml;tzlich f&uuml;r mehrere Plots auf einer
+      Seite: Eine Grafik ist mit dem Standard-Zoom am aussagekr&auml;ftigsten,
+      die anderen mit einem Zoom &uuml;ber eine Woche. Der optionale
+      ganzzahlige Parameter [offset] setzt ein anderes Zeitintervall (z.B.
+      letztes Jahr: <code>fixedrange year -1</code>, vorgestern: <code>
+      fixedrange day -2</code>).
+
       </li><br>
 
     <a name="label"></a>
@@ -2757,7 +2811,7 @@ plotAsPng(@)
       </ul>
       Die Werte minAll und maxAll (die das Minimum/Maximum aller Werte
       repr&auml;sentieren) sind ebenfals im data hash vorhanden.
-      <br>&Uumlberholt, wird durch das plotReplace Attribut abgel&ouml;st.
+      <br>&Uuml;berholt, wird durch das plotReplace Attribut abgel&ouml;st.
       </li><br>
 
     <li><a href="#nrAxis">nrAxis</a></li><br>
@@ -2787,7 +2841,7 @@ plotAsPng(@)
             <code>#DbLog Garage_Raumtemp:temperature::</code>
           </li>
       </ul>
-      &Uumlberholt, wird durch das plotReplace Attribut abgel&ouml;st.
+      &Uuml;berholt, wird durch das plotReplace Attribut abgel&ouml;st.
     </li><br>
 
     <li><a href="#plotmode">plotmode</a></li><br>
@@ -2822,7 +2876,7 @@ plotAsPng(@)
       Zeichenfolge &lt;TL&gt; in der .gplot-Datei ersetzt wird.
       Standardm&auml;&szlig;ig wird als &lt;TL&gt; der Dateiname des Logfiles
       eingesetzt.
-      <br>&Uumlberholt, wird durch das plotReplace Attribut abgel&ouml;st.
+      <br>&Uuml;berholt, wird durch das plotReplace Attribut abgel&ouml;st.
       </li><br>
 
   </ul> 
@@ -2858,7 +2912,7 @@ plotAsPng(@)
       Expression ausgewertet. Das Ergebnis muss in der Form [min:max] sein.
       </li>
   </ul>
-  Die sichtbarkeit des  Plot-Editors kann mit dem FHEMWEB Attribut <a
+  Die Sichtbarkeit des  Plot-Editors kann mit dem FHEMWEB Attribut <a
   href="#ploteditor">ploteditor</a> konfiguriert werden.
   <br>
 </ul>

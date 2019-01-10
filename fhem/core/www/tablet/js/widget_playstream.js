@@ -1,5 +1,5 @@
 /* FTUI Plugin
- * Copyright (c) 2015-2017 Mario Stephan <mstephan@shared-files.de>
+ * Copyright (c) 2015-2018 Mario Stephan <mstephan@shared-files.de>
  * Under MIT License (http://www.opensource.org/licenses/mit-license.php)
  */
 
@@ -8,7 +8,7 @@
 "use strict";
 
 function depends_playstream() {
-    if (typeof Module_famultibutton == 'undefined' || !$.fn.famultibutton) {
+    if (window['Module_famultibutton'] === void 0 || !$.fn.famultibutton) {
         return ["famultibutton"];
     }
 }
@@ -16,7 +16,29 @@ function depends_playstream() {
 var Modul_playstream = function () {
 
     function startStream(elem) {
-        elem.data('audio').play();
+
+        var faElem = elem.data('famultibutton');
+
+        //stop all streams
+        me.elements.each(function (index, el) {
+            stopStream($(this));
+        });
+
+        faElem.setOn();
+
+        var audio = elem.data('audio');
+        var volume = elem.data('volume');
+
+        audio.src = elem.data('src');
+        audio.type = elem.data('type');
+        audio.load();
+        audio.play().catch(function (error) {
+            ftui.log(1, "Error: " + error);
+        });
+        if ($.isNumeric(volume)) {
+            audio.volume = parseInt(volume) / 100.0;
+        }
+
         var elemFgIcon = elem.children().children('#fg');
         elemFgIcon.removeClass();
         elemFgIcon.addClass('fa fa-stack-1x');
@@ -24,18 +46,25 @@ var Modul_playstream = function () {
     }
 
     function stopStream(elem) {
-        elem.data('audio').pause();
+
+        var audio = elem.data('audio');
+        audio.pause();
+        audio.src = null;
+        audio.load();
         var elemFgIcon = elem.children().children('#fg');
         elemFgIcon.removeClass();
         elemFgIcon.addClass('fa fa-stack-1x');
         elemFgIcon.addClass(elem.data('icon'));
+        elem.data('famultibutton').setOff();
     }
 
     function init() {
 
-        me.elements = $('div[data-type="' + me.widgetname + '"]', me.area);
+        me.elements = $('div[data-type="' + me.widgetname + '"]:not([data-ready])', me.area);
         me.elements.each(function (index) {
             var elem = $(this);
+            elem.attr("data-ready", "");
+
             elem.initData('off-color', ftui.getStyle('.playstream.off', 'color') || '#2A2A2A');
             elem.initData('off-background-color', ftui.getStyle('.playstream.off', 'background-color') || '#505050');
             elem.initData('on-color', ftui.getClassColor(elem) || ftui.getStyle('.playstream.on', 'color') || '#2A2A2A');
@@ -46,12 +75,20 @@ var Modul_playstream = function () {
             elem.initData('set-on', '');
             elem.initData('set-off', '');
             elem.initData('volume', 'volume');
-            elem.initData('audio', new Audio(elem.data('url')));
+            elem.initData('audio', new Audio());
+            elem.initData('type', 'audio/mpeg');
 
             elem.data('mode', 'toggle');
 
-            me.addReading(elem, 'url');
-            me.addReading(elem, 'volume');
+            if (!elem.isUrlData('url')) {
+                me.addReading(elem, 'url');
+            } else {
+                elem.data('src',elem.data('url'));
+            }
+
+            if (!$.isNumeric(elem.data('volume'))) {
+                me.addReading(elem, 'volume');
+            }
             me.init_attr(elem);
             me.init_ui(elem);
         });
@@ -59,47 +96,42 @@ var Modul_playstream = function () {
 
     function toggleOn(elem) {
 
-        //stop all streams
-        me.elements.each(function (index, el) {
-            $(this).data('audio').pause();
-        });
-        //switch all paused buttons to OFF after 500ms
-        setTimeout(function () {
-            me.elements.each(function (index, el) {
-                if ($(this).data('audio').paused) {
-                    $(this).data('famultibutton').setOff();
-                }
-            });
-        }, 500);
-        //start stream
         startStream(elem);
+        var setOn = elem.data('set-on');
+        if (setOn !== '') {
+            elem.data('value', setOn);
+            elem.transmitCommand();
+        }
     }
 
     function toggleOff(elem) {
-        //stop this streams
+
         stopStream(elem);
+        var setOff = elem.data('set-off');
+        if (setOff !== '') {
+            elem.data('value', setOff);
+            elem.transmitCommand();
+        }
     }
 
     function update(dev, par) {
-       
+
         // update from normal state reading
         me.elements.filterDeviceReading('get', dev, par)
             .each(function (index) {
                 var elem = $(this);
                 var value = elem.getReading('get').val;
                 var state = ftui.getPart(value, elem.data('part'));
-                if (state) {
-                    var faelem = elem.data('famultibutton');
-                    if (faelem) {
-                        
-                        if (elem.matchingState('get', state) === 'on') {
-                            faelem.setOn();
-                            startStream(elem);
-                        }
-                        if (elem.matchingState('get', state) === 'off') {
-                            faelem.setOff();
-                            stopStream(elem);
-                        }
+                var faElem = elem.data('famultibutton');
+
+                if (elem.matchingState('get', state) === 'on') {
+                    if (faElem.getState() !== true) {
+                        startStream(elem);
+                    }
+                }
+                if (elem.matchingState('get', state) === 'off') {
+                    if (faElem.getState() !== false) {
+                        stopStream(elem);
                     }
                 }
             });
@@ -110,22 +142,22 @@ var Modul_playstream = function () {
                 var elem = $(this);
                 var volume = elem.getReading('volume').val;
                 if ($.isNumeric(volume)) {
-                    ftui.log(3, 'playstream - set volume to :', parseInt(volume) / 100.0);
+                    ftui.log(3, ['playstream - set volume to :', parseInt(volume) / 100.0].join(''));
                     elem.data('audio').volume = parseInt(volume) / 100.0;
                 }
             });
-        
+
         // update from extra reading for url
         me.elements.filterDeviceReading('url', dev, par)
             .each(function (idx) {
                 var elem = $(this);
                 var url = elem.getReading('url').val;
                 if (ftui.isValid(url)) {
-                    ftui.log(3, 'playstream - set url to :', url);
-                    var isPlaying = !elem.data('audio').paused;
-                    elem.data('audio').src = url;
-                    elem.data('audio').load();
-                    if (isPlaying) elem.data('audio').play();
+                    ftui.log(3, ['playstream - set url to :', url].join(''));
+                    elem.data('src', url);
+                    if ( !elem.data('audio').paused) {
+                        startStream(elem);
+                    }
                 }
             });
     }

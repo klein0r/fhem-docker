@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 93_FHEM2FHEM.pm 15006 2017-09-05 09:37:33Z rudolfkoenig $
+# $Id: 93_FHEM2FHEM.pm 17361 2018-09-17 11:44:10Z rudolfkoenig $
 package main;
 
 use strict;
@@ -59,9 +59,10 @@ FHEM2FHEM_Define($$)
     my $iodev = $defs{$rdev};
     return "Undefined local device $rdev" if(!$iodev);
     $hash->{rawDevice} = $rdev;
-    $hash->{Clients} = $iodev->{Clients};
-    $hash->{Clients} = $modules{$iodev->{TYPE}}{Clients}
-        if(!$hash->{Clients});
+
+    my $iomod = $modules{$iodev->{TYPE}};
+    $hash->{Clients} = $iodev->{Clients} ? $iodev->{Clients} :$iomod->{Clients};
+    $hash->{MatchList} = $iomod->{MatchList} if($iomod->{MatchList});
 
   }
 
@@ -369,9 +370,19 @@ FHEM2FHEM_Attr(@)
   port on the remote FHEM, defaults to 7072. The optional :SSL suffix is
   needed, if the remote FHEM configured SSL for this telnet port. In this case
   the IO::Socket::SSL perl module must be installed for the local host too.<br>
-
-  Note: if the remote FHEM is on a separate host, the telnet port on the remote
-  FHEM musst be specified with the global option.<br>
+  <br>
+  Notes:
+  <ul>
+    <li>if the remote FHEM is on a separate host, the telnet port on the remote
+      FHEM must be specified with the global option.</li>
+    <li>as of FHEM 5.9 the telnet instance is not configured in default fhem.cfg, so
+    it has to be defined, e.g. as
+    <ul><code>
+    define telnetPort telnet 7072 global
+    </code></ul>
+    </li>
+  </ul>
+  <br>
 
   The next parameter specifies the connection
   type:
@@ -478,8 +489,23 @@ FHEM2FHEM_Attr(@)
     SSL-Verschl&uuml;sselung voraussetzt.  Auch auf dem lokalen Host muss dann
     das Perl-Modul IO::Socket::SSL installiert sein.<br>
 
-   Anmerkung: Wenn das remote FHEM auf einem eigenen Host l&auml;uft, muss
-   "telnetPort" des remote FHEM als global festgelegt sein.  <br>
+  <br>
+  Achtung:
+  <ul>
+    <li>
+     Wenn das remote FHEM auf einem eigenen Host l&auml;uft, muss
+     "telnetPort" des remote FHEM mit der global Option definiert sein.
+      </li>
+    <li>ab FHEM Version 5.9 wird in der ausgelieferten Initialversion der fhem.cfg
+      keine telnet Instanz vorkonfiguriert, man muss sie z.Bsp.
+      folgenderma&szlig;en definieren:
+      <ul><code>
+      define telnetPort telnet 7072 global
+      </code></ul>
+      </li>
+  </ul>
+  <br>
+
 
    Der n&auml;chste Parameter spezifiziert den Verbindungs-Typ:
    <ul>

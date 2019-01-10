@@ -1,5 +1,5 @@
 
-# $Id: 98_copy.pm 12200 2016-09-23 18:41:25Z justme1968 $
+# $Id: 98_copy.pm 16366 2018-03-09 21:33:00Z justme1968 $
 package main;
 
 use strict;
@@ -54,8 +54,8 @@ CommandCopy($$)
 
 =pod
 =item command
-=item summary    copy a fhem device
-=item summary_DE kopiert ein FHEM Ger&aauml;t
+=item summary    copy a FHEM device
+=item summary_DE kopiert ein FHEM Ger&auml;t
 =begin html
 
 <a name="copy"></a>

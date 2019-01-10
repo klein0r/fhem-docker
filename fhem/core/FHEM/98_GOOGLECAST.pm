@@ -1,15 +1,45 @@
 #############################################################
 #
-# GOOGLECAST.pm (c) by Dominik Karall, 2016-2017
+# GOOGLECAST.pm (c) by Dominik Karall, 2016-2018
 # dominik karall at gmail dot com
-# $Id: 98_GOOGLECAST.pm 14884 2017-08-12 21:22:56Z dominik $
+# $Id: 98_GOOGLECAST.pm 16589 2018-04-11 19:01:32Z dominik $
 #
 # FHEM module to communicate with Google Cast devices
 # e.g. Chromecast Video, Chromecast Audio, Google Home
 #
-# Version: 2.0.0
+# Version: 2.1.3
 #
 #############################################################
+#
+# v2.1.3 - 20180311
+# - BUGFIX:   fix umlauts for device name readings
+#
+# v2.1.2 - 20180310
+# - BUGFIX:   fix speak, play, displayWebsite
+# - FEATURE:  added German commandref (thx@Sailor)
+#
+# v2.1.1 - 20180303
+# - BUGFIX:   fix crash on connection failures
+# - BUGFIX:   update FHEM socket on pychromecast reconnect
+#
+# v2.1.0 - 20180218
+# - BUGFIX:   one more socket_client fix
+# - BUGFIX:   offline state fix
+#
+# v2.0.3 - 20180217
+# - CHANGE:   increase speak limit to 500 characters
+#
+# v2.0.2 - 20180106
+# - FEATURE:  support speak command for TTS
+#               set castdevice speak "Hallo"
+# - BUGFIX:   fix issues with umlauts in device name
+# - BUGFIX:   fix one socket issue
+# - BUGFIX:   fix delay for non youtube-dl links
+# - BUGFIX:   optimize delay for youtube links
+#
+# v2.0.1 - 20171209
+# - FEATURE:  support skip/rewind
+# - FEATURE:  support displaying websites on Chromecast
 #
 # v2.0.0 - 20170812
 # - CHANGE:   renamed to 98_GOOGLECAST.pm
@@ -108,6 +138,7 @@ use Blocking;
 use Encode;
 use SetExtensions;
 
+use URI::Escape;
 use LWP::UserAgent;
 
 sub GOOGLECAST_Initialize($) {
@@ -122,7 +153,7 @@ sub GOOGLECAST_Initialize($) {
     $hash->{AttrList} = "favoriteURL_1 favoriteURL_2 favoriteURL_3 favoriteURL_4 ".
                         "favoriteURL_5 ".$readingFnAttributes;
 
-    Log3 $hash, 3, "GOOGLECAST: GoogleCast v2.0.0";
+    Log3 $hash, 3, "GOOGLECAST: GoogleCast v2.1.3";
 
     return undef;
 }
@@ -139,7 +170,10 @@ sub GOOGLECAST_Define($$) {
     } elsif(int(@a) == 3) {
         Log3 $hash, 3, "GOOGLECAST: $a[2] initializing...";
         $hash->{CCNAME} = $a[2];
+        Log3 $hash, 5, "GOOGLECAST: $a[2] set readings offline";
         GOOGLECAST_updateReading($hash, "presence", "offline");
+        GOOGLECAST_updateReading($hash, "state", "offline");
+        Log3 $hash, 5, "GOOGLECAST: $a[2] start initDevice";
         GOOGLECAST_initDevice($hash);
     }
 
@@ -151,10 +185,10 @@ sub GOOGLECAST_findChromecasts {
     my ($name) = split("\\|", $string);
     my $result = "$name";
 
-    my @ccResult = GOOGLECAST_findChromecastsPython();
+    my @ccResult = GOOGLECAST_PyFindChromecasts();
     foreach my $ref_cc (@ccResult) {
         my @cc = @$ref_cc;
-        $result .= "|CCDEVICE|".$cc[0]."|".$cc[1]."|".$cc[2]."|".$cc[3]."|".$cc[4];
+        $result .= "|CCDEVICE|".$cc[0]."|".$cc[1]."|".$cc[2]."|".$cc[3]."|".Encode::encode('UTF-8', $cc[4]);
     }
     Log3 $name, 4, "GOOGLECAST: search result: $result";
 
@@ -165,7 +199,9 @@ sub GOOGLECAST_initDevice {
     my ($hash) = @_;
     my $devName = $hash->{CCNAME};
 
+    Log3 $hash, 5, "GOOGLECAST($hash->{NAME}): start findChromecasts BlockingCall";
     BlockingCall("GOOGLECAST_findChromecasts", $hash->{NAME}, "GOOGLECAST_findChromecastsResult");
+    Log3 $hash, 5, "GOOGLECAST($hash->{NAME}): finished findChromecasts BlockingCall";
 
     return undef;
 }
@@ -181,7 +217,7 @@ sub GOOGLECAST_findChromecastsResult {
         if($ccResult[$i] eq "CCDEVICE" and $ccResult[$i+5] eq $devName) {
             Log3 $hash, 4, "GOOGLECAST ($hash->{NAME}): init cast device $devName";
             eval {
-              $hash->{helper}{ccdevice} = GOOGLECAST_createChromecastPython($ccResult[$i+1],$ccResult[$i+2],$ccResult[$i+3],$ccResult[$i+4],$ccResult[$i+5]);
+              $hash->{helper}{ccdevice} = GOOGLECAST_PyCreateChromecast($ccResult[$i+1],$ccResult[$i+2],$ccResult[$i+3],$ccResult[$i+4],$ccResult[$i+5]);
             };
             if($@) {
               $hash->{helper}{ccdevice} = "";
@@ -219,7 +255,15 @@ sub GOOGLECAST_Attribute($$$$) {
 sub GOOGLECAST_Set($@) {
     my ($hash, $name, @params) = @_;
     my $workType = shift(@params);
-    my $list = "stop:noArg pause:noArg quitApp:noArg play playFavorite:1,2,3,4,5 volume:slider,0,1,100";
+    my $list = "stop:noArg pause:noArg rewind:noArg skip:noArg quitApp:noArg play playFavorite:1,2,3,4,5 volume:slider,0,1,100 displayWebsite speak";
+
+    #get quoted text from params
+    my $blankParams = join(" ", @params);
+    my @params2;
+    while($blankParams =~ /"?((?<!")\S+(?<!")|[^"]+)"?\s*/g) {
+        push(@params2, $1);
+    }
+    @params = @params2;
 
     # check parameters for set function
     if($workType eq "?") {
@@ -238,6 +282,14 @@ sub GOOGLECAST_Set($@) {
         GOOGLECAST_setQuitApp($hash);
     } elsif($workType eq "volume") {
         GOOGLECAST_setVolume($hash, $params[0]);
+    } elsif($workType eq "displayWebsite") {
+        GOOGLECAST_setWebsite($hash, $params[0]);
+    } elsif($workType eq "rewind") {
+        GOOGLECAST_setRewind($hash);
+    } elsif($workType eq "skip") {
+        GOOGLECAST_setSkip($hash);
+    } elsif($workType eq "speak") {
+        GOOGLECAST_setSpeak($hash, $params[0]);
     } else {
         return SetExtensions($hash, $list, $name, $workType, @params);
     }
@@ -255,13 +307,46 @@ sub GOOGLECAST_setVolume {
     };
 }
 
+### dashcast ###
+sub GOOGLECAST_setWebsite {
+    my ($hash, $url) = @_;
+
+    eval {
+       GOOGLECAST_PyLoadDashCast($hash->{helper}{ccdevice}, $url);
+    };
+}
+
+### speak ###
+sub GOOGLECAST_setSpeak {
+    my ($hash, $ttsText) = @_;
+
+    my $ttsLang = AttrVal($hash->{NAME}, "ttsLanguage", "de");
+    return "GOOGLECAST: Maximum text length is 500 characters." if(length($ttsText) > 500);
+
+    $ttsText = uri_escape($ttsText);
+    my $ttsUrl = "http://translate.google.com/translate_tts?tl=$ttsLang&client=tw-ob&q=$ttsText";
+    Log3 $hash, 4, "GOOGLECAST($hash->{NAME}): setSpeak $ttsUrl";
+
+    eval {
+        GOOGLECAST_PyPlayMedia($hash->{helper}{ccdevice}, $ttsUrl, "audio/mpeg");
+    };
+    return undef;
+}
+
 ### playType ###
 sub GOOGLECAST_setPlayType {
     my ($hash, $url, $mime) = @_;
 
-    eval {
-        $hash->{helper}{ccdevice}->{media_controller}->play_media($url, $mime);
-    };
+    Log3 $hash, 4, "GOOGLECAST($hash->{NAME}): setPlayType($url, $mime)";
+
+    if($mime =~ m/text\/html/) {
+        GOOGLECAST_setPlayYtDl($hash, $url);
+    } else {
+        eval {
+            Log3 $hash, 4, "GOOGLECAST($hash->{NAME}): start play_media";
+            GOOGLECAST_PyPlayMedia($hash->{helper}{ccdevice}, $url, $mime);
+        };
+    }
 
     return undef;
 }
@@ -290,10 +375,13 @@ sub GOOGLECAST_setPlayMedia_String {
     my ($name, $videoUrl, $origUrl) = split("\\|", $string);
     my $hash = $main::defs{$name};
 
+    Log3 $hash, 4, "GOOGLECAST($name): setPlayMedia_String($string)";
+
     if($videoUrl ne "") {
         GOOGLECAST_setPlayMedia($hash, $videoUrl);
     } else {
-        GOOGLECAST_setPlayMedia($hash, $origUrl);
+        Log3 $hash, 3, "GOOGLECAST($name): setPlayMedia_String, youtube-dl couldn't find video";
+        #GOOGLECAST_setPlayMedia($hash, $origUrl);
     }
 }
 
@@ -333,8 +421,9 @@ sub GOOGLECAST_setPlayYtDlBlocking {
     my $videoUrl = "";
 
     eval {
-        $videoUrl = GOOGLECAST_getYTVideoURLPython($ytUrl);
+        $videoUrl = GOOGLECAST_PyGetYTVideoURL($ytUrl);
     };
+
 
     return $name."|".$videoUrl."|".$ytUrl;
 }
@@ -361,14 +450,20 @@ sub GOOGLECAST_setPlayFavorite {
 sub GOOGLECAST_setPlay {
     my ($hash, $url) = @_;
 
-    if(defined($url)) {
-        #support streams are listed here
-        #https://github.com/rg3/youtube-dl/blob/master/docs/supportedsites.md
-        GOOGLECAST_setPlayYtDl($hash, $url);
-    } else {
+    if(!defined($url)) {
         eval {
             $hash->{helper}{ccdevice}->{media_controller}->play();
         };
+        return undef;
+    }
+
+
+    if($url =~ /^http/) {
+        #support streams are listed here
+        #https://github.com/rg3/youtube-dl/blob/master/docs/supportedsites.md
+        GOOGLECAST_setPlayMedia($hash, $url);
+    } else {
+        GOOGLECAST_PyPlayYouTube($hash->{helper}{ccdevice}, $url);
     }
 
     return undef;
@@ -380,6 +475,28 @@ sub GOOGLECAST_setPause {
 
     eval {
         $hash->{helper}{ccdevice}->{media_controller}->pause();
+    };
+
+    return undef;
+}
+
+### rewind ###
+sub GOOGLECAST_setRewind {
+    my ($hash) = @_;
+
+    eval {
+        $hash->{helper}{ccdevice}->{media_controller}->rewind();
+    };
+
+    return undef;
+}
+
+### skip ###
+sub GOOGLECAST_setSkip {
+    my ($hash) = @_;
+
+    eval {
+        $hash->{helper}{ccdevice}->{media_controller}->seek($hash->{helper}{ccdevice}->{media_controller}->{status}->{duration});
     };
 
     return undef;
@@ -449,11 +566,20 @@ sub GOOGLECAST_addSocketToMainloop {
     my ($hash) = @_;
     my $sock;
 
+    #delete any previous sockets
+    delete($selectlist{"GOOGLECAST-".$hash->{NAME}});
+
     eval {
         $sock = $hash->{helper}{ccdevice}->{socket_client}->get_socket();
+        if ($sock->fileno() > 0) {
+            $hash->{helper}{currentsock} = $sock;
+        }
     };
 
-    my $chash = GOOGLECAST_newChash($hash, $sock, {NAME => "GOOGLECAST-".$hash->{NAME}});
+    if ($sock->fileno() > 0) {
+        my $chash = GOOGLECAST_newChash($hash, $sock, {NAME => "GOOGLECAST-".$hash->{NAME}});
+    }
+
     return undef;
 }
 
@@ -467,9 +593,21 @@ sub GOOGLECAST_checkConnection {
 
     if($@ || !defined($selectlist{"GOOGLECAST-".$hash->{NAME}})) {
         Log3 $hash, 4, "GOOGLECAST ($hash->{NAME}): checkConnection, connection failure, reconnect...";
+        delete($selectlist{"GOOGLECAST-".$hash->{NAME}});
+        $hash->{helper}{ccdevice}->{socket_client}->_cleanup() if(defined($hash->{helper}{ccdevice}->{socket_client}->get_socket()));
         GOOGLECAST_initDevice($hash);
         GOOGLECAST_updateReading($hash, "presence", "offline");
+        GOOGLECAST_updateReading($hash, "state", "offline");
         return undef;
+    } else {
+        #update socket
+        my $sock = $hash->{helper}{ccdevice}->{socket_client}->get_socket();
+        if(defined($sock) && $hash->{helper}{currentsock} ne $sock) {
+            GOOGLECAST_addSocketToMainloop($hash);
+            Log3 $hash, 4, "GOOGLECAST ($hash->{NAME}): checkConnection, pychromecast reconnected-update fhem socket";
+        } elsif(!defined($sock)) {
+            Log3 $hash, 4, "GOOGLECAST ($hash->{NAME}): checkConnection, pychromecast socket=NULL";
+        }
     }
 
     InternalTimer(gettimeofday()+10, "GOOGLECAST_checkConnection", $hash, 0);
@@ -482,6 +620,8 @@ sub GOOGLECAST_Read {
     my $name = $hash->{NAME};
     $hash = $hash->{phash};
 
+    return undef if (!defined($hash));
+
     eval {
         Log3 $hash, 5, "GOOGLECAST ($hash->{NAME}): run_once";
         $hash->{helper}{ccdevice}->{socket_client}->run_once();
@@ -492,13 +632,15 @@ sub GOOGLECAST_Read {
         eval {
             delete($selectlist{$name});
         };
+        $hash->{helper}{ccdevice}->{socket_client}->_cleanup() if(defined($hash->{helper}{ccdevice}->{socket_client}->get_socket()));
         GOOGLECAST_initDevice($hash);
         GOOGLECAST_updateReading($hash, "presence", "offline");
+        GOOGLECAST_updateReading($hash, "state", "offline");
         return undef;
     }
 
     GOOGLECAST_updateReading($hash, "presence", "online");
-    GOOGLECAST_updateReading($hash, "name", $hash->{helper}{ccdevice}->{name});
+    GOOGLECAST_updateReading($hash, "name", Encode::encode("UTF-8", $hash->{helper}{ccdevice}->{name}));
     GOOGLECAST_updateReading($hash, "model", $hash->{helper}{ccdevice}->{model_name});
     GOOGLECAST_updateReading($hash, "uuid", $hash->{helper}{ccdevice}->{uuid});
     GOOGLECAST_updateReading($hash, "castType", $hash->{helper}{ccdevice}->{cast_type});
@@ -557,23 +699,28 @@ import pychromecast
 import time
 import logging
 import youtube_dl
+import pychromecast.controllers.dashcast as dashcast
+import pychromecast.controllers.youtube as youtube
 
-def GOOGLECAST_findChromecastsPython():
+def GOOGLECAST_PyFindChromecasts():
     logging.basicConfig(level=logging.CRITICAL)
     return pychromecast.discovery.discover_chromecasts()
 
-def GOOGLECAST_createChromecastPython(ip, port, uuid, model_name, friendly_name):
+def GOOGLECAST_PyCreateChromecast(ip, port, uuid, model_name, friendly_name):
     logging.basicConfig(level=logging.CRITICAL)
-    return pychromecast._get_chromecast_from_host((ip, int(port), uuid, model_name, friendly_name), blocking=False, timeout=0.1, tries=1, retry_wait=0.1)
+    cast = pychromecast._get_chromecast_from_host((ip.decode("utf-8"), int(port), uuid.decode("utf-8"), model_name.decode("utf-8"), friendly_name.decode("utf-8")), blocking=False, timeout=0.1, tries=1, retry_wait=0.1)
+    return cast
 
-def GOOGLECAST_getYTVideoURLPython(yt_url):
-    ydl = youtube_dl.YoutubeDL({'quiet': '1', 'no_warnings': '1'})
+def GOOGLECAST_PyPlayMedia(cast, url, mime):
+    logging.basicConfig(level=logging.CRITICAL)
+    cast.play_media(url.decode("utf-8"), mime.decode("utf-8"))
+    return undef
 
-    with ydl:
-        result = ydl.extract_info(
-            yt_url,
-            download=False # We just want to extract the info
-    )
+def GOOGLECAST_PyGetYTVideoURL(yt_url):
+    yt_url = yt_url.decode("utf-8")
+    ydl = youtube_dl.YoutubeDL({'forceurl': True, 'simulate': True, 'quiet': '1', 'no_warnings': '1', 'skip_download': True, 'format': 'best', 'youtube_include_dash_manifest': False})
+
+    result = ydl.extract_info(yt_url, download=False)
 
     if 'entries' in result:
         # Can be a playlist or a list of videos
@@ -584,6 +731,19 @@ def GOOGLECAST_getYTVideoURLPython(yt_url):
 
     video_url = video['url']
     return video_url
+
+def GOOGLECAST_PyLoadDashCast(cast, url):
+    url = url.decode("utf-8")
+    d = dashcast.DashCastController()
+    cast.register_handler(d)
+    d.load_url(url,reload_seconds=60)
+
+def GOOGLECAST_PyPlayYouTube(cast, videoId):
+    videoId = videoId.decode("utf-8")
+    yt = youtube.YouTubeController()
+    cast.register_handler(yt)
+    yt.play_video(videoId)
+
 
 PYTHON_CODE_END
 
@@ -600,14 +760,12 @@ PYTHON_CODE_END
 <h3>GOOGLECAST</h3>
 <ul>
   GOOGLECAST is used to control your Google Cast device<br><br>
-        <b>Note</b><br>Following packages are required:
+        <b>Note</b><br>Make sure that python3 is installed. Following packages are required:
         <ul>
-          <li>sudo apt-get install libwww-perl python-enum34 python-dev libextutils-makemaker-cpanfile-perl python-pip cpanminus</li>
-          <li>sudo pip install netifaces</li>
-          <li>sudo pip install enum34</li>
-          <li>sudo pip install pychromecast</li>
-          <li>sudo pip install youtube-dl</li>
-          <li>sudo cpanm Inline::Python</li>
+          <li>sudo apt-get install libwww-perl python-enum34 python-dev libextutils-makemaker-cpanfile-perl python3-pip cpanminus</li>
+          <li>sudo pip3 install pychromecast --upgrade</li>
+          <li>sudo pip3 install youtube-dl --upgrade</li>
+          <li>sudo INLINE_PYTHON_EXECUTABLE=/usr/bin/python3 cpanm Inline::Python</li>
         </ul>
 
   <br>
@@ -645,6 +803,9 @@ PYTHON_CODE_END
           <li><code><b>stop</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; stop, stops current playback</li>
           <li><code><b>pause</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; pause</li>
           <li><code><b>quitApp</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; quit current application, like YouTube</li>
+          <li><code><b>skip</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; skip track and play next</li>
+          <li><code><b>rewind</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; rewind track and play it again</li>
+          <li><code><b>displayWebsite</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; displayWebsite on Chromecast Video</li>
           </ul>
     <br>
     </ul>
@@ -666,5 +827,77 @@ PYTHON_CODE_END
 </ul>
 
 =end html
+=begin html_DE
+
+<a name="GOOGLECAST"></a>
+<h3>GOOGLECAST</h3>
+<ul>
+  GOOGLECAST wird zur Steueung deines Google Cast Devices verwendet<br><br>
+        <b>Note</b><br>Es ist sicherzustellen, dass  python3 installiert ist. Zus&auml;tzlich werden folgende Pakete ben&ouml;tigt:
+        <ul>
+          <li>sudo apt-get install libwww-perl python-enum34 python-dev libextutils-makemaker-cpanfile-perl python3-pip cpanminus</li>
+          <li>sudo pip3 install pychromecast --upgrade</li>
+          <li>sudo pip3 install youtube-dl --upgrade</li>
+          <li>sudo INLINE_PYTHON_EXECUTABLE=/usr/bin/python3 cpanm Inline::Python</li>
+        </ul>
+
+  <br>
+  <br>
+  <a name="GOOGLECASTdefine" id="GOOGLECASTdefine"></a>
+    <b>Define</b>
+  <ul>
+    <code>define &lt;name&gt; GOOGLECAST &lt;name&gt;</code><br>
+    <br>
+    Beispiel:
+    <ul>
+      <code>define livingroom.chromecast GOOGLECAST livingroom</code><br><br>
+      Warte ein paar Sekunden bis das Ger&auml;t als ONLINE angezeigt wird...<br><br>
+      <code>set livingroom.chromecast play https://www.youtube.com/watch?v=YE7VzlLtp-4</code><br>
+    </ul>
+    <br>
+    Die folgenden Medienformate werden unterst&uuml;tzt:<br>
+    <a href="https://developers.google.com/cast/docs/media">Unterst&uuml;tzte Medienformate</a><br>
+    Das Abspielen mittels youtube-dl funktioniert f&uuml;r die folgenden URLs:<br>
+    <a href="https://rg3.github.io/youtube-dl/supportedsites.html">Unterst&uuml;tzte youtube-dl - Seiten</a><br>
+    <br>
+  </ul>
+
+  <br>
+
+  <a name="GOOGLECASTset" id="GOOGLECASTset"></a>
+  <b>Set</b>
+  <ul>
+    <code>set &lt;name&gt; &lt;command&gt; [&lt;parameter&gt;]</code><br>
+               Die folgenden Befehle sind definiert:<br><br>
+        <ul>
+          <li><code><b>play</b> URL</code> &nbsp;&nbsp;-&nbsp;&nbsp; Abspielen einer URL</li>
+          <li><code><b>play</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; Abspielen im Sinne von Wiederaufnahme eines zuvor pausierten Abspielvorgangs</li>
+          <li><code><b>playFavorite</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; spielt die URL aus den Favoriten favoriteURL_[1-5] ab</li>
+          <li><code><b>stop</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; unterbricht den augenblicklichen Abspielvorgang</li>
+          <li><code><b>pause</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; pause</li>
+          <li><code><b>quitApp</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; schlie&szlig;t die gegenw&auml;rtige Applikation wie beispielsweise YouTube</li>
+          <li><code><b>skip</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; unterbricht das gegenw&auml;rtige Kapitel bzw. Lied und springt zum N&auml;chsten</li>
+          <li><code><b>rewind</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; springt zum Anfang des gegenw&auml;rtigen Kapitels bzw. Liedes</li>
+          <li><code><b>displayWebsite</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; anzeigen einer Webseite auf Chromecast Video</li>
+        </ul>
+    <br>
+    </ul>
+    
+    <a name="GOOGLECASTattr" id="GOOGLECASTattr"></a>
+        <b>Attribute</b>
+          <ul>
+            <li><code><b>favoriteURL_[1-5]</b></code> &nbsp;&nbsp;-&nbsp;&nbsp; Abspeichern von URL - Favoriten um mittels playFavorite [1-5] - Befehl abgespielt zu werden.</li>
+         </ul>
+         <br>
+
+    <a name="GOOGLECASTget" id="GOOGLECASTget"></a>
+        <b>Get</b>
+          <ul>
+            <code>n/a</code>
+         </ul>
+         <br>
+
+</ul>
+=end html_DE
 =cut
 

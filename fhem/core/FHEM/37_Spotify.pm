@@ -1,5 +1,5 @@
 ##############################################################################
-# $Id: 37_Spotify.pm 14987 2017-09-02 13:14:37Z neumann $
+# $Id: 37_Spotify.pm 16967 2018-07-09 16:02:50Z neumann $
 #
 #  37_Spotify.pm
 #
@@ -16,6 +16,7 @@ use warnings;
 use JSON;
 
 use MIME::Base64;
+use List::Util qw/shuffle/;
 
 sub Spotify_Initialize($) {
     my ($hash) = @_;
@@ -93,7 +94,7 @@ sub Spotify_Set($$@) {
   } else {
   	$list .= ' playTrackByURI playContextByURI pause:noArg resume:noArg volume:slider,0,1,100 update:noArg';
   	$list .= ' skipToNext:noArg skipToPrevious:noArg seekToPosition repeat:one,all,off shuffle:on,off transferPlayback volumeFade:slider,0,1,100 playTrackByName playPlaylistByName togglePlayback';
-  	$list .= ' playSavedTracks playRandomTrackFromPlaylistByURI findTrackByName findArtistByName playArtistByName volumeUp volumeDown';
+  	$list .= ' playSavedTracks playRandomTrackFromPlaylistByURI randomPlayPlaylistByURI findTrackByName findArtistByName playArtistByName volumeUp volumeDown';
   }
 
   if($cmd eq 'code') {
@@ -122,6 +123,7 @@ sub Spotify_Set($$@) {
   return Spotify_togglePlayback($hash) if($cmd eq 'toggle' || $cmd eq 'togglePlayback');
   return Spotify_playSavedTracks($hash, $args[0], defined $args[1] ? join(' ', @args[1..$#args]) : undef) if($cmd eq 'playSavedTracks');
   return Spotify_playRandomTrackFromPlaylistByURI($hash, $args[0], $args[1], defined $args[2] ? join(' ', @args[2..$#args]) : undef) if($cmd eq 'playRandomTrackFromPlaylistByURI');
+  return Spotify_randomPlayPlaylistByURI($hash, $args[0], $args[1], defined $args[2] ? join(' ', @args[2..$#args]) : undef) if($cmd eq 'randomPlayPlaylistByURI');
   return Spotify_findTrackByName($hash, @args > 0 ? join(' ', @args) : undef) if($cmd eq 'findTrackByName');
   return Spotify_findArtistByName($hash, @args > 0 ? join(' ', @args) : undef) if($cmd eq 'findArtistByName');
   return Spotify_playArtistByName($hash, @args > 0 ? join(' ', @args) : undef) if($cmd eq 'playArtistByName');
@@ -325,7 +327,7 @@ sub Spotify_pausePlayback($) { # pause playback
 	my $name = $hash->{NAME};
 	$hash->{helper}{is_playing} = 0;
 	readingsSingleUpdate($hash, 'is_playing', 0, 1);
-	Spotify_apiRequest($hash, 'me/player/pause', undef, 'PUT', 0);
+	Spotify_apiRequest($hash, 'me/player/pause', {}, 'PUT', 0);
 	Log3 $name, 4, "$name: pause";
 	return undef;
 }
@@ -336,7 +338,7 @@ sub Spotify_resumePlayback($$) { # resume playback
 	$device_id = Spotify_getTargetDeviceID($hash, $device_id, 0); # resolve target device id
 	$hash->{helper}{is_playing} = 1;
 	readingsSingleUpdate($hash, 'is_playing', 1, 1);
-	Spotify_apiRequest($hash, 'me/player/play' . (defined $device_id ? "?device_id=$device_id" : ''), undef, 'PUT', 0);
+	Spotify_apiRequest($hash, 'me/player/play' . (defined $device_id ? "?device_id=$device_id" : ''), {}, 'PUT', 0);
 	Log3 $name, 4, "$name: resume";
 	return undef;
 }
@@ -355,7 +357,7 @@ sub Spotify_setVolume($$$$) { # set the volume
 	delete $hash->{helper}{fading} if($blocking && defined $hash->{helper}{fading}); # stop volumeFade if currently active (override)
 
 	$device_id = Spotify_getTargetDeviceID($hash, $device_id, 0); # resolve target device id
-	Spotify_apiRequest($hash, "me/player/volume?volume_percent=$volume". (defined $device_id ? "&device_id=$device_id" : ''), undef, 'PUT', $blocking);
+	Spotify_apiRequest($hash, "me/player/volume?volume_percent=$volume". (defined $device_id ? "&device_id=$device_id" : ''), {}, 'PUT', $blocking);
 	Log3 $name, 4, "$name: volume $volume" if(!defined $hash->{helper}{fading});
 	return undef;
 }
@@ -363,7 +365,7 @@ sub Spotify_setVolume($$$$) { # set the volume
 sub Spotify_skipToNext($) { # skip to next track
 	my ($hash) = @_;
 	my $name = $hash->{NAME};
-	Spotify_apiRequest($hash, 'me/player/next', undef, 'POST', 0);
+	Spotify_apiRequest($hash, 'me/player/next', encode_json {}, 'POST', 0);
 	Log3 $name, 4, "$name: skipToNext";
 	return undef;
 }
@@ -371,7 +373,7 @@ sub Spotify_skipToNext($) { # skip to next track
 sub Spotify_skipToPrevious($) { # skip to previous track
 	my ($hash) = @_;
 	my $name = $hash->{NAME};
-	Spotify_apiRequest($hash, 'me/player/previous', undef, 'POST', 0);
+	Spotify_apiRequest($hash, 'me/player/previous', encode_json {}, 'POST', 0);
 	Log3 $name, 4, "$name: skipToPrevious";
 	return undef;
 }
@@ -382,7 +384,7 @@ sub Spotify_seekToPosition($$) { # seek to position in track
 	my (undef, $minutes, $seconds) = $position =~ m/(([0-9]+):)?([0-9]+)/;
 	return 'wrong syntax: set <name> seekToPosition <position_in_s>' if(!defined $minutes && !defined $seconds);
 	$position = ($minutes * 60 + $seconds) * 1000;
-	Spotify_apiRequest($hash, "me/player/seek?position_ms=$position", undef, 'PUT', 0);
+	Spotify_apiRequest($hash, "me/player/seek?position_ms=$position", {}, 'PUT', 0);
 	return undef;
 }
 
@@ -393,7 +395,7 @@ sub Spotify_setRepeat($$) { # set the repeat mode
 	$mode = 'track' if($mode eq 'one');
 	$mode = 'context' if($mode eq 'all');
 	my $device_id = Spotify_getTargetDeviceID($hash, undef, 0);
-	Spotify_apiRequest($hash, "me/player/repeat?state=$mode". (defined $device_id ? "&device_id=$device_id" : ""), undef, 'PUT', 0);
+	Spotify_apiRequest($hash, "me/player/repeat?state=$mode". (defined $device_id ? "&device_id=$device_id" : ""), {}, 'PUT', 0);
 	Log3 $name, 4, "$name: repeat $mode";
 	return undef;
 }
@@ -404,7 +406,7 @@ sub Spotify_setShuffle($$) { # set the shuffle mode
 	return 'wrong syntax: set <name> shuffle <off,on>' if(!defined $mode || ($mode ne 'on' && $mode ne 'off'));
 	$mode = $mode eq 'on' ? 'true' : 'false';
 	my $device_id = Spotify_getTargetDeviceID($hash, undef, 0);
-	Spotify_apiRequest($hash, "me/player/shuffle?state=$mode". (defined $device_id ? "&device_id=$device_id" : ""), undef, 'PUT', 0);
+	Spotify_apiRequest($hash, "me/player/shuffle?state=$mode". (defined $device_id ? "&device_id=$device_id" : ""), {}, 'PUT', 0);
 	Log3 $name, 4, "$name: shuffle $mode";
 	return undef;
 }
@@ -564,6 +566,29 @@ sub Spotify_playRandomTrackFromPlaylistByURI($$$$) { # select a random track fro
 	return undef;
 }
 
+sub Spotify_randomPlayPlaylistByURI($$$$) { # play the playlist in random order
+    my ($hash, $uri, $limit, $device_id) = @_;
+    my $name = $hash->{NAME};
+    return 'wrong syntax: set <name> randomPlayPlaylistByURI <playlist_uri> [ <limit> ] [ <device_id> ]' if(!defined $uri);
+
+    my ($user_id, $playlist_id) = $uri =~ m/user:(.*):playlist:(.*)/;
+    return 'invalid playlist_uri' if(!defined $user_id || !defined $playlist_id);
+
+    $device_id = $limit . (defined $device_id ? " " . $device_id : "") if(defined $limit && $limit !~ /^[0-9]+$/);
+    $limit = undef if($limit !~ /^[0-9]+$/);
+
+    Spotify_apiRequest($hash, "users/$user_id/playlists/$playlist_id/tracks?fields=items(track(name,uri))". (defined $limit ? "&limit=$limit" : ""), undef, 'GET', 1);
+    my $result = $hash->{helper}{dispatch}{json}{items};
+    return 'could not find playlist' if(!defined $result);
+
+    my @uris = map { $_->{track}{uri} } @{$result};
+    @uris = shuffle(@uris);
+    $hash->{helper}{skipTrackLog} = 1;
+    Spotify_playTrackByURI($hash, \@uris, $device_id);
+    Log3 $name, 4, "$name: playing $uri in random order";
+    return undef;
+}
+
 sub Spotify_play($$$$$) { # any play command (colleciton or track)
     my ($hash, $uris, $context_uri, $position, $device_id) = @_;
     my $name = $hash->{NAME};
@@ -643,12 +668,12 @@ sub Spotify_volumeStep($$$$) {
 		my @devices = @{$hash->{helper}{devices}};
 		foreach my $device (@devices) {
 			if(defined $device->{id} && $device->{id} eq $device_id) {
-				$nextVolume = min(100, max(0, $device->{volume_percent} + $step * $direction));
+				$nextVolume = $device->{volume_percent} + $step * $direction;
 				$device->{volume_percent} = $nextVolume;
 			}
 		}
 	} else {
-		$nextVolume = min(100, max(0, $hash->{helper}{device_active}{volume_percent} + $step * $direction));
+		$nextVolume = $hash->{helper}{device_active}{volume_percent} + $step * $direction;
 		$hash->{helper}{device_active}{volume_percent} = $nextVolume;
 	}
 

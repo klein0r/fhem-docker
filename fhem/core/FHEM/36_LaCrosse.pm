@@ -1,5 +1,5 @@
 
-# $Id: 36_LaCrosse.pm 15483 2017-11-23 20:03:23Z HCS $
+# $Id: 36_LaCrosse.pm 18149 2019-01-05 19:36:58Z HCS $
 
 
 package main;
@@ -168,7 +168,7 @@ sub LaCrosse_Parse($$) {
   my ($hash, $msg) = @_;
   my $name = $hash->{NAME};
 
-  my( @bytes, $addr, $typeNumber, $typeName, $battery_new, $battery_low, $error, $type, $channel, $temperature, $humidity, $windDirection, $windSpeed, $windGust, $rain, $pressure, $gas, $debug );
+  my( @bytes, $addr, $typeNumber, $typeName, $battery_new, $battery_low, $error, $type, $channel, $temperature, $humidity, $windDirection, $windSpeed, $windGust, $rain, $pressure, $gas1, $gas2, $lux, $version, $voltage, $debug );
   $temperature = 0xFFFF;
   $humidity = 0xFF;
   $windDirection = 0xFFFF;
@@ -176,7 +176,11 @@ sub LaCrosse_Parse($$) {
   $windGust = 0xFFFF;
   $rain = 0xFFFF;
   $pressure = 0xFFFF;
-  $gas = 0xFFFFFF;
+  $gas1 = 0xFFFFFF;
+  $gas2 = 0xFFFFFF;
+  $lux = 0xFFFFFF;
+  $version = 0xFF;
+  $voltage = 0xFF;
   $debug = 0xFFFFFF;
   $error = 0;
 
@@ -216,38 +220,8 @@ sub LaCrosse_Parse($$) {
     $humidity = $bytes[4] & 0x7f;
   }
   elsif ($msg =~ m/^OK WS/) {
-    # Weather station - Format:
-    #        0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
-    #   -------------------------------------------------------------------
-    #  OK WS 14  1   4   208 53  0   0   7   8   0   29  0   31  1   4   1      I D=0E  23.2°C  52%rH  0mm  Dir.: 180.0°  Wind:2.9m/s  Gust:3.1m/s  new Batt. 1025 hPa
-    #  OK WS ID  XXX TTT TTT HHH RRR RRR DDD DDD SSS SSS GGG GGG FFF PPP PPP
-    #  |  |  |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |--    Pressure LSB
-    #  |  |  |   |   |   |   |   |   |   |   |   |   |   |   |   |   |------    Pressure MSB
-    #  |  |  |   |   |   |   |   |   |   |   |   |   |   |   |   |----------    Flags *
-    #  |  |  |   |   |   |   |   |   |   |   |   |   |   |   |--------------    WindGust * 10 LSB (0.0 ... 50.0 m/s)           FF/FF = none
-    #  |  |  |   |   |   |   |   |   |   |   |   |   |   |------------------    WindGust * 10 MSB
-    #  |  |  |   |   |   |   |   |   |   |   |   |   |----------------------    WindSpeed  * 10 LSB(0.0 ... 50.0 m/s)          FF/FF = none
-    #  |  |  |   |   |   |   |   |   |   |   |   |--------------------------    WindSpeed  * 10 MSB
-    #  |  |  |   |   |   |   |   |   |   |   |------------------------------    WindDirection * 10 LSB (0.0 ... 365.0 Degrees) FF/FF = none
-    #  |  |  |   |   |   |   |   |   |   |----------------------------------    WindDirection * 10 MSB
-    #  |  |  |   |   |   |   |   |   |--------------------------------------    Rain * 0.5mm LSB (0 ... 9999 mm)               FF/FF = none
-    #  |  |  |   |   |   |   |   |------------------------------------------    Rain * 0.5mm MSB
-    #  |  |  |   |   |   |   |----------------------------------------------    Humidity (1 ... 99 %rH)                        FF = none
-    #  |  |  |   |   |   |--------------------------------------------------    Temp * 10 + 1000 LSB (-40 ... +60 °C)          FF/FF = none
-    #  |  |  |   |   |------------------------------------------------------    Temp * 10 + 1000 MSB
-    #  |  |  |   |----------------------------------------------------------    Sensor type (1=TX22, 2=NodeSensor)
-    #  |  |  |--------------------------------------------------------------    Sensor ID (0 ... 63)
-    #  |  |-----------------------------------------------------------------    fix "WS"
-    #  |--------------------------------------------------------------------    fix "OK"
-    #
-    #   * Flags: 128  64  32  16  8   4   2   1
-    #                                 |   |   |
-    #                                 |   |   |-- New battery
-    #                                 |   |------ ERROR
-    #                                 |---------- Low battery
-
     @bytes = split( ' ', substr($msg, 5) );
-
+    
     return "" if(@bytes < 14);
 
     $addr = sprintf( "%02X", $bytes[0] );
@@ -264,6 +238,9 @@ sub LaCrosse_Parse($$) {
     }
     elsif($typeNumber == 4) {
       $typeName = "LaCrosseGateway";
+    }
+    elsif($typeNumber == 5) {
+      $typeName = "UniversalSensor";
     }
     else {
       $typeName = "unknown";
@@ -312,21 +289,38 @@ sub LaCrosse_Parse($$) {
     if($bytes[11] != 0xFF) {
       $windGust = ($bytes[11] * 256 + $bytes[12]) / 10;
     }
-
-    if(@bytes > 15 && $bytes[14] != 0xFF) {
+    
+    if(@bytes > 15 && !($bytes[14] == 0xFF && $bytes[15] == 0xFF)) {
       $pressure = $bytes[14] * 256 + $bytes[15];
       $pressure /= 10.0 if $pressure > 5000;
     }
   
-    if(@bytes > 18 && $bytes[16] != 0xFF) {
-      $gas = $bytes[16] * 65536 + $bytes[17] * 256 + $bytes[18];
+    if(@bytes > 18 && !($bytes[16] == 0xFF && $bytes[17] == 0xFF && $bytes[18] == 0xFF)) {
+      $gas1 = $bytes[16] * 65536 + $bytes[17] * 256 + $bytes[18];
+    }
+   
+    if(@bytes > 21 && !($bytes[19] == 0xFF && $bytes[20] == 0xFF && $bytes[21] == 0xFF)) {
+      $gas2 = $bytes[19] * 65536 + $bytes[20] * 256 + $bytes[21];
     }
   
-    if(@bytes > 21 && $bytes[19] != 0xFF) {
-      $debug = $bytes[19] * 65536 + $bytes[20] * 256 + $bytes[21];
-      readingsBulkUpdate($hash, "debug", $debug);
+    if(@bytes > 24 && !($bytes[22] == 0xFF && $bytes[23] == 0xFF && $bytes[24] == 0xFF)) {
+      $lux = $bytes[22] * 65536 + $bytes[23] * 256 + $bytes[24];
     }
-
+  
+    if($typeNumber == 5) {
+      if (@bytes > 25 && $bytes[25] != 0xFF) {
+        $version = $bytes[25] / 10;
+      }
+  
+      if (@bytes > 26 && $bytes[26] != 0xFF) {
+        $voltage = $bytes[26] / 10;
+      }
+  
+      if (@bytes > 29 && $bytes[27] != 0xFF) {
+        $debug = $bytes[27] * 65536 + $bytes[28] * 256 + $bytes[29];
+      }
+    }
+  
   }
   else {
     DoTrigger($name, "UNKNOWNCODE $msg");
@@ -539,15 +533,31 @@ sub LaCrosse_Parse($$) {
       readingsBulkUpdate($rhash, "windDirectionText", $windDirectionText );
     }
 
-    if ($typeNumber > 0 && $pressure != 0xFFFF) {
+    if ($typeNumber > 1 && $pressure != 0xFFFF) {
       readingsBulkUpdate($rhash, "pressure", $pressure );
     }
   
-    if ($typeNumber > 0 && $gas != 0xFFFFFF) {
-      readingsBulkUpdate($rhash, "gas", $gas );
+    if ($typeNumber > 1  && $gas1 != 0xFFFFFF) {
+      readingsBulkUpdate($rhash, "gas1", $gas1 );
     }
   
-    if ($typeNumber > 0 && $debug != 0xFFFFFF) {
+    if ($typeNumber > 1 && $gas2 != 0xFFFFFF) {
+      readingsBulkUpdate($rhash, "gas2", $gas2 );
+    }
+  
+    if (($typeNumber == 4 || $typeNumber == 5) && $lux != 0xFFFFFF) {
+      readingsBulkUpdate($rhash, "lux", $lux );
+    }
+  
+    if ($typeNumber == 5 && $version != 0xFF) {
+      readingsBulkUpdate($rhash, "version", $version );
+    }
+  
+    if ($typeNumber = 5 && $voltage != 0xFF) {
+      readingsBulkUpdate($rhash, "voltage", $voltage );
+    }
+    
+    if ($typeNumber > 1 && $debug != 0xFFFFFF) {
       readingsBulkUpdate($rhash, "debug", $debug );
     }
 

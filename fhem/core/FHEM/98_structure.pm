@@ -1,4 +1,4 @@
-# $Id: 98_structure.pm 15129 2017-09-24 08:58:57Z rudolfkoenig $
+# $Id: 98_structure.pm 18182 2019-01-08 18:34:06Z rudolfkoenig $
 ##############################################################################
 #
 #     98_structure.pm
@@ -41,10 +41,19 @@ structure_Initialize($)
   $hash->{NotifyFn}  = "structure_Notify";
   $hash->{SetFn}     = "structure_Set";
   $hash->{AttrFn}    = "structure_Attr";
-  $hash->{AttrList}  = "async_delay clientstate_priority ".
-                 "clientstate_behavior:relative,relativeKnown,absolute,last ".
-                 "disable disabledForIntervals evaluateSetResult:1,0 ".
-                 $readingFnAttributes;
+  no warnings 'qw';
+  my @attrList = qw(
+    async_delay
+    clientstate_behavior:relative,relativeKnown,absolute,last 
+    clientstate_priority
+    disable
+    disabledForIntervals
+    evaluateSetResult:1,0
+    setStateIndirectly:1,0
+    setStructType:0,1
+  );
+  use warnings 'qw';
+  $hash->{AttrList} = join(" ", @attrList)." $readingFnAttributes";
 
   my %ahash = ( Fn=>"CommandAddStruct",
                 Hlp=>"<structure> <devspec>,add <devspec> to <structure>" );
@@ -62,7 +71,7 @@ structAdd($$)
   my ($d, $attrList) = @_;
   return if(!$defs{$d});
   $defs{$d}{INstructAdd} = 1;
-  foreach my $c (keys %{$defs{$d}{CONTENT}}) {
+  foreach my $c (@{$defs{$d}{".memberList"}}) {
     if($defs{$c} && $defs{$c}{INstructAdd}) {
       Log 1, "recursive structure definition"
 
@@ -73,6 +82,8 @@ structAdd($$)
   }
   delete $defs{$d}{INstructAdd} if($defs{$d});
 }
+
+sub structure_setDevs($;$);
 
 #############################
 sub
@@ -90,25 +101,46 @@ structure_Define($$)
 
   $hash->{ATTR} = $stype;
   $hash->{CHANGEDCNT} = 0;
+  $hash->{".asyncQueue"} = [];
 
-  my %list;
+  structure_setDevs($hash, $def); # needed by set while init is running
+  InternalTimer(1, sub {          # repeat it for devices defined later
+    structure_setDevs($hash, $def);
+    structure_Attr("set", $devname, $stype, $devname)
+        if(AttrVal($devname, "setStructType", $featurelevel <= 5.8));
+  }, undef, 0);
+
+  return undef;
+}
+
+sub
+structure_setDevs($;$)
+{
+  my ($hash, $def) = @_;
+  $def = "$hash->{NAME} structure $hash->{DEF}" if(!$def);
+  my $c = $hash->{".memberHash"};
+
+  my @a = split("[ \t][ \t]*", $def);
+  my $devname = shift(@a);
+  my $modname = shift(@a);
+  my $stype   = shift(@a);
+
+  my (%list, @list);
   my $aList = "$stype ${stype}_map structexclude";
   foreach my $a (@a) {
     foreach my $d (devspec2array($a)) {
+      next if(!$defs{$d} || $list{$d});
+      $hash->{DEVSPECDEF} = 1 if($a ne $d);
       $list{$d} = 1;
+      push(@list, $d);
+      next if($c && $c->{$d});
       addToDevAttrList($d, $aList);
       structAdd($d, $aList) if($defs{$d} && $defs{$d}{TYPE} eq "structure");
     }
   }
-  $hash->{CONTENT} = \%list;
-  my @arr = ();
-  $hash->{".asyncQueue"} = \@arr;
+  $hash->{".memberHash"} = \%list;
+  $hash->{".memberList"} = \@list;
   delete $hash->{".cachedHelp"};
-
-  @a = ( "set", $devname, $stype, $devname );
-  structure_Attr(@a);
-
-  return undef;
 }
 
 #############################
@@ -143,43 +175,38 @@ structure_Notify($$)
   my $me = $hash->{NAME};
   my $devmap = $hash->{ATTR}."_map";
 
-  if( $dev->{NAME} eq "global" ) {
+  if($dev->{NAME} eq "global") {
     my $max = int(@{$dev->{CHANGED}});
     for (my $i = 0; $i < $max; $i++) {
       my $s = $dev->{CHANGED}[$i];
       $s = "" if(!defined($s));
+
       if($s =~ m/^RENAMED ([^ ]*) ([^ ]*)$/) {
         my ($old, $new) = ($1, $2);
-        if( exists($hash->{CONTENT}{$old}) ) {
-
-          $hash->{DEF} =~ s/(\s+)$old(\s*)/$1$new$2/;
-
-          delete( $hash->{CONTENT}{$old} );
-          $hash->{CONTENT}{$new} = 1;
+        if($hash->{".memberHash"}{$old}) {
+          $hash->{DEF} =~ s/\b$old\b/$new/;
+          structure_setDevs($hash);
         }
+
       } elsif($s =~ m/^DELETED ([^ ]*)$/) {
-        my ($name) = ($1);
-
-        if( exists($hash->{CONTENT}{$name}) ) {
-
-          $hash->{DEF} =~ s/(\s+)$name(\s*)/ /;
-          $hash->{DEF} =~ s/^ //;
-          $hash->{DEF} =~ s/ $//;
-
-          delete $hash->{CONTENT}{$name};
-          delete $hash->{".cachedHelp"};
+        my $n = $1;
+        if($hash->{".memberHash"}{$n}) {
+          $hash->{DEF} =~ s/\b$n\b//;
+          structure_setDevs($hash)
         }
+
+      } elsif($s =~ m/^DEFINED ([^ ]*)$/) {
+        structure_setDevs($hash) if($hash->{NAME} ne $1 && $hash->{DEVSPECDEF});
+
       }
     }
+    return;
   }
 
   return "" if(IsDisabled($me));
 
-  #pruefen ob Devices welches das notify ausgeloest hat Mitglied dieser
-  # Struktur ist
-  return "" if (! exists $hash->{CONTENT}->{$dev->{NAME}});
+  return "" if (! exists $hash->{".memberHash"}->{$dev->{NAME}});
 
-  # lade das Verhalten, Standard ist absolute 
   my $behavior = AttrVal($me, "clientstate_behavior", "absolute");
   my %clientstate;
 
@@ -208,8 +235,8 @@ structure_Notify($$)
   my $minprio = 99999;
   my $devstate;
 
-  foreach my $d (sort keys %{ $hash->{CONTENT} }) {
-    next if(!$defs{$d});
+  foreach my $d (sort keys %{ $hash->{".memberHash"} }) {
+    next if(!$defs{$d} || IsDisabled($d));
 
     if($attr{$d} && $attr{$d}{$devmap}) {
       my @gruppe = attrSplit($attr{$d}{$devmap});
@@ -263,7 +290,7 @@ structure_Notify($$)
       }
     }
 
-    $hash->{CONTENT}{$d} = $devstate;
+    $hash->{".memberHash"}{$d} = $devstate;
   }
 
   my $newState = "undefined";
@@ -313,7 +340,7 @@ CommandAddStruct($)
   }
 
   foreach my $d (devspec2array($a[0])) {
-    $hash->{CONTENT}{$d} = 1;
+    $hash->{".memberHash"}{$d} = 1;
     $hash->{DEF} .= " $d";
   }
 
@@ -341,7 +368,7 @@ CommandDelStruct($)
   }
 
   foreach my $d (devspec2array($a[0])) {
-    delete($hash->{CONTENT}{$d});
+    delete($hash->{".memberHash"}{$d});
     $hash->{DEF} =~ s/\b$d\b//g;
   }
   $hash->{DEF} =~ s/  / /g;
@@ -358,77 +385,96 @@ sub
 structure_Set($@)
 {
   my ($hash, @list) = @_;
+  my $me = $hash->{NAME};
   my $ret = "";
   my %pars;
 
   # see Forum # 28623 for .cachedHelp
   return $hash->{".cachedHelp"} if($list[1] eq "?" && $hash->{".cachedHelp"});
+
+  my @devList = @{$hash->{".memberList"}};
+  if(@list > 1 && $list[$#list] eq "reverse") {
+    pop @list;
+    @devList = reverse @devList;
+  }
+
+  if($list[1] =~ m/^(save|restore)StructState$/) {
+    return "Usage: set $me $list[1] readingName" if(@list != 3);
+    return "Bad reading name $list[2]" if(!goodReadingName($list[2]));
+
+    if($1 eq "save") {
+      readingsSingleUpdate($hash, $list[2],
+                   join(",", map { ReadingsVal($_,"state","on") } @devList), 1);
+      return;
+    }
+
+    my @sl = split(",", ReadingsVal($me, $list[2], ""));
+    for(my $i1=0; $i1<@devList && $i1<@sl; $i1++) {
+      AnalyzeCommand($hash->{CL}, "set $devList[$i1] $sl[$i1]");
+    }
+    return;
+  }
+
   $hash->{INSET} = 1;
   my $startAsyncProcessing;
 
   my $filter;
   if($list[1] ne "?") {
     my $state = join(" ", @list[1..@list-1]);
-    readingsSingleUpdate($hash, "state", $state, 1);
+    readingsSingleUpdate($hash, "state", $state, 1)
+        if(!AttrVal($me, "setStateIndirectly", undef));
 
     if($state =~ /^\[(FILTER=.*)]/) {
-      delete($hash->{INSET}); # Experimental, Forum #35382
+      delete($hash->{INSET}); # Forum #35382
       $filter = $1;
       @list = split(" ", $list[0] ." ". substr($state, length($filter)+2));
     }
   }
 
-  my @devList = split("[ \t][ \t]*", $hash->{DEF});
-  shift @devList;
-  if(@list > 1 && $list[$#list] eq "reverse") {
-    pop @list;
-    @devList = reverse @devList;
-  }
   foreach my $d (@devList) {
     next if(!$defs{$d});
     if($defs{$d}{INSET}) {
-      Log3 $hash, 1, "ERROR: endless loop detected for $d in " . $hash->{NAME};
+      Log3 $hash, 1, "ERROR: endless loop detected for $d in $me";
       next;
     }
 
     if($attr{$d} && $attr{$d}{structexclude}) {
       my $se = $attr{$d}{structexclude};
-      next if($hash->{NAME} =~ m/$se/);
+      next if($me =~ m/$se/);
     }
 
-    $list[0] = $d;
-    my $sret;
-    if($filter) {
-      my $ret;
-      my $dl0 = $defs{$list[0]};
-      if(defined($dl0) && $dl0->{TYPE} eq "structure") {
-        my ($ostate,$ocnt) = ($dl0->{STATE}, $dl0->{CHANGEDCNT});
-        $ret = AnalyzeCommand(undef, "set $list[0] [$filter] ".
-                                join(" ", @list[1..@list-1]) );
-        if($dl0->{CHANGEDCNT} == $ocnt) { # Forum #70488
-          $dl0->{STATE} = $dl0->{READINGS}{state}{VAL} = $ostate;
-          structure_Notify($hash, $dl0);
-        }
-      } else {
-        $ret = AnalyzeCommand(undef, "set $list[0]:$filter ".
-                                join(" ", @list[1..@list-1]) );
-      }
-      $sret .= $ret if( $ret );
+    my $dl0 = $defs{$d};
+    my $is_structure = defined($dl0) && $dl0->{TYPE} eq "structure";
+    my $async_delay = AttrVal($me, "async_delay", undef);
+
+    my $cmd;
+    if(!$filter) {
+      $cmd = "set $d ". join(" ", @list[1..@list-1]);
+
+    } elsif( $is_structure ) {
+      $cmd = "set $d [$filter] ". join(" ", @list[1..@list-1]);
 
     } else {
-      my $async_delay = AttrVal($hash->{NAME}, "async_delay", undef);
-      if(defined($async_delay) && $list[1] ne "?") {
-        $startAsyncProcessing = $async_delay if(!@{$hash->{".asyncQueue"}});
-        push @{$hash->{".asyncQueue"}}, join(" ", @list);
+      $cmd = "set $d:$filter ". join(" ", @list[1..@list-1]);
 
-      } else {
-        $sret .= CommandSet(undef, join(" ", @list));
-
-      }
     }
-    if($sret) {
-      $ret .= "\n" if($ret);
-      $ret .= $sret;
+
+    if(defined($async_delay) && $list[1] ne "?") {
+      $startAsyncProcessing = $async_delay if(!@{$hash->{".asyncQueue"}});
+      push @{$hash->{".asyncQueue"}}, $cmd;
+
+    } else {
+      my ($ostate,$ocnt) = ($dl0->{STATE}, $dl0->{CHANGEDCNT});
+      my $sret = AnalyzeCommand(undef, $cmd);
+      if($is_structure && $dl0->{CHANGEDCNT} == $ocnt) { # Forum #70488
+        $dl0->{STATE} = $dl0->{READINGS}{state}{VAL} = $ostate;
+        structure_Notify($hash, $dl0);
+      }
+
+      if($sret) {
+        $ret .= "\n" if($ret);
+        $ret .= $sret;
+      }
       if($list[1] eq "?") {
         $sret =~ s/.*one of //;
         map { $pars{$_} = 1 } split(" ", $sret);
@@ -439,12 +485,13 @@ structure_Set($@)
   Log3 $hash, 5, "SET: $ret" if($ret);
 
   if(defined($startAsyncProcessing)) {
-    InternalTimer(gettimeofday()+$startAsyncProcessing,
-                                "structure_asyncQueue", $hash, 0);
+    InternalTimer(gettimeofday(), "structure_asyncQueue", $hash, 0);
   }
-  return undef if($list[1] ne "?");
+
+  return $ret if($list[1] ne "?");
   $hash->{".cachedHelp"} = "Unknown argument ?, choose one of " .
-                join(" ", sort keys(%pars));
+                join(" ", sort keys(%pars)).
+                     " saveStructState restoreStructState";
   return $hash->{".cachedHelp"};
 }
 
@@ -455,7 +502,7 @@ structure_asyncQueue(@)
 
   my $next_cmd = shift @{$hash->{".asyncQueue"}};
   if(defined $next_cmd) {
-    CommandSet(undef, $next_cmd);
+    AnalyzeCommand(undef, $next_cmd);
     my $async_delay = AttrVal($hash->{NAME}, "async_delay", 0);
     InternalTimer(gettimeofday()+$async_delay,"structure_asyncQueue",$hash,0);
   }
@@ -478,12 +525,13 @@ structure_Attr($@)
     group=>1,
     icon=>1,
     room=>1,
+    setStateIndirectly=>1,
     stateFormat=>1,
     webCmd=>1,
     userattr=>1
   );
 
-  return undef if($ignore{$list[1]});
+  return undef if($ignore{$list[1]} || !$init_done);
 
   my $me = $list[0];
   my $hash = $defs{$me};
@@ -495,8 +543,7 @@ structure_Attr($@)
   $hash->{INATTR} = 1;
 
   my $ret = "";
-  my @devList = split("[ \t][ \t]*", $hash->{DEF});
-  shift @devList;
+  my @devList = @{$hash->{".memberList"}};
   foreach my $d (@devList) {
     next if(!$defs{$d});
     if($attr{$d} && $attr{$d}{structexclude}) {
@@ -565,14 +612,23 @@ structure_Attr($@)
   <a name="structureset"></a>
   <b>Set</b>
   <ul>
-    Every set command is propagated to the attached devices. Exception: if an
+    <li>saveStructState &lt;readingName&gt;<br>
+      The state reading of all members is stored comma separated in the
+      specified readingName.
+      </li><br>
+    <li>restoreStructState &lt;readingName&gt;<br>
+      The state of all members will be restored from readingName by calling
+      "set memberName storedStateValue".
+      </li><br>
+    Every other set command is propagated to the attached devices. Exception:
+    if an
     attached device has an attribute structexclude, and the attribute value
     matches (as a regexp) the name of the current structure.<br>
     If the set is of the form <code>set &lt;structure&gt;
     [FILTER=&lt;filter&gt;] &lt;type-specific&gt;</code> then
     :FILTER=&lt;filter&gt; will be appended to the device name in the
     propagated set for the attached devices like this: <code>set
-    <devN>:FILTER=&lt;filter&gt; &lt;type-specific&gt;</code><br>
+    &lt;devN&gt;:FILTER=&lt;filter&gt; &lt;type-specific&gt;</code><br>
     If the last set parameter is "reverse", then execute the set commands in
     the reverse order.
   </ul>
@@ -678,9 +734,23 @@ structure_Attr($@)
       compute the new status.
       </li>
 
+    <li>setStateIndirectly<br>
+      If true (1), set the state only when member devices report a state
+      change, else the state is first set to the set command argument. Default
+      is 0.
+      </li>
+
+    <li>setStructType<br>
+      If true (1), then the &lt;struct-type&gt; will be set as an attribute for
+      each member device to the name of the structure.  True is the default for
+      featurelevel <= 5.8.
+      </li>
+
     <a name="structexclude"></a>
     <li>structexclude<br>
-        exclude the device from set/notify or attribute operations. For the set
+        Note: this is an attribute for the member device, not for the struct
+        itself.<br>
+        Exclude the device from set/notify or attribute operations. For the set
         and notify the value of structexclude must match the structure name,
         for the attr/deleteattr commands ist must match the combination of
         structure_name:attribute_name. Examples:<br>
@@ -744,13 +814,22 @@ structure_Attr($@)
   <a name="structureset"></a>
   <b>Set</b>
   <ul>
-    Jedes set Kommando wird an alle Devices dieser Struktur weitergegeben.<br>
+    <li>saveStructState &lt;readingName&gt;<br>
+      Der Status (genauer: state Reading) aller Mitglieder wird im angegebenen
+      Reading Komma separiert gespeichert.
+      </li><br>
+    <li>restoreStructState &lt;readingName&gt;<br>
+      Der Status der Mitglieder wird aus dem angegebenen Reading gelesen, und
+      via "set Mitgliedsname StatusWert" gesetzt.
+      </li><br>
+    Jedes andere set Kommando wird an alle Devices dieser Struktur
+    weitergegeben.<br>
     Aussnahme: das Attribut structexclude ist in einem Device definiert und
     dessen Attributwert matched als Regexp zum Namen der aktuellen
     Struktur.<br> Wenn das set Kommando diese Form hat <code>set
     &lt;structure&gt; [FILTER=&lt;filter&gt;] &lt;type-specific&gt;</code> wird
     :FILTER=&lt;filter&gt; bei der Weitergebe der set an jeden Devicenamen wie
-    folgt angehängt: <code>set <devN>:FILTER=&lt;filter&gt;
+    folgt angeh&auml;ngt: <code>set &lt;devN&gt;:FILTER=&lt;filter&gt;
     &lt;type-specific&gt;</code><br>
     Falls der letzte Parameter reverse ist, dann werden die Befehle in der
     umgekehrten Reihenfolge ausgef&uuml;hrt.
@@ -877,6 +956,17 @@ structure_Attr($@)
       neuen Status auswerten soll.
       </li>
 
+    <li>setStateIndirectly<br>
+      Falls wahr (1), dann wird der Status der Struktur nur aus dem
+      Statusmeldungen der Mitglied-Ger&auml;te bestimmt, sonst wird zuerst der
+      Status auf dem set Argument gesetzt. Die Voreinstellung ist 0.
+      </li>
+
+    <li>setStructType<br>
+      Falls wahr (1), &lt;struct-type&gt; wird als Attribute f&uuml;r jedes
+      Mitglied-Ger&auml;t auf dem Namen der Struktur gesetzt.
+      Wahr ist die Voreinstellung f&uuml;r featurelevel <= 5.8.
+      </li>
 
     <li>structexclude<br>
       Bei gesetztem Attribut wird set, attr/deleteattr ignoriert.  Dies

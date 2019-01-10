@@ -1,4 +1,4 @@
-# $Id: 98_expandJSON.pm 13708 2017-03-15 11:58:42Z dev0 $
+# $Id: 98_expandJSON.pm 17324 2018-09-11 06:48:31Z dev0 $
 ################################################################################
 #
 #  Copyright (c) 2017 dev0
@@ -22,13 +22,14 @@
 #
 ################################################################################
 
-my $module_version = "1.10";
+my $module_version = "1.13";
 
 package main;
 
 use strict;
 use warnings;
 use POSIX;
+use Encode;
 
 sub expandJSON_expand($$$$;$$);  # Forum #66761
 
@@ -51,7 +52,7 @@ sub expandJSON_Define(@) {
   my $usg = "\nUse 'define <name> expandJSON <event regexp>"
           . " [<target reading regexp>]";
   return "Wrong syntax: $usg" if(int(@a) < 3);
-  return "ERROR: Perl module JSON is not installed" 
+  return "ERROR: Perl module JSON is not installed"
     if (expandJSON_isPmInstalled($hash,"JSON"));
 
   my $name = $a[0];
@@ -97,8 +98,8 @@ sub expandJSON_Attr($$) {
   }
 
   elsif ($aName eq "addReadingsPrefix") {
-    $cmd eq "set" 
-      ? $aVal =~ m/^[01]$/ ? ($hash->{helper}{$aName} = $aVal) : ($ret = "0|1") 
+    $cmd eq "set"
+      ? $aVal =~ m/^[01]$/ ? ($hash->{helper}{$aName} = $aVal) : ($ret = "0|1")
       : delete $hash->{helper}{$aName}
   }
 
@@ -113,7 +114,7 @@ sub expandJSON_Attr($$) {
     }
     elsif ($cmd eq "del") { readingsSingleUpdate($hash, "state", "active", 1) }
   }
-  
+
   if ($ret) {
     my $v = defined $aVal ? $aVal : "";
     my $msg = "$type: attr $name $aName $v: value must be: ";
@@ -131,7 +132,7 @@ sub expandJSON_Notify($$) {
   return "" if(IsDisabled($name));
 
   my $events = deviceEvents($dhash, AttrVal($name, "addStateEvent", 0));
-  return if( !grep { m/{.*}\s*$/s } @{ $events } ); #there is no JSON content
+  return if( !grep { m/\{.*}\s*$/s } @{ $events } ); #there is no JSON content
 
   for (my $i = 0; $i < int(@{$events}); $i++) {
     my $event = $events->[$i];
@@ -144,13 +145,13 @@ sub expandJSON_Notify($$) {
       my $type = $hash->{TYPE};
       Log3 $name, 5, "$type $name: Found $devName:$event";
 
-      my ($reading,$value) = $event =~ m/^\s*{.*}\s*$/s 
+      my ($reading,$value) = $event =~ m/^\s*\{.*}\s*$/s
         ? ("state", $event)
         : split(": ", $event, 2);
 
       $hash->{STATE} = $dhash->{NTFY_TRIGGERTIME};
 
-      if ($value !~ m/^\s*{.*}\s*$/s) { # eg. state with an invalid json
+      if ($value !~ m/^\s*\{.*}\s*$/s) { # eg. state with an invalid json
         Log3 $name, 5, "$type $name: Invalid JSON: $value";
         return;
       }
@@ -159,7 +160,7 @@ sub expandJSON_Notify($$) {
                    . "| $value";
 
       InternalTimer(
-        gettimeofday(), 
+        gettimeofday(),
         sub(){ expandJSON_decode($hash,$devName,$reading,$value) },
         $hash);
     }
@@ -175,15 +176,15 @@ sub expandJSON_decode($$$$) {
   my ($name,$type) = ($hash->{NAME},$hash->{TYPE});
   my $dhash = $defs{$dname};
   my $h;
-  eval { $h = decode_json($dvalue); 1; };
+  eval { $h = decode_json(encode_utf8($dvalue)); 1; };
   if ( $@ ) {
     Log3 $name, 2, "$type $name: Bad JSON: $dname $dreading: $dvalue";
     Log3 $name, 2, "$type $name: $@";
     return undef;
   }
-
   my $sPrefix = $hash->{helper}{addReadingsPrefix} ? $dreading."_" : "";
   readingsBeginUpdate($dhash);
+#  readingsBulkUpdate($dhash, "expandJSON_".$dreading, $h);
   expandJSON_expand($hash,$dhash,$sPrefix,$h);
   readingsEndUpdate($dhash, AttrVal($name,"do_not_notify",0) ? 0 : 1);
 
@@ -199,12 +200,25 @@ sub expandJSON_expand($$$$;$$) {
   $suffix = "" if( !$suffix );
   $suffix = "_$suffix" if( $suffix );
 
+#  if( ref( $ref ) eq "ARRAY" ) {
+#    while( my ($key,$value) = each @{ $ref } ) {
+#      expandJSON_expand($hash,$dhash,$sPrefix,$value,
+#                        $prefix.sprintf("%02i",$key+1)."_");
+#    }
+#  }
   if( ref( $ref ) eq "ARRAY" ) {
     while( my ($key,$value) = each @{ $ref } ) {
-      expandJSON_expand($hash,$dhash,$sPrefix,$value,
-                        $prefix.sprintf("%02i",$key+1)."_");
+      if( ref( $value ) ) {
+        expandJSON_expand($hash,$dhash,$sPrefix,$value,$prefix.sprintf("%02i",$key+1)."_");
+      }
+      else {
+        (my $reading = $sPrefix.$prefix.sprintf("%02i",$key+1)) =~ s/[^A-Za-z\d_\.\-\/]/_/g;
+        readingsBulkUpdate($dhash, $reading, $value)
+          if $reading =~ m/^$hash->{t_regexp}$/;
+      }
     }
   }
+
   elsif( ref( $ref ) eq "HASH" ) {
     while( my ($key,$value) = each %{ $ref } ) {
       if( ref( $value ) ) {
@@ -213,10 +227,16 @@ sub expandJSON_expand($$$$;$$) {
       else {
         # replace illegal characters in reading names
         (my $reading = $sPrefix.$prefix.$key.$suffix) =~ s/[^A-Za-z\d_\.\-\/]/_/g;
-        readingsBulkUpdate($dhash, $reading, $value) 
+        readingsBulkUpdate($dhash, $reading, $value)
           if $reading =~ m/^$hash->{t_regexp}$/;
       }
     }
+  }
+  elsif( ref( $ref ) eq "JSON::PP::Boolean" ) { # Forum #82734
+    (my $reading = $sPrefix.$prefix) =~ s/[^A-Za-z\d_\.\-\/]/_/g;
+    $reading = substr($reading, 0, -1); #remove tailing _
+    readingsBulkUpdate($dhash, $reading, $ref ? 1 : 0)
+      if $reading =~ m/^$hash->{t_regexp}$/;
   }
 }
 
@@ -225,13 +245,13 @@ sub expandJSON_isPmInstalled($$)
 {
   my ($hash,$pm) = @_;
   my ($name,$type) = ($hash->{NAME},$hash->{TYPE});
-  if (not eval "use $pm;1") 
+  if (not eval "use $pm;1")
   {
     Log3 $name, 1, "$type $name: perl modul missing: $pm. Install it, please.";
     $hash->{MISSING_MODULES} .= "$pm ";
     return "failed: $pm";
   }
-  
+
   return undef;
 }
 
@@ -249,21 +269,27 @@ sub expandJSON_isPmInstalled($$)
 <h3>expandJSON</h3>
 
 <ul>
-  <p>Expand a JSON string from a reading into individual readings</p>
+  <p>Expand a JSON object from a reading into individual readings</p>
 
   <ul>
-    <li>Requirement: perl module JSON<br>
+    <li>Requirements: perl module JSON<br>
       Use "cpan install JSON" or operating system's package manager to install
-      Perl JSON Modul. Depending on your os the required package is named: 
-      libjson-perl or perl-JSON.
+      Perl JSON Modul. Depending on your os the required package is named:
+      libjson-perl or perl-JSON. Additionally JSON::XS may be required if
+      Boolean values (true/false) are missing. Package name for this lib is
+      libjson-xs-perl or perl-JSON-XS.
+    </li>
+    <li>
+      Decoding of JSON objects is fully implemented. JSON arrays are supported
+      but may change in future a little bit...
     </li>
   </ul><br>
-  
+
   <a name="expandJSONdefine"></a>
   <b>Define</b><br><br>
-  
+
   <ul>
-    <code>define &lt;name&gt; expandJSON &lt;source_regex&gt; 
+    <code>define &lt;name&gt; expandJSON &lt;source_regex&gt;
       [&lt;target_regex&gt;]</code><br><br>
 
     <li>
@@ -276,7 +302,7 @@ sub expandJSON_isPmInstalled($$)
       the JSON strings. Regexp syntax is the same as used by notify and must not
       contain spaces.<br>
       </li><br>
-      
+
     <li>
       <a name="">&lt;target_regex&gt;</a><br>
       Optional: This regexp is used to determine whether the target reading is
@@ -290,13 +316,9 @@ sub expandJSON_isPmInstalled($$)
       <br>
       <u>Source reading:</u><br>
       <code>
-        device:{.*} #state without attribute addStateEvent<br>
-        device:state:.{.*} #state with attribute addStateEvent<br>
-        device:reading:.{.*}<br>
-        Sonoff.*:ENERGY.*:.{.*}<br>
-        .*wifiIOT.*:.*sensor.*:.{.*}<br>
-        (?i)dev.*:(sensor1|sensor2|teleme.*):.{.*}<br>
-        (devX:{.*}|devY.*:jsonY:.{.*Wifi.*{.*SSID.*}.*})
+        device:\{.*} #state without attribute addStateEvent<br>
+        device:state:.\{.*} #state with attribute addStateEvent<br>
+        device:reading:.\{.*} #regular reading (typical application)<br>
       </code><br>
       <br>
 
@@ -305,13 +327,11 @@ sub expandJSON_isPmInstalled($$)
       <code>(Power|Current|Voltage|.*day)</code><br><br>
 
       <u>Complete definitions:</u><br>
-      <code>define ej1 expandJSON device:sourceReading:.{.*} targetReading
+      <code>define ej expandJSON device:reading:.\{.*} targetReading
       </code><br>
-      <code>define ej2 expandJSON Sonoff.*:ENERGY.*:.{.*} (Power|.*day)
+      <code>define ej expandJSON Sonoff.*:ENERGY.*:.\{.*} (Power|.*day)
       </code><br>
-      <code>define ej3 expandJSON (?i).*_sensordev_.*:.*:.{.*}
-      </code><br><br>
-   
+
     </li><br>
   </ul>
 
@@ -320,13 +340,13 @@ sub expandJSON_isPmInstalled($$)
   <ul>
     N/A<br><br>
   </ul>
-  
+
   <a name="expandJSONget"></a>
   <b>Get</b><br><br>
   <ul>
     N/A<br><br>
   </ul>
-  
+
   <a name="expandJSON_attr"></a>
   <b>Attributes</b><br><br>
   <ul>
@@ -338,10 +358,10 @@ sub expandJSON_isPmInstalled($$)
     <li><a name="expandJSON_attr_disable">disable</a><br>
       Used to disable this device.
     </li><br>
-    
+
     <li><a name="expandJSON_attr_do_not_notify">do_not_notify</a><br>
       Do not generate events for converted readings at all. Think twice before
-      using this attribute. In most cases, it is more appropriate to use 
+      using this attribute. In most cases, it is more appropriate to use
       event-on-change-reading in target devices.
     </li><br>
 

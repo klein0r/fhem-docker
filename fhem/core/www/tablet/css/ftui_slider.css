@@ -17,10 +17,20 @@
 
 .slider_vertical .slidertext,
 .level_vertical .slidertext {
-    margin-left: -18px;
     margin-top: 10px;
     width: 40px;
     text-align: center;
+}
+
+.range-container {
+    position: relative;
+}
+
+.slider_horizontal .slidertext-right,
+.level_horizontal .slidertext-right {
+position: absolute;
+right: -30px;
+
 }
 
 .level_vertical .slider-wrapper,

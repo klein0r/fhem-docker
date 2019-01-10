@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 14_CUL_TX.pm 14784 2017-07-25 15:06:43Z rudolfkoenig $
+# $Id: 14_CUL_TX.pm 17102 2018-08-08 05:34:42Z rudolfkoenig $
 package main;
 
 # From peterp
@@ -20,7 +20,9 @@ CUL_TX_Initialize($)
   $hash->{AttrList}  = "IODev do_not_notify:1,0 ignore:0,1 showtime:1,0 " .
                         $readingFnAttributes;
   $hash->{AutoCreate}=
-        { "CUL_TX.*" => { GPLOT => "temp4hum4:Temp/Hum,", FILTER => "%NAME" } };
+        { "CUL_TX.*" => { GPLOT => "temp4hum4:Temp/Hum,",
+                          FILTER => "%NAME",
+                          autocreateThreshold => "2:180" } };
 }
 
 #############################
@@ -32,6 +34,14 @@ CUL_TX_Define($$)
 
   return "wrong syntax: define <name> CUL_TX <code> [corr] [minsecs]"
         if(int(@a) < 3 || int(@a) > 5);
+
+  my $dp = $modules{CUL_TX}{defptr};
+  my $old = ($dp && $dp->{$a[2]} ? $dp->{$a[2]}{NAME} : "");
+  my $op = ($hash->{OLDDEF} ? "modify":"define");
+  my $oc = ($hash->{OLDDEF} ? $hash->{CODE} : "");
+  return "Cannot $op $hash->{NAME} as the code $a[2] is already used by $old"
+        if($old && $oc ne $a[2]);
+  delete($modules{CUL_TX}{defptr}{$oc}) if($oc);
 
   $hash->{CODE} = $a[2];
   $hash->{corr} = ((int(@a) > 3) ? $a[3] : 0);
@@ -75,7 +85,7 @@ CUL_TX_Parse($$)
   my $def = $modules{CUL_TX}{defptr}{$id3};
   if(!$def) {
     Log3 $hash, 2, "CUL_TX Unknown device $id3, please define it";
-    return "UNDEFINED CUL_TX_$id3 CUL_TX $id3" if(!$def);
+    return "UNDEFINED CUL_TX_$id3 CUL_TX $id3";
   }
   my $now = time();
 

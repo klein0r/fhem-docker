@@ -1,9 +1,10 @@
 ##############################################
-# $Id: SetExtensions.pm 12935 2017-01-02 19:51:46Z rudolfkoenig $
+# $Id: SetExtensions.pm 18197 2019-01-09 20:50:34Z rudolfkoenig $
 
 package main;
 use strict;
 use warnings;
+use AttrTemplate;
 
 sub SetExtensions($$@);
 sub SetExtensionsFn($);
@@ -44,7 +45,7 @@ SetExtensions($$@)
 {
   my ($hash, $list, $name, $cmd, @a) = @_;
 
-  return "Unknown argument $cmd, choose one of " if(!$list);
+  return AttrTemplate_Set($hash, $list, $name, $cmd, @a) if(!$list);
 
   my %se_list = (
     "on-for-timer"      => 1,
@@ -58,38 +59,58 @@ SetExtensions($$@)
     "toggle"            => 0
   );
 
-  my $hasOn  = ($list =~ m/(^| )on\b/);
-  my $hasOff = ($list =~ m/(^| )off\b/);
-  my $value = Value($name);
-  my $em = AttrVal($name, "eventMap", undef);
-  if($em) {
-    if(!$hasOn || !$hasOff) {
-      $hasOn  = ($em =~ m/:on\b/)  if(!$hasOn);
-      $hasOff = ($em =~ m/:off\b/) if(!$hasOff);
-    }
-    # Following is fix for P#1: /B0:on/on-for-timer 300:5Min/
-    # $cmd = ReplaceEventMap($name, $cmd, 1) if($cmd ne "?");
-    # Has problem with P#2 (Forum #28855): /on-for-timer 300:5Min/on:Ein/
-    # Workaround for P#1 /on-for-timer 300:5Min/on-for-timer:on-for-timer/B0:on/
-    (undef,$value) = ReplaceEventMap($name, [$name, $value], 0) if($cmd ne "?");
+  sub
+  getCmd($$)
+  {
+    my ($list, $lCmd) = @_;
+    my $uCmd = uc($lCmd);
+    return ($list =~ m/(^| )$lCmd\b/ ? $lCmd :
+           ($list =~ m/(^| )$uCmd\b/ ? $uCmd : ""));
   }
-  if(!$hasOn || !$hasOff) { # No extension
-    return "Unknown argument $cmd, choose one of $list";
+
+  # Must work with EnOceans "attr x eventMap BI:off B0:on"
+  sub
+  getReplCmd($$)
+  {
+    my ($name, $cmd) = @_;
+    my (undef,$value) = ReplaceEventMap($name, [$name, $cmd], 0);
+    return $cmd if($value ne $cmd);
+
+    $cmd = uc($cmd);
+    (undef,$value) = ReplaceEventMap($name, [$name, $cmd], 0);
+    return $cmd if($value ne $cmd);
+    return "";
   }
+
+  my $onCmd  = getCmd($list, "on");
+  my $offCmd = getCmd($list, "off");
+
+  my $eventMap = AttrVal($name, "eventMap", undef);
+  my $fixedIt;
+  if((!$onCmd || !$offCmd) && $eventMap) {
+    $onCmd  = getReplCmd($name, "on")  if(!$onCmd);
+    $offCmd = getReplCmd($name, "off") if(!$offCmd && $onCmd);
+    $fixedIt = 1;
+  }
+
+  if(!$onCmd || !$offCmd) { # No extension
+    return AttrTemplate_Set($hash, $list, $name, $cmd, @a);
+  }
+
+  $cmd = ReplaceEventMap($name, $cmd, 1) if($fixedIt);
 
   if(!defined($se_list{$cmd})) {
     # Add only "new" commands
     my @mylist = grep { $list !~ m/\b$_\b/ } keys %se_list;
-    return "Unknown argument $cmd, choose one of $list " .
-        join(" ", @mylist);
+    return AttrTemplate_Set($hash, "$list ".join(" ", @mylist), $name, $cmd,@a);
   }
   if($se_list{$cmd} && $se_list{$cmd} != int(@a)) {
     return "$cmd requires $se_list{$cmd} parameter";
   }
 
   SetExtensionsCancel($hash);
-  my $cmd1 = ($cmd =~ m/^on.*/ ? "on" : "off");
-  my $cmd2 = ($cmd =~ m/^on.*/ ? "off" : "on");
+  my $cmd1 = ($cmd =~ m/^on.*/i ? $onCmd : $offCmd);
+  my $cmd2 = ($cmd =~ m/^on.*/i ? $offCmd : $onCmd);
   my $param = $a[0];
 
 
@@ -115,7 +136,11 @@ SetExtensions($$@)
       my $hms_now  = sprintf("%02d:%02d:%02d", $lt[2], $lt[1], $lt[0]);
       if($hms_now ge $hms_till) {
         Log3 $hash, 4,
-          "$cmd: won't switch as now ($hms_now) is later than $hms_till";
+          "$name $cmd: won't switch as now ($hms_now) is later than $hms_till";
+        return "";
+      }
+      if($hms_till ge "24") { # sunrise, #89985
+        Log3 $hash, 4, "$name $cmd: won't switch as $hms_till is tomorrow";
         return "";
       }
     }
@@ -128,7 +153,7 @@ SetExtensions($$@)
         if($param !~ m/^\d+$/ || $p2 !~ m/^\d*\.?\d*$/);
 
     if($param) {
-      SE_DoSet($name, $a[2] ? "off" : "on");
+      SE_DoSet($name, $a[2] ? $offCmd : $onCmd);
       $param-- if($a[2]);
       if($param) {
         $hash->{TIMED_OnOff} = {
@@ -169,8 +194,11 @@ SetExtensions($$@)
     }
     
   } elsif($cmd eq "toggle") {
-    $value = ($1==0 ? "off" : "on") if($value =~ m/dim (\d+)/); # Forum #49391
-    SE_DoSet($name, $value =~ m/^on/ ? "off" : "on");
+    my $value = Value($name);
+    (undef,$value) = ReplaceEventMap($name, [$name, $value], 0) if($eventMap);
+
+    $value = ($1==0 ? $offCmd:$onCmd) if($value =~ m/dim (\d+)/); # Forum #49391
+    SE_DoSet($name, $value =~ m/^on/i ? $offCmd : $onCmd);
 
   }
 

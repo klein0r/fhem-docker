@@ -1,10 +1,14 @@
 ##############################################
-# $Id: 10_EnOcean.pm 13812 2017-03-27 04:39:32Z klaus.schauer $
+# $Id: 10_EnOcean.pm 18196 2019-01-09 19:33:35Z klaus.schauer $
+
 package main;
 
 use strict;
 use warnings;
 my $cryptFunc;
+my $xmlFunc;
+my $xml;
+
 eval "use Crypt::Rijndael";
 if ($@) {
   $cryptFunc = 0;
@@ -16,6 +20,21 @@ if ($@) {
   $cryptFunc = 0;
 } else {
   $cryptFunc = $cryptFunc == 1 ? 1 : 0;
+}
+
+eval "use XML::Simple";
+if ($@) {
+  $xmlFunc = 0;
+} else {
+  $xmlFunc = 1;
+  $xml = new XML::Simple;
+}
+
+eval "use Data::Dumper";
+if ($@) {
+  $xmlFunc = 0;
+} else {
+  $xmlFunc = $xmlFunc == 1 ? 1 : 0;
 }
 
 use SetExtensions;
@@ -44,7 +63,7 @@ my %EnO_rorgname = (
   "C5" => "SYSEX",    # remote management >> packet type 7 used
   "C6" => "SMLRNREQ", # Smart Ack Learn Request
   "C7" => "SMLRNANS", # Smart Ack Learn Answer
-  "D0" => "SMMBOX",   # Smart Ack Mail Box Functions
+  "D0" => "SIGNAL",   # Smart Ack Mail Box Functions
   "D1" => "MSC",      # MSC
   "D2" => "VLD",      # VLD
   "D4" => "UTE",      # UTE
@@ -318,6 +337,7 @@ my %EnO_eepConfig = (
   "D2.01.13" => {attr => {subType => "actuator.01", defaultChannel => 0}},
   "D2.01.14" => {attr => {subType => "actuator.01", defaultChannel => 0}},
   "D2.03.00" => {attr => {subType => "switch.00"}},
+  "D2.03.0A" => {attr => {subType => "switch.0A"}},
   "D2.03.10" => {attr => {subType => "windowHandle.10"}, GPLOT => "EnO_windowHandle:WindowHandle,"},
   "D2.05.00" => {attr => {subType => "blindsCtrl.00", webCmd => "opens:stop:closes:position"}, GPLOT => "EnO_position4angle4:Position/AnglePos,"},
   "D2.05.01" => {attr => {subType => "blindsCtrl.01", webCmd => "opens:stop:closes:position"}},
@@ -334,6 +354,7 @@ my %EnO_eepConfig = (
   "D2.11.06" => {attr => {subType => "roomCtrlPanel.01", comMode => "biDir", webCmd => "setpointTemp"}, GPLOT => "EnO_D2-10-xx:Temp/SPT/Humi,"},
   "D2.11.07" => {attr => {subType => "roomCtrlPanel.01", comMode => "biDir", webCmd => "setpointTemp"}, GPLOT => "EnO_D2-10-xx:Temp/SPT/Humi,"},
   "D2.11.08" => {attr => {subType => "roomCtrlPanel.01", comMode => "biDir", webCmd => "setpointTemp"}, GPLOT => "EnO_D2-10-xx:Temp/SPT/Humi,"},
+  "D2.14.30" => {attr => {subType => "multiFuncSensor.30"}, GPLOT => "EnO_temp4humi4:Temp/Humi,"},
   "D2.20.00" => {attr => {subType => "fanCtrl.00", webCmd => "fanSpeed"}, GPLOT => "EnO_fanSpeed4humi4:FanSpeed/Humi,"},
   "D2.32.00" => {attr => {subType => "currentClamp.00"}, GPLOT => "EnO_D2-32-xx:Current,"},
   "D2.32.01" => {attr => {subType => "currentClamp.01"}, GPLOT => "EnO_D2-32-xx:Current,"},
@@ -366,11 +387,11 @@ my %EnO_eepConfig = (
   "G5.07.01" => {attr => {subType => "occupSensor.01", eep => "A5-07-01", manufID => "00D", model => 'tracker'}, GPLOT => "EnO_motion:Motion,EnO_voltage4current4:Voltage/Current,"},
   "G5.10.12" => {attr => {subType => "roomSensorControl.01", eep => "A5-10-12", manufID => "00D", scaleMax => 40, scaleMin => 0, scaleDecimals => 1}, GPLOT => "EnO_temp4humi6:Temp/Humi,"},
   "G5.38.08" => {attr => {subType => "gateway", eep => "A5-38-08", gwCmd => "dimming", manufID => "00D", webCmd => "on:off:dim"}, GPLOT => "EnO_dim4:Dim,"},
-  "H5.38.08" => {attr => {subType => "gateway", comMode => "confirm", eep => "A5-38-08", gwCmd => "dimming", manufID => "00D", model => "TF", teachMethod => "confirm", webCmd => "on:off:dim"}, GPLOT => "EnO_dim4:Dim,"},
+  "H5.38.08" => {attr => {subType => "gateway", comMode => "confirm", eep => "A5-38-08", gwCmd => "dimming", manufID => "00D", model => "Eltako_TF", teachMethod => "confirm", webCmd => "on:off:dim"}, GPLOT => "EnO_dim4:Dim,"},
   "G5.3F.7F" => {attr => {subType => "manufProfile", eep => "A5-3F-7F", manufID => "00D", webCmd => "opens:stop:closes"}},
-  "H5.3F.7F" => {attr => {subType => "manufProfile", comMode => "confirm", eep => "A5-3F-7F", manufID => "00D", model => "TF", sensorMode => 'pushbutton', settingAccuracy => "high", teachMethod => "confirm", webCmd => "opens:stop:closes"}},
+  "H5.3F.7F" => {attr => {subType => "manufProfile", comMode => "confirm", eep => "A5-3F-7F", manufID => "00D", model => "Eltako_TF", sensorMode => 'pushbutton', settingAccuracy => "high", teachMethod => "confirm", webCmd => "opens:stop:closes"}},
   "M5.38.08" => {attr => {subType => "gateway", eep => "A5-38-08", gwCmd => "switching", manufID => "00D", webCmd => "on:off"}},
-  "N5.38.08" => {attr => {subType => "gateway", comMode => "confirm", eep => "A5-38-08", gwCmd => "switching", manufID => "00D", model => "TF", teachMethod => "confirm", webCmd => "on:off"}},
+  "N5.38.08" => {attr => {subType => "gateway", comMode => "confirm", eep => "A5-38-08", gwCmd => "switching", manufID => "00D", model => "Eltako_TF", teachMethod => "confirm", webCmd => "on:off"}},
   "G5.ZZ.ZZ" => {attr => {subType => "PM101", manufID => "005"}, GPLOT => "EnO_motion:Motion,EnO_brightness4:Brightness,"},
   "L6.02.01" => {attr => {subType => "smokeDetector.02", eep => "F6-05-02", manufID => "00D"}},
   "ZZ.ZZ.ZZ" => {attr => {subType => "raw"}},
@@ -398,16 +419,25 @@ my %EnO_extendedRemoteFunctionCode = (
   0x252 => "remoteRepeaterFilter" # set
 );
 
-my @EnO_models = qw (
-  other
-  FAE14 FHK14 FHK61
-  FSA12 FSB14 FSB61 FSB70
-  FSM12 FSM61
-  FT55
-  FTS12
-  TF
-  OEM
-  tracker
+my %EnO_models = (
+  "Eltako_FAE14" => {attr => {manufID => "00D"}},
+  "Eltako_FHK14" => {attr => {manufID => "00D"}},
+  "Eltako_FHK61" => {attr => {manufID => "00D"}},
+  "Eltako_FSA12" => {attr => {manufID => "00D"}},
+  "Eltako_FSB14" => {attr => {manufID => "00D"}},
+  "Eltako_FSB61" => {attr => {manufID => "00D"}},
+  "Eltako_FSB70" => {attr => {manufID => "00D"}},
+  "Eltako_FSB_ACK" => {attr => {manufID => "00D"}},
+  "Eltako_FSM12" => {attr => {manufID => "00D"}},
+  "Eltako_FSM61" => {attr => {manufID => "00D"}},
+  "Eltako_FT55" => {attr => {manufID => "00D"}},
+  "Eltako_FTS12" => {attr => {manufID => "00D"}},
+  "Eltako_TF"=> {attr => {manufID => "00D"}},
+  "Eltako_TF_RWB"=> {attr => {manufID => "00D"}},
+  "Holter_OEM" => {attr => {pidCtrl => "off"}},
+  "Micropelt_MVA004" => {attr => {remoteCode => "FFFFFFFE", remoteEEP => "A5-20-01", remoteID => "getNextID", remoteManagement => "manager"}, xml => {productID => "0x004900000000", xmlDescrLocation => "/FHEM/lib/EnO_ReCom_Device_Descr.xml"}},
+  other => {},
+  tracker => {}
 );
 
 my @EnO_defaultChannel = ("all", "input", 0..29);
@@ -670,7 +700,7 @@ EnOcean_Initialize($)
                       "eep gpDef gwCmd:" . join(",", sort @EnO_gwCmd) . " humitity humidityRefDev " .
                       "keyRcv keySnd macAlgo:no,3,4 measurementCtrl:disable,enable " .
                       "manufID:" . join(",", sort keys %EnO_manuf) . " " .
-                      "model:" . join(",", @EnO_models) . " " .
+                      "model:" . join(",", sort keys %EnO_models) . " " .
                       "observe:on,off observeCmdRepetition:1,2,3,4,5 observeErrorAction observeInterval observeLogic:and,or " .
                       #observeCmds observeExeptions
                       "observeRefDev pidActorErrorAction:errorPos,freeze pidActorCallBeforeSetting pidActorErrorPos " .
@@ -683,7 +713,7 @@ EnOcean_Initialize($)
                       "scaleDecimals:0,1,2,3,4,5,6,7,8,9 scaleMax scaleMin secMode:rcv,snd,bidir " .
                       "secLevel:encapsulation,encryption,off sendDevStatus:no,yes sensorMode:switch,pushbutton " .
                       "serviceOn:no,yes settingAccuracy:high,low setpointRefDev setpointSummerMode:slider,0,5,100 " .
-                      "setpointTempRefDev shutTime shutTimeCloses subDef " .
+                      "signal:off,on signOfLife:off,on signOfLifeInterval setpointTempRefDev shutTime shutTimeCloses subDef " .
                       "subDef0 subDefI subDefA subDefB subDefC subDefD subDefH subDefW " .
                       "subType:$subTypeList subTypeSet:$subTypeList subTypeReading:$subTypeList " .
                       "summerMode:off,on switchMode:switch,pushbutton " .
@@ -704,6 +734,11 @@ EnOcean_Initialize($)
   } else {
     Log3 undef, 2, "EnOcean Cryptographic functions are not available.";
   }
+  if ($xmlFunc == 1){
+    Log3 undef, 2, "EnOcean XML functions available.";
+  } else {
+    Log3 undef, 2, "EnOcean XML functions are not available.";
+  }
   return undef;
 }
 
@@ -722,7 +757,7 @@ sub EnOcean_Define($$) {
     while (($autocreateName, $autocreateHash) = each(%defs)) {
       last if ($defs{$autocreateName}{TYPE} eq "autocreate");
     }
-    $autocreateDeviceRoom = AttrVal($autocreateName, "device_room", $autocreateDeviceRoom);
+    $autocreateDeviceRoom = AttrVal($autocreateName, "device_room", $autocreateDeviceRoom) if (defined $autocreateName);
     $autocreateDeviceRoom = 'EnOcean' if ($autocreateDeviceRoom eq '%TYPE');
     $autocreateDeviceRoom = $name if ($autocreateDeviceRoom eq '%NAME');
     $autocreateDeviceRoom = AttrVal($name, "room", $autocreateDeviceRoom);
@@ -887,9 +922,9 @@ sub EnOcean_Define($$) {
             $attr{$name}{remoteManagement} = 'client';
             # unlock device to send acknowledgment telegram
             $hash->{RemoteClientUnlock} = 1;
-            my %functionHash = (hash => $hash, param => 'RemoteClientUnlock');
-            RemoveInternalTimer(\%functionHash);
-            InternalTimer(gettimeofday() + 1, 'EnOcean_cdmClearHashVal', \%functionHash, 0);
+            RemoveInternalTimer($hash->{helper}{timer}{RemoteClientUnlock}) if(exists $hash->{helper}{timer}{RemoteClientUnlock});
+            $hash->{helper}{timer}{RemoteClientUnlock} = {hash => $hash, param => 'RemoteClientUnlock'};
+            InternalTimer(gettimeofday() + 1, 'EnOcean_cdmClearHashVal', $hash->{helper}{timer}{RemoteClientUnlock}, 0);
           } else {
             $attr{$name}{remoteManagement} = 'manager';
           }
@@ -1004,6 +1039,7 @@ sub EnOcean_Define($$) {
     $hash->{helper}{stopped} = 0;
     #$hash->{helper}{adjust} = '';
   }
+
   # all notifys needed
   #$hash->{NOTIFYDEV} = "global";
   Log3 $name, 5, "EnOcean_define for device $name executed.";
@@ -1058,7 +1094,11 @@ sub EnOcean_Get($@)
   my $timeNow = TimeNow();
   if (AttrVal($name, "remoteManagement", "off") eq "manager") {
     # Remote Management
-    $cmdList = "remoteDevCfg remoteFunctions:noArg remoteID:noArg remoteLinkCfg remoteLinkTableInfo:noArg remoteLinkTable remoteLinkTableGP remotePing:noArg remoteProductID:noArg remoteRepeater:noArg remoteStatus:noArg ";
+    $cmdList .= "remoteDevCfg remoteFunctions:noArg remoteID:noArg remoteLinkCfg remoteLinkTableInfo:noArg remoteLinkTable remoteLinkTableGP remotePing:noArg remoteProductID:noArg remoteRepeater:noArg remoteStatus:noArg ";
+  }
+  if (AttrVal($name, "signal", "off") eq "on") {
+    # signal telegram
+    $cmdList .= "signal:energy,revision,RXlevel,harvester ";
   }
   # control get actions
   # $updateState = -1: no get commands available e. g. sensors
@@ -1082,9 +1122,9 @@ sub EnOcean_Get($@)
       $destinationID = "FFFFFFFF";
       $status = '0F';
       $hash->{IODev}{helper}{remoteAnswerWait}{0x604}{hash} = $hash;
-      my %functionHash = (hash => $hash, param => 0x604);
-      RemoveInternalTimer(\%functionHash);
-      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', \%functionHash, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{0x604}) if(exists $hash->{helper}{timer}{0x604});
+      $hash->{helper}{timer}{0x604} = {hash => $hash, param => 0x604};
+      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', $hash->{helper}{timer}{0x604}, 0);
       Log3 $name, 3, "EnOcean get $name $cmd";
 
     } elsif ($cmd eq "remotePing") {
@@ -1098,9 +1138,9 @@ sub EnOcean_Get($@)
       $destinationID = $remoteID;
       $status = '0F';
       $hash->{IODev}{helper}{remoteAnswerWait}{0x606}{hash} = $hash;
-      my %functionHash = (hash => $hash, param => 0x606);
-      RemoveInternalTimer(\%functionHash);
-      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', \%functionHash, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{0x606}) if(exists $hash->{helper}{timer}{0x606});
+      $hash->{helper}{timer}{0x606} = {hash => $hash, param => 0x606};
+      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', $hash->{helper}{timer}{0x606}, 0);
       Log3 $name, 3, "EnOcean get $name $cmd";
 
     } elsif ($cmd eq "remoteFunctions") {
@@ -1114,9 +1154,9 @@ sub EnOcean_Get($@)
       $destinationID = $remoteID;
       $status = '0F';
       $hash->{IODev}{helper}{remoteAnswerWait}{0x607}{hash} = $hash;
-      my %functionHash = (hash => $hash, param => 0x607);
-      RemoveInternalTimer(\%functionHash);
-      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', \%functionHash, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{0x607}) if(exists $hash->{helper}{timer}{0x607});
+      $hash->{helper}{timer}{0x607} = {hash => $hash, param => 0x607};
+      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', $hash->{helper}{timer}{0x607}, 0);
       Log3 $name, 3, "EnOcean get $name $cmd";
 
     } elsif ($cmd eq "remoteStatus") {
@@ -1133,9 +1173,9 @@ sub EnOcean_Get($@)
       }
       $status = '0F';
       $hash->{IODev}{helper}{remoteAnswerWait}{0x608}{hash} = $hash;
-      my %functionHash = (hash => $hash, param => 0x608);
-      RemoveInternalTimer(\%functionHash);
-      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', \%functionHash, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{0x608}) if(exists $hash->{helper}{timer}{0x608});
+      $hash->{helper}{timer}{0x608} = {hash => $hash, param => 0x608};
+      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', $hash->{helper}{timer}{0x608}, 0);
       Log3 $name, 3, "EnOcean get $name $cmd";
 
     } elsif ($cmd eq "remoteLinkTableInfo") {
@@ -1149,10 +1189,10 @@ sub EnOcean_Get($@)
       $destinationID = $remoteID;
       $status = '0F';
       $hash->{IODev}{helper}{remoteAnswerWait}{0x810}{hash} = $hash;
-      my %functionHash = (hash => $hash, param => 0x810);
-      RemoveInternalTimer(\%functionHash);
-      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', \%functionHash, 0);
-      Log3 $name, 3, "EnOcean get $name $cmd";
+      RemoveInternalTimer($hash->{helper}{timer}{0x810}) if(exists $hash->{helper}{timer}{0x810});
+      $hash->{helper}{timer}{0x810} = {hash => $hash, param => 0x810};
+      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', $hash->{helper}{timer}{0x810}, 0);
+     Log3 $name, 3, "EnOcean get $name $cmd";
 
     } elsif ($cmd eq "remoteLinkTable") {
       return "Attribute remoteID is missing, please define it." if (!defined $remoteID);
@@ -1177,9 +1217,9 @@ sub EnOcean_Get($@)
       $destinationID = $remoteID;
       $status = '0F';
       $hash->{IODev}{helper}{remoteAnswerWait}{0x811}{hash} = $hash;
-      my %functionHash = (hash => $hash, param => 0x811);
-      RemoveInternalTimer(\%functionHash);
-      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', \%functionHash, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{0x811}) if(exists $hash->{helper}{timer}{0x811});
+      $hash->{helper}{timer}{0x811} = {hash => $hash, param => 0x811};
+      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', $hash->{helper}{timer}{0x811}, 0);
       Log3 $name, 3, "EnOcean get $name $cmd";
 
     } elsif ($cmd eq "remoteLinkTableGP") {
@@ -1202,9 +1242,9 @@ sub EnOcean_Get($@)
       $destinationID = $remoteID;
       $status = '0F';
       $hash->{IODev}{helper}{remoteAnswerWait}{0x813}{hash} = $hash;
-      my %functionHash = (hash => $hash, param => 0x813);
-      RemoveInternalTimer(\%functionHash);
-      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', \%functionHash, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{0x813}) if(exists $hash->{helper}{timer}{0x813});
+      $hash->{helper}{timer}{0x813} = {hash => $hash, param => 0x813};
+      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', $hash->{helper}{timer}{0x813}, 0);
       Log3 $name, 3, "EnOcean get $name $cmd";
 
     } elsif ($cmd eq "remoteProductID") {
@@ -1218,9 +1258,9 @@ sub EnOcean_Get($@)
       $destinationID = $remoteID;
       $status = '0F';
       $hash->{IODev}{helper}{remoteAnswerWait}{0x827}{hash} = $hash;
-      my %functionHash = (hash => $hash, param => 0x827);
-      RemoveInternalTimer(\%functionHash);
-      InternalTimer(gettimeofday() + 5.5, 'EnOcean_cdmClearRemoteWait', \%functionHash, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{0x827}) if(exists $hash->{helper}{timer}{0x827});
+      $hash->{helper}{timer}{0x827} = {hash => $hash, param => 0x827};
+      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', $hash->{helper}{timer}{0x827}, 0);
       Log3 $name, 3, "EnOcean get $name $cmd";
 
     } elsif ($cmd eq "remoteDevCfg") {
@@ -1247,9 +1287,9 @@ sub EnOcean_Get($@)
       $destinationID = $remoteID;
       $status = '0F';
       $hash->{IODev}{helper}{remoteAnswerWait}{0x830}{hash} = $hash;
-      my %functionHash = (hash => $hash, param => 0x830);
-      RemoveInternalTimer(\%functionHash);
-      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', \%functionHash, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{0x830}) if(exists $hash->{helper}{timer}{0x830});
+      $hash->{helper}{timer}{0x830} = {hash => $hash, param => 0x830};
+      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', $hash->{helper}{timer}{0x830}, 0);
       Log3 $name, 3, "EnOcean get $name $cmd";
 
     } elsif ($cmd eq "remoteLinkCfg") {
@@ -1282,9 +1322,9 @@ sub EnOcean_Get($@)
       $destinationID = $remoteID;
       $status = '0F';
       $hash->{IODev}{helper}{remoteAnswerWait}{0x832}{hash} = $hash;
-      my %functionHash = (hash => $hash, param => 0x832);
-      RemoveInternalTimer(\%functionHash);
-      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', \%functionHash, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{0x832}) if(exists $hash->{helper}{timer}{0x832});
+      $hash->{helper}{timer}{0x832} = {hash => $hash, param => 0x832};
+      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', $hash->{helper}{timer}{0x832}, 0);
       Log3 $name, 3, "EnOcean get $name $cmd";
 
     } elsif ($cmd eq "remoteRepeater") {
@@ -1298,10 +1338,28 @@ sub EnOcean_Get($@)
       $destinationID = $remoteID;
       $status = '0F';
       $hash->{IODev}{helper}{remoteAnswerWait}{0x850}{hash} = $hash;
-      my %functionHash = (hash => $hash, param => 0x850);
-      RemoveInternalTimer(\%functionHash);
-      InternalTimer(gettimeofday() + 5.5, 'EnOcean_cdmClearRemoteWait', \%functionHash, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{0x850}) if(exists $hash->{helper}{timer}{0x850});
+      $hash->{helper}{timer}{0x850} = {hash => $hash, param => 0x850};
+      InternalTimer(gettimeofday() + 2.5, 'EnOcean_cdmClearRemoteWait', $hash->{helper}{timer}{0x850}, 0);
       Log3 $name, 3, "EnOcean get $name $cmd";
+
+    } elsif ($cmd eq "signal") {
+      # trigger status massage of device
+      $rorg = "D0";
+      $destinationID = $hash->{DEF} if ($destinationID eq 'F' x 8);
+      shift(@a);
+      my $trigger = shift(@a);
+      my %trigger = ('energy' => '01', 'revision' => '02', 'RXlevel' => '03', 'harvester' => '04');
+      if (defined $trigger) {
+        if (exists $trigger{$trigger}) {
+          $data = '04' . $trigger{$trigger};
+        } else {
+          return "$cmd <trigger> wrong, choose energy|revision|RXlevel|harvester.";
+        }
+      } else {
+        return "$cmd <trigger> wrong, choose energy|revision|RXlevel|harvester.";
+      }
+      Log3 $name, 3, "EnOcean get $name $cmd $trigger";
 
     } elsif ($st eq "switch.05") {
       # Dual Channel Switch Actuator
@@ -1470,7 +1528,6 @@ sub EnOcean_Get($@)
       }
 
     } elsif ($st eq "multisensor.01") {
-      #####
       # Multisensor Windows Handle
       # (D2-06-01)
       $rorg = "D2";
@@ -1586,7 +1643,7 @@ sub EnOcean_Get($@)
 
     } else {
       # subtype does not support get commands
-      if (AttrVal($name, "remoteManagement", "off") eq "manager") {
+      if (AttrVal($name, "remoteManagement", "off") eq "manager" || AttrVal($name, "signal", "off") eq "on") {
         return "Unknown argument $cmd, choose one of $cmdList";
       } else {
         return;
@@ -1694,9 +1751,9 @@ sub EnOcean_Set($@)
           }
         }
         $hash->{RemoteClientUnlock} = 1;
-        my %functionHash = (hash => $hash, param => 'RemoteClientUnlock');
-        RemoveInternalTimer(\%functionHash);
-        InternalTimer(gettimeofday() + $remoteUnlockPeriod, 'EnOcean_cdmClearHashVal', \%functionHash, 0);
+        RemoveInternalTimer($hash->{helper}{timer}{RemoteClientUnlock}) if(exists $hash->{helper}{timer}{RemoteClientUnlock});
+        $hash->{helper}{timer}{RemoteClientUnlock} = {hash => $hash, param => 'RemoteClientUnlock'};
+        InternalTimer(gettimeofday() + $remoteUnlockPeriod, 'EnOcean_cdmClearHashVal', $hash->{helper}{timer}{RemoteClientUnlock}, 0);
         $updateState = 3;
       }
       Log3 $name, 3, "EnOcean set $name $cmd";
@@ -1720,8 +1777,7 @@ sub EnOcean_Set($@)
       } else {
         # client
         delete $hash->{RemoteClientUnlock};
-        my %functionHash = (hash => $hash, param => 'RemoteClientUnlock');
-        RemoveInternalTimer(\%functionHash);
+        RemoveInternalTimer($hash->{helper}{timer}{RemoteClientUnlock}) if(exists $hash->{helper}{timer}{RemoteClientUnlock});
         $updateState = 3;
       }
       Log3 $name, 3, "EnOcean set $name $cmd";
@@ -1865,9 +1921,9 @@ sub EnOcean_Set($@)
         if (!exists($hash->{IODev}{Teach})) {
           # enable teach-in receiving for 3 sec
           $hash->{IODev}{Teach} = 1;
-          my %functionHash = (hash => $IOHash, param => 'Teach');
-          RemoveInternalTimer(\%functionHash);
-          InternalTimer(gettimeofday() + 3, 'EnOcean_cdmClearHashVal', \%functionHash, 0);
+          RemoveInternalTimer($hash->{helper}{timer}{Teach}) if(exists $hash->{helper}{timer}{Teach});
+          $hash->{helper}{timer}{Teach} = {hash => $IOHash, param => 'Teach'};
+          InternalTimer(gettimeofday() + 3, 'EnOcean_cdmClearHashVal', $hash->{helper}{timer}{Teach}, 0);
         }
       } else {
         return "Usage: $cmd argument needed or wrong.";
@@ -2137,7 +2193,6 @@ sub EnOcean_Set($@)
       if (defined $sendCmd) {
         $data = sprintf "%02X", $switchCmd;
         $rorg = "F6";
-        #####
         SetExtensionsCancel($hash);
         Log3 $name, 3, "EnOcean set $name $cmd";
         if ($updateState) {
@@ -2179,7 +2234,6 @@ sub EnOcean_Set($@)
       } else {
         $data = sprintf "%02X", $EnO_switch_00Btn{$switchCmd};
         $rorg = "D2";
-        #####
         SetExtensionsCancel($hash);
       }
       Log3 $name, 3, "EnOcean set $name $switchCmd";
@@ -2718,7 +2772,6 @@ sub EnOcean_Set($@)
           readingsBulkUpdate($hash, "waitingCmds", "setpointTemp");
           readingsEndUpdate($hash, 0);
           # PID regulator active
-          #####
           my $activatePID = AttrVal($name, 'pidCtrl', 'on') eq 'on' ? 'start' : 'stop';
           ($err, $logLevel, $response) = EnOcean_setPID(undef, $hash, $activatePID, '');
           CommandDeleteReading(undef, "$name setpointSet");
@@ -2741,8 +2794,8 @@ sub EnOcean_Set($@)
         $updateState = 2;
 
       } else {
-        $cmdList .= "setpointTemp:slider,10,1,30 " if (AttrVal($name, "pidCtrl", 'on') eq 'on' || AttrVal($name, "model", '') eq 'OEM');
-        $cmdList .= "setpoint:slider,0,5,100 " if (AttrVal($name, "pidCtrl", 'on') eq 'off' && AttrVal($name, "model", '') ne 'OEM');
+        $cmdList .= "setpointTemp:slider,10,1,30 " if (AttrVal($name, "pidCtrl", 'on') eq 'on' || AttrVal($name, "model", '') eq 'Holter_OEM');
+        $cmdList .= "setpoint:slider,0,5,100 " if (AttrVal($name, "pidCtrl", 'on') eq 'off' && AttrVal($name, "model", '') ne 'Holter_OEM');
         $cmdList .= "runInit:noArg valveCloses:noArg valveOpens:noArg";
         return "Unknown command " . $cmd . ", choose one of " . $cmdList;
       }
@@ -2833,7 +2886,6 @@ sub EnOcean_Set($@)
         readingsBulkUpdate($hash, "powerSwitch", "off");
         readingsBulkUpdate($hash, "state", "off");
         readingsEndUpdate($hash, 0);
-        #####
         SetExtensionsCancel($hash);
       } elsif ($ctrlFuncID == 2) {
         # on
@@ -2843,7 +2895,6 @@ sub EnOcean_Set($@)
         readingsBulkUpdate($hash, "powerSwitch", "on");
         readingsBulkUpdate($hash, "state", "off");
         readingsEndUpdate($hash, 0);
-        #####
         SetExtensionsCancel($hash);
       } elsif ($ctrlFuncID == 3) {
         # occupancy
@@ -3018,7 +3069,7 @@ sub EnOcean_Set($@)
         if($cmd eq "teach") {
           # teach-in EEP A5-38-08, Manufacturer "Multi user Manufacturer ID"
           #$data = sprintf "%02X000000", $gwCmdID;
-          if ($model eq 'TF') {
+          if ($model =~ m/TF$/) {
             $data = "E0400D80";
           } else {
             $data = "E047FF80";
@@ -3041,11 +3092,10 @@ sub EnOcean_Set($@)
             shift(@a);
           }
           #$updateState = 0;
-          #####
           SetExtensionsCancel($hash);
           $data = sprintf "%02X%04X%02X", $gwCmdID, $time, $setCmd;
         } elsif ($cmd eq "off") {
-          if ($model eq "FSA12") {
+          if ($model =~ m/FSA12$/) {
             $setCmd = 0x0E;
           } else {
             $setCmd = 8;
@@ -3060,7 +3110,6 @@ sub EnOcean_Set($@)
             shift(@a);
           }
           #$updateState = 0;
-          #####
           SetExtensionsCancel($hash);
           $data = sprintf "%02X%04X%02X", $gwCmdID, $time, $setCmd;
         } elsif ($cmd eq "local") {
@@ -3103,7 +3152,7 @@ sub EnOcean_Set($@)
           # teach-in EEP A5-38-08, Manufacturer "Multi user Manufacturer ID"
           #$data = "E047FF80";
           # teach-in Eltako
-          if ($model eq 'TF') {
+          if ($model =~ m/TF$/) {
             $data = "E0400D80";
           } else {
             $data = "02000000";
@@ -3205,7 +3254,6 @@ sub EnOcean_Set($@)
             shift(@a);
           }
           #$updateState = 0;
-          #####
           SetExtensionsCancel($hash);
           $data = sprintf "%02X%02X%02X%02X", $gwCmdID, $dimVal, $rampTime, $setCmd;
 
@@ -3749,13 +3797,11 @@ sub EnOcean_Set($@)
       } elsif ($ctrlFuncID == 1) {
         # off
         CommandDeleteReading(undef, "$name scene");
-        #####
         SetExtensionsCancel($hash);
         $updateState = 0;
       } elsif ($ctrlFuncID == 2) {
         # on
         CommandDeleteReading(undef, "$name scene");
-        #####
         SetExtensionsCancel($hash);
         $updateState = 0;
       } elsif ($ctrlFuncID == 3 || $ctrlFuncID == 4) {
@@ -3774,13 +3820,11 @@ sub EnOcean_Set($@)
         $ctrlParam2 = ($rampTime & 0xFF00) >> 8;
         readingsSingleUpdate($hash, "rampTime", $rampTime, 1);
         CommandDeleteReading(undef, "$name scene");
-        #####
         SetExtensionsCancel($hash);
         $updateState = 0;
       } elsif ($ctrlFuncID == 5) {
         # stop
         CommandDeleteReading(undef, "$name scene");
-        #####
         SetExtensionsCancel($hash);
         $updateState = 0;
       } elsif ($ctrlFuncID == 6) {
@@ -3805,7 +3849,6 @@ sub EnOcean_Set($@)
         $ctrlParam2 = ($rampTime & 0xFF00) >> 8;
         CommandDeleteReading(undef, "$name scene");
         readingsSingleUpdate($hash, "rampTime", $rampTime, 1);
-        #####
         SetExtensionsCancel($hash);
         $updateState = 0;
       } elsif ($ctrlFuncID == 7) {
@@ -4070,7 +4113,8 @@ sub EnOcean_Set($@)
         } elsif ($cmd eq "up") {
           # up
           if (defined $a[1]) {
-            if ($a[1] =~ m/^[+-]?\d+$/ && $a[1] >= 0 && $a[1] <= 255) {
+            #if ($a[1] =~ m/^[+-]?\d+$/ && $a[1] >= 0 && $a[1] <= 255) {
+            if ($a[1] =~ m/^[+-]?\d*[.]?\d+$/ && $a[1] >= 0 && $a[1] <= 255) {
               $position = $positionStart - $a[1] / $shutTime * 100;
               if ($angleTime) {
                 $anglePos = $anglePosStart - ($angleMax - $angleMin) * $a[1] / $angleTime;
@@ -4106,7 +4150,8 @@ sub EnOcean_Set($@)
         } elsif ($cmd eq "down") {
           # down
           if (defined $a[1]) {
-            if ($a[1] =~ m/^[+-]?\d+$/ && $a[1] >= 0 && $a[1] <= 255) {
+            #if ($a[1] =~ m/^[+-]?\d+$/ && $a[1] >= 0 && $a[1] <= 255) {
+            if ($a[1] =~ m/^[+-]?\d*[.]?\d+$/ && $a[1] >= 0 && $a[1] <= 255) {
               $position = $positionStart + $a[1] / $shutTime * 100;
               if ($angleTime) {
                 $anglePos = $anglePosStart + ($angleMax - $angleMin) * $a[1] / $angleTime;
@@ -4488,7 +4533,7 @@ sub EnOcean_Set($@)
         } else {
           $defaultStateCmd = 0;
         }
-        my $localControl = ReadingsVal($name, "localControl", "disabled");
+        my $localControl = ReadingsVal($name, "localControl", "enabled");
         my $localControlCmd = ($localControl eq "enabled")? 1:0;
         my $overCurrentShutdown = ReadingsVal($name, "overCurrentShutdown", "off");
         my $overCurrentShutdownCmd = ($overCurrentShutdown eq "restart")? 1:0;
@@ -4517,6 +4562,8 @@ sub EnOcean_Set($@)
         }
         my $teachInDev = ReadingsVal($name, "teachInDev", "disabled");
         my $teachInDevCmd = ($teachInDev eq "enabled")? 1:0;
+        my $powerFailure = ReadingsVal($name, "powerFailure", "disabled");
+        my $powerFailureCmd = ($powerFailure eq "enabled") ? 1:0;
         my $localCmd = shift(@a);
         my $localCmdVal = shift(@a);
         if ($localCmd eq "dayNight") {
@@ -4603,15 +4650,25 @@ sub EnOcean_Set($@)
           } else {
             return "Usage: $cmd $localCmd <value> wrong, choose disabled enabled.";
           }
+        } elsif ($localCmd eq "powerFailure"){
+          if ($localCmdVal eq "disabled") {
+            $powerFailure = "disabled";
+            $powerFailureCmd = 0;
+          } elsif ($localCmdVal eq "enabled") {
+            $powerFailure = "enabled";
+            $powerFailureCmd = 1;
+          } else {
+            return "Usage: $cmd $localCmd <value> wrong, choose disabled enabled.";
+          }
         } else {
           return "Usage: $cmd <localCmd> wrong, choose dayNight|defaultState|localControl|" .
-          "overCurrentShutdown|overCurrentShutdownReset|rampTime1|rampTime2|rampTime3|teachInDev.";
-        }
+          "overCurrentShutdown|overCurrentShutdownReset|rampTime1|rampTime2|rampTime3|teachInDev|powerFailure.";        }
         readingsSingleUpdate($hash, "dayNight", $dayNight, 1);
         readingsSingleUpdate($hash, "defaultState", $defaultState, 1);
         readingsSingleUpdate($hash, "localControl", $localControl, 1);
         readingsSingleUpdate($hash, "overCurrentShutdown", $overCurrentShutdown, 1);
         readingsSingleUpdate($hash, "overCurrentShutdownReset", $overCurrentShutdownReset, 1);
+        readingsSingleUpdate($hash, "powerFailure", $powerFailure, 1);
         readingsSingleUpdate($hash, "rampTime1", $rampTime1, 1);
         readingsSingleUpdate($hash, "rampTime2", $rampTime2, 1);
         readingsSingleUpdate($hash, "rampTime3", $rampTime3, 1);
@@ -4619,8 +4676,7 @@ sub EnOcean_Set($@)
         $data = sprintf "%02X%02X%02X%02X", $teachInDevCmd << 7 | $cmdID,
                   $overCurrentShutdownCmd << 7 | $overCurrentShutdownResetCmd << 6 | $localControlCmd << 5 | $channel,
                   int($rampTime2Cmd) << 4 | int($rampTime3Cmd),
-                  $dayNightCmd << 7 | $defaultStateCmd << 4 | int($rampTime1Cmd);
-
+                  $dayNightCmd << 7 | $powerFailureCmd << 6 | $defaultStateCmd << 4 | int($rampTime1Cmd);
       } elsif ($cmd eq "measurement") {
         shift(@a);
         $updateState = 0;
@@ -4628,9 +4684,9 @@ sub EnOcean_Set($@)
         # same configuration for all channels
         $channel = 30;
         my $measurementMode = ReadingsVal($name, "measurementMode", "energy");
-        my $measurementModeCmd = ($measurementMode eq "power")? 0:1;
+        my $measurementModeCmd = ($measurementMode eq "power")? 1:0;
         my $measurementReport = ReadingsVal($name, "measurementReport", "query");
-        my $measurementReportCmd = ($measurementReport eq "auto")? 0:1;
+        my $measurementReportCmd = ($measurementReport eq "auto")? 1:0;
         my $measurementReset = "not_active";
         my $measurementResetCmd = 0;
         my $measurementDelta = int(ReadingsVal($name, "measurementDelta", 0));
@@ -4756,7 +4812,7 @@ sub EnOcean_Set($@)
         readingsSingleUpdate($hash, "responseTimeMin", $responseTimeMin, 1);
         $data = sprintf "%02X%02X%02X%02X%02X%02X", $cmdID,
                   $measurementReportCmd << 7 | $measurementResetCmd << 6 | $measurementModeCmd << 5 | $channel,
-                  ($measurementDelta | 0x0F) << 4 | $unitCmd, ($measurementDelta | 0xFF00) >> 8,
+                  ($measurementDelta & 0x000F) << 4 | $unitCmd, ($measurementDelta & 0x0FF0) >> 4,
                   $responseTimeMax, $responseTimeMin;
 
       } elsif ($cmd eq "roomCtrlMode") {
@@ -4938,14 +4994,19 @@ sub EnOcean_Set($@)
         shift(@a);
         $updateState = 0;
         my $repeaterActive = 0;
-        my $repeaterLevel = 0;
+        my $repeaterLevel = ReadingsVal($name, "repeaterLevel", "off");
+        if ($repeaterLevel eq "off") {
+	  $repeaterLevel = 0;
+	} else {
+	  $repeaterActive = 1;
+	}
         my $specialCmd = shift(@a);
         if ($manufID eq "046") {
           if (!defined $specialCmd) {
             return "$cmd <command> wrong, choose repeaterLevel.";
           } elsif ($specialCmd eq "repeaterLevel") {
             $cmdID = 8;
-            my $repeaterLevel = shift(@a);
+            $repeaterLevel = shift(@a);
             if (defined $repeaterLevel && $repeaterLevel =~ m/^off|1|2$/) {
               if ($repeaterLevel eq "off") {
                 $repeaterLevel = 0;
@@ -4959,6 +5020,7 @@ sub EnOcean_Set($@)
             return "$cmd $specialCmd <arg> wrong, choose repeaterLevel off|1|2.";
           }
         }
+        readingsSingleUpdate($hash, "repeaterLevel", $repeaterLevel, 1);
         $data = sprintf "0046%02X%02X%02X", $cmdID, $repeaterActive, $repeaterLevel;
 
       } else {
@@ -5218,7 +5280,6 @@ sub EnOcean_Set($@)
       Log3 $name, 3, "EnOcean set $name $cmd";
 
     } elsif ($st eq "multisensor.01") {
-      #####
       # Multisensor Windows Handle
       # (D2-06-01)
       $rorg = "D2";
@@ -5883,8 +5944,8 @@ sub EnOcean_Set($@)
       my $humidityThreshold = ReadingsVal($name, "humidityThreshold", 'default');
       $humidityThreshold = $humidityThreshold eq 'default' ? 127 : $humidityThreshold;
       my $startTimerMode = 0;
-      my $tempThreshold = ReadingsVal($name, "roomTempSet", 'default');;
-      $tempThreshold = $tempThreshold eq 'default' ? 127 : $tempThreshold;
+      my $tempThreshold = ReadingsVal($name, "roomTempSet", 'default');
+      $tempThreshold = $tempThreshold eq 'default' ? 0 : $tempThreshold;
       my $ventilation = 15;
       if ($cmd eq "ventilation") {
         $ventilation = $a[1];
@@ -5973,11 +6034,12 @@ sub EnOcean_Set($@)
         $tempThreshold = $a[1];
         if (defined $tempThreshold) {
           if ($tempThreshold eq 'default') {
-            $tempThreshold = 127;
+            $tempThreshold = 0;
             readingsSingleUpdate($hash, "roomTempSet", 'default', 1);
           } elsif ($tempThreshold =~ m/^[+-]?\d+$/ && $tempThreshold >= - 63 && $tempThreshold <= 63) {
             readingsSingleUpdate($hash, "roomTempSet", $tempThreshold, 1);
-            $tempThreshold = abs($tempThreshold) | 0x40 if ($tempThreshold < 0);
+            $tempThreshold += 64;
+            #$tempThreshold = abs($tempThreshold) | 0x40 if ($tempThreshold < 0);
           } else {
             return "Usage: $cmd variable is wrong, choose default|-63 ... 63." ;
           }
@@ -6167,9 +6229,9 @@ sub EnOcean_Set($@)
           if (!exists($hash->{IODev}{Teach})) {
             # enable teach-in receiving for 3 sec
             $hash->{IODev}{Teach} = 1;
-            my %timeoutHash = (hash => $IOHash, function => "gpRespTimeout", helper => "gpRespWait");
-            RemoveInternalTimer(\%timeoutHash);
-            InternalTimer(gettimeofday() + 3, "EnOcean_RespTimeout", \%timeoutHash, 0);
+            RemoveInternalTimer($hash->{helper}{timer}{gpRespTimeout}) if(exists $hash->{helper}{timer}{gpRespTimeout});
+            $hash->{helper}{timer}{gpRespTimeout} = {hash => $IOHash, function => "gpRespTimeout", helper => "gpRespWait"};
+            InternalTimer(gettimeofday() + 3, 'EnOcean_RespTimeout', $hash->{helper}{timer}{gpRespTimeout}, 0);
           }
         }
         $header = (0x7FF << 1 | $comMode) << 4;
@@ -6207,10 +6269,10 @@ sub EnOcean_Set($@)
           if (!exists($hash->{IODev}{Teach})) {
             # enable teach-in receiving for 3 sec
             $hash->{IODev}{Teach} = 1;
-            my %timeoutHash = (hash => $IOHash, function => "gpRespTimeout", helper => "gpRespWait");
-            RemoveInternalTimer(\%timeoutHash);
-            InternalTimer(gettimeofday() + 3, "EnOcean_RespTimeout", \%timeoutHash, 0);
-          }
+            RemoveInternalTimer($hash->{helper}{timer}{gpRespTimeout}) if(exists $hash->{helper}{timer}{gpRespTimeout});
+            $hash->{helper}{timer}{gpRespTimeout} = {hash => $IOHash, function => "gpRespTimeout", helper => "gpRespWait"};
+            InternalTimer(gettimeofday() + 3, 'EnOcean_RespTimeout', $hash->{helper}{timer}{gpRespTimeout}, 0);
+         }
         }
         $data = sprintf '%04X', (0x7FF << 1 | $comMode) << 4 | 4;
         my $teachInState = $comMode == 1 ? "teach-in deletion sent, response requested" : "teach-in deletion sent";
@@ -6574,9 +6636,9 @@ sub EnOcean_Parse($$)
         $iohash->{helper}{cdm}{rorg} = $2;
         $iohash->{helper}{cdm}{data}{$idx} = $3;
         $iohash->{helper}{cdm}{lenCounter} = length($3) / 2;
-        my %functionHash = (hash => $iohash, function => "cdm");
-        RemoveInternalTimer(\%functionHash);
-        InternalTimer(gettimeofday() + 1, "EnOcean_helperClear", \%functionHash, 0);
+        RemoveInternalTimer($hash->{helper}{timer}{helperClear}) if(exists $hash->{helper}{timer}{helperClear});
+        $hash->{helper}{timer}{helperClear} = {hash => $iohash, function => "cdm"};
+        InternalTimer(gettimeofday() + 1, 'EnOcean_helperClear', $hash->{helper}{timer}{helperClear}, 0);
         #Log3 $IODev, 3, "EnOcean $IODev CDM timer started";
       } else {
         $iohash->{helper}{cdm}{data}{$idx} = $data;
@@ -6600,8 +6662,8 @@ sub EnOcean_Parse($$)
           return "";
         }
         delete $iohash->{helper}{cdm};
-        my %functionHash = (hash => $iohash, function => "cdm");
-        RemoveInternalTimer(\%functionHash);
+        RemoveInternalTimer($hash->{helper}{timer}{helperClear}) if(exists $hash->{helper}{timer}{helperClear});
+        delete $hash->{helper}{timer}{helperClear} if (exists $hash->{helper}{timer}{helperClear});
         #Log3 $IODev, 3, "EnOcean $IODev CDM concatenated DATA $data";
       } else {
         # wait for next data message part
@@ -6662,7 +6724,7 @@ sub EnOcean_Parse($$)
       my $learningMode = AttrVal($IODev, "learningMode", "demand");
       my $ret = "UNDEFINED EnO_$senderID EnOcean $senderID $msg";
 
-      if ($rorgname =~ m/^GPCD|GPSD|SMLRNANS|SMREC|SMMBOX$/) {
+      if ($rorgname =~ m/^GPCD|GPSD|SMLRNANS|SMREC|SIGNAL$/) {
         Log3 undef, 4, "EnOcean Received $rorgname telegram to the unknown device with SenderID $senderID.";
         return '';
 
@@ -6978,12 +7040,18 @@ sub EnOcean_Parse($$)
         Log3 $name, 5, "EnOcean $name decrypted data RORG: 32 >> $rorg DATA: $data SenderID: $senderID STATUS: $status";
       } else {
         # Teach-In telegram expected
-        #####
         # telegram analyse needed >> 1BS, 4BS, UTE
         if (length($data) == 14) {
+          # UTE
           $rorg = "D4";
+        } elsif (length($data) == 8) {
+          # 4BS
+          $rorg = "A5";
+        } elsif (length($data) == 2) {
+          # 1BS
+          $rorg = "D5";
         } else {
-          Log3 $name, 2, "EnOcean $name security teach-in failed, UTE message is missing";
+          Log3 $name, 2, "EnOcean $name security teach-in failed, UTE, 4BS or 1BS teach-in message is missing";
           return "";
         }
       }
@@ -7048,9 +7116,11 @@ sub EnOcean_Parse($$)
         push @event, "3:$event:$msg";
         $hash->{helper}{lastEvent} = $db[0];
       }
-      @{$hash->{helper}{alarmTimer}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
-      RemoveInternalTimer($hash->{helper}{alarmTimer});
-      InternalTimer(gettimeofday() + 1320, 'EnOcean_readingsSingleUpdate', $hash->{helper}{alarmTimer}, 0);
+      if (AttrVal($name, "signOfLife", 'on') eq 'on') {
+        RemoveInternalTimer($hash->{helper}{timer}{alarm}) if(exists $hash->{helper}{timer}{alarm});
+        @{$hash->{helper}{timer}{alarm}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
+        InternalTimer(gettimeofday() + AttrVal($name, "signOfLifeInterval", 1440), 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{alarm}, 0);
+      }
 
     } elsif ($st eq "windSpeed.00") {
       # wind speed threshold detector
@@ -7071,11 +7141,11 @@ sub EnOcean_Parse($$)
         push @event, "3:$event:$msg";
         $hash->{helper}{lastEvent} = $db[0];
       }
-      @{$hash->{helper}{alarmTimer}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
-      RemoveInternalTimer($hash->{helper}{alarmTimer});
-      InternalTimer(gettimeofday() + 1320, 'EnOcean_readingsSingleUpdate', $hash->{helper}{alarmTimer}, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{alarm}) if(exists $hash->{helper}{timer}{alarm});
+      @{$hash->{helper}{timer}{alarm}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
+      InternalTimer(gettimeofday() + 1320, 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{alarm}, 0);
 
-    } elsif ($model eq "FAE14" || $model eq "FHK14" || $model eq "FHK61") {
+    } elsif ($model =~ m/FAE14|FHK14|FHK61$/) {
       # heating/cooling relay FAE14, FHK14, untested
       $event = "controllerMode";
       if ($db[0] == 0x30) {
@@ -7116,6 +7186,10 @@ sub EnOcean_Parse($$)
       # Eltako shutter
       if ($db[0] == 0x70) {
         # open
+        if ($model eq 'Eltako_FSB_ACK') {
+          push @event, "3:position:0";
+          push @event, "3:anglePos:" . AttrVal($name, "angleMin", -90);
+        }
         push @event, "3:endPosition:open_ack";
         $msg = "open_ack";
       } elsif ($db[0] == 0x50) {
@@ -7200,13 +7274,10 @@ sub EnOcean_Parse($$)
       }
       # released events are disturbing when using a remote, since it overwrites
       # the "real" state immediately. In the case of an Eltako FSB14, FSB61 ...
-      # the state should remain released. (by Thomas)
+      # the state should remain released.
       if ($msg =~ m/released$/ &&
           AttrVal($name, "sensorMode", "switch") ne "pushbutton" &&
-          $model ne "FT55" && $model ne "FSB14" &&
-          $model ne "FSB61" && $model ne "FSB70" &&
-          $model ne "FSM12" && $model ne "FSM61" &&
-          $model ne "FTS12") {
+          $model !~ m/(FT55|FSB.*|FSM12|FSM61|FTS12)$/) {
         $event = "buttons";
         $msg = "released";
       } else {
@@ -7222,8 +7293,7 @@ sub EnOcean_Parse($$)
       EnOcean_RLT($hash->{helper}{rlt}{param});
     } else {
       # Single Input Contact (EEP D5-00-01)
-      # [Eltako FTK, STM-250]
-        push @event, "3:state:" . ($db[0] & 1 ? "closed" : "open");
+      # [EnOcean EMCS, Eltako FTK, STM-250]
         if (!($db[0] & 8)) {
           # teach-in
           $attr{$name}{eep} = "D5-00-01";
@@ -7233,7 +7303,14 @@ sub EnOcean_Parse($$)
           Log3 $name, 2, "EnOcean $name teach-in EEP D5-00-01 Manufacturer: no ID";
           # store attr subType, manufID ...
           EnOcean_CommandSave(undef, undef);
-       }
+        }
+        push @event, "3:state:" . ($db[0] & 1 ? "closed" : "open");
+        CommandDeleteReading(undef, "$name alarm");
+        if (AttrVal($name, "signOfLife", 'off') eq 'on') {
+          RemoveInternalTimer($hash->{helper}{timer}{alarm})  if(exists $hash->{helper}{timer}{alarm});
+          @{$hash->{helper}{timer}{alarm}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
+          InternalTimer(gettimeofday() + AttrVal($name, "signOfLifeInterval", 1980), 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{alarm}, 0);
+        }
     }
 
   } elsif ($rorg eq "A5") {
@@ -7329,8 +7406,6 @@ sub EnOcean_Parse($$)
                 EnOcean_SndRadio(undef, $hash, $packetType, $rorg, "800FFFF0", $subDef, "00", $hash->{DEF});
                 Log3 $name, 2, "EnOcean $name 4BS teach-in response sent to " . $hash->{DEF};
                 readingsSingleUpdate($hash, 'operationMode', 'setpointTemp', 0);
-                #####
-                #EnOcean_hvac_01Cmd($hash, $packetType, 128); # 128 == 20 degree C
 
               } elsif ($st eq "hvac.02") {
                 # EEP A5-20-02 not supported
@@ -7429,7 +7504,10 @@ sub EnOcean_Parse($$)
       } else {
         $energyStorage = 'empty';
       }
-      push @event, "3:battery:$battery";
+      if (!exists($hash->{helper}{battery}) || $hash->{helper}{battery} ne $battery) {
+        push @event, "3:battery:$battery";
+        $hash->{helper}{battery} = $battery;
+      }
       push @event, "3:energyStorage:$energyStorage";
       my $roomTemp = ReadingsVal($name, "roomTemp", 20);
       if ($db[2] & 4) {
@@ -7501,9 +7579,9 @@ sub EnOcean_Parse($$)
       readingsSingleUpdate($hash, 'wakeUpCycle', $wakeUpCycle, 1);
       # set alarm timer
       CommandDeleteReading(undef, "$name alarm");
-      @{$hash->{helper}{alarmTimer}} = ($hash, 'alarm', 'no_response_from_actuator', 1, 3);
-      RemoveInternalTimer($hash->{helper}{alarmTimer});
-      InternalTimer(gettimeofday() + $wakeUpCycle * 1.1, "EnOcean_readingsSingleUpdate", $hash->{helper}{alarmTimer}, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{alarm}) if(exists $hash->{helper}{timer}{alarm});
+      @{$hash->{helper}{timer}{alarm}} = ($hash, 'alarm', 'no_response_from_actuator', 1, 3);
+      InternalTimer(gettimeofday() + $wakeUpCycle * 1.1, "EnOcean_readingsSingleUpdate", $hash->{helper}{timer}{alarm}, 0);
 
       my $actionCmd = AttrVal($name, "rcvRespAction", undef);
       if (defined $actionCmd) {
@@ -7850,7 +7928,10 @@ sub EnOcean_Parse($$)
       }
       push @event, "3:measurementState:" . ($db[0] & 0x80 ? "inactive" : "active");
       push @event, "3:blockKey:" . ($db[0] & 4 ? "yes" : "no");
-      push @event, "3:battery:$battery";
+      if (!exists($hash->{helper}{battery}) || $hash->{helper}{battery} ne $battery) {
+        push @event, "3:battery:$battery";
+        $hash->{helper}{battery} = $battery;
+      }
       #push @event, "3:state:T: $temperature SPT: $setpointTemp SP: $setpoint";
 
       if ($db[0] & 0x40) {
@@ -8825,13 +8906,22 @@ sub EnOcean_Parse($$)
           $energyStorage = "full";
           $battery = "ok";
         }
-        push @event, "3:battery:$battery";
+        if (!exists($hash->{helper}{battery}) || $hash->{helper}{battery} ne $battery) {
+          push @event, "3:battery:$battery";
+          $hash->{helper}{battery} = $battery;
+        }
         push @event, "3:energyStorage:$energyStorage";
         push @event, "3:voltage:$voltage";
       }
       push @event, "3:state:T: $temp H: $humi B: $battery";
       push @event, "3:humidity:$humi";
       push @event, "3:temperature:$temp";
+      CommandDeleteReading(undef, "$name alarm");
+      if (AttrVal($name, "signOfLife", 'off') eq 'on') {
+        RemoveInternalTimer($hash->{helper}{timer}{alarm})  if(exists $hash->{helper}{timer}{alarm});
+        @{$hash->{helper}{timer}{alarm}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
+        InternalTimer(gettimeofday() + AttrVal($name, "signOfLifeInterval", 3300), 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{alarm}, 0);
+      }
 
     } elsif ($st eq "tempHumiSensor.03") {
       # Temperatur and Humidity Sensor(EEP A5-04-03)
@@ -8844,7 +8934,12 @@ sub EnOcean_Parse($$)
       push @event, "3:humidity:$humi";
       push @event, "3:temperature:$temp";
       push @event, "3:telegramType:" . ($db[0] & 1 ? "event" : "heartbeat");
-
+      CommandDeleteReading(undef, "$name alarm");
+      if (AttrVal($name, "signOfLife", 'off') eq 'on') {
+        RemoveInternalTimer($hash->{helper}{timer}{alarm})  if(exists $hash->{helper}{timer}{alarm});
+        @{$hash->{helper}{timer}{alarm}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
+        InternalTimer(gettimeofday() + AttrVal($name, "signOfLifeInterval", 1540), 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{alarm}, 0);
+      }
     } elsif ($st eq "baroSensor.01") {
       # Barometric Sensor(EEP A5-04-03)
       # [untested]
@@ -8979,12 +9074,12 @@ sub EnOcean_Parse($$)
         }
       }
       if ($model eq "tracker") {
-        @{$hash->{helper}{motionTimer}} = ($hash, 'motion', 'off', 1, 5);
-        @{$hash->{helper}{stateTimer}} = ($hash, 'state', 'off', 1, 5);
-        RemoveInternalTimer($hash->{helper}{motionTimer});
-        RemoveInternalTimer($hash->{helper}{stateTimer});
-        InternalTimer(gettimeofday() + AttrVal($name, 'trackerWakeUpCycle', 30) * 1.1, 'EnOcean_readingsSingleUpdate', $hash->{helper}{motionTimer}, 0);
-        InternalTimer(gettimeofday() + AttrVal($name, 'trackerWakeUpCycle', 30) * 1.1, 'EnOcean_readingsSingleUpdate', $hash->{helper}{stateTimer}, 0);
+        RemoveInternalTimer($hash->{helper}{timer}{motion}) if(exists $hash->{helper}{timer}{motion});
+        RemoveInternalTimer($hash->{helper}{timer}{state}) if(exists $hash->{helper}{timer}{state});
+        @{$hash->{helper}{timer}{motion}} = ($hash, 'motion', 'off', 1, 5);
+        @{$hash->{helper}{timer}{state}} = ($hash, 'state', 'off', 1, 5);
+        InternalTimer(gettimeofday() + AttrVal($name, 'trackerWakeUpCycle', 30) * 1.1, 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{motion}, 0);
+        InternalTimer(gettimeofday() + AttrVal($name, 'trackerWakeUpCycle', 30) * 1.1, 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{state}, 0);
       }
       if (!exists($hash->{helper}{lastVoltage}) || $hash->{helper}{lastVoltage} != $db[3]) {
         push @event, "3:battery:" . ($db[3] * 0.02 > 2.8 ? "ok" : "low");
@@ -9457,13 +9552,13 @@ sub EnOcean_Parse($$)
       } elsif ($identifier == 4) {
         # Time und Day exchange (EEP A5-13-04)
         my @day = ('', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday');
-        my $day = ($db[3] & 0xF0) >> 4;
+        my $day = $db[3] >> 5;
         push @event, "3:weekday:" . $day[$day];
         if ($db[0] & 4) {
           # 12 h time format
-          push @event, "3:time:" . ($db[3] & 0x0F) . ':' . $db[2] . ':' . $db[1] . ' ' . ($db[1] & 2 ? 'PM' : 'AM');
+          push @event, "3:time:" . ($db[3] & 0x1F) . ':' . $db[2] . ':' . $db[1] . ' ' . ($db[1] & 2 ? 'PM' : 'AM');
         } else {
-          push @event, "3:time:" . ($db[3] & 0x0F) . ':' . $db[2] . ':' . $db[1];
+          push @event, "3:time:" . ($db[3] & 0x1F) . ':' . $db[2] . ':' . $db[1];
         }
         push @event, "3:timeSource:" . ($db[0] & 1 ? 'GPS' : 'RTC');
 
@@ -9549,9 +9644,11 @@ sub EnOcean_Parse($$)
         $hash->{helper}{lastEvent} = $data;
       }
       CommandDeleteReading(undef, "$name alarm");
-      @{$hash->{helper}{alarmTimer}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
-      RemoveInternalTimer($hash->{helper}{alarmTimer});
-      InternalTimer(gettimeofday() + 66, 'EnOcean_readingsSingleUpdate', $hash->{helper}{alarmTimer}, 0);
+      if (AttrVal($name, "signOfLife", 'on') eq 'on') {
+        RemoveInternalTimer($hash->{helper}{timer}{alarm}) if(exists $hash->{helper}{timer}{alarm});
+        @{$hash->{helper}{timer}{alarm}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
+        InternalTimer(gettimeofday() + AttrVal($name, "signOfLifeInterval", 66), 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{alarm}, 0);
+      }
 
     } elsif ($st eq "windowContact") {
       # window contact (EEP A5-14-09, A5-14-0A)
@@ -9567,9 +9664,11 @@ sub EnOcean_Parse($$)
         $hash->{helper}{lastEvent} = $data;
       }
       CommandDeleteReading(undef, "$name alarm");
-      @{$hash->{helper}{alarmTimer}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
-      RemoveInternalTimer($hash->{helper}{alarmTimer});
-      InternalTimer(gettimeofday() + 66, 'EnOcean_readingsSingleUpdate', $hash->{helper}{alarmTimer}, 0);
+      if (AttrVal($name, "signOfLife", 'on') eq 'on') {
+        RemoveInternalTimer($hash->{helper}{timer}{alarm})  if(exists $hash->{helper}{timer}{alarm});
+        @{$hash->{helper}{timer}{alarm}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
+        InternalTimer(gettimeofday() + AttrVal($name, "signOfLifeInterval", 990), 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{alarm}, 0);
+      }
 
     } elsif ($st =~ m/^digitalInput\.0[12]$/) {
       # Digital Input (EEP A5-30-01, A5-30-02)
@@ -9592,19 +9691,32 @@ sub EnOcean_Parse($$)
 
     } elsif ($st eq "digitalInput.03") {
       # 4 digital inputs, wake, temperature (EEP A5-30-03)
-      my $in0 = $db[1] & 1;
-      my $in1 = ($db[1] & 2) > 1;
-      my $in2 = ($db[1] & 4) > 2;
-      my $in3 = ($db[1] & 8) > 3;
-      my $wake = $db[1] & 16 ? 'high' : 'low';
       my $temperature = sprintf "%0.1f", 40 - $db[2] * 40 / 255;
-      push @event, "3:in0:$in0";
-      push @event, "3:in1:$in1";
-      push @event, "3:in2:$in2";
-      push @event, "3:in3:$in3";
-      push @event, "3:wake:$wake";
       push @event, "3:temperature:$temperature";
-      push @event, "3:state:T: $temperature I: " . $in0 . $in1 . $in2 . $in3 . " W: " . $wake;
+      if ($model eq 'Eltako_TF_RWB') {
+        # Eltako TF-RWB smoke detector
+        my $alarm = $db[1] & 16 ? 'off' : 'smoke-alarm';
+        if (!exists($hash->{helper}{lastEvent}) || $hash->{helper}{lastEvent} ne $alarm || ReadingsVal($name, 'alarm', '') eq 'dead_sensor') {
+          push @event, "3:alarm:$alarm";
+          $hash->{helper}{lastEvent} = $alarm;
+        }
+        push @event, "3:state:$alarm";
+        RemoveInternalTimer($hash->{helper}{timer}{alarm})  if(exists $hash->{helper}{timer}{alarm});
+        @{$hash->{helper}{timer}{alarm}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
+        InternalTimer(gettimeofday() + 1980, 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{alarm}, 0);
+      } else {
+        my $in0 = $db[1] & 1;
+        my $in1 = ($db[1] & 2) > 1;
+        my $in2 = ($db[1] & 4) > 2;
+        my $in3 = ($db[1] & 8) > 3;
+        my $wake = $db[1] & 16 ? 'high' : 'low';
+        push @event, "3:in0:$in0";
+        push @event, "3:in1:$in1";
+        push @event, "3:in2:$in2";
+        push @event, "3:in3:$in3";
+        push @event, "3:wake:$wake";
+        push @event, "3:state:T: $temperature I: " . $in0 . $in1 . $in2 . $in3 . " W: " . $wake;
+      }
 
     } elsif ($st eq "digitalInput.04") {
       # 3 digital inputs, 1 digital input 8 bit (EEP A5-30-04)
@@ -9835,7 +9947,7 @@ sub EnOcean_Parse($$)
             } else {
               $anglePos = $angleMax;
             }
-            if($position > 100) {
+            if($position >= 100) {
               $anglePos = $angleMax;
               $position = 100;
               push @event, "3:endPosition:closed";
@@ -10279,7 +10391,7 @@ sub EnOcean_Parse($$)
 
       } elsif ($cmd == 10) {
         # pilot wire mode response
-        my $roomCtrlMode = $db[0] & 3;
+        my $roomCtrlMode = $db[0] & 7;
         my %roomCtrlMode = (
           0 => "off",
           1 => "comfort",
@@ -10309,6 +10421,7 @@ sub EnOcean_Parse($$)
       }
 
     } elsif ($st eq "switch.00" || $st eq "windowHandle.10") {
+      $db[0] &= 0x0F;
       if ($db[0] == 1) {
         push @event, "3:state:open_from_tilted";
       } elsif ($db[0] == 2) {
@@ -10369,6 +10482,30 @@ sub EnOcean_Parse($$)
         push @event, "3:energyBow:released";
       }
 
+    } elsif ($st eq "switch.0A") {
+      # Push Button - Single Button EEP D2-03-0A
+      if (!exists($hash->{helper}{batteryPrecent}) || $hash->{helper}{batteryPrecent} != $db[1]) {
+        push @event, "3:batteryPrecent:$db[1]";
+        $hash->{helper}{batteryPrecent} = $db[1];
+      }
+      if ($db[0] == 1) {
+        push @event, "3:buttonS:on";
+        RemoveInternalTimer($hash->{helper}{timer}{buttonS}) if (exists $hash->{helper}{timer}{buttonS});
+        @{$hash->{helper}{timer}{buttonS}} = ($hash, 'buttonS', 'off', 1, 5);
+        InternalTimer(gettimeofday() + 0.5, 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{buttonS}, 0);
+      } elsif ($db[0] == 2) {
+        push @event, "3:buttonD:on";
+        RemoveInternalTimer($hash->{helper}{timer}{buttonD}) if (exists $hash->{helper}{timer}{buttonD});
+        @{$hash->{helper}{timer}{buttonD}} = ($hash, 'buttonD', 'off', 1, 5);
+        InternalTimer(gettimeofday() + 0.5, 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{buttonD}, 0);
+      } elsif ($db[0] == 3) {
+        push @event, "3:buttonL:on";
+        push @event, "3:state:on";
+      } elsif ($db[0] == 4) {
+        push @event, "3:buttonL:off";
+        push @event, "3:state:off";
+      }
+
     } elsif ($st =~ m/^blindsCtrl\.0[01]$/) {
       # EEP D2-05-0x
       my $channel = (($db[0] & 0xF0) >> 4) + 1;
@@ -10417,7 +10554,6 @@ sub EnOcean_Parse($$)
       }
 
     } elsif ($st eq "multisensor.01") {
-      #####
       # Multisensor Windows Handle
       # (D2-06-01)
       # message type
@@ -10703,6 +10839,37 @@ sub EnOcean_Parse($$)
       }
       CommandDeleteReading(undef, "$name waitingCmds");
 
+    } elsif ($st eq "multiFuncSensor.30") {
+      # Sensor for Smoke, Air quality, Hygrothermal comfort, Temperature and Humidity
+      # (D2-14-30)
+      my @airQuality = ('optimal', 'air_dry', 'humidity_high', 'temperature_humidity_high', '', '', 'error');
+      my @comfort = ('good', 'medium', 'bad', 'error');
+      my @energyStorage = ('ok', 'medium', 'low', 'critical');
+      my $alarm = ($db[5] & 0x80) == 0 ? 'off' : 'smoke-alarm';
+      my $battery = $energyStorage[($db[4] & 6) >> 1];
+      if (!exists($hash->{helper}{lastAlarm}) || $hash->{helper}{lastAlarm} ne $alarm || ReadingsVal($name, 'alarm', '') eq 'dead_sensor') {
+        push @event, "3:alarm:" . $alarm;
+      }
+      if (!exists($hash->{helper}{lastBattery}) || $hash->{helper}{lastBattery} ne $battery) {
+        push @event, "3:battery:" . $battery;
+      }
+      push @event, "3:sensorFaultMode:" . (($db[5] & 0x40) == 0 ? 'off' : 'on');
+      push @event, "3:smokeAlarmMaintenance:" . (($db[5] & 0x20) == 0 ? 'ok' : 'not_done');
+      push @event, "3:smokeAlarmHumidity:" . (($db[5] & 0x10) == 0 ? 'ok' : 'not_ok');
+      push @event, "3:smokeAlarmTemperature:" . (($db[5] & 8) == 0 ? 'ok' : 'not_ok');
+      push @event, "3:maintenanceLast:" . (($db[5] & 7) << 5 | $db[4] >> 3);
+      push @event, "3:endOffLife:" . (($db[4] & 1) << 7 | $db[3] >> 1);
+      push @event, "3:temperature:" . sprintf "%0.1f", (($db[3] & 1) << 7 | $db[2] >> 1) / 5;
+      push @event, "3:humidity:" . sprintf "%0.1f", (($db[2] & 1) << 7 | $db[1] >> 1) / 2;
+      push @event, "3:hygrothermalComfort:" . $comfort[(($db[1] & 1) << 1 | $db[0] >> 7)];
+      push @event, "3:airQuality:" . $airQuality[($db[0] & 0x70) >> 4];
+      push @event, "3:state:" . $alarm;
+      $hash->{helper}{lastAlarm} = $alarm;
+      $hash->{helper}{lastBattery} = $battery;
+      RemoveInternalTimer($hash->{helper}{timer}{alarm}) if (exists $hash->{helper}{timer}{alarm});
+      @{$hash->{helper}{timer}{alarm}} = ($hash, 'alarm', 'dead_sensor', 1, 5);
+      InternalTimer(gettimeofday() + 1440, 'EnOcean_readingsSingleUpdate', $hash->{helper}{timer}{alarm}, 0);
+
     } elsif ($st eq "fanCtrl.00") {
       # Fan Control
       # (D2-20-00 - D2-20-02)
@@ -10978,16 +11145,20 @@ sub EnOcean_Parse($$)
           CommandDeleteReading(undef, "$name airQuality2");
         }
         my $outdoorTemp = ($db[8] & 0xFE) >> 1;
-        $outdoorTemp -= $outdoorTemp if ($outdoorTemp & 0x40);
+        #$outdoorTemp -= $outdoorTemp if ($outdoorTemp & 0x40);
+        $outdoorTemp -= 64;
         push @event, "3:outdoorTemp:$outdoorTemp";
         my $supplyTemp = ($db[8] & 1) << 6 | ($db[7] & 0xFC) >> 2;
-        $supplyTemp -= $supplyTemp if ($supplyTemp & 0x40);
+        #$supplyTemp -= $supplyTemp if ($supplyTemp & 0x40);
+        $supplyTemp -= 64;
         push @event, "3:supplyTemp:$supplyTemp";
         my $roomTemp = ($db[7] & 3) << 5 | ($db[6] & 0xF8) >> 3;
-        $roomTemp -= $roomTemp if ($roomTemp & 0x40);
+        #$roomTemp -= $roomTemp if ($roomTemp & 0x40);
+        $roomTemp -= 64;
         push @event, "3:roomTemp:$roomTemp";
         my $exhaustTemp = ($db[6] & 7) << 4 | ($db[5] & 0xF0) >> 4;
-        $exhaustTemp -= $exhaustTemp if ($exhaustTemp & 0x40);
+        #$exhaustTemp -= $exhaustTemp if ($exhaustTemp & 0x40);
+        $exhaustTemp -= 64;
         push @event, "3:exhaustTemp:$exhaustTemp";
         push @event, "3:supplyAirFlow:". (($db[5] & 0x0F) << 2 | ($db[4] & 0xFC) >> 2);
         push @event, "3:exhaustAirFlow:" . (($db[4] & 3) << 8 | $db[3]);
@@ -11121,8 +11292,70 @@ sub EnOcean_Parse($$)
     }
 
   } elsif ($rorg eq "D0") {
-    my %smartAckMailbox = (0 => 'empty', 1 => 'not_exits', 2 => 'reset');
-    push @event, "3:smartAckMailbox:" . $smartAckMailbox{$db[0]};
+    # Signal Telegram
+    my $signalMID = hex(substr($data, 0, 2));
+    if ($signalMID == 1) {
+      push @event, "3:smartAckMailbox:empty";
+    } elsif ($signalMID == 2) {
+      push @event, "3:smartAckMailbox:not_exits";
+    } elsif ($signalMID == 3) {
+      push @event, "3:smartAckMailbox:reset";
+    } elsif ($signalMID == 4) {
+      my $responseID = $subDef eq $hash->{DEF} ? $iohash->{ChipID} : $subDef;
+      if ($db[0] == 0) {
+      } elsif ($db[0] == 1) {
+        # send MID 0x06
+        EnOcean_SndRadio(undef, $hash, 1, 'D0', '0664', $responseID, '00', 'F' x 8);
+      } elsif ($db[0] == 2) {
+        # send MID 0x07
+        my $swVersion = sprintf("%s", AttrVal('global', 'featurelevel', '99.99')) . '.00.00';
+        #my @revision = split(/\./, $swVersion);
+        $swVersion =~ /^(.*)\.(.*)\.(..)\.(..)$/;
+        EnOcean_SndRadio(undef, $hash, 1, 'D0', sprintf("07%02X%02X%02X%02X00000000", $1, $2, $3, $4), $responseID, '00', 'F' x 8);
+      } elsif ($db[0] == 3) {
+        # send MID 0x0A
+        if (exists($hash->{LASTInputDev}) && exists($hash->{"$hash->{LASTInputDev}_RSSI"}) &&
+            exists($hash->{"$hash->{LASTInputDev}_RepeatingCounter"}) && exists($hash->{"$hash->{LASTInputDev}_SubTelNum"})) {
+            my $data = '0A' . $iohash->{ChipID} . sprintf("%02X%02X%01X%01X", 127 - $hash->{"$hash->{LASTInputDev}_RSSI"},
+                                                                              127 - $hash->{"$hash->{LASTInputDev}_RSSI"},
+                                                                              $hash->{"$hash->{LASTInputDev}_SubTelNum"},
+                                                                              $hash->{"$hash->{LASTInputDev}_RepeatingCounter"});
+          EnOcean_SndRadio(undef, $hash, 1, 'D0', $data, $responseID, '00', 'F' x 8);
+        }
+      } elsif ($db[0] == 4) {
+        # send MID 0x0D
+        EnOcean_SndRadio(undef, $hash, 1, 'D0', '0D00', $responseID, '00', 'F' x 8);
+      }
+    } elsif ($signalMID == 5) {
+      $hash->{Dev_ACK} = 'signal';
+      DoTrigger($name, "SIGNAL: Dev_ACK", 1);
+    } elsif ($signalMID == 6) {
+      push @event, "3:batteryPrecent:$db[0]";
+    } elsif ($signalMID == 7) {
+      push @event, "3:hwVersion:" . substr($data, 10, 8);
+      push @event, "3:swVersion:" . substr($data, 2, 8);
+    } elsif ($signalMID == 8) {
+      push @event, "3:trigger:heartbeat";
+    } elsif ($signalMID == 9) {
+      DoTrigger($name, "SIGNAL: RX_WINDOW_OPEN", 1);
+    } elsif ($signalMID == 10) {
+      $hash->{Dev_EURID} = substr($data, 2, 8);
+      if ($db[1] < 255) {$hash->{Dev_RSSImax} = 127 - $db[1]};
+      if ($db[2] < 255) {$hash->{Dev_RSSImin} = 127 - $db[2]};
+      my $subTelNum = $db[0] >> 4;
+      if ($subTelNum > 0) {$hash->{Dev_SubTelNum} = $subTelNum};
+      my $repeatingCounter = $db[0] & 0x0F;
+      if ($repeatingCounter < 0x0F) {$hash->{Dev_RepeatingCounter} = $repeatingCounter};
+    } elsif ($signalMID == 11) {
+      DoTrigger($name, "SIGNAL: DUTYCYCLE_LIMIT: " . ($db[0] >> 4 == 1 ? 'released' : 'reached'), 1);
+      Log3 $name, 2, "EnOcean $name SIGNAL DUTYCYCLE_LIMIT: " . ($db[0] >> 4 == 1 ? 'released' : 'reached');
+    } elsif ($signalMID == 12) {
+      DoTrigger($name, "SIGNAL: Dev_CHANGED", 1);
+      Log3 $name, 2, "EnOcean $name SIGNAL Dev_CHANGED";
+    } elsif ($signalMID == 13) {
+      my @harvester = ('very_good', 'good', 'average', 'bad', 'very_bad');
+      push @event, "3:harvester:" . $harvester[$db[0]];
+    }
 
   } elsif ($rorg eq "B2") {
     # GP complete data (GPCD)
@@ -11549,7 +11782,6 @@ sub EnOcean_Parse($$)
 
   } elsif ($rorg eq "C6" && $smartAckLearn) {
     # Smart Ack Learn Request
-    #####
     $data =~ m/^(....)(..)(..)(..)(..)(........)$/;
     my $subType = "$2.$3.$4";
     my $postmasterID = '0' x 8;
@@ -11613,16 +11845,22 @@ sub EnOcean_Parse($$)
       # unlock
       if ($data eq uc($remoteCode) && !exists($hash->{RemoteClientUnlockFailed})) {
         $hash->{RemoteClientUnlock} = 1;
-        my %functionHash = (hash => $hash, param => 'RemoteClientUnlock');
-        RemoveInternalTimer(\%functionHash);
-        InternalTimer(gettimeofday() + 1800, 'EnOcean_cdmClearHashVal', \%functionHash, 0);
+        #my %functionHash = (hash => $hash, param => 'RemoteClientUnlock');
+        #RemoveInternalTimer(\%functionHash);
+        #InternalTimer(gettimeofday() + 1800, 'EnOcean_cdmClearHashVal', \%functionHash, 0);
+        RemoveInternalTimer($hash->{helper}{timer}{RemoteClientUnlock}) if(exists $hash->{helper}{timer}{RemoteClientUnlock});
+        $hash->{helper}{timer}{RemoteClientUnlock} = {hash => $hash, param => 'RemoteClientUnlock'};
+        InternalTimer(gettimeofday() + 1800, 'EnOcean_cdmClearHashVal', $hash->{helper}{timer}{RemoteClientUnlock}, 0);
         Log3 $name, 2, "EnOcean $name RMCC unlock request executed.";
       } else {
         $remoteLastStatusReturnCode = '02';
         $hash->{RemoteClientUnlockFailed} = 1;
-        my %functionHash = (hash => $hash, param => 'RemoteClientUnlockFailed');
-        RemoveInternalTimer(\%functionHash);
-        InternalTimer(gettimeofday() + 30, 'EnOcean_cdmClearHashVal', \%functionHash, 0);
+        #my %functionHash = (hash => $hash, param => 'RemoteClientUnlockFailed');
+        #RemoveInternalTimer(\%functionHash);
+        #InternalTimer(gettimeofday() + 30, 'EnOcean_cdmClearHashVal', \%functionHash, 0);
+        RemoveInternalTimer($hash->{helper}{timer}{RemoteClientUnlockFailed}) if(exists $hash->{helper}{timer}{RemoteClientUnlockFailed});
+        $hash->{helper}{timer}{RemoteClientUnlockFailed} = {hash => $hash, param => 'RemoteClientUnlockFailed'};
+        InternalTimer(gettimeofday() + 30, 'EnOcean_cdmClearHashVal', $hash->{helper}{timer}{RemoteClientUnlockFailed}, 0);
         Log3 $name, 2, "EnOcean $name RMCC unlock request not executed, remote Code $data wrong.";
       }
       push @event, "3:remoteLastStatusReturnCode:$remoteLastStatusReturnCode";
@@ -11631,8 +11869,7 @@ sub EnOcean_Parse($$)
       # lock
       if ($hash->{RemoteClientUnlock} && $data eq uc($remoteCode)) {
         delete $hash->{RemoteClientUnlock};
-        my %functionHash = (hash => $hash, param => 'RemoteClientUnlock');
-        RemoveInternalTimer(\%functionHash);
+        RemoveInternalTimer($hash->{helper}{timer}{RemoteClientUnlock}) if(exists $hash->{helper}{timer}{RemoteClientUnlock});
         Log3 $name, 2, "EnOcean $name RMCC lock request executed.";
       } else {
         $remoteLastStatusReturnCode = '02';
@@ -12304,6 +12541,42 @@ sub EnOcean_Attr(@)
       $err = "attribute-value [$attrName] = $attrVal wrong";
     }
 
+  } elsif ($attrName eq "model") {
+    if (!defined $attrVal){
+
+    } else {
+      # set model specific attributes
+      foreach my $attrCntr (keys %{$EnO_models{$attrVal}{attr}}) {
+        if ($attrCntr eq "remoteID") {
+          if (exists $hash->{DEF}) {
+            $attr{$name}{$attrCntr} = $hash->{DEF};
+          } else {
+            $attr{$name}{$attrCntr} = EnOcean_CheckSenderID($EnO_models{$attrVal}{attr}{$attrCntr}, $hash->{IODev}{NAME}, "00000000");
+          }
+        } else {
+          $attr{$name}{$attrCntr} = $EnO_models{$attrVal}{attr}{$attrCntr};
+        }
+      }
+      if (exists $EnO_models{$attrVal}{xml}) {
+        # read xml device description to $hash->{helper}
+        if ($xmlFunc == 1) {
+          my $xmlFile = $attr{global}{modpath} . $EnO_models{$attrVal}{xml}{xmlDescrLocation};
+          if (-e -f -r $xmlFile) {
+            $hash->{helper} = $xml->XMLin($xmlFile);
+            if (exists $hash->{helper}{Device}) {
+
+            } else {
+              Log3 $name, 2, "EnOcean $name <attr> Device Description not defined";
+            }
+          } else {
+            Log3 $name, 2, "EnOcean $name <attr> Device Description file $xmlFile not exists";
+          }
+        } else {
+          Log3 $name, 2, "EnOcean $name <attr> XML functions are not available";
+        }
+      }
+    }
+
   } elsif ($attrName eq "gpDef") {
     if (!defined $attrVal){
 
@@ -12697,6 +12970,27 @@ sub EnOcean_Attr(@)
       $err = "attribute-value [$attrName] = $attrVal wrong";
     }
 
+  } elsif ($attrName eq "signal") {
+    if (!defined $attrVal){
+
+    } elsif ($attrVal !~ m/^off|on$/) {
+      $err = "attribute-value [$attrName] = $attrVal wrong";
+    }
+
+  } elsif ($attrName eq "signOfLife") {
+    if (!defined $attrVal) {
+
+    } elsif ($attrVal !~ m/^off|on$/) {
+      $err = "attribute-value [$attrName] = $attrVal is not a integer number or not valid";
+    }
+
+  } elsif ($attrName eq "signOfLifeInterval") {
+    if (!defined $attrVal) {
+
+    } elsif ($attrVal !~ m/^\d+?$/ || $attrVal < 1 || $attrVal > 65535) {
+      $err = "attribute-value [$attrName] = $attrVal is not a integer number or not valid";
+    }
+
   } elsif ($attrName eq "summerMode") {
     if (!defined $attrVal){
 
@@ -12857,7 +13151,6 @@ sub EnOcean_Notify(@)
 
     if ($devName eq $name) {
       my @parts = split(/: | /, $s);
-#####
       if (exists($hash->{helper}{stopped}) && !$hash->{helper}{stopped} && $parts[0] eq "temperature") {
         # PID regulator: calc gradient for delta as base for d-portion calculation
         my $setpointTemp = ReadingsVal($name, "setpointTemp", undef);
@@ -12977,6 +13270,7 @@ sub EnOcean_Notify(@)
         my @getCmd = ($name, 'state');
         EnOcean_Get($hash, @getCmd);
       }
+      EnOcean_ReadDevDesc(undef, $hash);
       #Log3($name, 2, "EnOcean $name <notify> INITIALIZED");
 
     } elsif ($devName eq "global" && $s =~ m/^REREADCFG$/) {
@@ -12996,6 +13290,7 @@ sub EnOcean_Notify(@)
         }
       }
 
+      EnOcean_ReadDevDesc(undef, $hash);
       #Log3($name, 2, "EnOcean $name <notify> REREADCFG");
 
     } elsif ($devName eq "global" && $s =~ m/^ATTR ([^ ]*) ([^ ]*) ([^ ]*)$/) {
@@ -13257,25 +13552,20 @@ sub EnOcean_calcPID($) {
   my ($crtl, $hash, $cmd) = @$pidParam;
   my $name = $hash->{NAME};
   my ($err, $response, $logLevel, $setpoint) = (undef, $cmd, 5, 0);
-#####
-
   my $reUINT     = '^([\\+]?\\d+)$';               # uint without whitespaces
   my $re01       = '^([0,1])$';                    # only 0,1
   my $reINT      = '^([\\+,\\-]?\\d+$)';           # int
   my $reFloatpos = '^([\\+]?\\d+\\.?\d*$)';        # gleitpunkt positiv float
   my $reFloat    = '^([\\+,\\-]?\\d+\\.?\d*$)';    # float
-
   my $sensor  = $name;
   my $reading = 'temperature';
   my $regexp  = $reFloat;
-
   my $DEBUG_Sensor    = AttrVal( $name, 'pidDebugSensor',    '0' ) eq '1';
   my $DEBUG_Actuation = AttrVal( $name, 'pidDebugActuation', '0' ) eq '1';
   my $DEBUG_Delta     = AttrVal( $name, 'pidDebugDelta',     '0' ) eq '1';
   my $DEBUG_Calc      = AttrVal( $name, 'pidDebugCalc',      '0' ) eq '1';
   my $DEBUG_Update    = AttrVal( $name, 'pidDebugUpdate',    '0' ) eq '1';
   my $DEBUG = $DEBUG_Sensor || $DEBUG_Actuation || $DEBUG_Calc || $DEBUG_Delta || $DEBUG_Update;
-
   my $actuation        = "";
   my $actuationDone    = ReadingsVal( $name, 'setpointSet', ReadingsVal( $name, 'setpoint', ""));
   my $actuationCalc    = ReadingsVal( $name, 'setpointCalc', "" );
@@ -13284,14 +13574,11 @@ sub EnOcean_calcPID($) {
     ( $hash->{helper}{actorTimestamp} )
     ? $hash->{helper}{actorTimestamp}
     : FmtDateTime( gettimeofday() - 3600 * 24 );
-
   my $desired = '';
-
   my $sensorStr = ReadingsVal($name, 'temperature',"");
   my $sensorValue = "";
   my $sensorTS = ReadingsTimestamp($name, 'temperature', undef);
   my $sensorIsAlive = 0;
-
   my $iPortion = ReadingsVal( $name, 'p_i',   0 );
   my $pPortion = ReadingsVal( $name, 'p_p',   "" );
   my $dPortion = ReadingsVal( $name, 'p_d',   "" );
@@ -14210,9 +14497,9 @@ sub EnOcean_4BSRespWait($$$) {
   if (!exists($hash->{IODev}{Teach})) {
     # enable teach-in receiving for 3 sec
     $hash->{IODev}{Teach} = 1;
-    my %timeoutHash = (hash => $IOHash, function => "4BSRespTimeout", helper => "4BSRespWait");
-    RemoveInternalTimer(\%timeoutHash);
-    InternalTimer(gettimeofday() + 3, "EnOcean_RespTimeout", \%timeoutHash, 0);
+    RemoveInternalTimer($hash->{helper}{timer}{"4BSRespTimeout"}) if(exists $hash->{helper}{timer}{"4BSRespTimeout"});
+    $hash->{helper}{timer}{"4BSRespTimeout"} = {hash => $IOHash, function => "4BSRespTimeout", helper => "4BSRespWait"};
+    InternalTimer(gettimeofday() + 3, 'EnOcean_RespTimeout', $hash->{helper}{timer}{"4BSRespTimeout"}, 0);
   }
   return;
 }
@@ -14546,12 +14833,12 @@ sub EnOcean_InternalTimer($$$$$)
   if ($modifier eq "") {
     $mHash = $hash;
   } else {
-    if (exists ($hash->{helper}{TIMER}{$timerName})) {
-      $mHash = $hash->{helper}{TIMER}{$timerName};
+    if (exists ($hash->{helper}{timer}{$timerName})) {
+      $mHash = $hash->{helper}{timer}{$timerName};
       Log3 $hash->{NAME}, 5, "EnOcean_InternalTimer setting mHash with stored $timerName";
    } else {
       $mHash = {HASH => $hash, NAME => $timerName, MODIFIER => $modifier};
-      $hash->{helper}{TIMER}{$timerName} = $mHash;
+      $hash->{helper}{timer}{$timerName} = $mHash;
       Log3 $hash->{NAME}, 5, "EnOcean_InternalTimer setting mHash with $timerName";
     }
   }
@@ -14569,9 +14856,9 @@ sub EnOcean_RemoveInternalTimer($$)
   if ($modifier eq "") {
     RemoveInternalTimer($hash);
   } else {
-    $mHash = $hash->{helper}{TIMER}{$timerName};
+    $mHash = $hash->{helper}{timer}{$timerName};
     if (defined($mHash)) {
-      delete $hash->{helper}{TIMER}{$timerName};
+      delete $hash->{helper}{timer}{$timerName};
       RemoveInternalTimer($mHash);
     }
   }
@@ -14609,11 +14896,10 @@ sub EnOcean_observeInit($$@)
     $hash->{helper}{observeCmds}{$cmdValue[1]} = $cmdValue[1];
   }
   $hash->{helper}{observeCntr} = 1;
-  #CommandDeleteReading(undef, "$name observeFailedDev");
   readingsSingleUpdate($hash, "observeFailedDev", "", 0);
-  my %functionHash = (hash => $hash, function => "observe");
-  RemoveInternalTimer(\%functionHash);
-  InternalTimer(gettimeofday() + AttrVal($name, "observeInterval", 1), "EnOcean_observeRepeat", \%functionHash, 0);
+  RemoveInternalTimer($hash->{helper}{timer}{observe}) if(exists $hash->{helper}{timer}{observe});
+  $hash->{helper}{timer}{observe} = {hash => $hash, function => "observe"};
+  InternalTimer(gettimeofday() + AttrVal($name, "observeInterval", 1), "EnOcean_observeRepeat", $hash->{helper}{timer}{observe}, 0);
   Log3 $name, 4, "EnOcean set " . join(" ", @cmdValue) . " observing started";
   return ($err, $ctrl);
 }
@@ -14643,8 +14929,7 @@ sub EnOcean_observeParse($$@)
     delete $hash->{helper}{observeRefDev};
     delete $hash->{helper}{lastCmdFunction};
     delete $hash->{helper}{lastCmdValue};
-    my %functionHash = (hash => $hash, function => "observe");
-    RemoveInternalTimer(\%functionHash);
+    RemoveInternalTimer($hash->{helper}{timer}{observe}) if(exists $hash->{helper}{timer}{observe});
     Log3 $name, 4, "EnOcean $name < $devName $cmd " . join(" ", @cmdValue) . " observing stopped";
   } else {
     # remove the device that has sent a telegram
@@ -14663,8 +14948,7 @@ sub EnOcean_observeParse($$@)
       delete $hash->{helper}{observeRefDev};
       delete $hash->{helper}{lastCmdFunction};
       delete $hash->{helper}{lastCmdValue};
-      my %functionHash = (hash => $hash, function => "observe");
-      RemoveInternalTimer(\%functionHash);
+      RemoveInternalTimer($hash->{helper}{timer}{observe}) if(exists $hash->{helper}{timer}{observe});
       Log3 $name, 4, "EnOcean $name < $devName $cmd " . join(" ", @cmdValue) . " observing stopped";
     }
   }
@@ -14926,20 +15210,29 @@ sub EnOcean_energyManagement_01Parse($@)
   readingsBeginUpdate($hash);
   readingsBulkUpdate($hash, "randomEnd", $randomEnd);
   readingsBulkUpdate($hash, "randomStart", $randomStart);
-  my %timeoutHash = (hash => $hash, function => "demandResponseTimeout");
-  my %functionHash = (hash            => $hash,
-                      function        => "demandResponseExec",
-                      drLevel         => $drLevel,
-                      powerUsage      => $powerUsage,
-                      powerUsageLevel => $powerUsageLevel,
-                      powerUsageScale => $powerUsageScale,
-                      setpoint        => $setpoint
-                     );
-  RemoveInternalTimer(\%timeoutHash);
-  RemoveInternalTimer(\%functionHash);
+  #my %timeoutHash = (hash => $hash, function => "demandResponseTimeout");
+  #my %functionHash = (hash            => $hash,
+  #                    function        => "demandResponseExec",
+  #                    drLevel         => $drLevel,
+  #                    powerUsage      => $powerUsage,
+  #                    powerUsageLevel => $powerUsageLevel,
+  #                    powerUsageScale => $powerUsageScale,
+  #                    setpoint        => $setpoint
+  #                   );
+  $hash->{helper}{timer}{demandResponseTimeout} = {hash => $hash, function => "demandResponseTimeout"};
+  $hash->{helper}{demandResponseExec} = {hash            => $hash,
+                                         function        => "demandResponseExec",
+                                         drLevel         => $drLevel,
+                                         powerUsage      => $powerUsage,
+                                         powerUsageLevel => $powerUsageLevel,
+                                         powerUsageScale => $powerUsageScale,
+                                         setpoint        => $setpoint
+                                        };
+  RemoveInternalTimer($hash->{helper}{timer}{demandResponseTimeout}) if (exists $hash->{helper}{timer}{demandResponseTimeout});
+  RemoveInternalTimer($hash->{helper}{demandResponseExec}) if (exists $hash->{helper}{demandResponseExec});
   if ($timeout > 0 && $drLevel < 15) {
     # timeout timer
-    InternalTimer(gettimeofday() + $timeout, "EnOcean_demandResponseTimeout", \%timeoutHash, 0);
+    InternalTimer(gettimeofday() + $timeout, "EnOcean_demandResponseTimeout", $hash->{helper}{timer}{demandResponseTimeout}, 0);
     my ($sec, $min, $hour, $day, $month, $year) = localtime(time + $timeout);
     $month += 1;
     $year += 1900;
@@ -14954,13 +15247,13 @@ sub EnOcean_energyManagement_01Parse($@)
   if ($randomStart eq "yes" && ReadingsVal($name, "level", 15) == 15) {
     readingsBulkUpdate($hash, "state", "waiting_for_start");
     Log3 $name, 3, "EnOcean set $name demand response waiting for start";
-    InternalTimer(gettimeofday() + $randomTime, "EnOcean_demandResponseExec", \%functionHash, 0);
+    InternalTimer(gettimeofday() + $randomTime, "EnOcean_demandResponseExec", $hash->{helper}{demandResponseExec}, 0);
   } elsif ($randomEnd eq "yes" && ReadingsVal($name, "level", 15) < 15) {
     readingsBulkUpdate($hash, "state", "waiting_for_stop");
     Log3 $name, 3, "EnOcean set $name demand response waiting for stop";
-    InternalTimer(gettimeofday() + $randomTime, "EnOcean_demandResponseExec", \%functionHash, 0);
+    InternalTimer(gettimeofday() + $randomTime, "EnOcean_demandResponseExec", $hash->{helper}{demandResponseExec}, 0);
   } else {
-    EnOcean_demandResponseExec(\%functionHash);
+    EnOcean_demandResponseExec($hash->{helper}{demandResponseExec});
   }
   readingsEndUpdate($hash, 1);
   return;
@@ -15125,9 +15418,9 @@ sub EnOcean_sndUTE($$$$$$$) {
     if (!exists($hash->{IODev}{Teach})) {
       # enable teach-in receiving for 3 sec
       $hash->{IODev}{Teach} = 1;
-      my %timeoutHash = (hash => $IOHash, function => "UTERespTimeout", helper => "UTERespWait");
-      RemoveInternalTimer(\%timeoutHash);
-      InternalTimer(gettimeofday() + 3, "EnOcean_RespTimeout", \%timeoutHash, 0);
+      RemoveInternalTimer($hash->{helper}{timer}{UTERespTimeout}) if(exists $hash->{helper}{timer}{UTERespTimeout});
+      $hash->{helper}{timer}{UTERespTimeout} = {hash => $IOHash, function => "UTERespTimeout", helper => "UTERespWait"};
+      InternalTimer(gettimeofday() + 3, 'EnOcean_RespTimeout', $hash->{helper}{timer}{UTERespTimeout}, 0);
     }
   }
   $attr{$name}{devChannel} = $devChannel;
@@ -15154,9 +15447,43 @@ sub EnOcean_setTeachConfirmWaitHash($) {
   my ($ctrl, $hash) = @_;
   if (AttrVal($hash->{NAME}, "teachMethod", "") eq 'confirm') {
     $hash->{IODev}{helper}{teachConfirmWaitHash} = $hash;
-    my %functionHash = (hash => $hash->{IODev}, function => "teachConfirmWaitHash");
-    RemoveInternalTimer(\%functionHash);
-    InternalTimer(gettimeofday() + 5, "EnOcean_helperClear", \%functionHash, 0);
+    RemoveInternalTimer($hash->{helper}{timer}{teachConfirmWaitHash}) if(exists $hash->{helper}{timer}{teachConfirmWaitHash});
+    $hash->{helper}{timer}{teachConfirmWaitHash} = {hash => $hash->{IODev}, function => "teachConfirmWaitHash"};
+    InternalTimer(gettimeofday() + 5, 'EnOcean_helperClear', $hash->{helper}{timer}{teachConfirmWaitHash}, 0);
+  }
+  return;
+}
+
+#
+sub EnOcean_ReadDevDesc($$) {
+  # read xml device description to $hash->{helper}
+  my ($ctrl, $hash) = @_;
+  my $name = $hash->{NAME};
+  if ($xmlFunc == 0) {
+    Log3 $name, 2, "EnOcean $name XML functions are not available";
+    return;
+  }
+  if (exists($hash->{TYPE}) && $hash->{TYPE} eq 'EnOcean' && exists($attr{$name}{model})) {
+    if (exists $EnO_models{$attr{$name}{model}}) {
+      if (exists $EnO_models{$attr{$name}{model}}{xml}{xmlDescrLocation}) {
+        my $xmlFile = $attr{global}{modpath} . $EnO_models{$attr{$name}{model}}{xml}{xmlDescrLocation};
+        if (-e -f -r $xmlFile) {
+          my $xmlData = $xml->XMLin($xmlFile);
+          $hash->{helper} = $xmlData;
+          if (exists $xmlData->{Device}) {
+            Log3 $name, 5, "EnOcean $name Beginn Device Description";
+            Log3 $name, 5, "###";
+            Log3 $name, 5, Dumper($xmlData);
+            Log3 $name, 5, "###";
+            Log3 $name, 5, "EnOcean $name End Device Description";
+          } else {
+            Log3 $name, 2, "EnOcean $name Device Description not defined";
+          }
+        } else {
+          Log3 $name, 2, "EnOcean $name Device Description file $xmlFile not exists";
+        }
+      }
+    }
   }
   return;
 }
@@ -15513,7 +15840,7 @@ sub EnOcean_sec_parseTeachIn($$$$) {
 
           $hash->{helper}{teachInSTE} = $cnt - 1;
           # Ok we got a lots of infos and the first part of the private key
-          return (undef, "part1: $name");
+          return (undef, "part 1 received Rlc: $rlc Key1: $key1");
 
 	} elsif ($idx == 1 && exists($hash->{helper}{teachInSTE})) {
 	  # Second part of the teach-in telegrams
@@ -15551,7 +15878,7 @@ sub EnOcean_sec_parseTeachIn($$$$) {
             }
           }
 	  delete $hash->{helper}{teachInSTE};
-	  return (undef, "part2: $name");
+	  return (undef, "part 2 received Key2: $key2");
 	}
 
 	# Sequence error?
@@ -15617,9 +15944,7 @@ sub EnOcean_sec_getRLC($$) {
 	if (hex($old_rlc) < hex($attr{$name}{$rlcVar})) {
 	  $old_rlc = $attr{$name}{$rlcVar};
 	}
-
-	#print "RLC old: $old_rlc\n";
-	Log3 $name, 5, "EnOcean $name EnOcean_sec_getRLC RLC old: $old_rlc";
+	Log3 $name, 5, "EnOcean $name EnOcean_sec_getRLC RLC old: $old_rlc " . hex($old_rlc);
 
 	# Advance RLC by one
 	my $new_rlc = hex($old_rlc) + 1;
@@ -15643,12 +15968,11 @@ sub EnOcean_sec_getRLC($$) {
 		        $attr{$name}{$rlcVar} = "000000";
                         EnOcean_CommandSave(undef, undef);
 		}
-                readingsSingleUpdate($hash, "." . $rlcVar, uc(unpack('H6',pack('N', $new_rlc))), 0);
-		$attr{$name}{$rlcVar} = uc(unpack('H6',pack('N', $new_rlc)));
+                readingsSingleUpdate($hash, "." . $rlcVar, sprintf("%06X", $new_rlc), 0);
+		$attr{$name}{$rlcVar} = sprintf("%06X", $new_rlc);
 	}
 
-	#print "RLC new: ".$attr{$name}{rlc}."\n";
-	Log3 $name, 5, "EnOcean $name EnOcean_sec_getRLC RLC new: ". $attr{$name}{$rlcVar};
+	Log3 $name, 5, "EnOcean $name EnOcean_sec_getRLC RLC new: $attr{$name}{$rlcVar} $new_rlc";
 	return $old_rlc;
 }
 
@@ -15851,9 +16175,16 @@ sub EnOcean_sec_convertToNonsecure($$$) {
       my $data_dec = EnOcean_sec_decodeVAES($rlc_expanded, $private_key, $data_expanded);
       my $data_end = unpack('H32', $data_dec);
       if ($rorg eq '30') {
-        # Extract one nibble of data
-        $data_end =~ /^.(.)/;
-        return (undef, '32', "0" . uc($1));
+        $data_end =~ /^(.{$dataLength})/;
+        return (undef, '32', uc($1));
+        #if ($dataLength == 2) {
+          # Extract one nibble of data
+        #  $data_end =~ /^.(.)/;
+        #  return (undef, '32', "0" . uc($1));
+        #} else {
+        #  $data_end =~ /^(.{$dataLength})/;
+        #  return (undef, '32', uc($1));
+        #}
       } else {
         $dataLength -= 2;
         $data_end =~ /^(..)(.{$dataLength})/;
@@ -16025,8 +16356,7 @@ EnOcean_Undef($$)
   delete $modules{EnOcean}{defptr}{uc($attr{$name}{remoteID})} if (exists $attr{$name}{remoteID});
   if (AttrVal($name, "remoteManagement", "off") eq "client") {
     delete $hash->{RemoteClientUnlock};
-    my %functionHash = (hash => $hash, param => 'RemoteClientUnlock');
-    RemoveInternalTimer(\%functionHash);
+    RemoveInternalTimer($hash->{helper}{timer}{RemoteClientUnlock}) if(exists $hash->{helper}{timer}{RemoteClientUnlock});
   }
   return undef;
 }
@@ -16351,6 +16681,24 @@ EnOcean_Delete($$)
     <br><br>
   </ul>
 
+  <b>Signal Telegram</b><br>
+  <ul>
+    Signal Telegram as a feature is dedicated to signalize special events with optional data, trigger actions or
+    request responses. It extends the functionality of the device independently of used EEPs or other
+    communication profiles.<br>
+    Target key functional fields are:
+    <ul>
+      <li>Communication flow control</li>
+      <li>Energy harvesting and reporting</li>
+      <li>Failure & issues reporting</li>
+      <li>Radio link quality reporting</li>
+    </ul>
+    The Signal Telegram function commands are activated by the attribute <a href="#EnOcean_signal">signal</a>.
+    All commands are described in the signal telegram chapter of the <a href="#EnOcean_signalGet">get</a>-commands.
+    The content of events is described in the chapter <a href="#EnOcean_signalEvents">Signal Telegram Events</a>.
+    <br><br>
+  </ul>
+
   <b>Radio Link Test</b><br>
   <ul>
     Units supporting the Radio Link Test (RLT) shall offer a functionality that allows for radio link testing between them
@@ -16476,11 +16824,26 @@ EnOcean_Delete($$)
       If the attributes subDef* are set, this values are used as EnOcean SenderID.<br>
       For an existing device, the device can be re-parameterized by entering the EEP.<br>
     </li>
+    <li>Dev_EURID: 0000000 ... FFFFFFFF<br>
+      EnOcean ChipID of the device<br>
+    </li>
+    <li>Dev_RepeatingCounter: 0...2<br>
+      Number of forwardings by repeaters received by the device<br>
+    </li>
+    <li>Dev_RSSImax: LP/dBm<br>
+      Largest field strength received by the device<br>
+    </li>
+    <li>Dev_RSSImin: LP/dBm<br>
+      Smallest field strength received by the device<br>
+    </li>
+    <li>Dev_SubTelNum: 1...15<br>
+      Number of sub telegrams received by the device<br>
+    </li>
     <li>&lt;IODev&gt;_DestinationID: 0000000 ... FFFFFFFF<br>
       Received destination address, Broadcast radio: FFFFFFFF<br>
     </li>
-    <li>&lt;IODev&gt;_RSSI: LP/dBm<br>
-      Received signal strength indication (best value of all received subtelegrams)<br>
+    <li>&lt;IODev&gt;_PacketType: 1 ... 255<br>
+      Number of the packet type of last data telegram received<br>
     </li>
     <li>&lt;IODev&gt;_ReceivingQuality: excellent|good|bad<br>
       excellent: RSSI >= -76 dBm (internal standard antenna sufficiently)<br>
@@ -16489,6 +16852,12 @@ EnOcean_Delete($$)
     </li>
     <li>&lt;IODev&gt;_RepeatingCounter: 0...2<br>
       Number of forwardings by repeaters<br>
+    </li>
+    <li>&lt;IODev&gt;_RSSI: LP/dBm<br>
+      Received signal strength indication (best value of all received subtelegrams)<br>
+    </li>
+    <li>&lt;IODev&gt;_SubTelNum: 1...15<br>
+      Number of sub telegrams received<br>
     </li>
     <br><br>
   </ul>
@@ -16742,6 +17111,9 @@ EnOcean_Delete($$)
           initiate teach-in</li>
     </ul><br>
        The attr subType must be contact. The attribute must be set manually.
+       A monitoring period can be set for signOfLife telegrams of the sensor, see
+       <a href="#EnOcean_signOfLife">signOfLife</a> and <a href="#EnOcean_signOfLifeInterval">signOfLifeInterval</a>.
+       Default is "off" and an interval of 1980 sec.
     </li><br><br>
 
     <li>Room Sensor and Control Unit (EEP A5-10-02)<br>
@@ -17006,7 +17378,7 @@ EnOcean_Delete($$)
     created by autocreate. To control the device, it must be bidirectional paired,
     see <a href="#EnOcean_teach-in">Teach-In / Teach-Out</a>.<br>
     The OEM version of the Holter SmartDrive MX has an internal PID controller. This function is activated by
-    attr <device> model OEM and attr <device> pidCtrl off.<br>
+    attr <device> model Holter_OEM and attr <device> pidCtrl off.<br>
     The command is not sent until the device wakes up and sends a message, usually
     every 5 minutes.
     </li>
@@ -17129,7 +17501,7 @@ EnOcean_Delete($$)
         The attr subType must be gateway and gwCmd must be switching. This is done if the device was
         created by autocreate.<br>
         For Eltako devices attributes must be set manually. For Eltako FSA12 attribute model must be set
-        to FSA12.
+        to Eltako_FSA12.
      </li>
      <br><br>
 
@@ -17392,7 +17764,8 @@ EnOcean_Delete($$)
       <a href="#shutTime">shutTime</a> and <a href="#shutTimeCloses">shutTimeCloses</a>,
       are set correctly.
       If <a href="#EnOcean_settingAccuracy">settingAccuracy</a> is set to high, the run-time is sent in 1/10 increments.<br>
-      Set attr subType to manufProfile, manufID to 00D and attr model to FSB14|FSB61|FSB70|TF manually.<br>
+      Set attr subType to manufProfile, manufID to 00D and attr model to Eltako_FSB14|FSB61|FSB70|FSB_ACK manually.
+      If the attribute model is set to Eltako_FSB_ACK, with the status "open_ack" the readings position and anglePos are also updated.<br>
       Use the sensor type "Szenentaster/PC" for Eltako devices.
     </li>
     <br><br>
@@ -17423,12 +17796,14 @@ EnOcean_Delete($$)
         set the user interface indication</li>
       <li>local defaultState on|off|last, off is default<br>
         set the default setting of the output channels when switch on</li>
-      <li>local localControl enabled|disabled, disabled is default<br>
+      <li>local localControl enabled|disabled, enabled is default<br>
         enable the local control of the device</li>
       <li>local overCurrentShutdown off|restart, off is default<br>
         set the behavior after a shutdown due to an overcurrent</li>
       <li>local overCurrentShutdownReset not_active|trigger, not_active is default<br>
         trigger a reset after an overcurrent</li>
+      <li>local powerFailure enabled|disabled, disabled is default<br>
+        enable the power failure detection</li>
       <li>local rampTime&lt;1...3&gt; 0/s, 0.5/s ... 7/s, 7.5/s, 0 is default<br>
         set the dimming time of timer 1 ... 3</li>
       <li>local teachInDev enabled|disabled, disabled is default<br>
@@ -17831,6 +18206,23 @@ EnOcean_Delete($$)
        [&lt;index&gt;] = 00...FF<br>
        [&lt;length&gt;] = n x 00...FF<br>
     </ul>
+    </li><br><br>
+
+    <li><a name="EnOcean_signalGet">Signal Telegram</a>
+    <ul>
+    <code>get &lt;name&gt; &lt;value&gt;</code>
+    <br><br>
+    where <code>value</code> is
+        <li>signal energy<br>
+          get the energy status</li>
+        <li>signal revision<br>
+          get the revision of the device</li>
+         <li>signal RXlevel<br>
+          get the RX level of receiced request</li>
+        <li>signal harvester<br>
+          get the energy current harvested reporting</li>
+    </ul><br>
+      Trigger status messages of the device.
     </li><br><br>
 
     <li>Dual Channel Switch Actuator (EEP A5-11-059)<br>
@@ -18416,6 +18808,16 @@ EnOcean_Delete($$)
       <br>
       shutTimeCloses is supported for shutter.
     </li>
+    <li><a name="EnOcean_signal">signal</a> off|on,
+      [signal] = off is default.<br>
+      Activate the request functions of signal telegram messages.
+    </li>
+    <li><a name="EnOcean_signOfLife">signOfLife</a> off|on, [sifnOfLive] = off is default.<br>
+      Monitoring signOfLife telegrams from sensors.
+    </li>
+    <li><a name="EnOcean_signOfLifeInterval">signOfLifeInterval</a> 1...65535<br>
+      Monitoring period in seconds for signOfLife telegrams from sensors.
+    </li>
     <li><a name="subDef">subDef</a> &lt;EnOcean SenderID&gt;,
       [subDef] = [DEF] is default.<br>
       SenderID (<a href="#TCM">TCM</a> BaseID + offset) to control a bidirectional switch or actor.<br>
@@ -18608,6 +19010,17 @@ EnOcean_Delete($$)
      </li>
      <br><br>
 
+     <li><a name="EnOcean_signalEvents">Signal Telegram</a><br>
+     <ul>
+         <li>harvester: very_good|good|average|bad|very_bad</li>
+         <li>hwVersion: 00000000...FFFFFFFF</li>
+         <li>trigger: heartbeat</li>
+         <li>smartAckMailbox: empty|not_exists|reset</li>
+         <li>swVersion: 00000000...FFFFFFFF</li>
+     </ul>
+     </li>
+     <br><br>
+
      <li>Switch (EEP F6-02-01 ... F6-03-02)<br>
      <ul>
          <li>A0</li>
@@ -18647,7 +19060,7 @@ EnOcean_Delete($$)
          <li>state: &lt;BtnX&gt;[,&lt;BtnY&gt;] [released]</li>
      </ul><br>
          The status of the device may become "released", this is not the case for a normal switch.<br>
-         Set attr model to FT55|FSM12|FSM61|FTS12 or attr sensorMode to pushbutton manually.
+         Set attr model to Eltako_FT55|FSM12|FSM61|FTS12 or attr sensorMode to pushbutton manually.
      </li>
      <br><br>
 
@@ -18694,6 +19107,22 @@ EnOcean_Delete($$)
      </li>
      <br><br>
 
+     <li>Pushbutton Switch (EEP D2-03-0A)<br>
+         [Nodon Soft Button]<br>
+     <ul>
+         <li>on</li>
+         <li>off</li>
+         <li>batteryPrecent: r/% (Sensor Range: r = 1 % ... 100 %)</li>
+         <li>buttonD: on|off</li>
+         <li>buttonL: on|off</li>
+         <li>buttonS: on|off</li>
+         <li>state: on|off</li>
+     </ul><br>
+        The attr subType must be switch.0A. This is done if the device was
+        created by autocreate.
+     </li>
+     <br><br>
+
      <li>Heating/Cooling Relay (EEP F6-02-01 ... F6-02-02)<br>
          [Eltako FAE14, FHK14, untested]<br>
      <ul>
@@ -18701,7 +19130,7 @@ EnOcean_Delete($$)
          <li>energyHoldOff: normal|holdoff</li>
          <li>buttons: pressed|released</li>
      </ul><br>
-        Set attr subType to switch and model to FAE14|FHK14 manually. In addition
+        Set attr subType to switch and model to Eltako_FAE14|FHK14 manually. In addition
         every telegram received from a teached-in temperature sensor (e.g. FTR55H)
         is repeated as a confirmation telegram from the Heating/Cooling Relay
         FAE14, FHK14. In this case set attr subType to e. g. roomSensorControl.05
@@ -18754,6 +19183,10 @@ EnOcean_Delete($$)
          <li>state: smoke-alarm|off</li>
      </ul><br>
         Set attr subType to smokeDetector.02 manually.
+        A monitoring period can be set for signOfLife telegrams of the sensor, see
+        <a href="#EnOcean_signOfLife">signOfLife</a> and <a href="#EnOcean_signOfLifeInterval">signOfLifeInterval</a>.
+        Default is "on" and an interval of 1440 sec.
+
      </li>
      <br><br>
 
@@ -18772,14 +19205,17 @@ EnOcean_Delete($$)
 
      <li>Single Input Contact, Door/Window Contact<br>
          1BS Telegram (EEP D5-00-01)<br>
-         [EnOcean STM 320, STM 329, STM 250, Eltako FTK, Peha D 450 FU]
+         [EnOcean EMCS, STM 320, STM 329, STM 250, Eltako FTK, Peha D 450 FU]
      <ul>
          <li>closed</li>
          <li>open</li>
+         <li>alarm: dead_sensor</li>
          <li>teach: &lt;result of teach procedure&gt;</li>
          <li>state: open|closed</li>
      </ul></li>
-        The device should be created by autocreate.
+        The device should be created by autocreate. A monitoring period can be set for signOfLife telegrams of the sensor, see
+       <a href="#EnOcean_signOfLife">signOfLife</a> and <a href="#EnOcean_signOfLifeInterval">signOfLifeInterval</a>.
+       Default is "off" and an interval of 1310 sec.
      <br><br>
 
      <li>Temperature Sensors with with different ranges (EEP A5-02-01 ... A5-02-30)<br>
@@ -18805,23 +19241,30 @@ EnOcean_Delete($$)
        <li>voltage: U/V</li> (Sensor Range: U = 0 V ... 6.6 V)
        <li>state: T: t/&#176C H: rH/% B: unknown|low|ok</li>
      </ul><br>
-        The attr subType must be tempHumiSensor.02 and attr
-        manufID must be 00D for Eltako Devices. This is done if the device was
-        created by autocreate.
+       The attr subType must be tempHumiSensor.02 and attr
+       manufID must be 00D for Eltako Devices. This is done if the device was
+       created by autocreate.<br>
+       A monitoring period can be set for signOfLife telegrams of the sensor, see
+       <a href="#EnOcean_signOfLife">signOfLife</a> and <a href="#EnOcean_signOfLifeInterval">signOfLifeInterval</a>.
+       Default is "off" and an interval of 3300 sec.
      </li>
      <br><br>
 
      <li>Temperatur and Humidity Sensor (EEP A5-04-03)<br>
-         [untsted]<br>
+         [untested]<br>
      <ul>
        <li>T: t/&#176C H: rH/%</li>
+       <li>alarm: dead_sensor</li>
        <li>humidity: rH/% (Sensor Range: rH = 0 % ... 100 %)</li>
        <li>telegramType: heartbeat|event</li>
        <li>temperature: t/&#176C (Sensor Range: t = -20 &#176C ... 60 &#176C)</li>
        <li>state: T: t/&#176C H: rH/%</li>
      </ul><br>
-        The attr subType must be tempHumiSensor.03. This is done if the device was
-        created by autocreate.
+       The attr subType must be tempHumiSensor.03. This is done if the device was
+       created by autocreate.<br>
+       A monitoring period can be set for signOfLife telegrams of the sensor, see
+       <a href="#EnOcean_signOfLife">signOfLife</a> and <a href="#EnOcean_signOfLifeInterval">signOfLifeInterval</a>.
+       Default is "off" and an interval of 1540 sec.
      </li>
      <br><br>
 
@@ -19637,7 +20080,10 @@ EnOcean_Delete($$)
        <li>state: C: open|closed B: unlocked|locked V: on|off U: U/V</li>
      </ul><br>
         The attr subType must be doorContact. This is done if the device was
-        created by autocreate.
+        created by autocreate.<br>
+        A monitoring period can be set for signOfLife telegrams of the sensor, see
+        <a href="#EnOcean_signOfLife">signOfLife</a> and <a href="#EnOcean_signOfLifeInterval">signOfLifeInterval</a>.
+        Default is "on" and an interval of 66 sec.
      </li>
      <br><br>
 
@@ -19652,7 +20098,10 @@ EnOcean_Delete($$)
        <li>state: W: open|tilt|closed V: on|off U: U/V</li>
      </ul><br>
         The attr subType must be windowContact. This is done if the device was
-        created by autocreate.
+        created by autocreate.<br>
+        A monitoring period can be set for signOfLife telegrams of the sensor, see
+        <a href="#EnOcean_signOfLife">signOfLife</a> and <a href="#EnOcean_signOfLifeInterval">signOfLifeInterval</a>.
+        Default is "on" and an interval of 990 sec.
      </li>
      <br><br>
 
@@ -19796,6 +20245,21 @@ EnOcean_Delete($$)
      </ul><br>
         The attr subType must be digitalInput.03. This is done if the device was
         created by autocreate.
+     </li>
+     <br><br>
+
+     <li>Smoke Detector (EEP A5-30-03)<br>
+       [Eltako TF-RWB]<br>
+     <ul>
+       <li>smoke-alarm</li>
+       <li>off</li>
+       <li>alarm: dead_sensor|smoke-alarm|off</li>
+       <li>teach: &lt;result of teach procedure&gt;</li>
+       <li>temperature: t/&#176C (Sensor Range: t = 0 &#176C ... 40 &#176C)</li>
+       <li>state: smoke-alarm|off</li>
+     </ul><br>
+        The attr subType must be digitalInput.03. This is done if the device was
+        created by autocreate. Set attr model to Eltako_TF_RWB manually.
      </li>
      <br><br>
 
@@ -20029,8 +20493,10 @@ EnOcean_Delete($$)
         The values of the reading position and anglePos are updated automatically,
         if the command position is sent or the reading state was changed
         manually to open or closed.<br>
-        Set attr subType file, attr manufID to 00D and attr model to
-        FSB14|FSB61|FSB70 manually.
+        Set attr subType manufProfile, attr manufID to 00D and attr model to
+        Eltako_FSB14|FSB61|FSB70|FSB_ACK manually.
+        If the attribute model is set to Eltako_FSB_ACK, with the status "open_ack" the readings position and anglePos are also updated.<br>
+
      </li>
      <br><br>
 
@@ -20208,6 +20674,30 @@ EnOcean_Delete($$)
        The attr subType must be roomCtrlPanel.01. This is done if the device was
        created by autocreate. To control the device, it must be bidirectional paired by Smart Ack,
        see <a href="#EnOcean_smartAck">SmartAck Learning</a>.
+     </li>
+     <br><br>
+
+     <li>Sensor for Smoke, Air quality, Hygrothermal comfort, Temperature and Humidity (D2-14-30)<br>
+        [INSAFE+ Origin I870EO untested]<br>
+     <ul>
+       <li>off|smoke-alarm</li>
+       <li>airQuality: optimal|air_dry|humidity_high|teperature_humidity_high|error</li>
+       <li>alarm: off|smoke-alarm|dead_sensor</li>
+       <li>battery: ok|medium|low|critical</li>
+       <li>endOffLife: t/month (Range t = 0...120 month</li>
+       <li>humidity: rH/%</li>
+       <li>hygrothermalComfort: good|medium|bad|error</li>
+       <li>maintenanceLast: t/week (Range t = 0...250 week</li>
+       <li>sensorFaultMode: off|on</li>
+       <li>smokeAlarmHumidity: ok|not_ok</li>
+       <li>smokeAlarmMaintenance: ok|not_done</li>
+       <li>smokeAlarmTemperature: ok|not_ok</li>
+       <li>teach: &lt;result of teach procedure&gt;</li>
+       <li>temperature: t/&#176C (Sensor Range: t = 0 &#176C ... 50 &#176C)</li>
+       <li>state: off|smoke-alarm</li>
+     </ul><br>
+       The attr subType must be multiFuncSensor.30. This is done if the device was
+       created by autocreate.
      </li>
      <br><br>
 

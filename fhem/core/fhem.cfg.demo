@@ -1,42 +1,358 @@
-attr global userattr devStateIcon devStateStyle icon lightSceneParamsToSave lightSceneRestoreOnlyIfChanged:1,0 sortby structexclude webCmd widgetOverride
-attr global autoload_undefined_devices 1
-attr global backup_before_update 0
+attr global userattr cmdIcon devStateIcon devStateStyle icon lightSceneParamsToSave lightSceneRestoreOnlyIfChanged:1,0 sortby structexclude webCmd webCmdLabel:textField-long widgetOverride
 attr global logfile -
 attr global modpath .
-attr global motd FHEM demo version
+attr global mseclog 1
 attr global room System
 attr global sendStatistics never
 attr global statefile ./demolog/fhem.save
-attr global updateInBackground 1
 attr global verbose 3
-attr global mseclog
-
-define telnetPort telnet 7072 global
-attr telnetPort room System
 
 define WEB FHEMWEB 8083 global
 attr WEB JavaScripts codemirror/fhem_codemirror.js
 attr WEB defaultRoom Light
-attr WEB hiddenroom DashboardRoom
 attr WEB iconPath openautomation:fhemSVG:default
 attr WEB room System
 attr WEB sortRooms Light Cinema Residents Sensors System
-
-define WEBphone FHEMWEB 8084 global
-attr WEBphone hiddenroom DashboardRoom
-attr WEBphone iconPath openautomation:fhemSVG:default
-attr WEBphone room System
-attr WEBphone sortRooms Light Cinema Residents Sensors System
-attr WEBphone smallscreenCommands 1
-attr WEBphone stylesheetPrefix smallscreen
-
-
-define WEBtablet FHEMWEB 8085 global
-attr WEBtablet hiddenroom DashboardRoom
-attr WEBtablet iconPath openautomation:fhemSVG:default
-attr WEBtablet room System
-attr WEBtablet sortRooms Light Cinema Residents Sensors System
-attr WEBtablet stylesheetPrefix ios7touchpad
+attr WEB styleData {\
+ "f18": {\
+  "Pinned.menu": true,\
+  "cols.bg": "FFFFE7",\
+  "cols.fg": "000000",\
+  "cols.link": "278727",\
+  "cols.evenrow": "F8F8E0",\
+  "cols.oddrow": "F0F0D8",\
+  "cols.header": "E0E0C8",\
+  "cols.menu": "D7FFFF",\
+  "cols.sel": "A0FFFF",\
+  "cols.inpBack": "FFFFFF",\
+  "savePinChanges": true,\
+  "fixedInput": true,\
+  "hidePin": true,\
+  "showDragger": false,\
+  "Pos.Room_Bla_svgZoomControl": {\
+   "left": 412,\
+   "top": 308,\
+   "width": 1566,\
+   "height": 0,\
+   "oTop": 0,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Bla_SVG_01_Garden": {\
+   "left": 0,\
+   "top": 218,\
+   "width": 1566,\
+   "height": 164,\
+   "oTop": -164,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Bla_SVG_05_Polar": {\
+   "left": 0,\
+   "top": 540,\
+   "width": 1566,\
+   "height": 304,\
+   "oTop": -304,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Sensors_grp_FileLog": {\
+   "left": 600,\
+   "top": 0,\
+   "width": 260,\
+   "height": 138,\
+   "oTop": 20,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Sensors_grp_Helper": {\
+   "left": 40,\
+   "top": -20,\
+   "width": 260,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Sensors_grp_Sensors": {\
+   "left": 40,\
+   "top": 60,\
+   "width": 260,\
+   "height": 60,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Sensors_svgZoomControl": {\
+   "left": 100,\
+   "top": 220,\
+   "width": 1580,\
+   "height": 0,\
+   "oTop": 0,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Sensors_SVG_01_Garden": {\
+   "left": 0,\
+   "top": 660,\
+   "width": 1580,\
+   "height": 180,\
+   "oTop": -164,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Sensors_SVG_02_Cellar": {\
+   "left": 0,\
+   "top": 840,\
+   "width": 1580,\
+   "height": 180,\
+   "oTop": -164,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Sensors_SVG_03_Dewpoint": {\
+   "left": 0,\
+   "top": 480,\
+   "width": 1580,\
+   "height": 180,\
+   "oTop": -164,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Sensors_SVG_04_Sun": {\
+   "left": 0,\
+   "top": 1020,\
+   "width": 1580,\
+   "height": 180,\
+   "oTop": -164,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Sensors_SVG_05_Polar": {\
+   "left": 280,\
+   "top": 300,\
+   "width": 340,\
+   "height": 320,\
+   "oTop": -304,\
+   "oLeft": 0\
+  },\
+  "Pos.style_list_Styles": {\
+   "left": 20,\
+   "top": 0,\
+   "width": 240,\
+   "height": 300,\
+   "oTop": 20,\
+   "oLeft": 0\
+  },\
+  "Pos.style_list_f18_special": {\
+   "left": 20,\
+   "top": 320,\
+   "width": 240,\
+   "height": 140,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.style_list_f18__Room_specific": {\
+   "left": 280,\
+   "top": -20,\
+   "width": 240,\
+   "height": 480,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "snapToGrid": true,\
+  "Pos.Room_Cinema_grp_AV": {\
+   "left": 0,\
+   "top": 0,\
+   "width": 560,\
+   "height": 120,\
+   "oTop": 20,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Cinema_grp_Control": {\
+   "left": 0,\
+   "top": 140,\
+   "width": 560,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Cinema_grp_Light": {\
+   "left": 0,\
+   "top": 220,\
+   "width": 560,\
+   "height": 80,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Cinema_grp_Scenes": {\
+   "left": 0,\
+   "top": 360,\
+   "width": 560,\
+   "height": 198,\
+   "oTop": 20,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Residents_grp_Baby": {\
+   "left": 0,\
+   "top": 0,\
+   "width": 280,\
+   "height": 40,\
+   "oTop": 20,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Residents_grp_Daughter": {\
+   "left": 0,\
+   "top": 60,\
+   "width": 280,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Residents_grp_Father": {\
+   "left": 0,\
+   "top": 300,\
+   "width": 280,\
+   "height": 60,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Residents_grp_Guests": {\
+   "left": 300,\
+   "top": 180,\
+   "width": 280,\
+   "height": 80,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Residents_grp_Home_State": {\
+   "left": 300,\
+   "top": -20,\
+   "width": 280,\
+   "height": 160,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Residents_grp_Mother": {\
+   "left": 0,\
+   "top": 220,\
+   "width": 280,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Residents_grp_Son": {\
+   "left": 0,\
+   "top": 140,\
+   "width": 280,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_Residents_grp_notify": {\
+   "left": 300,\
+   "top": 300,\
+   "width": 280,\
+   "height": 58,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_undefined_grp_Color_Lights": {\
+   "left": 0,\
+   "top": 0,\
+   "width": 640,\
+   "height": 100,\
+   "oTop": 20,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_undefined_grp_Notify": {\
+   "left": 0,\
+   "top": 120,\
+   "width": 440,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_undefined_grp_Single_Lights": {\
+   "left": 0,\
+   "top": 200,\
+   "width": 440,\
+   "height": 160,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_undefined_grp_Structure": {\
+   "left": 0,\
+   "top": 400,\
+   "width": 440,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_undefined_grp_Timer": {\
+   "left": 0,\
+   "top": 480,\
+   "width": 440,\
+   "height": 80,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_System_grp_CUL": {\
+   "left": 0,\
+   "top": 0,\
+   "width": 240,\
+   "height": 40,\
+   "oTop": 20,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_System_grp_FHEMWEB": {\
+   "left": 0,\
+   "top": 60,\
+   "width": 240,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_System_grp_FileLog": {\
+   "left": 0,\
+   "top": 120,\
+   "width": 240,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_System_grp_Global": {\
+   "left": 0,\
+   "top": 180,\
+   "width": 240,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_System_grp_autocreate": {\
+   "left": 0,\
+   "top": 240,\
+   "width": 240,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_System_grp_eventTypes": {\
+   "left": 0,\
+   "top": 300,\
+   "width": 240,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_System_grp_logProxy": {\
+   "left": 0,\
+   "top": 380,\
+   "width": 240,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  },\
+  "Pos.Room_System_grp_telnet": {\
+   "left": 0,\
+   "top": 440,\
+   "width": 240,\
+   "height": 40,\
+   "oTop": 40,\
+   "oLeft": 0\
+  }\
+ }\
+}
+attr WEB stylesheetPrefix f18
 
 # Fake FileLog entry, to access the fhem log from FHEMWEB 
 define Logfile FileLog ./log/fhem-%Y-%m.log fakelog
@@ -121,12 +437,12 @@ attr SVG_03_Dewpoint startDate 2013-08-13
 define logProxy logProxy
 attr logProxy room System
 define SVG_04_Sun SVG logProxy:SVG_04_Sun:CURRENT
-attr SVG_04_Sun room Sensors
 attr SVG_04_Sun fixedrange year
+attr SVG_04_Sun room Sensors
 attr SVG_04_Sun title {"".logProxy_dec2hms($data{min1})." - ".logProxy_dec2hms($data{max1})." - ".logProxy_dec2hms($data{min2})." - ".logProxy_dec2hms($data{max2})}
 define SVG_05_Polar SVG logProxy:SVG_05_Polar:CURRENT
-attr SVG_05_Polar room Sensors
 attr SVG_05_Polar plotsize 340,300
+attr SVG_05_Polar room Sensors
 
 define sunRise at *{sunrise()} set Office on
 attr sunRise group Timer
@@ -188,20 +504,6 @@ attr lcCinema group Control
 attr lcCinema icon scene_scene
 attr lcCinema room Cinema
 attr lcCinema webCmd scene
-
-define anyViews Dashboard
-attr anyViews userattr dashboard_tab2backgroundimage dashboard_tab2colcount dashboard_tab2devices dashboard_tab2groups dashboard_tab2icon dashboard_tab2name dashboard_tab2rowcentercolwidth dashboard_tab2sorting
-attr anyViews dashboard_colcount 2
-attr anyViews dashboard_row center
-attr anyViews dashboard_rowcentercolwidth 50%
-attr anyViews dashboard_tab1groups Home State,Light,AV,Single Lights,Color Lights
-attr anyViews dashboard_tab1name Dashboard Demo
-attr anyViews dashboard_tab1sorting t0c0,Single Lights,true,400,209,0,0:t0c0,AV,true,400,170,0,209:t0c1,Light,true,444,129,h84,0:t0c1,Home State,true,444,204,384,129:
-attr anyViews room hidden
-attr anyViews alias Dashboard Demo
-
-define anyViews_weblink weblink htmlCode {DashboardAsHtml("anyViews")}
-attr anyViews_weblink room DashboardRoom
 
 define rgr_Residents RESIDENTS
 attr rgr_Residents alias Residents
@@ -329,17 +631,7 @@ attr CT setFn {if( $CMD =~ m/on|off/ ) { $ARGS=$CMD;;$CMD = "state" } else {fhem
 attr CT setList on:noArg off:noArg ct:colorpicker,CT,2000,1,6500
 attr CT webCmd ct::ct 2040:ct 2630:ct 3703:ct 6250:on:off
 
-define -ignoreErr Weather Weather 673513 1800 de
-attr Weather group Weather
-attr Weather room Weather
 
 define Weather.weblink weblink htmlCode { WeatherAsHtmlH("Weather") }
 attr Weather.weblink alias Weather Forecast
 attr Weather.weblink room Weather
-
-define -ignoreErr Display RSS jpg localhost ./demolog/layout
-attr Display room System
-attr Display size 800x600
-attr Display bg ./demolog/pictures
-attr Display tmin 15
-attr Display refresh 5

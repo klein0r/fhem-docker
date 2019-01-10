@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 92_FileLog.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
+# $Id: 92_FileLog.pm 18142 2019-01-05 13:17:27Z rudolfkoenig $
 package main;
 
 use strict;
@@ -49,6 +49,8 @@ FileLog_Initialize($)
     disable:0,1
     disabledForIntervals
     eventOnThreshold
+    ignoreRegexp
+    label
     logtype
     mseclog:1,0
     nrarchive
@@ -111,6 +113,7 @@ FileLog_Define($@)
   }
 
   $hash->{FH} = $fh;
+  $hash->{FD} = $fh->fileno() if($fh);
   $hash->{REGEXP} = $a[3];
   $hash->{logfile} = $a[2];
   $hash->{currentlogfile} = $f;
@@ -160,6 +163,7 @@ FileLog_Switch($)
       return 0;
     }
     $log->{FH} = $fh;
+    $log->{FD} = $fh->fileno();
     setReadingsVal($log, "linesInTheFile", 0, TimeNow());
     return 1;
   }
@@ -181,6 +185,7 @@ FileLog_Log($$)
 
   my $n = $dev->{NAME};
   my $re = $log->{REGEXP};
+  my $iRe = AttrVal($ln, "ignoreRegexp", undef);
   my $max = int(@{$events});
   my $tn = $dev->{NTFY_TRIGGERTIME};
   if($log->{mseclog}) {
@@ -197,6 +202,7 @@ FileLog_Log($$)
     $s = "" if(!defined($s));
     my $t = (($ct && $ct->[$i]) ? $ct->[$i] : $tn);
     if($n =~ m/^$re$/ || "$n:$s" =~ m/^$re$/ || "$t:$n:$s" =~ m/^$re$/) {
+      next if($iRe && ($n =~ m/^$iRe$/ || "$n:$s" =~ m/^$iRe$/));
       $t =~ s/ /_/; # Makes it easier to parse with gnuplot
 
       if(!$switched) {
@@ -204,6 +210,7 @@ FileLog_Log($$)
         $switched = 1;
       }
       $fh = $log->{FH};
+      $s =~ s/\n/ /g;
       print $fh "$t $n $s\n";
       $written++;
     }
@@ -238,6 +245,12 @@ FileLog_Attr(@)
     return;
   }
 
+  if($a[0] eq "set" && $a[2] eq "ignoreRegexp") {
+    return "Missing argument for ignoreRegexp" if(!defined($a[3]));
+    eval { "HALLO" =~ m/$a[3]/ };
+    return $@;
+  }
+
   if($a[0] eq "set" && $a[2] eq "disable") {
     $do = (!defined($a[3]) || $a[3]) ? 1 : 2;
   }
@@ -256,6 +269,8 @@ FileLog_Set($@)
   my ($hash, @a) = @_;
   my $me = $hash->{NAME};
 
+  return undef if( $hash->{REGEXP} eq 'fakelog' );
+
   return "no set argument specified" if(int(@a) < 2);
   my %sets = (reopen=>0, clear=>0, absorb=>1, addRegexpPart=>2, 
               removeRegexpPart=>1);
@@ -265,6 +280,8 @@ FileLog_Set($@)
     my $r = "Unknown argument $cmd, choose one of ".join(" ",sort keys %sets);
     my $fllist = join(",", grep { $me ne $_ } devspec2array("TYPE=FileLog"));
     $r =~ s/absorb/absorb:$fllist/;
+    $r =~ s/clear/clear:noArg/;
+    $r =~ s/reopen/reopen:noArg/;
     return $r;
   }
   return "$cmd needs $sets{$cmd} parameter(s)" if(@a-$sets{$cmd} != 2);
@@ -282,6 +299,7 @@ FileLog_Set($@)
       }
       return "Can't open $cn" if(!defined($fh));
       $hash->{FH} = $fh;
+      $hash->{FD} = $fh->fileno();
     }
 
   } elsif($cmd eq "addRegexpPart") {
@@ -343,6 +361,7 @@ FileLog_Set($@)
     rename("$mylogfile.new", $mylogfile);
     $fh = new IO::File(">>$mylogfile");
     $hash->{FH} = $fh;
+    $hash->{FD} = $fh->fileno();
 
     $hash->{REGEXP} .= "|".$vh->{REGEXP};
     $hash->{DEF} = $hash->{logfile} . " ". $hash->{REGEXP};
@@ -392,6 +411,7 @@ FileLog_fhemwebFn($$$$)
   }
   $ret .= "</table>";
   return $ret if($pageHash);
+  return $ret if( $defs{$d}{REGEXP} eq 'fakelog' );
 
   # DETAIL only from here on
   my $hash = $defs{$d};
@@ -579,8 +599,8 @@ FileLog_Get($@)
   
   return "Usage: get $a[0] <infile> <outfile> <from> <to> [<column_spec>...]\n".
          "  where column_spec is <col>:<regexp>:<default>:<fn>\n" .
-         "  see the FileLogGrep entries in he .gplot files\n" .
-         "  <infile> is without direcory, - means the current file\n" .
+         "  see the FileLogGet entries in the .gplot files\n" .
+         "  <infile> is without directory, - means the current file\n" .
          "  <outfile> is a prefix, - means stdout\n"
         if(int(@a) < 4);
   shift @a;
@@ -850,6 +870,11 @@ RESCAN:
       my $end = $hash->{pos}{"$inf:$from"};
       my $start = $end - 1024;
       $start = 0 if($start < 0);
+
+      $ifh->seek($end, 0);
+      my $l = <$ifh>;
+      $end = $ifh->tell if($l && $l lt $from);
+
       $ifh->seek($start, 0);
       sysread($ifh, $buf, $end-$start);
       @rescanArr = split("\n", $buf);
@@ -1305,43 +1330,17 @@ FileLog_regexpFn($$)
         feature was implemented. A FHEM crash or kill will falsify the counter.
         </li><br>
 
+    <li><a href="#ignoreRegexp">ignoreRegexp</a></li>
+
+    <li><a href="#label">label</a><br></li>
+      
     <a name="logtype"></a>
     <li>logtype<br>
-        Used by the pgm2 webfrontend to offer gnuplot/SVG images made from the
+        Used by FHEMWEB to offer gnuplot/SVG images made from the
         logs.  The string is made up of tokens separated by comma (,), each
-        token specifies a different gnuplot program. The token may contain a
+        token specifies a different configuration. The token may contain a
         colon (:), the part before the colon defines the name of the program,
-        the part after is the string displayed in the web frontend. Currently
-        following types of gnuplot programs are implemented:<br>
-        <ul>
-           <li>fs20<br>
-               Plots on as 1 and off as 0. The corresponding filelog definition
-               for the device fs20dev is:<br>
-               define fslog FileLog log/fs20dev-%Y-%U.log fs20dev
-          </li>
-           <li>fht<br>
-               Plots the measured-temp/desired-temp/actuator lines. The
-               corresponding filelog definitions (for the FHT device named
-               fht1) looks like:<br>
-               <code>define fhtlog1 FileLog log/fht1-%Y-%U.log fht1:.*(temp|actuator).*</code>
-
-          </li>
-           <li>temp4rain10<br>
-               Plots the temperature and rain (per hour and per day) of a
-               ks300. The corresponding filelog definitions (for the KS300
-               device named ks300) looks like:<br>
-               define ks300log FileLog log/fht1-%Y-%U.log ks300:.*H:.*
-          </li>
-           <li>hum6wind8<br>
-               Plots the humidity and wind values of a
-               ks300. The corresponding filelog definition is the same as
-               above, both programs evaluate the same log.
-          </li>
-           <li>text<br>
-               Shows the logfile as it is (plain text). Not gnuplot definition
-               is needed.
-          </li>
-        </ul>
+        the part after is the string displayed in the web frontend.<br>
         Example:<br>
            attr ks300log1 logtype
                 temp4rain10:Temp/Rain,hum6wind8:Hum/Wind,text:Raw-data
@@ -1625,6 +1624,8 @@ FileLog_regexpFn($$)
         Features angelegt wurden. Ein Absturz/Abschu&szlig; von FHEM
         verf&auml;lscht die Z&auml;hlung.
         </li><br>
+
+    <li><a href="#ignoreRegexp">ignoreRegexp</a></li>
 
     <a name="logtype"></a>
     <li>logtype<br>

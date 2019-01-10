@@ -1,5 +1,5 @@
 ################################################################
-# $Id: 98_JsonList2.pm 13757 2017-03-20 19:17:02Z rudolfkoenig $
+# $Id: 98_JsonList2.pm 17230 2018-08-30 13:03:48Z rudolfkoenig $
 ################################################################
 
 package main;
@@ -25,7 +25,9 @@ JsonList2_Escape($)
 {
   my $a = shift;
   return "null" if(!defined($a));
-  $a=~ s/([\x00-\x19\x22\x5c])/sprintf '\u%04x', ord($1)/ge; # Forum 57377
+  $a =~ s/([\x00-\x09\x0b-\x19\x5c])/sprintf '\u%04x', ord($1)/ge; # Forum 57377
+  $a =~ s/"/\\"/g; 
+  $a =~ s/\n/\\n/g; 
   my $b = "x$a";
   $a = "<BINARY>" if(!utf8::decode($b)); # Forum #55318
   return $a;
@@ -135,7 +137,7 @@ CommandJsonList2($$)
   This is a command, to be issued on the command line (FHEMWEB or telnet
   interface). Can also be called via HTTP by
   <ul>
-  http://fhemhost:8083/fhem?cmd=jsonlist2&XHR=1
+  http://fhemhost:8083/fhem?cmd=jsonlist2&amp;XHR=1
   </ul>
   Returns an JSON tree of the internal values, readings and attributes of the
   requested definitions.<br>
@@ -158,7 +160,7 @@ CommandJsonList2($$)
   Dieses Befehl sollte in der FHEMWEB oder telnet Eingabezeile ausgef&uuml;hrt
   werden, kann aber auch direkt &uuml;ber HTTP abgerufen werden &uuml;ber 
   <ul>
-  http://fhemhost:8083/fhem?cmd=jsonlist2&XHR=1
+  http://fhemhost:8083/fhem?cmd=jsonlist2&amp;XHR=1
   </ul>
   Es liefert die JSON Darstellung der internen Variablen, Readings und
   Attribute zur&uuml;ck.<br>

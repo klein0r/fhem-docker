@@ -1,4 +1,4 @@
-# $Id: 11_FHT.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
+# $Id: 11_FHT.pm 18068 2018-12-27 17:08:46Z rudolfkoenig $
 ##############################################################################
 #
 #     11_FHT.pm
@@ -555,6 +555,7 @@ FHT_Parse($$)
 
     # set additional warnings and trigger notify
     readingsBulkUpdate($def, "battery", $valBattery);
+    readingsBulkUpdate($def, "batteryState", $valBattery);
     Log3 $name, 4, "FHT $name battery: $valBattery";
 
     readingsBulkUpdate($def, "lowtemp", $valLowTemp);
@@ -1193,7 +1194,7 @@ FHT_State($$$$)
 
       <li>date setzt Jahr, Monat und Tag auf lokale Zeit</li><br>
 
-      <li>refreshvalues ist ein Alias f&uumlr report1 255 report2 255</li><br>
+      <li>refreshvalues ist ein Alias f&uuml;r report1 255 report2 255</li><br>
 
       <li>Alle *-temp Werte brauchen eine Temperatur als Argument welche auf
           0.5&deg;C gerundet wird.<br> Temperatur Werte m&uuml;ssen zwischen

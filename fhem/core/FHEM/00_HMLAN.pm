@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_HMLAN.pm 14073 2017-04-22 13:45:25Z martinp876 $
+# $Id: 00_HMLAN.pm 18152 2019-01-05 23:18:38Z martinp876 $
 package main;
 
 
@@ -436,8 +436,8 @@ sub HMLAN_Set($@) {############################################################
     my $id = InternalVal($hash->{NAME}, "owner", "123456");
     $hash->{HM_CMDNR} = $hash->{HM_CMDNR} ? ($hash->{HM_CMDNR}+1)%256 : 1;
 
-    HMLAN_Write($hash, undef, sprintf("As15%02X8401%s000000010A%s",
-                    $hash->{HM_CMDNR}, $id, unpack('H*', $arg)));
+    HMLAN_Write($hash, undef, sprintf("As15%02XC401%s000000010A%s",
+                    $hash->{HM_CMDNR}, $id, uc unpack('H*', $arg)));
     HMLAN_RemoveHMPair("hmPairForSec:$name");
     $hash->{hmPair} = 1;
     $hash->{hmPairSerial} = $arg;
@@ -927,7 +927,7 @@ sub HMLAN_DoInit($) {##########################################################
   HMLAN_assignIDs($hash);
   HMLAN_writeAesKey($name);
   my $s2000 = sprintf("%02X", HMLAN_secSince2000());
-  HMLAN_SimpleWrite($hash, "T$s2000,04,00,00000000");
+  HMLAN_SimpleWrite($hash, "T$s2000,02,00,00000000");
   $hash->{helper}{setTime} = int(gettimeofday())>>15;
 
   delete $hash->{helper}{ref};
@@ -996,7 +996,7 @@ sub HMLAN_KeepAlive($) {#######################################################
   if( $rht != $hash->{helper}{setTime}){# reset HMLAN watch about each 10h
     $hash->{helper}{setTime} =  $rht;
     my $s2000 = sprintf("%02X", HMLAN_secSince2000());
-    HMLAN_SimpleWrite($hash, "T$s2000,04,00,00000000");
+    HMLAN_SimpleWrite($hash, "T$s2000,02,00,00000000");
   }
   HMLAN_SimpleWrite($hash, "K");
 
@@ -1049,7 +1049,7 @@ sub HMLAN_secSince2000() {#####################################################
   $t += 60*(($l[2]-$g[2] + ((($l[5]<<9)|$l[7]) <=> (($g[5]<<9)|$g[7])) * 24) * 60 + $l[1]-$g[1])
                            # timezone and daylight saving...
         - 946684800        # seconds between 01.01.2000, 00:00 and THE EPOCH (1970)
-        - 7200;            # HM Special
+        - 3600;            # time zone
   return $t;
 }
 sub HMLAN_qResp($$$) {#response-waiting queue##################################

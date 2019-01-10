@@ -1,4 +1,4 @@
-# $Id: 55_InfoPanel.pm 14101 2017-04-25 10:19:12Z betateilchen $
+# $Id: 55_InfoPanel.pm 16791 2018-05-28 09:19:51Z betateilchen $
 
 =for comment
 ##############################################
@@ -59,6 +59,9 @@
 # 2015-09-25 -      - changed: support ReadingsVal() in ticker
 #                              with \n in text
 # 2016-09-04 - 12114 - added:   movecalculated
+#
+# 2018-05-06 - 16695 - changed: check plotName exists
+# 2018-05-28 - $Rev: 16791 $ - changed: remove misleading link in commandref
 #
 ##############################################
 =cut
@@ -260,8 +263,15 @@ sub btIP_readLayout {
 
   my ($err, @layoutfile) = FileRead($filename);
   if($err) {
+#    Log 1, "InfoPanel $name: $err";
+#    $hash->{fhem}{layout} = "text ERROR 50 50 \"Error on reading layout!\"";
     Log 1, "InfoPanel $name: $err";
     $hash->{fhem}{layout} = "text ERROR 50 50 \"Error on reading layout!\"";
+    my ($e,@layout) = FileRead('./FHEM/template.layout');
+    unless ($e){
+       FileWrite($filename,@layout);
+       $hash->{fhem}{layout} = "text ERROR 50 50 \"Please edit layoutfile now.\"";
+    }
   } else {
     $hash->{fhem}{layout} = join("\n", @layoutfile);
     while($hash->{fhem}{layout} =~ m/\@include/ && $level < 1000) {
@@ -536,6 +546,7 @@ sub btIP_itemLongpoll {
 sub btIP_itemPlot {
   my ($id,$x,$y,$scale,$inline,$arg) = @_;
   my (@plotName) = split(";",$arg);
+  return ("<!-- undefined plotDevice -->\n",undef,undef) unless defined($defs{$plotName[0]});
   $id = ($id eq '-') ? createUniqueId() : $id;
   my (@webs,$width,$height,$newWidth,$newHeight,$output,$mimetype,$svgdata);
   
@@ -1910,13 +1921,5 @@ sub btIP_getURL {
 </ul>
 
 =end html
-=begin html_DE
 
-<a name="InfoPanel"></a>
-<h3>InfoPanel</h3>
-<ul>
-Sorry, keine deutsche Dokumentation vorhanden.<br/><br/>
-Die englische Doku gibt es hier: <a href='commandref.html#InfoPanel'>InfoPanel</a><br/>
-</ul>
-=end html_DE
 =cut

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 86_Robonect.pm 15258 2017-10-14 18:43:54Z andi291 $
+# $Id: 86_Robonect.pm 17176 2018-08-19 17:20:49Z andi291 $
 # ABU 20160307 First release
 # ABU 20160321 Added first parsing algos
 # ABU 20160311 Migrated to JSON
@@ -38,6 +38,10 @@
 # ABU 20171006 added "umlautfilter" for test
 # ABU 20171006 added "health" for test
 # ABU 20171010 finished health for test, added chck for undef at each reading
+# ABU 20180507 replaced "umwelt" with "climate" in readings-section (roughly line 740)
+# ABU 20180509 reading winterschlaf was not decoded correctly - fixed
+# ABU 20180509 always try to decode health details - even without Attribute being set. Line 726-748.
+# ABU 20180819 Added userdefined status. Line 102.
 
 package main;
 
@@ -96,7 +100,7 @@ my %elements = (
 		"status" =>
 		{
 			ALIAS		=> "allgemein",
-			"status" 	=> {ALIAS=>"status", 0=>"schlafen", 1=>"parken", 2=>"maehen", 3=>"suche-base", 4=>"laden", 5=>"suche", 7=>"fehler", 8=>"schleife-fehlt", 16=>"abgeschaltet", 17=>"schlafen"}, 
+			"status" 	=> {ALIAS=>"status", 0=>"schlafen", 1=>"parken", 2=>"maehen", 3=>"suche-base", 4=>"laden", 5=>"suche", 7=>"fehler", 8=>"schleife-fehlt", 16=>"abgeschaltet", 17=>"schlafen", 18=>"wartezeit-tuere"}, 
 			"mode"	 	=> {ALIAS=>"modus", 0=>"automatik", 1=>"manuell", 2=>"home", 3=>"demo"}, 
 			"battery" 	=> {ALIAS=>"batteriezustand"},
 			"duration" 	=> {ALIAS=>"dauer"},
@@ -582,9 +586,13 @@ sub Robonect_GetUpdate($)
 	Log3 ($name, 5, "enter update $name: $name");
 
 	#evaluate reading hybernate
-	my $hybernate = $hash->{READINGS}{$HYBERNATE}{VAL};
+	#my $hybernate = $hash->{READINGS}{$HYBERNATE}{VAL};
+	my $hybernate = ReadingsVal($name, $HYBERNATE, undef);
+	
+	Log3 ($name, 5, "XXX: $hybernate");	
+	
 	#supress sending, if hybernate is set
-	if (!defined ($hybernate) or ($hybernate =~ m/[off]|[0]/))
+	if (!defined ($hybernate) or ($hybernate =~ m/(off)|[0]/i))
 	{
 		#get status	
 		my @callAttr;
@@ -714,9 +722,9 @@ sub Robonect_callback ($)
 			}
 			
 			#try to decode health, if desired
-			my $useHealth = AttrVal($name,"useHealth",undef);		
-			if (defined ($useHealth) and ($useHealth =~ m/[1]|([oO][nN])/))
-			{
+			#my $useHealth = AttrVal($name,"useHealth",undef);		
+			#if (defined ($useHealth) and ($useHealth =~ m/[1]|([oO][nN])/))
+			#{
 				($key, $value) = Robonect_decodeContent ($hash, $answer, "health", "alarm", "voltagebattmin");
 				readingsBulkUpdate($hash, $key, $value) if (defined ($value) and !($value =~ m/undef/));
 				
@@ -735,12 +743,12 @@ sub Robonect_callback ($)
 				($key, $value) = Robonect_decodeContent ($hash, $answer, "health", "voltages", "batt");
 				readingsBulkUpdate($hash, $key, $value) if (defined ($value) and !($value =~ m/undef/));
 
-				($key, $value) = Robonect_decodeContent ($hash, $answer, "health", "umwelt", "temperature");
+				($key, $value) = Robonect_decodeContent ($hash, $answer, "health", "climate", "temperature");
 				readingsBulkUpdate($hash, $key, $value) if (defined ($value) and !($value =~ m/undef/));
 
-				($key, $value) = Robonect_decodeContent ($hash, $answer, "health", "umwelt", "humidity");
+				($key, $value) = Robonect_decodeContent ($hash, $answer, "health", "climate", "humidity");
 				readingsBulkUpdate($hash, $key, $value) if (defined ($value) and !($value =~ m/undef/));
-			}
+			#}
 			
 			readingsEndUpdate($hash, 1);
 		}

@@ -1,7 +1,7 @@
 #
 #	kaihs@FHEM_Forum (forum.fhem.de)
 #
-# $Id: 36_WMBUS.pm 15410 2017-11-08 19:27:50Z kaihs $
+# $Id: 36_WMBUS.pm 18001 2018-12-18 19:20:02Z kaihs $
 #
 # 
 
@@ -33,6 +33,7 @@ sub WMBUS_Initialize($) {
                        " AESkey".
                        " ignore:0,1".
                        " rawmsg_as_reading:0,1".
+                       " ignoreUnknownDataBlocks:0,1".
                        " $readingFnAttributes";
 }
 
@@ -54,6 +55,10 @@ WMBUS_HandleEncoding($$)
     my $msglen = sprintf("%1x", hex(substr($msg,4,1)) - 1);
     $msg = "b" . $msglen . substr($msg,5);
   } else {
+    if (substr($msg,1,1) eq "Y") {
+      $mb->setFrameType(WMBus::FRAME_TYPE_B);
+      $msg = "b" . substr($msg,2);
+    }
     $msg .= WMBUS_RSSIAsRaw($rssi);
   }
   return ($msg, $rssi, $encoding);
@@ -247,6 +252,7 @@ WMBUS_Parse($$)
       my $rname = $rhash->{NAME};
       return "" if(IsIgnored($rname));
 			
+      $rhash->{model} =join("_", $mb->{manufacturer}, $mb->{afield_type}, $mb->{afield_ver});
 			WMBUS_SetRSSI($rhash, $mb, $rssi);
 
 			my $aeskey;
@@ -328,6 +334,7 @@ sub WMBUS_SetReadings($$$)
 		my $dataBlock;
 		
 		for $dataBlock ( @$dataBlocks ) {
+      next if AttrVal($name, "ignoreUnknownDataBlocks", 0) && $dataBlock->{type} eq 'MANUFACTURER SPECIFIC'; #WMBus::VIF_TYPE_MANUFACTURER_SPECIFIC
 			readingsBulkUpdate($hash, "$dataBlock->{number}_storage_no", $dataBlock->{storageNo});
 			readingsBulkUpdate($hash, "$dataBlock->{number}_type", $dataBlock->{type}); 
 			readingsBulkUpdate($hash, "$dataBlock->{number}_value", $dataBlock->{value}); 
@@ -340,7 +347,7 @@ sub WMBUS_SetReadings($$$)
 				readingsBulkUpdate($hash, "$dataBlock->{number}_errormsg", $dataBlock->{errormsg});
 			}
 		}
-    readingsBulkUpdate($hash, "battery", $mb->{status} & 4 ? "low" : "ok");
+    readingsBulkUpdate($hash, "batteryState", $mb->{status} & 4 ? "low" : "ok");
 
     WMBUS_SetDeviceSpecificReadings($hash, $name, $mb);
   }
@@ -354,7 +361,7 @@ sub WMBUS_SetReadings($$$)
 	}
 	
 	if (AttrVal($name, "rawmsg_as_reading", 0)) {
-    readingsBulkUpdate($hash, "rawmsg", unpack("H*",$mb->{msg}));
+    readingsBulkUpdate($hash, "rawmsg", $mb->getFrameType() eq WMBus::FRAME_TYPE_B ? "Y" : "" . unpack("H*",$mb->{msg}));
   }
 	
 	readingsEndUpdate($hash,1);
@@ -456,8 +463,8 @@ WMBUS_Attr(@)
   It uses the 868 MHz band for radio transmissions.
   Therefore you need a device which can receive Wireless M-Bus messages, e.g. a <a href="#CUL">CUL</a> with culfw >= 1.59 or an AMBER Wireless AMB8465M.
   <br>
-  WMBus uses two different radio protocols, T-Mode and S-Mode. The receiver must be configured to use the same protocol as the sender.
-  In case of a CUL this can be done by setting <a href="#rfmode">rfmode</a> to WMBus_T or WMBus_S respectively.
+  WMBus uses three different radio protocols, T-Mode, S-Mode and C-Mode. The receiver must be configured to use the same protocol as the sender.
+  In case of a CUL this can be done by setting <a href="#rfmode">rfmode</a> to WMBus_T, WMBus_S or WMBus_C respectively.
   <br>
   WMBus devices send data periodically depending on their configuration. It can take days between individual messages or they might be sent
   every minute.
@@ -466,11 +473,11 @@ WMBUS_Attr(@)
   will fail and no relevant data will be available.
   <br><br>
   <b>Prerequisites</b><br>
-  This module requires the perl modules Crypt::CBC, Digest::CRC and Crypt::OpenSSL::AES (AES only if encrypted messages should be processed).<br>
+  This module requires the perl modules Digest::CRC, Crypt::Mode::CBC and Crypt::Mode::CTR (Crypt modules only if encrypted messages should be processed).<br>
   On a debian based system these can be installed with<br>
   <code>
-  sudo apt-get install libcrypt-cbc-perl libdigest-crc-perl libssl-dev<br>
-  sudo cpan -i Crypt::OpenSSL::AES
+  sudo apt-get install libdigest-crc-perl<br>
+  sudo cpan -i Crypt::Mode::CBC Crypt::Mode:CTR
   </code>
   <br><br>
   <a name="WMBUSdefine"></a>
@@ -521,6 +528,11 @@ WMBUS_Attr(@)
   <li>rawmsg_as_reading<br>
      If set to 1, received raw messages will be stored in the reading rawmsg. This can be used to log raw messages to help with debugging.
   </li>
+  <li>ignoreUnknownDataBlocks<br>
+     If set to 1, datablocks containing unknown/manufacturer specific data will be ignored. This is useful if a meter sends data in different
+     formats of which some can be interpreted and some not. This prevents the unknown data overwriting the readings of the data that can be
+     interpreted.
+  </li>
   </ul>
 	<br>
   <a name="WMBUSreadings"></a>
@@ -542,7 +554,7 @@ WMBUS_Attr(@)
   <li><code>is_encrypted</code> is 1 if the received message is encrypted.</li>
   <li><code>decryption_ok</code> is 1 if a message has either been successfully decrypted or if it is unencrypted.</li>
   <li><code>state</code> contains the state of the meter and may contain error message like battery low. Normally it contains 'no error'.</li>
-  <li><code>battery</code> contains ok or low.</li>
+  <li><code>batteryState</code> contains ok or low.</li>
   </ul>
   For some well known devices specific readings like the energy consumption in kWh created.
   </ul>
@@ -563,8 +575,8 @@ WMBUS_Attr(@)
 	Es verwendet das 868 MHz Band f&uuml;r Radio&uuml;bertragungen.
 	Daher wird ein Ger&auml;t ben&ouml;tigt das die Wireless M-Bus Nachrichten empfangen kann, z. B. ein <a href="#CUL">CUL</a> mit culfw >= 1.59 oder ein AMBER Wireless AMB8465-M.
   <br>
-  WMBus verwendet zwei unterschiedliche Radioprotokolle, T-Mode und S-Mode. Der Empf&auml;nger muss daher so konfiguriert werden, dass er das selbe Protokoll
-  verwendet wie der Sender. Im Falle eines CUL kann das erreicht werden, in dem das Attribut <a href="#rfmode">rfmode</a> auf WMBus_T bzw. WMBus_S gesetzt wird.
+  WMBus verwendet drei unterschiedliche Radioprotokolle, T-Mode, S-Mode und C-Mode. Der Empf&auml;nger muss daher so konfiguriert werden, dass er das selbe Protokoll
+  verwendet wie der Sender. Im Falle eines CUL kann das erreicht werden, in dem das Attribut <a href="#rfmode">rfmode</a> auf WMBus_T, WMBus_S bzw. WMBus_C gesetzt wird.
   <br>
   WMBus Ger&auml;te senden Daten periodisch abh&auml;ngig von ihrer Konfiguration. Es k&ouml;nnen u. U. Tage zwischen einzelnen Nachrichten vergehen oder sie k&ouml;nnen im 
   Minutentakt gesendet werden.
@@ -573,17 +585,17 @@ WMBUS_Attr(@)
   Andernfalls wird die Entschl&uuml;sselung fehlschlagen und es k&ouml;nnen keine relevanten Daten ausgelesen werden.
   <br><br>
   <b>Voraussetzungen</b><br>
-  Dieses Modul ben&ouml;tigt die perl Module Crypt::CBC, Digest::CRC and Crypt::OpenSSL::AES (AES wird nur ben&ouml;tigt wenn verschl&uuml;sselte Nachrichten verarbeitet werden sollen).<br>
+  Dieses Modul ben&ouml;tigt die perl Module Digest::CRC, Crypt::Mode::CBC und Crypt::ModeL::CTR (die Crypt Module werden nur ben&ouml;tigt wenn verschl&uuml;sselte Nachrichten verarbeitet werden sollen).<br>
   Bei einem Debian basierten System k&ouml;nnen diese so installiert werden<br>
   <code>
-  sudo apt-get install libcrypt-cbc-perl libdigest-crc-perl libssl-dev<br>
-  sudo cpan -i Crypt::OpenSSL::AES
+  sudo apt-get install libdigest-crc-perl<br>
+  sudo cpan -i Crypt::Mode::CBC Crypt::Mode::CTR
   </code>
   <br><br>
   <a name="WMBUSdefine"></a>
   <b>Define</b>
   <ul>
-    <code>define &lt;name&gt; WMBUS [&lt;manufacturer id&gt; &lt;identification number&gt; &lt;version&gt; &lt;type&gt; [&lt:MessageEncoding&gt;]]|&lt;bHexCode&gt;</code> <br>
+    <code>define &lt;name&gt; WMBUS [&lt;manufacturer id&gt; &lt;identification number&gt; &lt;version&gt; &lt;type&gt; [&lt;MessageEncoding&gt;]]|&lt;bHexCode&gt;</code> <br>
     <br>
     Normalerweise wird ein WMBus Device nicht manuell angelegt. Dies geschieht automatisch bem Empfang der ersten Nachrichten eines Ger&auml;tes &uuml;ber den 
     fhem <a href="#autocreate">autocreate</a> Mechanismus.
@@ -631,6 +643,10 @@ WMBUS_Attr(@)
   <li>rawmsg_as_reading<br>
      Wenn auf 1 gesetzt so werden empfangene Nachrichten im Reading rawmsg gespeichert. Das kann verwendet werden um Rohnachrichten zu loggen und beim Debugging zu helfen.
   </li>
+  <li>ignoreUnknownDataBlocks<br>
+     Wenn auf 1 gesetzt so werden Datenblocks die unbekannte/herstellerspezifische Daten enthalten ignoriert. Das ist hilfreich wenn ein Z&auml;hler Daten in unterschiedlichen
+     Formaten sendet von denen einige nicht interpretiert werden k&ouml;nnen. Es verhindert, dass die unbekannten Daten die Readings der interpretierbaren Daten &uuml;berschreiben.
+  </li>  
   </ul>
 	<br>
   <a name="WMBUSreadings"></a>
@@ -653,7 +669,7 @@ WMBUS_Attr(@)
   <li><code>is_encrypted</code> ist 1 wenn die empfangene Nachricht verschl&uuml;sselt ist.</li>
   <li><code>decryption_ok</code> ist 1 wenn die Nachricht entweder erfolgreich entschl&uuml;sselt wurde oder gar nicht verschl&uuml;sselt war.</li>
   <li><code>state</code> enth&auml;lt den Status des Z&auml;hlers und kann Fehlermeldungen wie 'battery low' enthalten. Normalerweise ist der Wert 'no error'.</li>
-  <li><code>battery</code> enth&auml;lt ok oder low.</li>
+  <li><code>batteryState</code> enth&auml;lt ok oder low.</li>
   </ul>
   Für einige bekannte Gerätetypen werden zusätzliche Readings wie der Energieverbrauch in kWh erzeugt. 
   </ul>

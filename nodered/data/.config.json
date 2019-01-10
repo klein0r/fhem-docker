@@ -2,7 +2,7 @@
  "nodes": {
   "node-red": {
    "name": "node-red",
-   "version": "0.17.5",
+   "version": "0.18.4",
    "local": false,
    "nodes": {
     "sentiment": {
@@ -349,12 +349,32 @@
      "local": false,
      "module": "node-red",
      "file": "/usr/src/node-red/node_modules/node-red/nodes/core/storage/50-file.js"
+    },
+    "sort": {
+     "name": "sort",
+     "types": [
+      "sort"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/node-red/nodes/core/logic/18-sort.js"
+    },
+    "batch": {
+     "name": "batch",
+     "types": [
+      "batch"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/node-red/nodes/core/logic/19-batch.js"
     }
    }
   },
   "node-red-node-base64": {
    "name": "node-red-node-base64",
-   "version": "0.0.8",
+   "version": "0.1.1",
    "local": false,
    "nodes": {
     "base64": {
@@ -371,7 +391,7 @@
   },
   "node-red-node-email": {
    "name": "node-red-node-email",
-   "version": "0.1.24",
+   "version": "0.1.29",
    "local": false,
    "nodes": {
     "email": {
@@ -389,7 +409,7 @@
   },
   "node-red-node-feedparser": {
    "name": "node-red-node-feedparser",
-   "version": "0.1.8",
+   "version": "0.1.12",
    "local": false,
    "nodes": {
     "feedparse": {
@@ -406,7 +426,7 @@
   },
   "node-red-node-msgpack": {
    "name": "node-red-node-msgpack",
-   "version": "1.0.1",
+   "version": "1.1.3",
    "local": false,
    "nodes": {
     "msgpack": {
@@ -423,7 +443,7 @@
   },
   "node-red-node-random": {
    "name": "node-red-node-random",
-   "version": "0.0.8",
+   "version": "0.1.0",
    "local": false,
    "nodes": {
     "random": {
@@ -440,7 +460,7 @@
   },
   "node-red-node-rbe": {
    "name": "node-red-node-rbe",
-   "version": "0.1.13",
+   "version": "0.2.3",
    "local": false,
    "nodes": {
     "rbe": {
@@ -474,7 +494,7 @@
   },
   "node-red-node-twitter": {
    "name": "node-red-node-twitter",
-   "version": "0.1.12",
+   "version": "0.1.13",
    "local": false,
    "nodes": {
     "twitter": {

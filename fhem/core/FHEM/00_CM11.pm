@@ -23,7 +23,7 @@
 #
 ################################################################
 
-# $Id: 00_CM11.pm 9805 2015-11-07 06:38:08Z borisneubert $
+# $Id: 00_CM11.pm 16375 2018-03-10 15:40:02Z neubert $
 
 package main;
 
@@ -740,6 +740,8 @@ CM11_Ready($$)
 1;
 
 =pod
+=item summary    CM11 PC interface to receive and send X10 messages
+=item summary_DE CM11 PC Interface zum Empfangen und Senden von X10
 =begin html
 
 <a name="CM11"></a>

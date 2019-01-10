@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_CUL.pm 15027 2017-09-08 09:11:43Z rudolfkoenig $
+# $Id: 00_CUL.pm 17559 2018-10-18 07:45:07Z rudolfkoenig $
 package main;
 
 use strict;
@@ -48,7 +48,7 @@ my @ampllist = (24, 27, 30, 33, 36, 38, 40, 42); # rAmpl(dB)
 my $sccMods = "STACKABLE_CC:TSSTACKED:STACKABLE";
 my $culNameRe = "^(CUL|TSCUL)\$";
 
-my $clientsSlowRF    = ":FS20:FHT.*:KS300:USF1000:BS:HMS: ".
+my $clientsSlowRF    = ":FS20:FHT.*:KS300:USF1000:BS:HMS:FS20V: ".
                        ":CUL_EM:CUL_WS:CUL_FHTTK:CUL_HOERMANN: ".
                        ":ESA2000:CUL_IR:CUL_TX:Revolt:IT:UNIRoll:SOMFY: ".
                        ":$sccMods:CUL_RFR::CUL_TCM97001:CUL_REDIRECT:";
@@ -58,6 +58,7 @@ my $clientsWMBus     = ":WMBUS:HMS:CUL_IR:$sccMods:";
 my $clientsKOPP_FC   = ":KOPP_FC:HMS:CUL_IR:$sccMods:";
 
 my %matchListSlowRF = (
+    "0:FS20V"     => "^81..(04|0c)..0101a001......00[89a-f]...",
     "1:USF1000"   => "^81..(04|0c)..0101a001a5ceaa00....",
     "2:BS"        => "^81..(04|0c)..0101a001a5cf",
     "3:FS20"      => "^81..(04|0c)..0101a001",
@@ -148,7 +149,7 @@ CUL_Initialize($)
     hmId longids 
     hmProtocolEvents:0_off,1_dump,2_dumpFull,3_dumpTrigger 
     model:CUL,CUN,CUNO,SCC,nanoCUL
-    rfmode:SlowRF,HomeMatic,MAX,WMBus_T,WMBus_S,KOPP_FC 
+    rfmode:SlowRF,HomeMatic,MAX,WMBus_T,WMBus_S,WMBus_C,KOPP_FC 
     sendpool
     showtime:1,0
   );
@@ -1000,6 +1001,7 @@ CUL_Attr(@)
                           && $aVal ne "MAX" 
                           && $aVal ne "WMBus_T" 
                           && $aVal ne "WMBus_S" 
+                          && $aVal ne "WMBus_C" 
                           && $aVal ne "KOPP_FC"));
     my $msg = $hash->{NAME} . ": Mode $aVal not supported";
 
@@ -1055,6 +1057,18 @@ CUL_Attr(@)
         Log3 $name, 2, $msg;
         return $msg;
       }
+    } elsif($aVal eq "WMBus_C") {
+      return if($hash->{initString} =~ m/brt/);
+      if($hash->{CMDS} =~ m/b/ || IsDummy($hash->{NAME}) || !$hash->{FD}) {
+        $hash->{Clients} = $clientsWMBus;
+        $hash->{MatchList} = \%matchListWMBus;
+        $hash->{initString} = "X21\nbrc"; # Use C-Mode
+        CUL_WriteInit($hash);
+   
+      } else {
+        Log3 $name, 2, $msg;
+        return $msg;
+      }      
     } elsif($aVal eq "KOPP_FC") {
       if($hash->{CMDS} =~ m/k/ || IsDummy($hash->{NAME}) || !$hash->{FD}) {
         $hash->{Clients} = $clientsKOPP_FC;
@@ -1378,10 +1392,11 @@ CUL_prefix($$$)
             To communicate with MAX! type of devices @10 kHz datarate.</li>
 
         <li>WMBus_S</li>
-        <li>WMBus_T<br>
+        <li>WMBus_T</li>
+        <li>WMBus_C<br>
             To communicate with Wireless M-Bus devices like water, gas or
-            electrical meters.  Wireless M-Bus uses two different communication
-            modes, S-Mode and T-Mode. While in this mode, no reception of other
+            electrical meters.  Wireless M-Bus uses three different communication
+            modes, S-Mode, T-Mode and C-Mode. While in this mode, no reception of other
             protocols like SlowRF or HomeMatic is possible. See also the WMBUS
             FHEM Module.
             </li>
@@ -1683,10 +1698,11 @@ CUL_prefix($$$)
             F&uuml;r die Kommunikation mit MAX! Ger&auml;ten @10 kHz
             Datenrate.</li>
         <li>WMBus_S</li>
-        <li>WMBus_T<br>
+        <li>WMBus_T</li>
+        <li>WMBus_C<br>
             F&uuml;r die Kommunikation mit Wireless M-Bus Ger&auml;ten wie
             Wasser-, Gas- oder Elektroz&auml;hlern.  Wireless M-Bus verwendet
-            zwei unterschiedliche Kommunikationsarten, S-Mode und T-Mode.  In
+            drei unterschiedliche Kommunikationsarten, S-Mode, T-Mode und C-Mode.  In
             diesem Modus ist der Empfang von anderen Protokollen wie SlowRF
             oder HomeMatic nicht m&ouml;glich.</li>
         </ul>

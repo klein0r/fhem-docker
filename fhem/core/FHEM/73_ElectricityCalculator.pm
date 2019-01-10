@@ -1,4 +1,4 @@
-# $Id: 73_ElectricityCalculator.pm 14219 2017-05-08 10:54:54Z Sailor $
+# $Id: 73_ElectricityCalculator.pm 16601 2018-04-13 17:57:41Z Sailor $
 ########################################################################################################################
 #
 #     73_ElectricityCalculator.pm
@@ -94,6 +94,7 @@ sub ElectricityCalculator_Define($$$)
 	$hash->{REGEXP} = $RegEx;	
 
 	### Writing values to global hash
+	notifyRegexpChanged($hash, $RegEx);
 	$hash->{NAME}							= $name;
 	$hash->{STATE}              			= "active";
 	$hash->{REGEXP}             			= $RegEx;
@@ -139,7 +140,7 @@ sub ElectricityCalculator_Attr(@)
 	my $name                   = $a[1];
 	my $hash                   = $defs{$name};
 	
-	### Check whether "disbale" attribute has been provided
+	### Check whether "disable" attribute has been provided
 	if ($a[2] eq "disable")
 	{
 		if    ($a[3] eq 0)
@@ -148,7 +149,7 @@ sub ElectricityCalculator_Attr(@)
 		}
 		elsif ($a[3] eq 1)		
 		{	
-			$hash->{STATE} = "diabled";
+			$hash->{STATE} = "disabled";
 		}
 	}
 	
@@ -689,8 +690,8 @@ sub ElectricityCalculator_Notify($$)
 		my $ElectricityCountReadingTimestampDelta = $ElectricityCountReadingTimestampCurrentRelative - $ElectricityCountReadingTimestampPreviousRelative;
 		Log3 $ElectricityCalcName, 5, $ElectricityCalcName. " : ElectricityCalculator - ElectricityCountReadingTimestampDelta            : " . $ElectricityCountReadingTimestampDelta . " s";
 
-		### Continue with calculations only if time difference is larger than 30 seconds to avoid "Illegal division by zero" and erroneous due to small values for divisor
-		if ($ElectricityCountReadingTimestampDelta > 30)
+		### Continue with calculations only if time difference is larger than 1 seconds to avoid "Illegal division by zero" and erroneous due to small values for divisor
+		if ($ElectricityCountReadingTimestampDelta > 1)
 		{
 			### Calculate DW (electric Energy difference) of previous and current value / [kWh]
 			my $ElectricityCountReadingValueDelta = sprintf('%.3f', ($ElectricityCountReadingValueCurrent - $ElectricityCountReadingValuePrevious));

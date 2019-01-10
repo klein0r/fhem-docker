@@ -1,5 +1,5 @@
     ##############################################
-    # $Id: 14_SD_WS09.pm 15450 2017-11-18 21:34:47Z Sidey $
+    # $Id: 14_SD_WS09.pm 16935 2018-07-02 20:22:34Z Sidey $
     # 
     # The purpose of this module is to support serval 
     # weather sensors like WS-0101  (Sender 868MHz ASK   Epmfänger RX868SH-DV elv)
@@ -412,6 +412,8 @@
           readingsBulkUpdate($hash, "temperature", $temp)  if ($temp ne"");
           readingsBulkUpdate($hash, "humidity", $hum)  if ($hum ne "" && $hum != 0 );
           readingsBulkUpdate($hash, "battery", $bat)   if ($bat ne "");
+		  readingsBulkUpdate($hash, "batteryState", $bat)   if ($bat ne "");
+          
           #zusätzlich Daten für Wetterstation
           readingsBulkUpdate($hash, "rain", $rain );
           readingsBulkUpdate($hash, ".rainOffset", $rain_offset );	# Zwischenspeicher für den offset

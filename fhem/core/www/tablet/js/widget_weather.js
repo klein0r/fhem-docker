@@ -1,5 +1,5 @@
 /* FTUI Plugin
- * Copyright (c) 2015-2017 Mario Stephan <mstephan@shared-files.de>
+ * Copyright (c) 2015-2018 Mario Stephan <mstephan@shared-files.de>
  * originally created by Thomas Nesges
  * Under MIT License (http://www.opensource.org/licenses/mit-license.php)
  */
@@ -10,6 +10,47 @@
 
 var Modul_weather = function () {
 
+    var weathericonsmap = {
+        "day": {
+            "sonnig": "day-sunny",
+            "heiter": "day-sunny-overcast",
+            "wolkig": "cloudy",
+            "Regenschauer": "day-showers",
+            "stark bewoelkt": "wi-cloudy",
+            "stark bew\u00F6lkt": "wi-cloudy",
+            "Regen": "day-rain",
+            "bedeckt": "wi-cloud",
+            "Schnee": "day-snow",
+            'Schneefall': 'day-snow',
+            'Schneeregen': 'day-sleet',
+            'Schneeschauer': 'storm-showers',
+            'unterschiedlich bewoelkt, vereinzelt Schauer und Gewitter': 'day-storm-showers',
+            'unterschiedlich bew\u00F6lkt, vereinzelt Schauer und Gewitter': 'day-storm-showers',
+            'Nebel': 'day-fog',
+            'klar': 'day-sunny',
+            'Spruehregen': 'day-rain-mix',
+            'Regen m\u00f6glich': 'day-rain-mix'
+        },
+        "night": {
+            "heiter": "night-clear",
+            "wolkig": "wi-night-alt-partly-cloudy",
+            "Regenschauer": "night-alt-showers",
+            "stark bewoelkt": "night-alt-cloudy",
+            "stark bew\u00F6lkt": "night-alt-cloudy",
+            "Regen": "night-alt-rain",
+            "bedeckt": "night-alt-cloudy",
+            "Schnee": "snow",
+            'Schneefall': 'night-alt-snow',
+            'Schneeregen': 'night-alt-sleet',
+            'Schneeschauer': 'storm-showers',
+            'unterschiedlich bewoelkt, vereinzelt Schauer und Gewitter': 'night-alt-sleet-storm',
+            'unterschiedlich bew\u00F6lkt, vereinzelt Schauer und Gewitter': 'night-alt-sleet-storm',
+            'Nebel': 'night-fog',
+            'klar': 'night-clear',
+            'Spruehregen': 'night-alt-rain-mix',
+            'Regen m\u00f6glich': 'night-alt-rain-mix'
+        }
+    };
     var meteoconsmap = {
         // Weather (YAHOO) en
         'tornado': '9',
@@ -63,6 +104,7 @@ var Modul_weather = function () {
         "wolkig": "N",
         "Regenschauer": "Q",
         "stark bewoelkt": "Y",
+        "stark bew\u00F6lkt": "Y",
         "Regen": "R",
         "bedeckt": "N",
         "sonnig": "B",
@@ -71,10 +113,12 @@ var Modul_weather = function () {
         'Schneeregen': 'V',
         'Schneeschauer': '$',
         'unterschiedlich bewoelkt, vereinzelt Schauer und Gewitter': 'Q',
+        'unterschiedlich bew\u00F6lkt, vereinzelt Schauer und Gewitter': 'Q',
         'Nebel': 'F',
         'klar': 'B',
         'Spruehregen': 'R',
         'Regen m\u00f6glich': 'R',
+        //'Regen möglich': 'R',
 
         // OPENWEATHER (Wetter.com) (incomplete)
         'leichter Schnee - Schauer': 'U',
@@ -106,7 +150,7 @@ var Modul_weather = function () {
         //        'Schneeschauer': 'U',
         //        'Schneeregen': 'X',
         '---': ')',
-        'bew\u00f6lkt': 'H',
+        'bew\u00F6lkt': 'H',
         'Dunst oder flacher Nebel': 'M',
         'gefrierender Nebel': 'G',
         'gering bewÃƒÂ¶lkt': 'H',
@@ -134,7 +178,6 @@ var Modul_weather = function () {
         'Schneeregenschauer': 'X',
         'Schneetreiben': 'W',
         'schweres Gewitter': 'P',
-        'stark bew\u00f6lkt': 'Y',
         'starkes Gewitter': 'P',
         'wolkenlos': 'B',
         //Wunderground
@@ -232,6 +275,7 @@ var Modul_weather = function () {
         "wolkig": 'mostlycloudy.png',
         "Regenschauer": 'chance_of_rain.png',
         "stark bewoelkt": 'cloudy.png',
+        "stark bew\u00F6lkt": 'cloudy.png',
         "Regen": 'rain.png',
         "bedeckt": 'overcast.png',
         "sonnig": 'sunny.png',
@@ -240,9 +284,11 @@ var Modul_weather = function () {
         'Schneefall': 'snow.png',
         'Schneeschauer': 'chance_of_snow.png',
         'unterschiedlich bewoelkt, vereinzelt Schauer und Gewitter': 'scatteredshowers.png',
+        'unterschiedlich bewölkt, vereinzelt Schauer und Gewitter': 'scatteredshowers.png',
         'Nebel': 'fog.png',
         'klar': 'sunny_night.png',
         'Spruehregen': 'mist.png',
+        'Sprühregen': 'mist.png',
 
         // OPENWEATHER (wetter.com) (incomplete)
         'leichter Schnee - Schauer': 'chance_of_snow.png',
@@ -266,16 +312,62 @@ var Modul_weather = function () {
         'showers night': 'showers_night.png',
         'chance of storm night': 'chance_of_storm_night.png',
         'haze night': 'haze_night.png',
-        // DWD
-        //        'bedeckt': 'overcast.png',
-        //        'heiter': 'partly_cloudy.png',
-        //        'leichter Regen': 'drizzle.png',
-        //        'Nebel': 'fog.png',
-        //        'Regen': 'rain.png',
-        //        'Regenschauer': 'chance_of_rain.png',
-        //        'Schneefall': 'snow.png',
-        //        'Schneeschauer': 'chance_of_snow.png',
-        //        'Schneeregen': 'rainsnow.png',
+        // DWD_OpenData (by somansch)
+        'äußerst heftiger Regenschauer': 'showers.png',
+        'Bewölkung abnehmend': 'partly_cloudy.png',
+        'Bewölkung unverändert': 'cloudy.png',
+        'Bewölkung zunehmend': 'overcast.png',
+        'Bewölkungsentwicklung nicht beobachtet': 'sunny.png',
+        'durchgehend leichter Regen': 'rain.png',
+        'durchgehend leichter Schneefall': 'snow.png',
+        'durchgehend leichter Sprühregen': 'drizzle.png',
+        'durchgehend mäßiger Regen': 'rain.png',
+        'durchgehend mäßiger Schneefall': 'snow.png',
+        'durchgehend mäßiger Sprühregen': 'drizzle.png',
+        'durchgehend starker Regen': 'rain.png',
+        'durchgehend starker Schneefall': 'snow.png',
+        'durchgehend starker Sprühregen': 'drizzle.png',
+        'leichter gefrierender Regen': 'rainsnow.png',
+        'leichter gefrierender Sprühregen': 'rainsnow.png',
+        'leichter Regenschauer': 'scatteredshowers.png',
+        'leichter Schneeregen': 'rainsnow.png',
+        'leichter Schneeregenschauer': 'rainsnow.png',
+        'leichter Schneeschauer': 'snow.png',
+        'leichter Sprühregen mit Regen': 'rain.png',
+        'leichtes oder mäßiges Gewitter mit Graupel oder Hagel': 'scatteredthunderstorms.png',
+        'leichtes oder mäßiges Gewitter mit Regen oder Schnee': 'scatteredthunderstorms.png',
+        'mäßiger oder starker gefrierender Regen': 'rainsnow.png',
+        'mäßiger oder starker gefrierender Sprühregen': 'rainsnow.png',
+        'mäßiger oder starker Graupelschauer': 'storm.png',
+        'mäßiger oder starker Hagelschauer': 'storm.png',
+        'mäßiger oder starker Regenschauer': 'showers.png',
+        'mäßiger oder starker Schneeregen': 'rainsnow.png',
+        'mäßiger oder starker Schneeregenschauer': 'rainsnow.png',
+        'mäßiger oder starker Schneeschauer': 'snow.png',
+        'mäßiger oder starker Sprühregen mit Regen': 'rain.png',
+        'Nebel in einiger Entfernung': 'fog.png',
+        'Nebel in Schwaden oder Bänken': 'fog.png',
+        'Nebel mit Reifansatz, Himmel erkennbar': 'fog.png',
+        'Nebel mit Reifansatz, Himmel nicht erkennbar': 'fog.png',
+        'Nebel, Himmel erkennbar, dichter werdend': 'fog.png',
+        'Nebel, Himmel erkennbar, dünner werdend': 'fog.png',
+        'Nebel, Himmel erkennbar, unverändert': 'fog.png',
+        'Nebel, Himmel nicht erkennbar, dichter werdend': 'fog.png',
+        'Nebel, Himmel nicht erkennbar, dünner werdend': 'fog.png',
+        'Nebel, Himmel nicht erkennbar, unverändert': 'fog.png',
+        'Sicht durch Rauch oder Asche vermindert': 'fog.png',
+        'starkes Gewitter mit Graupel oder Hagel': 'thunderstorms.png',
+        'starkes Gewitter mit Regen oder Schnee': 'thunderstorms.png',
+        'starkes Gewitter mit Sandsturm': 'thunderstorms.png',
+        'unterbrochener leichter Regen oder einzelne Regentropfen': 'rain.png',
+        'unterbrochener leichter Schneefall oder einzelne Schneeflocken': 'snow.png',
+        'unterbrochener leichter Sprühregen': 'drizzle.png',
+        'unterbrochener mäßiger Regen': 'rain.png',
+        'unterbrochener mäßiger Schneefall': 'snow.png',
+        'unterbrochener mäßiger Sprühregen': 'drizzle.png',
+        'unterbrochener starker Regen': 'rain.png',
+        'unterbrochener starker Schneefall': 'snow.png',
+        'unterbrochener starker Sprühregen': 'drizzle.png',
         '---': 'na.png',
         'bew\u00f6lkt': 'mostlycloudy.png',
         'Dunst oder flacher Nebel': 'haze.png',
@@ -305,7 +397,6 @@ var Modul_weather = function () {
         'Schneeregenschauer': 'rainsnow.png',
         'Schneetreiben': 'heavysnow.png',
         'schweres Gewitter': 'thunderstorm.png',
-        'stark bew\u00f6lkt': 'cloudy.png',
         'starkes Gewitter': 'thunderstorm.png',
         'wolkenlos': 'sunny.png',
         //Wunderground
@@ -548,37 +639,30 @@ var Modul_weather = function () {
     };
 
     function showOverlay(elem, value) {
-        elem.find('#warn-back').remove();
         elem.find('#warn').remove();
-
         if (ftui.isValid(value) && value !== "") {
-            var val = ($.isNumeric(value) && value < 100) ? Number(value).toFixed(0) : '!';
-            var bgWarnElem = $('<i/>', {
-                id: 'warn-back',
-                class: 'fa fa-stack-1x fa-circle'
-            }).appendTo(elem);
-
-            var fgWarnElem = $('<i/>', {
+            var val = ($.isNumeric(value)) ? Number(value).toFixed(0) : '!';
+            var digits = val.toString().length;
+            var faElem = elem.find('.famultibutton');
+            var warnElem = $('<i/>', {
                 id: 'warn',
-                class: 'fa fa-stack-1x '
+                class: 'digits' + digits
             }).html(val).appendTo(elem);
 
             if (elem.isValidData('warn-color')) {
-                fgWarnElem.css({
+                warnElem.css({
                     color: elem.data('warn-color')
                 });
             }
             if (elem.isValidData('warn-background-color')) {
-                bgWarnElem.css({
-                    color: elem.data('warn-background-color')
+                warnElem.css({
+                    backgroundColor: elem.data('warn-background-color')
                 });
             }
             if (elem.hasClass('warnsamecolor')) {
-                fgWarnElem.css({
-                    color: '#000'
-                });
-                bgWarnElem.css({
-                    color: elem.data('on-color')
+                warnElem.css({
+                    color: '#000',
+                    backgroundColor: elem.data('on-color')
                 });
             }
         }
@@ -625,9 +709,11 @@ var Modul_weather = function () {
     function update(dev, par) {
 
         // update from normal state reading
-        me.elements.filterDeviceReading('get', dev, par)
-            .each(function (index) {
-                var elem = $(this);
+        me.elements.each(function (index) {
+            var elem = $(this);
+
+            // update from normal state reading
+            if (elem.matchDeviceReading('get', dev, par)) {
                 var state = elem.getReading('get').val;
                 if (state) {
                     var part = elem.data('part') || -1;
@@ -644,7 +730,7 @@ var Modul_weather = function () {
                     if (elem.data('device-type')) {
                         device_type = elem.data('device-type');
                     } else {
-                        if (par.match(/^fc\d+_weather(Day|Evening|Morning|Night)(?:Icon)?$/)) {
+                        if (par.match(/^fc\d+_weather(Day|Evening|Morning|Night|\d\d)(?:Icon)?$/)) {
                             device_type = 'PROPLANTA';
                         } else if (par.match(/^fc\d+_condition$/)) {
                             device_type = 'Weather';
@@ -657,7 +743,7 @@ var Modul_weather = function () {
                         }
                     }
                     var translate = true;
-                    if (device_type == 'PROPLANTA') {
+                    if (device_type === 'PROPLANTA') {
                         var matches = val.match('^https://www\.proplanta\.de/wetterdaten/images/symbole/([tn][0-9]+)\.gif');
                         if (matches) {
                             val = matches[1];
@@ -676,15 +762,15 @@ var Modul_weather = function () {
                     }
 
                     var mapped = typeof translation == "undefined" ? val : translation;
-                    if (elem.data('imageset') == "kleinklima") {
+                    if (elem.data('imageset') === "kleinklima") {
                         mapped = kleinklimamap[mapped.replace(/^:/, '')];
                         icon.prepend('<img style="width:100%" src="' + elem.data('image-path') + mapped + '" title="' + val + '">');
-                    } else if (elem.data('imageset') == "reading") {
+                    } else if (elem.data('imageset') === "reading") {
                         icon.prepend('<img style="width:100%" src="' + _val + '">');
-                    } else if (elem.data('imageset') == "meteoconsdirect") {
+                    } else if (elem.data('imageset') === "meteoconsdirect") {
                         icon.attr('data-icon', val);
                         ftui.log(3, 'weather: set meteoconsdirect val:', val);
-                    } else if (elem.data('imageset') == "weathericons") {
+                    } else if (elem.data('imageset') === "weathericons") {
                         icon.addClass('weathericons');
                         switch (elem.data('device-type')) {
                             case "YahooCode":
@@ -694,6 +780,16 @@ var Modul_weather = function () {
                             case "WindDirection":
                                 icon.addClass('wi wi-wind from-' + val + '-deg');
                                 ftui.log(3, 'weather: set weathericons WindDirection: wi wi-wind towards-' + val + '-deg');
+                                break;
+                            case "PROPLANTA":
+                            case "Proplanta":
+                                var dayTime = 'day';
+                                if (par.match(/^fc\d+_weather(Evening|Night|00|03|06|18|21)(?:Icon)?$/)) {
+                                    dayTime = 'night';
+                                }
+                                mapped = weathericonsmap[dayTime][val];
+                                icon.addClass('wi wi-' + mapped);
+                                ftui.log(3, 'weather: set weathericons to: wi-' + dayTime + '-' + mapped);
                                 break;
                             default:
                                 icon.addClass('wi wi-' + val);
@@ -705,25 +801,21 @@ var Modul_weather = function () {
                         icon.addClass('meteocons');
                     }
                 }
-            });
 
+            }
 
-        //extra reading for dynamic color
-        me.elements.filterDeviceReading('color', dev, par)
-            .each(function (idx) {
-                var elem = $(this);
-                var val = elem.getReading('color').val;
-                    var icon = elem.find('.weather-icon');
-                if (ftui.isValid(val) && icon) {
-                    val = '#' + val.replace('#', '');
-                    icon.css("color", val);
+            //extra reading for dynamic color
+            if (elem.matchDeviceReading('color', dev, par)) {
+                var cval = elem.getReading('color').val;
+                var cicon = elem.find('.weather-icon');
+                if (ftui.isValid(cval) && cicon) {
+                    cval = '#' + cval.replace('#', '');
+                    cicon.css("color", cval);
                 }
-            });
+            }
 
-        //extra reading for warn
-        me.elements.filterDeviceReading('warn', dev, par)
-            .each(function (idx) {
-                var elem = $(this);
+            //extra reading for warn
+            if (elem.matchDeviceReading('warn', dev, par)) {
                 var warn = elem.getReading('warn').val;
                 if (elem.matchingState('warn', warn) === 'on') {
                     showOverlay(elem, ftui.getPart(warn, elem.data('get-warn')));
@@ -731,7 +823,10 @@ var Modul_weather = function () {
                 if (elem.matchingState('warn', warn) === 'off') {
                     showOverlay(elem, "");
                 }
-            });
+            }
+
+        });
+
     }
 
     // public

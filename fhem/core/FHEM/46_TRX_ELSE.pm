@@ -1,9 +1,11 @@
+# $Id: 46_TRX_ELSE.pm 16542 2018-04-02 22:10:20Z KernSani $
 #################################################################################
 # 46_TRX_ELSE.pm
 #
 # FHEM module unkown RFXtrx433 messages
 #
 # Copyright (C) 2012-2016 Willi Herzig
+#	  Maintenance since 2018 by KernSani
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -26,8 +28,15 @@
 # 4: log unknown protocols
 # 5: log decoding hexlines for debugging
 #
-# $Id: 46_TRX_ELSE.pm 11451 2016-05-15 19:04:06Z wherzig $ 
-package main;
+##############################################################################
+#
+#	CHANGELOG
+#	
+#	02.04.2018	support for vair CO2 sensors (forum #67734) -Thanks to vbs
+#	29.03.2018	Summary for Commandref
+#
+#
+##############################################################################package main;
 
 use strict;
 use warnings;
@@ -41,7 +50,7 @@ TRX_ELSE_Initialize($)
 {
   my ($hash) = @_;
 
-  $hash->{Match}     = "^..(0[0-9a-f]|1[a-f]|2[1-9a-f]|3[0-9a-f]|4[1-9a-d]|4f|53|59|5e|5f|[6-9a-f][0-9a-f]).*";
+  $hash->{Match}     = "^..(0[0-9a-f]|1[a-f]|2[1-9a-f]|3[0-9a-f]|4[1-9a-d]|4f|53|59|5e|5f|6[0-9a-f]|70|7[2-9a-f]|[8-9a-f][0-9a-f]).*";
   $hash->{DefFn}     = "TRX_ELSE_Define";
   $hash->{UndefFn}   = "TRX_ELSE_Undef";
   $hash->{ParseFn}   = "TRX_ELSE_Parse";
@@ -155,7 +164,11 @@ TRX_ELSE_Parse($$)
 1;
 
 =pod
+=item device
+=item summary    unhandled messages from TRX
+=item summary_DE unbekannte Nachrichten von TRX
 =begin html
+
 
 <a name="TRX_ELSE"></a>
 <h3>TRX_ELSE</h3>

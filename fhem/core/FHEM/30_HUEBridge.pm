@@ -1,5 +1,5 @@
 
-# $Id: 30_HUEBridge.pm 15123 2017-09-23 17:20:38Z justme1968 $
+# $Id: 30_HUEBridge.pm 17986 2018-12-16 14:20:19Z justme1968 $
 
 # "Hue Personal Wireless Lighting" is a trademark owned by Koninklijke Philips Electronics N.V.,
 # see www.meethue.com for more information.
@@ -15,13 +15,15 @@ use Data::Dumper;
 
 use HttpUtils;
 
+use IO::Socket::INET;
+
 sub HUEBridge_Initialize($)
 {
   my ($hash) = @_;
 
   # Provider
   $hash->{ReadFn}  = "HUEBridge_Read";
-  $hash->{WriteFn} = "HUEBridge_Read";
+  $hash->{WriteFn} = "HUEBridge_Write";
   $hash->{Clients} = ":HUEDevice:";
 
   #Consumer
@@ -31,11 +33,127 @@ sub HUEBridge_Initialize($)
   $hash->{GetFn}    = "HUEBridge_Get";
   $hash->{AttrFn}   = "HUEBridge_Attr";
   $hash->{UndefFn}  = "HUEBridge_Undefine";
-  $hash->{AttrList} = "key disable:1 disabledForIntervals httpUtils:1,0 noshutdown:1,0 pollDevices:1,2,0 queryAfterSet:1,0 $readingFnAttributes";
+  $hash->{AttrList} = "key disable:1 disabledForIntervals createGroupReadings:1,0 httpUtils:1,0 noshutdown:1,0 pollDevices:1,2,0 queryAfterSet:1,0 $readingFnAttributes";
 }
 
 sub
-HUEBridge_Read($@)
+HUEBridge_Read($)
+{
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+
+  my $buf;
+  my $len = sysread($hash->{CD}, $buf, 10240);
+  my $peerhost = $hash->{CD}->peerhost;
+  my $peerport = $hash->{CD}->peerport;
+
+  my $close = 0;
+  if( !defined($len) || !$len ) {
+    $close = 1;
+
+  } elsif( $hash->{websocket} ) {
+    $hash->{buf} .= $buf;
+
+    do {
+      my $fin = (ord(substr($hash->{buf},0,1)) & 0x80)?1:0;
+      my $op = (ord(substr($hash->{buf},0,1)) & 0x0F);
+      my $mask = (ord(substr($hash->{buf},1,1)) & 0x80)?1:0;
+      my $len = (ord(substr($hash->{buf},1,1)) & 0x7F);
+      my $i = 2;
+      if( $len == 126 ) {
+        $len = unpack( 'n', substr($hash->{buf},$i,2) );
+        $i += 2;
+      } elsif( $len == 127 ) {
+        $len = unpack( 'q', substr($hash->{buf},$i,8) );
+        $i += 8;
+      }
+      if( $mask ) {
+        $mask = substr($hash->{buf},$i,4);
+        $i += 4;
+      }
+      #FIXME: hande !$fin
+      return if( $len > length($hash->{buf})-$i );
+
+      my $data = substr($hash->{buf}, $i, $len);
+      $hash->{buf} = substr($hash->{buf},$i+$len);
+#Log 1, ">>>$data<<<";
+
+      if( $data eq '?' ) {
+        #ignore keepalive
+
+      } elsif( $op == 0x01 ) {
+        my $obj = eval { decode_json($data) };
+
+        if( $obj ) {
+          Log3 $name, 5, "$name: websocket data: ". Dumper $obj;
+        } else {
+          Log3 $name, 2, "$name: unhandled websocket text $data";
+
+        }
+
+        if( $obj->{t} eq 'event' && $obj->{e} eq 'changed' ) {
+          my $code;
+          my $id = $obj->{id};
+          $code = $name ."-". $id if( $obj->{r} eq 'lights' );
+          $code = $name ."-S". $id if( $obj->{r} eq 'sensors' );
+          $code = $name ."-G". $id if( $obj->{r} eq 'groups' );
+          if( !$code ) {
+            Log3 $name, 5, "$name: ignoring event: $code";
+            return;
+          }
+
+          my $chash = $modules{HUEDevice}{defptr}{$code};
+          if( defined($chash) ) {
+            HUEDevice_Parse($chash,$obj);
+            HUEBridge_updateGroups($hash, $chash->{ID}) if( !$chash->{helper}{devtype} );
+          } else {
+            Log3 $name, 4, "$name: message for unknow device received: $code";
+          }
+
+        } elsif( $obj->{t} eq 'event' && $obj->{e} eq 'scene-called' ) {
+          Log3 $name, 5, "$name: todo: handle websocket scene-called $data";
+          # trigger scene event ?
+
+        } elsif( $obj->{t} eq 'event' && $obj->{e} eq 'added' ) {
+          Log3 $name, 5, "$name: websocket add: $data";
+          HUEBridge_Autocreate($hash);
+
+        } elsif( $obj->{t} eq 'event' && $obj->{e} eq 'deleted' ) {
+          Log3 $name, 5, "$name: todo: handle websocket delete $data";
+          # do what ?
+
+        } else {
+          Log3 $name, 5, "$name: unknown websocket data: $data";
+        }
+
+      } else {
+        Log3 $name, 2, "$name: unhandled websocket data: $data";
+
+      }
+    } while( $hash->{buf} && !$close );
+
+  } elsif( $buf =~ m'^HTTP/1.1 101 Switching Protocols'i )  {
+    $hash->{websocket} = 1;
+    #my $buf = plex_msg2hash($buf, 1);
+#Log 1, $buf;
+
+    Log3 $name, 3, "$name: websocket: Switching Protocols ok";
+
+  } else {
+#Log 1, $buf;
+    $close = 1;
+    Log3 $name, 2, "$name: websocket: Switching Protocols failed";
+  }
+
+  if( $close ) {
+    HUEBridge_closeWebsocket($hash);
+
+    Log3 $name, 2, "$name: websocket closed";
+  }
+}
+
+sub
+HUEBridge_Write($@)
 {
   my ($hash,$chash,$name,$id,$obj)= @_;
 
@@ -80,7 +198,7 @@ HUEBridge_Detect($)
   }
 
   Log3 $name, 3, "HUEBridge_Detect: ${host}";
-  $hash->{Host} = $host;
+  $hash->{host} = $host;
 
   return $host;
 }
@@ -108,7 +226,7 @@ HUEBridge_Define($$)
 
   readingsSingleUpdate($hash, 'state', 'initialized', 1 );
 
-  $hash->{Host} = $host;
+  $hash->{host} = $host;
   $hash->{INTERVAL} = $interval;
 
   $attr{$name}{"key"} = join "",map { unpack "H*", chr(rand(256)) } 1..16 unless defined( AttrVal($name, "key", undef) );
@@ -156,6 +274,79 @@ sub HUEBridge_Undefine($$)
   return undef;
 }
 
+sub
+HUEBridge_hash2header($)
+{
+  my ($hash) = @_;
+
+  return $hash if( ref($hash) ne 'HASH' );
+
+  my $header;
+  foreach my $key (keys %{$hash}) {
+    #$header .= "\r\n" if( $header );
+    $header .= "$key: $hash->{$key}\r\n";
+  }
+
+  return $header;
+}
+sub HUEBridge_closeWebsocket($)
+{
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+
+  delete $hash->{buf};
+  delete $hash->{websocket};
+
+  close($hash->{CD}) if( defined($hash->{CD}) );
+  delete($hash->{CD});
+
+  delete($selectlist{$name});
+  delete($hash->{FD});
+
+  delete($hash->{PORT});
+}
+sub HUEBridge_openWebsocket($)
+{
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+
+  return if( !defined($hash->{websocketport}) );
+
+  HUEBridge_closeWebsocket($hash);
+
+  my ($host,undef) = split(':',$hash->{host},2);
+  if( my $socket = IO::Socket::INET->new(PeerAddr=>"$host:$hash->{websocketport}", Timeout=>2, Blocking=>1, ReuseAddr=>1) ) {
+    $hash->{CD}    = $socket;
+    $hash->{FD}    = $socket->fileno();
+
+    $hash->{PORT}  = $socket->sockport if( $socket->sockport );
+
+    $selectlist{$name} = $hash;
+
+    Log3 $name, 3, "$name: websocket opened to $host:$hash->{websocketport}";
+
+
+    my $ret = "GET ws://$host:$hash->{websocketport} HTTP/1.1\r\n";
+    $ret .= HUEBridge_hash2header( {                  'Host' => "$host:$hash->{websocketport}",
+                                                   'Upgrade' => 'websocket',
+                                                'Connection' => 'Upgrade',
+                                                    'Pragma' => 'no-cache',
+                                             'Cache-Control' => 'no-cache',
+                                         'Sec-WebSocket-Key' => 'RkhFTQ==',
+                                     'Sec-WebSocket-Version' => '13',
+                                   } );
+
+    $ret .= "\r\n";
+#Log 1, $ret;
+
+    syswrite($hash->{CD}, $ret );
+
+  } else {
+    Log3 $name, 2, "$name: failed to open websocket";
+
+  }
+}
+
 sub HUEBridge_fillBridgeInfo($$)
 {
   my ($hash,$config) = @_;
@@ -165,6 +356,11 @@ sub HUEBridge_fillBridgeInfo($$)
   $hash->{modelid} = $config->{modelid};
   $hash->{swversion} = $config->{swversion};
   $hash->{apiversion} = $config->{apiversion};
+
+  if( defined($config->{websocketport}) ) {
+    $hash->{websocketport} = $config->{websocketport};
+    HUEBridge_openWebsocket($hash);
+  }
 
   if( $hash->{apiversion} ) {
     my @l = split( '\.', $config->{apiversion} );
@@ -176,8 +372,6 @@ sub HUEBridge_fillBridgeInfo($$)
     $attr{$name}{icon} = 'hue_filled_bridge_v1' if( $hash->{modelid} && $hash->{modelid} eq 'BSB001' );
     $attr{$name}{icon} = 'hue_filled_bridge_v2' if( $hash->{modelid} && $hash->{modelid} eq 'BSB002' );
   }
-
-  $hash->{noshutdown} = AttrVal($name,'noshutdown', $hash->{name} =~ /deCONZ-GW|RaspBee/i)?1:0 if( !defined($hash->{noshutdown} ) );
 }
 
 sub
@@ -189,7 +383,7 @@ HUEBridge_OpenDev($)
   HUEBridge_Detect($hash) if( defined($hash->{NUPNP}) );
 
   my ($err,$ret) = HttpUtils_BlockingGet({
-    url => "http://$hash->{Host}/description.xml",
+    url => "http://$hash->{host}/description.xml",
     method => "GET",
     timeout => 3,
   });
@@ -202,10 +396,6 @@ HUEBridge_OpenDev($)
     $hash->{modelName} = $1;
     $ret =~ m/<manufacturer>([^<]*)/;
     $hash->{manufacturer} = $1;
-
-    if( $hash->{manufacturer} =~ /dresden elektronik/i ) {
-      $hash->{noshutdown} = AttrVal($name, 'noshutdown', 1)?1:0;
-    }
   }
 
   my $result = HUEBridge_Call($hash, undef, 'config', undef);
@@ -443,7 +633,12 @@ HUEBridge_Set($@)
       HUEDevice_SetParam(undef, \%obj, $cmd, $value, $value2);
     }
 
-    my $result = HUEBridge_Call($hash, undef, "scenes/$arg/lights/$light/state", \%obj, 'PUT');
+    my $result;
+    if( $hash->{helper}{apiversion} && $hash->{helper}{apiversion} >= (1<<16) + (11<<8) ) {
+      $result = HUEBridge_Call($hash, undef, "scenes/$arg/lightstates/$light", \%obj, 'PUT');
+    } else {
+      $result = HUEBridge_Call($hash, undef, "scenes/$arg/lights/$light/state", \%obj, 'PUT');
+    }
     return $result->{error}{description} if( $result->{error} );
 
     return undef;
@@ -564,7 +759,7 @@ HUEBridge_Set($@)
 
     return undef;
 
-  } elsif($cmd eq 'configsensor' || $cmd eq 'setsensor') {
+  } elsif($cmd eq 'configsensor' || $cmd eq 'setsensor' || $cmd eq 'updatesensor') {
     return "usage: $cmd <id> <json>" if( @args < 2 );
 
     if( defined $defs{$arg} && $defs{$arg}{TYPE} eq 'HUEDevice' ) {
@@ -582,7 +777,11 @@ HUEBridge_Set($@)
     }
     $json = $decoded;
 
-    my $result = HUEBridge_Call($hash, undef, "sensors/$arg/".($cmd eq 'configsensor'?'config':'state'), $json, 'PUT');
+    my $endpoint = '';
+    $endpoint = 'state' if( $cmd eq 'setsensor' );
+    $endpoint = 'config' if( $cmd eq 'configsensor' );
+
+    my $result = HUEBridge_Call($hash, undef, "sensors/$arg/$endpoint", $json, 'PUT');
     return $result->{error}{description} if( $result->{error} );
 
     my $code = $name ."-S". $arg;
@@ -636,7 +835,7 @@ HUEBridge_Set($@)
     return undef;
 
   } else {
-    my $list = "active inactive delete creategroup deletegroup savescene deletescene modifyscene scene createrule updaterule deleterule createsensor deletesensor configsensor setsensor deletewhitelist touchlink:noArg checkforupdate:noArg autodetect:noArg autocreate:noArg statusRequest:noArg";
+    my $list = "active inactive delete creategroup deletegroup savescene deletescene modifyscene scene createrule updaterule deleterule createsensor deletesensor configsensor setsensor updatesensor deletewhitelist touchlink:noArg checkforupdate:noArg autodetect:noArg autocreate:noArg statusRequest:noArg";
     $list .= " swupdate:noArg" if( defined($hash->{updatestate}) && $hash->{updatestate} =~ '^2' );
     return "Unknown argument $cmd, choose one of $list";
   }
@@ -759,8 +958,32 @@ HUEBridge_Get($@)
     $ret = sprintf( "%-20s %-20s %-30s %s\n", "CREATE", "LAST USE", "NAME", "KEY" ) .$ret if( $ret );
     return $ret;
 
+ } elsif($cmd eq 'startup' ) {
+    my $result =  HUEBridge_Call($hash, undef, 'lights', undef);
+    return $result->{error}{description} if( $result->{error} );
+    my $ret = "";
+    foreach my $key ( sort {$a<=>$b} keys %{$result} ) {
+      my $code = $name ."-". $key;
+      my $fhem_name ="";
+      $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
+      $ret .= sprintf( "%2i: %-25s %-15s %s", $key, $result->{$key}{name}, $fhem_name );
+      if( !$result->{$key}{config} || !$result->{$key}{config}{startup} ) {
+        $ret .= "not supported";
+      } else {
+        $ret .= sprintf( "%s\t%s", $result->{$key}{config}{startup}{mode}, $result->{$key}{config}{startup}{configured} );
+      }
+      $ret .= "\n";
+    }
+    $ret = sprintf( "%2s  %-25s %-15s %s\t%s\n", "ID", "NAME", "FHEM", "MODE", "CONFIGURED" ) .$ret if( $ret );
+    return $ret;
+
   } else {
-    return "Unknown argument $cmd, choose one of lights:noArg groups:noArg scenes:noArg rule rules:noArg sensors:noArg whitelist:noArg";
+    my $list = "lights:noArg groups:noArg scenes:noArg rule rules:noArg sensors:noArg whitelist:noArg";
+    if( $hash->{helper}{apiversion} && $hash->{helper}{apiversion} >= (1<<16) + (26<<8) ) {
+      $list .= " startup:noArg";
+    }
+
+    return "Unknown argument $cmd, choose one of $list";
   }
 }
 
@@ -773,6 +996,10 @@ HUEBridge_GetUpdate($)
   if(!$hash->{LOCAL}) {
     RemoveInternalTimer($hash);
     InternalTimer(gettimeofday()+$hash->{INTERVAL}, "HUEBridge_GetUpdate", $hash, 0);
+  }
+
+  if( $hash->{websocketport} && !$hash->{PORT} ) {
+    HUEBridge_openWebsocket($hash);
   }
 
   my $type;
@@ -799,6 +1026,112 @@ HUEBridge_GetUpdate($)
   #HUEBridge_Parse($hash, $result);
 
   return undef;
+}
+
+my %dim_values = (
+   0 => "dim06%",
+   1 => "dim12%",
+   2 => "dim18%",
+   3 => "dim25%",
+   4 => "dim31%",
+   5 => "dim37%",
+   6 => "dim43%",
+   7 => "dim50%",
+   8 => "dim56%",
+   9 => "dim62%",
+  10 => "dim68%",
+  11 => "dim75%",
+  12 => "dim81%",
+  13 => "dim87%",
+  14 => "dim93%",
+);
+sub
+HUEBridge_updateGroups($$)
+{
+  my($hash,$lights) = @_;
+  my $name = $hash->{NAME};
+  my $createGroupReadings = AttrVal($hash->{NAME},"createGroupReadings",undef);
+  return if( !defined($createGroupReadings) );
+  $createGroupReadings = ($createGroupReadings eq "1");
+
+  my $groups = {};
+  foreach my $light ( split(',', $lights) ) {
+    foreach my $chash ( values %{$modules{HUEDevice}{defptr}} ) {
+      next if( !$chash->{IODev} );
+      next if( !$chash->{lights} );
+      next if( $chash->{IODev}{NAME} ne $name );
+      next if( $chash->{helper}{devtype} ne 'G' );
+      next if( ",$chash->{lights}," !~ m/,$light,/ );
+      next if( $createGroupReadings && !AttrVal($chash->{NAME},"createGroupReadings", 1) );
+      next if( !$createGroupReadings && !AttrVal($chash->{NAME},"createGroupReadings", undef) );
+
+      $groups->{$chash->{ID}} = $chash;
+    }
+  }
+
+  foreach my $chash ( values %{$groups} ) {
+    my $count = 0;
+    my %readings;
+    foreach my $light ( split(',', $chash->{lights}) ) {
+      next if( !$light );
+      my $current = $modules{HUEDevice}{defptr}{"$name-$light"}{helper};
+
+      $readings{ct} += $current->{ct};
+      $readings{bri} += $current->{bri};
+      $readings{pct} += $current->{pct};
+      $readings{sat} += $current->{sat};
+
+      $readings{on} |= ($current->{on}?'1':'0');
+      $readings{reachable} |= ($current->{reachable}?'1':'0');
+
+      if( !defined($readings{alert}) ) {
+        $readings{alert} = $current->{alert};
+      } elsif( $readings{alert} ne $current->{alert} ) {
+        $readings{alert} = "nonuniform";
+      }
+      if( !defined($readings{colormode}) ) {
+        $readings{colormode} = $current->{colormode};
+      } elsif( $readings{colormode} ne $current->{colormode} ) {
+        $readings{colormode} = "nonuniform";
+      }
+      if( !defined($readings{effect}) ) {
+        $readings{effect} = $current->{effect};
+      } elsif( $readings{effect} ne $current->{effect} ) {
+        $readings{effect} = "nonuniform";
+      }
+
+      ++$count;
+    }
+    $readings{ct} = int($readings{ct} / $count + 0.5);
+    $readings{bri} = int($readings{bri} / $count + 0.5);
+    $readings{pct} = int($readings{pct} / $count + 0.5);
+    $readings{sat} = int($readings{sat} / $count + 0.5);
+
+    if( $readings{on} ) {
+      if( $readings{pct} > 0
+          && $readings{pct} < 100  ) {
+        $readings{state} = $dim_values{int($readings{pct}/7)};
+      }
+      $readings{state} = 'off' if( $readings{pct} == 0 );
+      $readings{state} = 'on' if( $readings{pct} == 100 );
+
+    } else {
+      $readings{pct} = 0;
+      $readings{state} = 'off';
+    }
+    $readings{onoff} =  $readings{on};
+    delete $readings{on};
+
+    readingsBeginUpdate($chash);
+      foreach my $key ( keys %readings ) {
+        if( defined($readings{$key}) ) {
+          readingsBulkUpdate($chash, $key, $readings{$key}, 1) if( !defined($chash->{helper}{$key}) || $chash->{helper}{$key} ne $readings{$key} );
+          $chash->{helper}{$key} = $readings{$key};
+        }
+      }
+    readingsEndUpdate($chash,1);
+  }
+
 }
 
 sub
@@ -944,7 +1277,8 @@ HUEBridge_Autocreate($;$)
   return "created $autocreated devices";
 }
 
-sub HUEBridge_ProcessResponse($$)
+sub
+HUEBridge_ProcessResponse($$)
 {
   my ($hash,$obj) = @_;
   my $name = $hash->{NAME};
@@ -952,14 +1286,12 @@ sub HUEBridge_ProcessResponse($$)
   #Log3 $name, 3, ref($obj);
   #Log3 $name, 3, "Receiving: " . Dumper $obj;
 
-  if( ref($obj) eq 'ARRAY' )
-    {
-      if( defined($obj->[0]->{error}))
-        {
-          my $error = $obj->[0]->{error}->{'description'};
+  if( ref($obj) eq 'ARRAY' ) {
+    if( defined($obj->[0]->{error})) {
+      my $error = $obj->[0]->{error}->{'description'};
 
-          readingsSingleUpdate($hash, 'lastError', $error, 1 );
-        }
+      readingsSingleUpdate($hash, 'lastError', $error, 1 );
+    }
 
     if( !AttrVal( $name,'queryAfterSet', 1 ) ) {
       my $successes;
@@ -984,7 +1316,6 @@ sub HUEBridge_ProcessResponse($$)
                   $successes++;
                 }
               }
-
             }
           }
 
@@ -995,23 +1326,26 @@ sub HUEBridge_ProcessResponse($$)
         }
       }
 
+      my $changed = "";
       foreach my $id ( keys %json ) {
         my $code = $name ."-". $id;
         if( my $chash = $modules{HUEDevice}{defptr}{$code} ) {
           #$json{$id}->{state}->{reachable} = 1;
-          HUEDevice_Parse( $chash, $json{$id} );
+          if( HUEDevice_Parse( $chash, $json{$id} ) ) {
+            $changed .= "," if( $changed );
+            $changed .= $chash->{ID};
+          }
         }
       }
+      HUEBridge_updateGroups($hash, $changed) if( $changed );
     }
 
-      #return undef if( !$errors && $successes );
+    #return undef if( !$errors && $successes );
 
-      return ($obj->[0]);
-    }
-  elsif( ref($obj) eq 'HASH' )
-    {
-      return $obj;
-    }
+    return ($obj->[0]);
+  } elsif( ref($obj) eq 'HASH' ) {
+    return $obj;
+  }
 
   return undef;
 }
@@ -1079,7 +1413,7 @@ HUEBridge_HTTP_Call($$$;$)
 
   #return { state => {reachable => 0 } } if($attr{$name} && $attr{$name}{disable});
 
-  my $uri = "http://" . $hash->{Host} . "/api";
+  my $uri = "http://" . $hash->{host} . "/api";
   if( defined($obj) ) {
     $method = 'PUT' if( !$method );
 
@@ -1097,7 +1431,7 @@ HUEBridge_HTTP_Call($$$;$)
   }
   #Log3 $name, 3, "Url: " . $uri;
   Log3 $name, 4, "using HUEBridge_HTTP_Request: $method ". ($path?$path:'');
-  my $ret = HUEBridge_HTTP_Request(0,$uri,$method,undef,$obj,$hash->{noshutdown});
+  my $ret = HUEBridge_HTTP_Request(0,$uri,$method,undef,$obj,AttrVal($name,'noshutdown', 1));
   #Log3 $name, 3, Dumper $ret;
   if( !defined($ret) ) {
     return undef;
@@ -1133,7 +1467,7 @@ HUEBridge_HTTP_Call2($$$$;$)
 
   #return { state => {reachable => 0 } } if($attr{$name} && $attr{$name}{disable});
 
-  my $url = "http://" . $hash->{Host} . "/api";
+  my $url = "http://" . $hash->{host} . "/api";
   my $blocking = $attr{$name}{httpUtils} < 1;
   $blocking = 1 if( !defined($chash) );
   if( defined($obj) ) {
@@ -1163,7 +1497,7 @@ HUEBridge_HTTP_Call2($$$$;$)
       url => $url,
       timeout => 4,
       method => $method,
-      noshutdown => $hash->{noshutdown},
+      noshutdown => AttrVal($name,'noshutdown', 1),
       header => "Content-Type: application/json",
       data => $obj,
     });
@@ -1193,7 +1527,7 @@ HUEBridge_HTTP_Call2($$$$;$)
       url => $url,
       timeout => 10,
       method => $method,
-      noshutdown => $hash->{noshutdown},
+      noshutdown => AttrVal($name,'noshutdown', 1),
       header => "Content-Type: application/json",
       data => $obj,
       hash => $hash,
@@ -1236,21 +1570,20 @@ HUEBridge_dispatch($$$;$)
 
     my $type = $param->{type};
 
-    if( ref($json) eq 'ARRAY' )
-      {
-        HUEBridge_ProcessResponse($hash,$json) if( !$queryAfterSet );
+    if( ref($json) eq 'ARRAY' ) {
+      HUEBridge_ProcessResponse($hash,$json) if( !$queryAfterSet );
 
-        if( defined($json->[0]->{error}))
-          {
-            my $error = $json->[0]->{error}->{'description'};
+      if( defined($json->[0]->{error}))
+        {
+          my $error = $json->[0]->{error}->{'description'};
 
-            readingsSingleUpdate($hash, 'lastError', $error, 1 );
+          readingsSingleUpdate($hash, 'lastError', $error, 1 );
 
-            Log3 $name, 3, $error;
-          }
+          Log3 $name, 3, $error;
+        }
 
-        #return ($json->[0]);
-      }
+      #return ($json->[0]);
+    }
 
     if( $hash == $param->{chash} ) {
       if( !defined($type) ) {
@@ -1289,17 +1622,22 @@ HUEBridge_dispatch($$$;$)
       }
 
       if( $type eq 'lights' ) {
+        my $changed = "";
         my $lights = $json;
         foreach my $id ( keys %{$lights} ) {
           my $code = $name ."-". $id;
           my $chash = $modules{HUEDevice}{defptr}{$code};
 
           if( defined($chash) ) {
-            HUEDevice_Parse($chash,$lights->{$id});
+            if( HUEDevice_Parse($chash,$lights->{$id}) ) {
+              $changed .= "," if( $changed );
+              $changed .= $chash->{ID};
+            }
           } else {
             Log3 $name, 2, "$name: message for unknow device received: $code";
           }
         }
+        HUEBridge_updateGroups($hash, $changed) if( $changed );
 
       } elsif( $type =~ m/^config$/ ) {
         HUEBridge_Parse($hash,$json);
@@ -1311,7 +1649,9 @@ HUEBridge_dispatch($$$;$)
       }
 
     } elsif( $type =~ m/^lights\/(\d*)$/ ) {
-      HUEDevice_Parse($param->{chash},$json);
+      if( HUEDevice_Parse($param->{chash},$json) ) {
+        HUEBridge_updateGroups($hash, $param->{chash}{ID});
+      }
 
     } elsif( $type =~ m/^groups\/(\d*)$/ ) {
       HUEDevice_Parse($param->{chash},$json);
@@ -1464,19 +1804,6 @@ HUEBridge_Attr($$$)
 
     readingsSingleUpdate($hash, 'state', IsDisabled($name)?'disabled':'active', 1 );
     HUEBridge_OpenDev($hash) if( !IsDisabled($name) );
-  } elsif( $attrName eq "noshutdown" ) {
-    my $hash = $defs{$name};
-
-    if( $cmd eq 'set' ) {
-      $hash->{noshutdown} = $attrVal;
-
-    } else {
-      if( defined($hash->{manufacturer}) ) {
-        $hash->{noshutdown} = ($hash->{manufacturer} =~ /dresden elektronik/i)?1:0;
-      } else {
-        $hash->{noshutdown} = ($hash->{name} =~ /deCONZ-GW|RaspBee/i)?1:0;
-      }
-    }
 
   }
 
@@ -1545,6 +1872,8 @@ HUEBridge_Attr($$$)
       list the groups known to the bridge.</li>
     <li>scenes [detail]<br>
       list the scenes known to the bridge.</li>
+    <li>startup<br>
+      show startup behavior of all known lights</li>
     <li>rule &lt;id&gt; <br>
       list the rule with &lt;id&gt;.</li>
     <li>rules [detail] <br>
@@ -1562,8 +1891,8 @@ HUEBridge_Attr($$$)
       Create fhem devices for all bridge devices.</li>
     <li>autodetect<br>
       Initiate the detection of new ZigBee devices. After aproximately one minute any newly detected
-      devices can be listed with <code>get <bridge> devices</code> and the corresponding fhem devices
-      can be created by <code>set <bridge> autocreate</code>.</li>
+      devices can be listed with <code>get &lt;bridge&gt; devices</code> and the corresponding fhem devices
+      can be created by <code>set &lt;bridge&gt; autocreate</code>.</li>
     <li>delete &lt;name&gt;|&lt;id&gt;<br>
       Deletes the given device in the bridge and deletes the associated fhem device.</li>
     <li>creategroup &lt;name&gt; &lt;lights&gt;<br>
@@ -1590,6 +1919,8 @@ HUEBridge_Attr($$$)
       Write sensor config data.</li>
     <li>setsensor &lt;id&gt; &lt;json&gt;<br>
       Write CLIP sensor status data.</li>
+    <li>updatesensor &lt;id&gt; &lt;json&gt;<br>
+      Write sensor toplevel data.</li>
     <li>deletewhitelist &lt;key&gt;<br>
       Deletes the given key from the whitelist in the bridge.</li>
     <li>touchlink<br>
@@ -1603,14 +1934,14 @@ HUEBridge_Attr($$$)
       available (indicated by updatestate with a value of 2. The version and release date is shown in the reading swupdate.<br>
       A notify of the form <code>define HUEUpdate notify bridge:swupdate.* {...}</code>
       can be used to be informed about available firmware updates.<br></li>
-    <li>inactive<br>                           
-      inactivates the current device. note the slight difference to the 
+    <li>inactive<br>
+      inactivates the current device. note the slight difference to the
       disable attribute: using set inactive the state is automatically saved
       to the statefile on shutdown, there is no explicit save necesary.<br>
       this command is intended to be used by scripts to temporarily
-      deactivate the harmony device.<br> 
+      deactivate the harmony device.<br>
       the concurrent setting of the disable attribute is not recommended.</li>
-    <li>active<br>                             
+    <li>active<br>
       activates the current device (see inactive).</li>
   </ul><br>
 
@@ -1619,17 +1950,24 @@ HUEBridge_Attr($$$)
   <ul>
     <li><a href="#disable">disable</a></li>
     <li><a href="#disabledForIntervals">disabledForIntervals</a></li>
+    <li>httpUtils<br>
+      0 -> use HttpUtils_BlockingGet<br>
+      1 -> use HttpUtils_NonblockingGet<br>
+      not set -> use old module specific implementation</li>
     <li>pollDevices<br>
       1 -> the bridge will poll all lights in one go instead of each device polling itself independently<br>
       2 -> the bridge will poll all devices in one go instead of each device polling itself independently<br>
       default is 1.</li>
+    <li>createGroupReadings<br>
+      create 'artificial' readings for group devices.</li>
+      0 -> create readings only for group devices where createGroupReadings ist set to 1
+      1 -> create readings for all group devices where createGroupReadings ist not set or set to 1
+      undef -> do nothing
     <li>queryAfterSet<br>
       the bridge will request the real device state after a set command. default is 1.</li>
     <li>noshutdown<br>
       Some bridge devcies require a different type of connection handling. raspbee/deconz only works if the connection
-      is not immediately closed, the phillips hue bridge works better if the connection is immediately closed. This module
-      tries to autodetect the bridge device type. the type of connection handling can be seen in the noshutdown internal
-      and can be overwritten with the noshutdown attribute.</li>
+      is not immediately closed, the phillips hue bridge now shows the same behavior. so this is now the default.  </li>
   </ul><br>
 </ul><br>
 

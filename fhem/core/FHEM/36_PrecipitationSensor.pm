@@ -1,4 +1,4 @@
-# $Id: 36_PrecipitationSensor.pm 15380 2017-11-03 03:43:40Z HCS $
+# $Id: 36_PrecipitationSensor.pm 18151 2019-01-05 22:49:48Z HCS $
 
 package main;
 
@@ -268,15 +268,7 @@ sub PrecipitationSensor_Ready($) {
   my ($hash) = @_;
   my $name = $hash->{NAME};
   
-  PrecipitationSensor_Connect($hash, 1);
-  
-  # This is relevant for windows/USB only
-  my $po = $hash->{USBDev};
-  my ($BlockingFlags, $InBytes, $OutBytes, $ErrorFlags);
-  if($po) {
-    ($BlockingFlags, $InBytes, $OutBytes, $ErrorFlags) = $po->status;
-  }
-  return ($InBytes && $InBytes>0);
+  return PrecipitationSensor_Connect($hash, 1);
 }
 
 #=======================================================================================
@@ -409,8 +401,12 @@ sub PrecipitationSensor_Connect($;$) {
   my $enabled = AttrVal($name, "disable", "0") != "1" && !defined($hash->{helper}{FLASHING});
   if($enabled) {
     $hash->{nextOpenDelay} = 2;
-    my $ret = DevIo_OpenDev($hash, $mode, "PrecipitationSensor_DoInit");
+    my $ret = DevIo_OpenDev($hash, $mode, "PrecipitationSensor_DoInit", sub($$){
+      my ($hash, $error) = @_;
+      ####Log 3, $hash->{NAME} . " " . $error;
+    });
     return $ret;
+    
   }
   
   return undef;

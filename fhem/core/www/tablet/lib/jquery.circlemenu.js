@@ -55,7 +55,7 @@
                 'bottom-right':[0,90]
             },
             dir;
-
+        
         self._state = 'closed';
         self._locked = false;
         self.element.addClass(pluginName+'-closed');
@@ -84,6 +84,7 @@
 
             $item.data('plugin_'+pluginName+'-pos-x', x);
             $item.data('plugin_'+pluginName+'-pos-y', y);
+            
             $item.on(self.options.close_event, function(){
                 self.select(index+2);
             });
@@ -262,7 +263,7 @@
         $items.attr('style','');
         $items.css({
             'display': 'block',
-            'width': (self.options.item_width) ? self.options.item_width : 'auto',
+            'width': (self.options.item_width) ? self.options.item_width : '4em',
             'height': (self.options.item_height) ? self.options.item_height : self.options.item_diameter + unit,
             'text-align': 'center',
             'line-height': self.options.item_diameter + unit,

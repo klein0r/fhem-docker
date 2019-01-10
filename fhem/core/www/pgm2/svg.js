@@ -1,6 +1,7 @@
 "use strict";
-FW_version["svg.js"] = "$Id: svg.js 13579 2017-03-02 12:39:59Z rudolfkoenig $";
+FW_version["svg.js"] = "$Id: svg.js 17699 2018-11-07 11:04:58Z rudolfkoenig $";
 
+var svgCallback={};
 if(!svgNS) {
   var svgNS = "http://www.w3.org/2000/svg";
   var svg_initialized={}, lastHidden;
@@ -53,8 +54,11 @@ svg_prepareHash(el)
 {
   var obj = { y_mul:0,y_h:0,y_min:0, decimals:0,
               t_mul:0,x_off:0,x_min:0, x_mul:0, log_scale:undefined };
-  for(var name in obj)
-    obj[name] = parseFloat($(el).attr(name));
+  for(var name in obj) {
+    var n = $(el).attr(name);
+    if(n)
+      obj[name] = parseFloat(n);
+  }
   return obj;
 }
 
@@ -64,14 +68,20 @@ svg_click(evt)
   var t = evt.target;
   var o = svg_prepareHash(t);
 
-  var y_org = (((o.y_h-evt.clientY)/o.y_mul)+o.y_min).toFixed(o.decimals);
-  var d = new Date((((evt.clientX-o.x_min)/o.t_mul)+o.x_off) * 1000);
+  var svg=$(t).closest("svg"), x=evt.clientX, y=evt.clientY;
+  if($(svg).parent().length) { // isEmbed=0
+    var off = $(svg).offset();
+    x -= off.left;
+    y -= off.top;
+  }
+
+  var y_org = (((o.y_h-y)/o.y_mul)+o.y_min).toFixed(o.decimals);
+  var d = new Date((((x-o.x_min)/o.t_mul)+o.x_off) * 1000);
   var ts = (d.getHours() < 10 ? '0' : '') + d.getHours() + ":"+
            (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
 
-  
-  var tl = t.ownerDocument.getElementById('svg_title');
-  tl.firstChild.nodeValue = t.getAttribute("title")+": "+y_org+" ("+ts+")";
+  var tl = $(t).closest("svg").find("#svg_title");
+  $(tl).html($(t).attr("title")+": "+y_org+" ("+ts+")");
 }
 
 function
@@ -83,6 +93,12 @@ sv_menu(evt, embed)
   var lid = $(label).attr("line_id");
   var sel = $(svg).find("#"+lid);
   var selNode = $(sel).get(0);
+
+  // horizintalLine* consists of a list of lines, too much work do handle
+  // it.
+  if(!selNode)
+    return;
+
   var tl = $(svg).find("#svg_title");
   var par = svgNode.par;
 
@@ -218,8 +234,10 @@ sv_menu(evt, embed)
 
           par.div = $('<div id="svgmarker">');
           par.divoffY = $(embed ? embed : svg).offset().top -
-                       $("#content").offset().top-50;
-          $("#content").append(par.div);
+                       $("#content").offset().top-50 +
+                       $("#content").scrollTop();
+          var parent = (embed ? $(embed).parent() : $(svg).parent()); 
+          $(parent).append(par.div);
 
           var pl = selNode[arrName];
           if(!pl)
@@ -343,6 +361,8 @@ svg_init_one(embed, svg)
     return;
   svg_initialized[sid] = true;
   $("text.legend", svg).click(function(e){sv_menu(e, embed)});
+  for(var i in svgCallback)
+    svgCallback[i](svg);
 }
 
 function
@@ -352,7 +372,7 @@ svg_init(par)    // also called directly from perl, in race condition
     var e = this;
     var src = $(e).attr("src");
     var ed = FW_getSVG(e);
-    if(src.indexOf("SVG_showLog") < 0 || !ed)
+    if(!src || src.indexOf("SVG_showLog") < 0 || !ed)
       return;
     var sTag = $("svg", ed)[0]; // "not well-formed" warning in FireFox
     if((par && $(sTag).attr("id") != par))

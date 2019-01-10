@@ -1,4 +1,4 @@
-// $Id: fhemweb_weekprofile.js 13978 2017-04-12 21:02:36Z Risiko $
+FW_version["fhemweb_weekprofile.js"] = "$Id: fhemweb_weekprofile.js 18161 2019-01-06 12:11:26Z Risiko $";
 
 var language = 'de';
 //for tooltip
@@ -199,9 +199,12 @@ function FW_weekprofileRestoreTopic(devName,bnt)
   FW_weekprofileInputDialog(["<p>Restore topic: '"+widget.CURTOPIC+"'&nbsp;?</p>"],["hidden"],null,bnt,function(name,ok){
     if (ok == 1)
         FW_cmd(FW_root+'?cmd=set '+devName+' restore_topic '+widget.CURTOPIC+'&XHR=1',function(data){
-        console.log(devName+" error restore topic '" +data+"'");
-        FW_errmsg(devName+" error restore topic '" +data+"'",5000);
-        return;
+        if (data != "")
+        {
+			console.log(devName+" error restore topic '" +data+"'");
+			FW_errmsg(devName+" error restore topic '" +data+"'",5000);
+			return;
+		}
       });
     });
 }
@@ -223,7 +226,7 @@ function FW_weekprofileSendToDev(devName,bnt)
       var selected = [];
       if (widget.MASTERDEV)
         selected.push(widget.MASTERDEV);
-      FW_weekprofileMultiSelDialog("<span>Device(s):</span>",devicesNames,devicesAlias,selected,1,bnt, 
+      FW_weekprofileMultiSelDialog("Device(s):",devicesNames,devicesAlias,selected,1,bnt, 
         function(sndDevs) {
           if (!sndDevs || sndDevs.length==0)
             return;
@@ -509,7 +512,7 @@ function FW_weekprofileTransDay(devName,day,bnt)
     }
   }
   var selected = [];  
-  FW_weekprofileMultiSelDialog("<span>Days(s):</span>",dayNames,dayAlias,selected,0,bnt, 
+  FW_weekprofileMultiSelDialog("Days(s):",dayNames,dayAlias,selected,0,bnt, 
       function(selDays) {
         if (!selDays || selDays.length==0)
           return;
@@ -563,12 +566,19 @@ function FW_weekprofileEditDay(widget,day)
     //temp
     var tempOn = widget.TEMP_ON;
     var tempOff = widget.TEMP_OFF;
-    
+
     if (tempOn == null)
       tempOn = 30;
     
     if (tempOff == null)
       tempOff = 5;
+      
+    if (tempOff > tempOn)
+    {
+		var tmp = tempOn;
+		tempOn = tempOff;
+		tempOff = tmp;
+	}
     
     html += "<td><select name=\"TEMP\" size=\"1\" onchange=\"FW_weekprofileTemp_chached(this)\">";
     for (var k=tempOff; k <= tempOn; k+=.5)
@@ -617,11 +627,11 @@ function FW_weekprofileEditWeek(widget)
     }
   }
   
-  tr.append("<td><table><tr>");
+  tr.append("<td valign=\"bottom\"><table><tr>");
   tr = tr.find("tr:last");
   
-  tr.append("<td><input type=\"button\" value=\""+FW_GetTranslation(widget,'Speichern')+"\" onclick=\"FW_weekprofilePrepAndSendProf('"+widget.DEVICE+"')\">");
-  tr.append("<td><input type=\"button\" value=\""+FW_GetTranslation(widget,'Abbrechen')+"\" onclick=\"FW_weekprofileEditAbort('"+widget.DEVICE+"')\">");
+  tr.append("<td><input style=\"margin:2px\" type=\"button\" value=\""+FW_GetTranslation(widget,'Speichern')+"\" onclick=\"FW_weekprofilePrepAndSendProf('"+widget.DEVICE+"')\">");
+  tr.append("<td><input style=\"margin:2px\" type=\"button\" value=\""+FW_GetTranslation(widget,'Abbrechen')+"\" onclick=\"FW_weekprofileEditAbort('"+widget.DEVICE+"')\">");
 }
 
 function FW_weekprofileSendCallback(devName, data)
@@ -685,9 +695,13 @@ function FW_weekprofileBack(widget)
   if (widget.JMPBACK){
     var isInIframe = (window.location != window.parent.location) ? true : false;
     if (isInIframe) {
-      parent.history.back();
+      parent.history.back();      
     } else
-      window.history.back();
+      if (document.referrer) {
+            window.location.assign(document.referrer)
+      } else {
+        window.history.back() //maybe problems with reload
+        }       
   }
   else {
     widget.MODE = "SHOW";
@@ -819,7 +833,7 @@ FW_weekprofileCreate(elName, devName, vArr, currVal, set, params, cmd)
   widget.MENU = new Object();
   widget.MENU.BASE = $(widget.HEADER).find('div[id*="menu.base"]').get(0);  
   
-  var menuContent = '<td style="display:inline;padding:0px;margin:0px;"><div id="weekprofile.menu.content"></td>';
+  var menuContent = '<td style="padding:0px;margin:0px;"><div id="weekprofile.menu.content"></td>';
   $(widget.MENU.BASE.parentElement.parentElement).append(menuContent);
   widget.MENU.CONTENT = $(widget.HEADER).find('div[id*="menu.content"]').get(0);
   
@@ -877,3 +891,15 @@ FW_weekprofileCreate(elName, devName, vArr, currVal, set, params, cmd)
 FW_widgets['weekprofile'] = {
   createFn:FW_weekprofileCreate,
 };
+
+/*
+=pod
+=begin html
+
+=end html
+
+=begin html_DE
+
+=end html_DE
+=cut
+*/

@@ -12,9 +12,11 @@ var Modul_klimatrend = function () {
 
     function init() {
 
-        me.elements = $('div[data-type="' + me.widgetname + '"]', me.area);
+        me.elements = $('div[data-type="' + me.widgetname + '"]:not([data-ready])', me.area);
         me.elements.each(function (index) {
             var elem = $(this);
+            elem.attr("data-ready", "");
+            
             elem.initData('get', elem.data('get') || 'statTemperatureTendency');
             me.addReading(elem, 'get');
         });
@@ -57,6 +59,10 @@ var Modul_klimatrend = function () {
                     var sign = text.replace(/^([+-]).*/, '$1');
                     var reading = $(this).data('get');
                     var highmark = 99;
+                    var chop = 1 * $(this).data('chop') || 0;
+                    if ( chop > 0 ) {
+                      number = 1 * text.replace(/[+-]([0-9]*)[.]([0-9]).*/, '$1.$2');
+                    }
                     if ($(this).data('highmark')) {
                         highmark = $(this).data('highmark');
                     } else {

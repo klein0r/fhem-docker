@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 15_CUL_EM.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
+# $Id: 15_CUL_EM.pm 16293 2018-02-28 21:33:57Z rudolfkoenig $
 package main;
 
 use strict;
@@ -443,7 +443,7 @@ CUL_EM_Parse($$)
     <li><a href="#eventMap">eventMap</a></li><br>
     <li><a href="#readingFnAttributes">readingFnAttributes</a></li><br>
     <li><a name="maxPeak">maxPeak</a> &lt;number&gt;<br>
-      Gibt den maximal m&ouml;glichen Spitzenwert f&uumlr das EM-Meter an 
+      Gibt den maximal m&ouml;glichen Spitzenwert f&uuml;r das EM-Meter an 
       ("TOP:"-Wert in Logdatei). Spitzenwerte gr&ouml;&szlig;er als dieser 
       Wert gelten als EM-Lesefehler und werden ignoriert.
       Wenn es z.B. nicht m&ouml;glich ist mehr zu 40kW Leistung 

@@ -1,4 +1,4 @@
-# $Id: 31_MilightDevice.pm 11177 2016-04-03 11:40:34Z markus-m $
+# $Id: 31_MilightDevice.pm 16085 2018-02-04 18:35:23Z mattwire $
 ##############################################
 #
 #     31_MilightDevice.pm (Based on 32_WifiLight.pm by hermannj)
@@ -2354,6 +2354,8 @@ sub MilightDevice_roundfunc($) {
 1;
 
 =pod
+=item device
+=item summary This module represents a Milight LED Bulb or LED strip controller
 =begin html
 
 <a name="MilightDevice"></a>

@@ -2,10 +2,12 @@ FROM java:8-jdk
 
 MAINTAINER Matthias Kleine <info@haus-automatisierung.com>
 
-RUN mkdir -p /opt/habridge && wget https://github.com/bwssytems/ha-bridge/releases/download/v4.1.4/ha-bridge-4.1.4.jar -O /opt/habridge/ha-bridge-4.1.4.jar
+ENV BRIDGE_VERSION 5.2.1
 
-RUN echo Europe/Berlin > /etc/timezone && dpkg-reconfigure tzdata
+RUN mkdir -p /opt/habridge && wget https://github.com/bwssytems/ha-bridge/releases/download/v${BRIDGE_VERSION}/ha-bridge-${BRIDGE_VERSION}.jar -O /opt/habridge/ha-bridge-${BRIDGE_VERSION}.jar
+
+RUN unlink /etc/localtime && ln -s /usr/share/zoneinfo/Europe/Berlin /etc/localtime && dpkg-reconfigure tzdata
 
 WORKDIR "/opt/habridge"
 
-CMD java -jar ha-bridge-4.1.4.jar
+CMD java -jar ha-bridge-${BRIDGE_VERSION}.jar

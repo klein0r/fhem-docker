@@ -1,6 +1,6 @@
 "use strict";
 var FW_version={};
-FW_version["fhemweb.js"] = "$Id: fhemweb.js 15228 2017-10-10 17:34:56Z rudolfkoenig $";
+FW_version["fhemweb.js"] = "$Id: fhemweb.js 17826 2018-11-23 10:40:33Z rudolfkoenig $";
 
 var FW_serverGenerated;
 var FW_serverFirstMsg = (new Date()).getTime()/1000;
@@ -10,8 +10,17 @@ var FW_isiOS = navigator.userAgent.match(/(iPad|iPhone|iPod)/);
 var FW_scripts = {}, FW_links = {};
 var FW_docReady = false, FW_longpollType, FW_csrfToken, FW_csrfOk=true;
 var FW_root = "/fhem";  // root
-var FW_availableJs=[];
+var FW_availableJs={};
+var FW_urlParams={};
 var embedLoadRetry = 100;
+var FW_os = "unknown";
+
+if(FW_isiOS) { FW_os = "iOS";
+} else if(navigator.userAgent.indexOf("Android") >= 0) { FW_os = "android";
+} else if(navigator.userAgent.indexOf("OS X")    >= 0) { FW_os = "osx";
+} else if(navigator.userAgent.indexOf("Windows") >= 0) { FW_os = "windows";
+} else if(navigator.userAgent.indexOf("Linux")   >= 0) { FW_os = "linux";
+}
 
 // createFn returns an HTML Element, which may contain 
 // - setValueFn, which is called when data via longpoll arrives
@@ -71,6 +80,7 @@ FW_jqueryReadyFn()
     return;
   FW_docReady = true;
   FW_serverGenerated = $("body").attr("generated");
+
   FW_longpollType = $("body").attr("longpoll");
   var ajs = $("body").attr("data-availableJs");
   if(ajs) {
@@ -142,20 +152,6 @@ FW_jqueryReadyFn()
     });
   });
 
-  // Replace the FORM-POST in detail-view by XHR
-  /* Inactive, as Internals and Attributes arent auto updated.
-  $("form input[type=submit]").click(function(e) {
-    var cmd = "";
-    $(this).parent().find("[name]").each(function() {
-      cmd += (cmd?"&":"")+$(this).attr("name")+"="+$(this).val();
-    });
-    if(cmd.indexOf("detail=") < 0)
-      return;
-    e.preventDefault();
-    FW_cmd(FW_root+"?"+cmd+"&XHR=1");
-  });
-  */
-
   $("form input.get[type=submit]").click(function(e) { //"get" via XHR to dialog
     e.preventDefault();
     var cmd = "", el=this;
@@ -179,24 +175,29 @@ FW_jqueryReadyFn()
       });
     });
 
-  $("form").each(function(){                             // shutdown handling
+  $("form").each(function(){   // main input special cases
     var input = $(this).find("input.maininput");
     if(!input.length)
       return;
     $(this).on("submit", function(e) {
       var val = $(input).val();
-
-      if(val.match(/^\s*ver.*/)) {
+      if(val.match(/^\s*ver.*/)) {              // version
         e.preventDefault();
         $(input).val("");
         return FW_showVersion(val);
         
-      } else if(val.match(/^\s*shutdown/)) {
+      } else if(val.match(/^\s*shutdown/)) {    // shutdown
         FW_cmd(FW_root+"?XHR=1&cmd="+val);
         $(input).val("");
         return false;
 
-      } else if(val.match(/^\s*get\s+/)) {
+      } else if(val.match(/^\s*l\s/)) {        // l dev
+        var m = val.match(/^\s*l\s+(.*)/);
+        location.href = FW_root+"?detail="+m[1];
+        e.preventDefault();
+        return false;
+
+      } else if(val.match(/^\s*get\s+/)) {      // get
         // make get use xhr instead of reload
         //return true;
         FW_cmd(FW_root+"?cmd="+encodeURIComponent(val)+"&XHR=1", function(data){
@@ -230,10 +231,8 @@ FW_jqueryReadyFn()
         $("#devSpecHelp").remove();
         return;
       }
-      $("#content").append('<div id="devSpecHelp"></div>');
-      FW_cmd(FW_root+"?cmd=help "+dev+"&XHR=1", function(data) {
-        if(!$("#devSpecHelp").length) // FHEM slow, user clicked again, #68166
-          return;
+      FW_getHelp(dev, function(data){
+        $("#content").append('<div id="devSpecHelp"></div>');
         $("#devSpecHelp").html(data);
         var off = $("#devSpecHelp").position().top-20;
         $('body, html').animate({scrollTop:off}, 500);
@@ -262,9 +261,89 @@ FW_jqueryReadyFn()
     $(this).data('delayTimer', wait);
   });
 
+  $("pre.motd").each(function(){ // add links for passwort setting
+    var txt = $(this).text();
+    txt = txt.replace(/(configuring|define|attr) .*/g, function(x) {
+      return "<a href='#'>"+x+"</a>";
+    });
+    $(this).html(txt);
+    $(this).find("a").click(function(){
+      var txt = $(this).text();
+      var ma = txt.match(/configuring.*device (.*)/);   // ??
+      if(ma)
+        location.href = FW_root+"?detail="+ma[1];
+      FW_cmd(FW_root+"?cmd="+encodeURIComponent(txt)+"&XHR=1",
+        function(data){
+          if(txt.indexOf("attr") == 0) $("pre.motd").html("");
+          if(txt.indexOf("define") == 0)
+            location.href = FW_root+"?detail=allowed";
+        });
+    });
+  });
+
+  var sa = location.search.substring(1).split("&");
+  for(var i = 0; i < sa.length; i++) {
+    var kv = sa[i].split("=");
+    FW_urlParams[kv[0]] = kv[1];
+  }
+
+  $("select[id^=sel_attr],select[id^=sel_set],select[id^=sel_get]")
+  .change(function(){ // online help
+    var val =$(this).val().replace(/[.\/(){}\[\]]/g,function(a){return "\\"+a});
+    var m = $(this).attr("name").match(/arg.(set|get|attr)(.*)/);
+    if(!m)
+      return;
+    $("#devSpecHelp").remove();
+    var sel = this;
+    FW_getHelp(m[2], function(data) { // show either the next or the outer li
+      $("#content")
+        .append("<div id='workbench' style='display:none'></div>");
+      $("#content > #workbench").html(data);
+      var aTag = $("#content > #workbench").find("a[name="+val+"]");
+      if($(aTag).length) {
+        var liTag = $(aTag).next("li");
+        if(!$(liTag).length)
+          liTag = $(aTag).parent("li");
+        if($(liTag).length) {
+          $(sel).closest("div[cmd='"+m[1]+"']")
+             .after('<div class="makeTable" id="devSpecHelp"></div>')
+          $("#devSpecHelp").html($(liTag).html());
+        }
+      }
+      $("#content > #workbench").remove();
+    });
+  });
+
   FW_smallScreenCommands();
   FW_inlineModify();
   FW_rawDef();
+  FW_treeMenu();
+
+  $("body").attr("data-os", FW_os);
+  // automatic reload for style change
+  if(location.search.indexOf("cmd=style%20select") > 0) {
+    $('a[href*="style set"],a[onclick*="style set"]').each(function(){
+      var href = $(this).attr("href");
+      if(!href && (href = $(this).attr("onclick")))
+        href = href.substr(15,href.length-16);
+      $(this).click(function(e){
+        e.preventDefault();
+        FW_cmd(href+"&XHR=1", function(data) { location.reload(true); });
+      });
+    });
+  }
+}
+
+var FW_helpData;
+function
+FW_getHelp(dev, fn)
+{
+  if(FW_helpData)
+    return fn(FW_helpData);
+  FW_cmd(FW_root+"?cmd=help "+dev+"&XHR=1", function(data) {
+    FW_helpData = data;
+    return fn(FW_helpData);
+  });
 }
 
 function
@@ -443,7 +522,10 @@ FW_csrfRefresh(callback)
 function
 FW_cmd(arg, callback)
 {
-  log("FW_cmd:"+arg);
+  if(arg.length < 120)
+    log("FW_cmd:"+arg);
+  else
+    log("FW_cmd:"+arg.substr(0,120)+"...");
   $.ajax({
     url:addcsrf(arg)+'&fw_id='+$("body").attr('fw_id'),
     method:'POST',
@@ -635,13 +717,10 @@ function
 FW_inlineModify()       // Do not generate a new HTML page upon pressing modify
 {
   var cm;
-	
+
   if( typeof AddCodeMirror == 'function' ) {
     // init codemirror for FW_style edit textarea
-    var s = $('textarea[name="data"]');
-    if( s.length && !s[0].editor ) {
-      s[0].editor = true; AddCodeMirror( s[0] );
-    }
+    AddCodeMirror($('textarea[name="data"]'));
   }
 
   $('#DEFa').click(function(){
@@ -650,9 +729,7 @@ FW_inlineModify()       // Do not generate a new HTML page upon pressing modify
     $('#disp').css('display', old=='none' ? 'none' : 'block');
     if( typeof AddCodeMirror == 'function' ) {
       var s=document.getElementById("edit").getElementsByTagName("textarea");
-      if(!s[0].editor) { 
-        s[0].editor=true; AddCodeMirror(s[0], function(pcm) {cm = pcm;});
-      }
+      AddCodeMirror(s[0], function(pcm) {cm = pcm;});
     }
     });
     
@@ -661,7 +738,7 @@ FW_inlineModify()       // Do not generate a new HTML page upon pressing modify
     var newDef = typeof cm !== 'undefined' ?
                  cm.getValue() : $(this).closest("form").find("textarea").val();
     var cmd = $(this).attr("name")+"="+$(this).attr("value")+" "+newDef;
-    var isDef = true;
+    var isDef = true, reloadIfOk = false;
 
     if(newDef == undefined || $(this).attr("value").indexOf("modify") != 0) {
       isDef = false;
@@ -673,21 +750,27 @@ FW_inlineModify()       // Do not generate a new HTML page upon pressing modify
       var ifid = (devName+"-"+arg).replace(/([^_a-z0-9])/gi,
                                    function(m){ return "\\"+m });
       if($(".dval[informid="+ifid+"]").length == 0) {
-        log("PSC reload");
-        $(this).unbind('click').click();// No element found to replace, reload
-        return;
+        if(cmd == "attr" || (cmd == "set" && arg == "attrTemplate")) {
+          reloadIfOk = true;
+        } else {
+          $(this).unbind('click').click();// No element found to replace, reload
+          return;
+        }
       }
       newDef = $(this).closest("form").find("input:text").val();
       if(newDef == undefined)
         newDef = $(this).closest("form").find("[name^=val]").val();
       cmd = $(this).attr("name")+"="+cmd+" "+devName+" "+arg+" "+newDef;
     }
-
     FW_cmd(FW_root+"?"+encodeURIComponent(cmd)+"&XHR=1", function(resp){
+      if(!resp && reloadIfOk)
+        location.reload();
       if(resp) {
-        resp = FW_htmlQuote(resp);
-        if(resp.indexOf("\n") >= 0)
-          resp = '<pre>'+resp+'</pre>';
+        if(!resp.match(/^<html>[\s\S]*<\/html>/ ) ) {
+          resp = FW_htmlQuote(resp);
+          if(resp.indexOf("\n") >= 0)
+            resp = '<pre>'+resp+'</pre>';
+        }
         return FW_okDialog(resp);
       }
       if(isDef) {
@@ -716,31 +799,54 @@ FW_rawDef()
         $("#rawDef").remove();
         return;
       }
+      var textAreaStyle = typeof AddCodeMirror == 'function'?'opacity:0':'';
 
       $("#content").append('<div id="rawDef">'+
-          '<textarea id="td_rawDef" rows="25" cols="60" style="width:99%"/>'+
+          '<textarea id="td_rawDef" rows="25" cols="60" style="width:99%; '+
+                textAreaStyle+'"/>'+
           '<button>Execute commands</button>'+
           ' Dump "Probably associated with" too <input type="checkbox">'+
-        '</div></br>');
+        '<br><br></div>');
+
+      var cmVar;
 
       function
       fillData(opt)
       {
+        var s = $('#rawDef textarea');
+
         FW_cmd(FW_root+"?cmd=list "+opt+" "+dev+"&XHR=1", function(data) {
           var re = new RegExp("^define", "gm");
           data = data.replace(re, "defmod");
-          $("#rawDef textarea").val(data);
+          s.val(data);
+
           var off = $("#rawDef").position().top-20;
           $('body, html').animate({scrollTop:off}, 500);
           $("#rawDef button").hide();
 
-          $('#rawDef textarea').bind('input propertychange', function() {
+          var propertychange = function() {
             var nData = $("#rawDef textarea").val();
             if(nData != data)
               $("#rawDef button").show();
             else
               $("#rawDef button").hide();
-          });
+          };
+
+          s.bind('input propertychange', propertychange);
+
+          if(cmVar) {
+            cmVar.setValue(data);
+
+          } else if(typeof AddCodeMirror == 'function') {
+            AddCodeMirror(s, function(cm) {
+              cmVar = cm;
+              cm.on("change", function() {
+                s.val(cm.getValue());
+                propertychange();
+              })
+            });
+          }
+
         });
       }
       fillData("-r");
@@ -782,6 +888,98 @@ FW_rawDef()
   });
 }
 
+var FW_arrowDown="", FW_arrowRight="";
+function
+FW_treeMenu()
+{
+  var a = $("a").get(0);
+  var col = 'rgb(39, 135, 38)';
+  if(window.getComputedStyle && a)
+    col = getComputedStyle(a,null).getPropertyValue('color'); 
+  FW_arrowRight = 'data:image/svg+xml;utf8,<svg viewBox="0 0 1792 1792" xmlns="http://www.w3.org/2000/svg"><path fill="gray" d="M1171 960q0 13-10 23l-466 466q-10 10-23 10t-23-10l-50-50q-10-10-10-23t10-23l393-393-393-393q-10-10-10-23t10-23l50-50q10-10 23-10t23 10l466 466q10 10 10 23z"/></svg>'
+      .replace('gray', col);
+  FW_arrowDown =FW_arrowRight.replace('/>',' transform="rotate(90,896,896)"/>');
+
+  var fnd;
+
+  $("div#menu table.room").each(function(){     // one loop per Block
+    var t = this, ma = {};
+    $(t).find("td > div > a > span").each(function(e){
+      var span = this, spanTxt = $(span).text().replace(/,/g,'');
+      var ta = spanTxt.split("->");
+      if(ta.length <= 1)
+        return;
+      fnd = true;
+      var nxt="", lst="", tr=$(span).closest("tr");
+      for(var i1=0; i1<ta.length-1; i1++) {
+        nxt += "->"+ta[i1];
+        if(!ma[nxt]) {
+          $(tr).before("<tr class='menuTree closed level"+i1+"' "+
+              "data-mTree='"+lst+"' data-nxt='"+nxt+"'>"+
+              "<td><div><a href='#'>"+ta[i1]+"</a><div></div></div></td></tr>");
+        }
+        ma[nxt] = true;
+        lst = nxt;
+      }
+      $(span).html(ta[ta.length-1]);
+      $(tr).attr("data-mTree", nxt)
+           .addClass("menuTree level"+(ta.length-1));
+    });
+  });
+
+  if(fnd) {
+    $("head").append(
+      "<style>"+
+        "tr.menuTree { cursor:pointer; }"+
+        "tr.menuTree.level1 > td > div { margin-left:10px; }"+
+        "tr.menuTree.level2 > td > div { margin-left:20px; }"+
+        "tr.menuTree.level3 > td > div { margin-left:30px; }"+
+        "tr.menuTree.open { font-weight: bold; }"+
+        "tr.menuTree > td > div > div { "+
+          "display:inline-block; width:1em; height:1em; float:right;"+
+          "background-size: contain; background-repeat: no-repeat;"+
+        "}"+
+      "</style>");
+    var t = $("div#menu table.room");
+    $(t).find("tr[data-mTree]").not(".level0").hide();
+    $(t).find("tr.menuTree").click(function(){treeClick(this)});
+    $(t).find("tr.menuTree > td > div > div")
+        .css("background-image", "url('"+FW_arrowRight+"')");
+    var selRoom = $("div#content").attr("room");
+    if(selRoom) {
+      var ta = selRoom.split("->"), nxt="";
+      for(var i1=0; i1<ta.length-1; i1++) {
+        nxt += FW_escapeSelector("->"+ta[i1]);
+        treeClick($(t).find("tr.menuTree[data-nxt="+nxt+"]"));
+      }
+    }
+  }
+
+  function
+  treeClick(el)
+  {
+    var tgt = FW_escapeSelector($(el).attr("data-nxt"));
+    if($(el).hasClass("closed")) {
+      $(el).closest("table").find("tr[data-mTree="+tgt+"]").show();
+      $(el).find("div>div").css("background-image", "url('"+FW_arrowDown+"')");
+    } else {
+      $(el).closest("table").find("tr[data-mTree^="+tgt+"]")
+        .hide().addClass("closed");
+      $(el).find("div>div").css("background-image", "url('"+FW_arrowRight+"')");
+    }
+    $(el).toggleClass("closed");
+    $(el).toggleClass("open");
+  };
+}
+
+function
+FW_escapeSelector(s)
+{
+  if(typeof s != 'string')
+    return s;
+  return s.replace(/[ .#\[\]>]/g, function(r) { return '\\'+r });
+}
+
 /*************** LONGPOLL START **************/
 var FW_pollConn;
 var FW_longpollOffset = 0;
@@ -795,6 +993,32 @@ FW_doUpdate(evt)
   var input="";
   var retryTime = 5000;
   var now = new Date()/1000;
+
+  function
+  setValue(d) // is Callable from eval below
+  {
+    $("[informId='"+d[0]+"']").each(function(){
+      if(this.setValueFn) {     // change the select/etc value
+        this.setValueFn(d[1].replace(/\n/g, '\u2424'));
+
+      } else {
+        if(d[2].match(/\n/) && !d[2].match(/<.*>/)) // format multiline
+          d[2] = '<html><pre>'+d[2]+'</pre></html>';
+
+        var ma = /^<html>([\s\S]*)<\/html>$/.exec(d[2]);
+        if(!d[0].match("-")) // not a reading
+          $(this).html(d[2]);
+        else if(ma)
+          $(this).html(ma[1]);
+        else
+          $(this).text(d[2]);
+
+        if(d[0].match(/-ts$/))  // timestamps
+          $(this).addClass('changed');
+        $(this).find("a").each(function() { FW_replaceLink(this) });
+      }
+    });
+  }
 
   // iOS closes HTTP after 60s idle, websocket after 240s idle
   if(now-FW_lastDataTime > 59) {
@@ -815,7 +1039,7 @@ FW_doUpdate(evt)
     input = evt.data;
     FW_longpollOffset = 0;
 
-  } else {
+  } else if(FW_pollConn != undefined) {
     if(FW_pollConn.readyState == 4 && !FW_leaving) {
       if(FW_pollConn.status == "400") {
         location.reload();
@@ -861,27 +1085,7 @@ FW_doUpdate(evt)
       eval(d[1]);
 
     } else {
-      $("[informId='"+d[0]+"']").each(function(){
-        if(this.setValueFn) {     // change the select/etc value
-          this.setValueFn(d[1].replace(/\n/g, '\u2424'));
-
-        } else {
-          if(d[2].match(/\n/))
-            d[2] = '<html><pre>'+d[2]+'</pre></html>';
-
-          var ma = /^<html>([\s\S]*)<\/html>$/.exec(d[2]);
-          if(!d[0].match("-")) // not a reading
-            $(this).html(d[2]);
-          else if(ma)
-            $(this).html(ma[1]);
-          else
-            $(this).text(d[2]);
-
-          if(d[0].match(/-ts$/))  // timestamps
-            $(this).addClass('changed');
-          $(this).find("a").each(function() { FW_replaceLink(this) });
-        }
-      });
+      setValue(d);
     }
 
     // updateLine is deprecated, use setValueFn
@@ -946,13 +1150,8 @@ FW_longpoll()
   }
 
   if(filter == "") {
-    var sa = location.search.substring(1).split("&");
-    for(var i = 0; i < sa.length; i++) {
-      if(sa[i].substring(0,5) == "room=")
-        filter=sa[i];
-      if(sa[i].substring(0,7) == "detail=")
-        filter=sa[i].substring(7);
-    }
+    if(FW_urlParams.room)   filter="room="+FW_urlParams.room;
+    if(FW_urlParams.detail) filter=FW_urlParams.detail;
   }
 
   if($("#floorplan").length>0) //floorplan special
@@ -981,11 +1180,12 @@ FW_longpoll()
 
   var loc = (""+location).replace(/\?.*/,"");
   if(typeof WebSocket == "function" && FW_longpollType == "websocket") {
-    FW_pollConn = new WebSocket(loc.replace(/[&?].*/,'')
+    FW_pollConn = new WebSocket(loc.replace(/[#&?].*/,'')
                                    .replace(/^http/i, "ws")+query);
     FW_pollConn.onclose = 
     FW_pollConn.onerror = 
     FW_pollConn.onmessage = FW_doUpdate;
+    FW_pollConn.onopen = function(){FW_wsPing(FW_pollConn);};
 
   } else {
     FW_pollConn = new XMLHttpRequest();
@@ -1001,6 +1201,16 @@ FW_longpoll()
                 ") with filter "+filter);
 }
 
+
+function
+FW_wsPing(conn) // idle websockets are closed by the browser after 55sec
+{
+  if(!conn || conn.readyState != conn.OPEN)
+    return;
+  conn.send("\n");
+//  setTimeout(function(){FW_wsPing(conn);}, 30000);
+}
+
 /*************** LONGPOLL END **************/
 
 
@@ -1014,6 +1224,8 @@ FW_detailSelect(selEl, mayMissing)
   var selVal = $(selEl).val();
 
   var div = $(selEl).closest("div.makeSelect");
+  if(!div.attr("list"))      // hiddenRoom=input
+    return;
   var arg,
       listArr = $(div).attr("list").split(" "),
       devName = $(div).attr("dev"),
@@ -1062,6 +1274,10 @@ FW_callCreateFn(elName, devName, vArr, currVal, set, params, cmd, finishFn)
     v0 = "uzsu";
   if(FW_availableJs[v0]) {
     loadScript("pgm2/fhemweb_"+v0+".js", function() {
+      if(!FW_widgets[vArr[0]]) {
+        log("ERROR: fhemweb_"+vArr[v0]+".js does not fill FW_widgets");
+        return;
+      }
       if(FW_widgets[vArr[0]].createFn)
         var newEl = FW_widgets[vArr[0]].createFn(elName, devName, vArr,
                                                  currVal, set, params, cmd);
@@ -1113,8 +1329,10 @@ FW_replaceWidget(oldEl,devName,vArr,currVal,reading,set,params,cmd,readyFn)
     $(newEl).addClass(wn+"_widget");
 
     if( $(newEl).find("[informId]").length==0 && !$(newEl).attr("informId") ) {
-      if(reading)
-        $(newEl).attr("informId", devName+"-"+reading);
+      if(reading) {
+        var a = $(oldEl).closest("form").find("input[type=submit][value=attr]");
+        $(newEl).attr("informId", devName+(a.length?"-a-":"-")+reading);
+      }
       var addTitle = $("body").attr("data-addHtmlTitle");
       if(reading != "state" && addTitle==1)
         $(newEl).attr("title", reading);
@@ -1190,9 +1408,8 @@ FW_createTextField(elName, devName, vArr, currVal, set, params, cmd)
     $("#td_longText").val(txt);
 
     var cm;
-    if(typeof AddCodeMirror == 'function' && !$("#td_longText").get(0).editor) {
-      $("#td_longText").get(0).editor = true;
-      AddCodeMirror($("#td_longText").get(0), function(pcm) {cm = pcm;});
+    if(typeof AddCodeMirror == 'function') {
+      AddCodeMirror($("#td_longText"), function(pcm) {cm = pcm;});
     }
 
     $('#editdlg').dialog(

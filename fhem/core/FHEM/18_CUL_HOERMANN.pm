@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 18_CUL_HOERMANN.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
+# $Id: 18_CUL_HOERMANN.pm 15510 2017-11-27 16:52:44Z rudolfkoenig $
 package main;
 
 use strict;
@@ -10,7 +10,7 @@ CUL_HOERMANN_Initialize($)
 {
   my ($hash) = @_;
 
-  $hash->{Match}     = "^R..........";
+  $hash->{Match}     = "^R..........\$";
   $hash->{DefFn}     = "CUL_HOERMANN_Define";
   $hash->{ParseFn}   = "CUL_HOERMANN_Parse";
   $hash->{SetFn}     = "CUL_HOERMANN_Set";

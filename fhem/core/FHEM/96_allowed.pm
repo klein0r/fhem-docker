@@ -1,11 +1,14 @@
 ##############################################
-# $Id: 96_allowed.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
+# $Id: 96_allowed.pm 17613 2018-10-24 15:37:39Z rudolfkoenig $
 package main;
 
 use strict;
 use warnings;
 use vars qw(@FW_httpheader); # HTTP header, line by line
+use MIME::Base64;
 my $allowed_haveSha;
+
+sub allowed_CheckBasicAuth($$$$);
 
 #####################################
 sub
@@ -18,9 +21,23 @@ allowed_Initialize($)
   $hash->{AuthenticateFn} = "allowed_Authenticate";
   $hash->{SetFn}    = "allowed_Set";
   $hash->{AttrFn}   = "allowed_Attr";
-  $hash->{AttrList} = "disable:0,1 validFor allowedCommands allowedDevices ".
-                        "basicAuth basicAuthMsg password globalpassword ".
-                        "basicAuthExpiry";
+  no warnings 'qw';
+  my @attrList = qw(
+    allowedCommands
+    allowedDevices
+    allowedDevicesRegexp
+    allowedIfAuthenticatedByMe:1,0
+    basicAuth
+    basicAuthExpiry
+    basicAuthMsg
+    disable:1,0
+    globalpassword
+    password
+    validFor
+  );
+  use warnings 'qw';
+  $hash->{AttrList} = join(" ", @attrList)." ".$readingFnAttributes;
+
   $hash->{UndefFn} = "allowed_Undef";
   $hash->{FW_detailFn} = "allowed_fhemwebFn";
 
@@ -50,6 +67,7 @@ allowed_Define($$)
   }
   $auth_refresh = 1;
   readingsSingleUpdate($hash, "state", "validFor:", 0);
+  SecurityCheck() if($init_done);
   return undef;
 }
 
@@ -73,19 +91,30 @@ allowed_Authorize($$$$)
   } else {
     return 0 if(!$me->{validFor} || $me->{validFor} !~ m/\b$cl->{NAME}\b/);
   }
+  return 0 if(AttrVal($me->{NAME}, "allowedIfAuthenticatedByMe", 0) &&
+              (!$cl->{AuthenticatedBy} ||
+                $cl->{AuthenticatedBy} ne $me->{NAME}));
 
   if($type eq "cmd") {
     return 0 if(!$me->{allowedCommands});
     # Return 0: allow stacking with other instances, see Forum#46380
-    return ($me->{allowedCommands} =~ m/\b\Q$arg\E\b/) ? 0 : 2;
+    return 0 if($me->{allowedCommands} =~ m/\b\Q$arg\E\b/);
+    Log3 $me, 3, "Forbidden command $arg for $cl->{NAME}";
+    stacktrace() if(AttrVal($me, "verbose", 5));
+    return 2;
   }
 
   if($type eq "devicename") {
-    return 0 if(!$me->{allowedDevices});
-    return ($me->{allowedDevices} =~ m/\b\Q$arg\E\b/) ? 0 : 2;
+    return 0 if(!$me->{allowedDevices} &&
+                !$me->{allowedDevicesRegexp});
+    return 1 if($me->{allowedDevices} &&
+                $me->{allowedDevices} =~ m/\b\Q$arg\E\b/);
+    return 1 if($me->{allowedDevicesRegexp} &&
+                $arg =~ m/^$me->{allowedDevicesRegexp}$/);
+    Log3 $me, 3, "Forbidden device $arg for $cl->{NAME}";
+    stacktrace() if(AttrVal($me, "verbose", 5));
+    return 2;
   }
-
-
   return 0;
 }
 
@@ -96,6 +125,13 @@ allowed_Authenticate($$$$)
 {
   my ($me, $cl, $param) = @_;
 
+  my $doReturn = sub($$){
+    my ($r,$a) = @_;
+    $cl->{AuthenticatedBy} = $me->{NAME} if($r == 1);
+    $cl->{AuthenticationDeniedBy} = $me->{NAME} if($r == 2 && $a);
+    return $r;
+  };
+
   return 0 if($me->{disabled});
   return 0 if(!$me->{validFor} || $me->{validFor} !~ m/\b$cl->{SNAME}\b/);
   my $aName = $me->{NAME};
@@ -104,6 +140,7 @@ allowed_Authenticate($$$$)
     my $basicAuth = AttrVal($aName, "basicAuth", undef);
     delete $cl->{".httpAuthHeader"};
     return 0 if(!$basicAuth);
+    return 2 if(!$param);
 
     my $FW_httpheader = $param;
     my $secret = $FW_httpheader->{Authorization};
@@ -119,32 +156,13 @@ allowed_Authenticate($$$$)
       }
     }
 
-    my $pwok = ($secret && $secret eq $basicAuth);      # Base64
-    my ($user, $password) = split(":", decode_base64($secret)) if($secret);
-    ($user,$password) = ("","") if(!defined($user) || !defined($password));
-    if($secret && $basicAuth =~ m/^{.*}$/) {
-      eval "use MIME::Base64";
-      if($@) {
-        Log3 $aName, 1, $@;
-
-      } else {
-        $pwok = eval $basicAuth;
-        Log3 $aName, 1, "basicAuth expression: $@" if($@);
-      }
-
-    } elsif($basicAuth =~ m/^SHA256:(.{8}):(.*)$/) {
-      if($allowed_haveSha) {
-        $pwok = Digest::SHA::sha256_base64("$1:$user:$password") eq $2;
-      } else {
-        Log3 $me, 3, "Cant load Digest::SHA to decode $me->{NAME} beiscAuth";
-      }
-
-    }
+    my $pwok = (allowed_CheckBasicAuth($me, $cl, $secret, $basicAuth) == 1);
 
     # Add Cookie header ONLY if authentication with basicAuth was succesful
     if($pwok && (!defined($authcookie) || $secret ne $authcookie)) {
       my $time = AttrVal($aName, "basicAuthExpiry", 0);
       if ( $time ) {
+        my ($user, $password) = split(":", decode_base64($secret)) if($secret);
         $time = int($time*86400+time());
         # generate timestamp according to RFC-1130 in Expires
         my $expires = FmtDateTimeRFC1123($time);
@@ -161,15 +179,14 @@ allowed_Authenticate($$$$)
       }
     }
 
-    return 1 if($pwok);
+    return &$doReturn(1, 1) if($pwok);
 
     my $msg = AttrVal($aName, "basicAuthMsg", "FHEM: login required");
     $cl->{".httpAuthHeader"} = "HTTP/1.1 401 Authorization Required\r\n".
                                "WWW-Authenticate: Basic realm=\"$msg\"\r\n";
-    return 2;
-  }
+    return &$doReturn(2, $secret);
 
-  if($cl->{TYPE} eq "telnet") {
+  } elsif($cl->{TYPE} eq "telnet") {
     my $pw = AttrVal($aName, "password", undef);
     if(!$pw) {
       $pw = AttrVal($aName, "globalpassword", undef);
@@ -182,20 +199,61 @@ allowed_Authenticate($$$$)
       my $password = $param;
       my $ret = eval $pw;
       Log3 $aName, 1, "password expression: $@" if($@);
-      return ($ret ? 1 : 2);
+      return &$doReturn($ret ? 1 : 2, $param);
 
     } elsif($pw =~ m/^SHA256:(.{8}):(.*)$/) {
       if($allowed_haveSha) {
-        return (Digest::SHA::sha256_base64("$1:$param") eq $2) ? 1 : 2;
+        return &$doReturn(Digest::SHA::sha256_base64("$1:$param") eq $2 ?
+                          1 : 2, $param);
       } else {
         Log3 $me, 3, "Cant load Digest::SHA to decode $me->{NAME} beiscAuth";
       }
     }
 
-    return ($pw eq $param) ? 1 : 2;
-  }
+    return &$doReturn(($pw eq $param) ? 1 : 2, $param);
 
-  return 0;
+  } else {
+    $param =~ m/^basicAuth:(.*)/ if($param);
+    return &$doReturn(allowed_CheckBasicAuth($me, $cl, $1,
+                                AttrVal($aName,"basicAuth",undef)), $param);
+
+  }
+}
+
+sub
+allowed_CheckBasicAuth($$$$)
+{
+  my ($me, $cl, $secret, $basicAuth) = @_;
+
+  return 0 if(!$basicAuth);
+
+  my $aName = $me->{NAME};
+
+  my $pwok = ($secret && $secret eq $basicAuth) ? 1 : 2;      # Base64
+  my ($user, $password) = split(":", decode_base64($secret)) if($secret);
+  ($user,$password) = ("","") if(!defined($user) || !defined($password));
+
+  if($secret && $basicAuth =~ m/^{.*}$/) {
+    $pwok = eval $basicAuth;
+    if($@) {
+      Log3 $aName, 1, "basicAuth expression: $@";
+      $pwok = 2;
+    } else {
+      $pwok = ($pwok ? 1 : 2);
+    }
+
+  } elsif($basicAuth =~ m/^SHA256:(.{8}):(.*)$/) {
+    if($allowed_haveSha) {
+      $pwok = (Digest::SHA::sha256_base64("$1:$user:$password") eq $2 ? 1 : 2);
+    } else {
+      Log3 $me, 3, "Cannot load Digest::SHA to decode $aName basicAuth";
+      $pwok = 2;
+    }
+
+  }
+  $cl->{AuthenticatedUser} = $user if($user);
+
+  return $pwok;
 }
 
 
@@ -238,14 +296,17 @@ allowed_Attr(@)
 
   } elsif($attrName eq "allowedCommands" ||     # hoping for some speedup
           $attrName eq "allowedDevices"  ||
+          $attrName eq "allowedDevicesRegexp"  ||
           $attrName eq "validFor") {
     if($set) {
       $hash->{$attrName} = join(" ", @param);
     } else {
       delete($hash->{$attrName});
     }
-    readingsSingleUpdate($hash, "state", "validFor:".join(",",@param), 1)
-      if($attrName eq "validFor");
+    if($attrName eq "validFor") {
+      readingsSingleUpdate($hash, "state", "validFor:".join(",",@param), 1);
+      InternalTimer(1, "SecurityCheck", 0) if($init_done);
+    }
 
   } elsif(($attrName eq "basicAuth" ||
            $attrName eq "password" || $attrName eq "globalpassword") &&
@@ -253,6 +314,7 @@ allowed_Attr(@)
     foreach my $d (devspec2array("TYPE=(FHEMWEB|telnet)")) {
       delete $defs{$d}{Authenticated} if($defs{$d});
     }
+    InternalTimer(1, "SecurityCheck", 0) if($init_done);
   }
 
   return undef;
@@ -266,11 +328,18 @@ allowed_fhemwebFn($$$$)
   my $hash = $defs{$d};
 
   my $vf = $defs{$d}{validFor} ? $defs{$d}{validFor} : "";
-  my @arr = map { "<input type='checkbox' ".($vf =~ m/\b$_\b/ ? "checked ":"").
-                   "name='$_' class='vfAttr'><label>$_</label>" }
-            grep { !$defs{$_}{SNAME} }
-            devspec2array("TYPE=(FHEMWEB|telnet)");
-  return "<input id='vfAttr' type='button' value='attr'> $d validFor <ul>".
+  my (@F_arr, @t_arr);
+  my @arr = map {
+              my $ca = $modules{$defs{$_}{TYPE}}{CanAuthenticate};
+              push(@F_arr, $_) if($ca == 1);
+              push(@t_arr, $_) if($ca == 2);
+              "<input type='checkbox' ".($vf =~ m/\b$_\b/ ? "checked ":"").
+                   "name='$_' class='vfAttr'><label>$_</label>"
+            }
+            grep { !$defs{$_}{SNAME} && 
+                   $modules{$defs{$_}{TYPE}}{CanAuthenticate} } 
+            sort keys %defs;
+  my $r = "<input id='vfAttr' type='button' value='attr'> $d validFor <ul>".
           join("<br>",@arr)."</ul><script>var dev='$d';".<<'EOF';
 $("#vfAttr").click(function(){
   var names=[];
@@ -279,6 +348,15 @@ $("#vfAttr").click(function(){
 });
 </script>
 EOF
+
+  $r .= "For ".join(",",@F_arr).
+        ": \"set $d basicAuth &lt;username&gt; &lt;password&gt;\"<br>"
+    if(@F_arr);
+  $r .= "For ".join(",",@t_arr).
+        ": \"set $d password &lt;password&gt;\" or".
+        "  \"set $d globalpassword &lt;password&gt;\"<br>"
+    if(@t_arr);
+  return $r;
 }
 
 1;
@@ -355,8 +433,20 @@ EOF
 
     <a name="allowedDevices"></a>
     <li>allowedDevices<br>
-        A comma separated list of device names which can be manipulated via the
-        matching frontend (see validFor).
+        A comma or space separated list of device names which can be
+        manipulated via the matching frontend (see validFor).
+        </li><br>
+
+    <a name="allowedDevicesRegexp"></a>
+    <li>allowedDevicesRegexp<br>
+        Regexp to match the devicenames, which can be manipulated. The regexp
+        is prepended with ^ and suffixed with $, as usual.
+        </li><br>
+
+    <a name="allowedIfAuthenticatedByMe"></a>
+    <li>allowedIfAuthenticatedByMe<br>
+        if set (to 1), then the allowed parameters will only be checked, if the
+        authentication was executed by this allowed instance.
         </li><br>
 
     <a name="basicAuth"></a>
@@ -497,6 +587,19 @@ EOF
     <li>allowedDevices<br>
         Komma getrennte Liste von Ger&auml;tenamen, die mit dem passenden
         Frontend (siehe validFor) ge&auml;ndert werden k&ouml;nnen.
+        </li><br>
+
+    <a name="allowedDevicesRegexp"></a>
+    <li>allowedDevicesRegexp<br>
+        Regexp um die Ger&auml;te zu spezifizieren, die man bearbeiten darf.
+        Das Regexp wird (wie in FHEM &uuml;blich) mit ^ und $ erg&auml;nzt.
+        </li><br>
+
+    <a name="allowedIfAuthenticatedByMe"></a>
+    <li>allowedIfAuthenticatedByMe<br>
+        falls gesetzt (auf 1), dann werden die allowed Attribute nur dann
+        angewendet, falls auch die Authentifikation durch diese allowed Instanz
+        durchgef&uuml;hrt wurde.
         </li><br>
 
     <a name="basicAuth"></a>

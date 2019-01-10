@@ -2,7 +2,7 @@
 #
 # Developed with Kate
 #
-#  (c) 2017 Copyright: Marko Oldenburg (leongaultier at gmail dot com)
+#  (c) 2017-2018 Copyright: Marko Oldenburg (leongaultier at gmail dot com)
 #  All rights reserved
 #
 #   Special thanks goes to comitters:
@@ -26,7 +26,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 21_HEOSGroup.pm 14952 2017-08-24 04:42:36Z CoolTux $
+# $Id: 21_HEOSGroup.pm 16400 2018-03-13 19:19:38Z CoolTux $
 #
 ###############################################################################
 
@@ -38,7 +38,7 @@ use JSON qw(decode_json);
 use Encode qw(encode_utf8);
 
 
-my $version = "1.0.0";
+my $version = "1.0.3";
 
 
 
@@ -433,8 +433,13 @@ sub HEOSGroup_Parse($$) {
     my $decode_json;
     my $code;
 
+
+    $decode_json = eval{decode_json(encode_utf8($json))};
+    if($@){
+        Log3 $name, 3, "HEOSGroup ($name) - JSON error while request: $@";
+        return;
+    }
     
-    $decode_json    = decode_json(encode_utf8($json));
     Log3 $name, 4, "HEOSGroup ($name) - ParseFn wurde aufgerufen";
 
     if( defined($decode_json->{gid}) ) {

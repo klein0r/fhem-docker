@@ -1,14 +1,809 @@
 # Add changes at the top of the list. Keep it in ASCII, and 80-char wide.
 # Do not insert empty lines here, update check depends on it.
+  - feature: 72_FB_CALLMONITOR: support for contact images and download of
+                                all available contact images from FritzBox
+                                phonebooks via TR-064 API.
+                                (new attributes: contactImageDirectory, 
+                                contactDefaultImage and contactImageViaTR064)
+  - feature: 72_FB_CALLLIST: support for contact images (new attributes
+                             contactImageDirectory and contactImageDirectory)
+  - change:  70_ONKYO_AVR: clearing screenItemCxxx readings on page update
+  - bugfix:  93_DbRep: sort problem in diffValue Forum:#msg882082
+  - bugfix:  98_weekprofile: fix f18 style
+  - feature: 98_weekprofile: Force to send complete week profile
+                             Attr forceCompleteProfile
+  - feature: 98_weekprofile: delay between sending profile data to the
+                             same type of device. Attr sendDelay
+  - bugfix:  88_HMCCU: Bug fixes
+  - change:  10_MYSENSORS_DEVICE: make OTA feature available,
+                                  change battery name convention,
+                                  support MySensors API 2.0 features like 
+                                  heartbeat and smartSleep
+  - bugfix:  49_SSCam: fix problem with some older SMTP SSL module
+  - bugfix:  73_AutoShuttersControl: fix typo in commandref
+  - change:  49_SSCam: V8.3.1, change usage of older SMTP versions when Email
+                       shipping is used
+  - feature: 73_AutoShuttersControl: add support blockingAfterManual at
+             Brightness, Bugfixes
+  - feature: 49_SSCam: integrated Email shipping of snapshots, save recordings
+                       locally with get saveRecoring command
+  - new:     98_vitoconnect: initial release
+  - feature: 14_CUL_TCM97001: Add Ventus W155, bugfixing
+  - feature: 89_FULLY: Support for HTTPS added
+  - change:  DOIFtools: add DOIF's weekday 9 to next timer
+  - feature: 34_ESPEasy: improved deepsleep support
+  - feature: 73_AutoShuttersControl: add maxBrightness for morning open
+  - feature: 73_AutoShuttersControl: support for shading, fix bugs
+  - feature: 37_harmony: use websockets if xmpp is not available
+                         fixes issues with firmware 4.15.206
+  - bugfix:  97_TrashCal: changed to new format 
+  - bugfix:  42_AptToDate: fix state reading after getDistribution
+  - feature: 49_SSCam: tooltip hints in camera devices, commandref revised
+  - feature: 36_WMBUS: new attribute ignoreUnknownDataBlocks
+  - feature: 49_SSCam: V8.0.0, new type "hls" of streaming devices, hls 
+                       playback now available for all common browsers, 
+                       tooltip hints in streaming devices, minor fixes
+  - feature: 30_HUEBridge, 31_HUEDevice: added get startup command
+  - change:  55_DWD_OpenData: maintenance release (forum #83097 msg #869647)
+  - change:  mqtt2.template: change name convention + cleanup
+  - feature: 72_FB_CALLLIST: new readings/events "count-..." implemented to
+                             count different call types 
+  - change:  72_FB_CALLMONITOR: removed klicktel.de for reverse search, as 
+                                the service is not available anymore
+  - bugfix:  49_SSCam: fix in autocreateCams and take snapshot
+  - feature: 98_MediaList.pm: new readings: sortby and status for better 
+                integration in FTUI
+  - change:  49_SSCamSTRM: V2.1.0, change get popupStream to set popupStream
+  - feature: 49_SSCam: V7.7.0, autocreateCams command added to SVS device,
+                       SSCamSTRM devices have get popupStream command, pls.
+                       execute "get <SSCam> versionNotes" for further info
+  - bugfix:  51_MOBILEALERTS.pm: Offlimit for decodeHumidityDecimal added
+  - change:  98_MSwitch.pm, update V2.07
+  - change:  20_FRM_IN: only update on change (Forum #81815)
+  - bugfix: 73_AutoShuttersControl: fix absent Event and ModeDown absent bug
+  - bugfix:  73_AutoShuttersControl: fix gone then absent bug
+  - feature: 49_SSCam: V7.6.0, The PTZ panel is completed by "Preset" and 
+                       "Patrol" dropdown lists (for PTZ cams only)
+  - feature: 49_SSCamSTRM: click on content in stream device or snap gallery
+                           opens a popup window
+  - new:     70_LaMetric2: add official module for LaMetric Smart Clock
+  - feature: 73_AutoShuttersControl: change ReadingsVal to ReadingsNum for
+                read position Reading, add setDriveReading for wiggle
+  - bugfix:  73_AutoShuttersControl: Code clean, fix unwanted rollo rides
+  - feature: msgSchema: add support for LaMetric screen messages
+  - bugfix:  70_BRAVIA: removed unnecessary internals name, generation, model
+  - bugfix:  74_XiaomiBTLESens: fix humidity bug
+  - bugfix:  88_HMCCU: Some minor bugs fixed
+  - bugfix:  42_XiaomiBTLESens: bugfix humidity reading
+  - feature: 42_AptToDate: add new get command getDistribution to fetch
+                           distribution info
+  - change:  93_DbRep: attribute timeout set for minTimestamp
+  - feature: 73_AutoShuttersControl: change hardLockOut mode code
+  - bugfix:  73_AutoShuttersControl: bug line 623
+  - feature: 73_AutoShuttersControl: add lockOut support at Z-Wave
+  - feature: 73_AutoShuttersControl: ASC Attribut support for value zero
+                - no creation of the attributes during the first scan or no
+                  attention to a drive command
+  - bugfix:  73_AutoShuttersControl: fix many bugs, change window event logic
+  - change:  93_DbRep: fix warnings and minor changes
+  - change:  93_DbLog: V3.13.0, addLog considers DbLogInclude (Forum:#92854), 
+             new attributes traceFlag, traceLevel (only for support !)
+  - feature: attrTemplate set command added
+  - bugfix:  73_AutoShuttersControl: fix logical bugs,
+             change Antifreeze values
+  - change:  DOIFtools: forced change to li-tags in direct help (Forum #93243)
+  - feature: 74_AMADautomagicFlowset: new readings for Caller
+  - bugfix:  73_AutoShuttersControl: fix multiple NOTIFYDEV entry's then set
+                                     scanForShutters
+  - feature: 93_DbRep: new command delDoublets, minor fixes
+  - change:  49_SSCam: COMPATIBILITY set to 8.2.2, minor fix
+  - bugfix:  73_AutoShuttersControl: fix ASC_twilightDevice
+  - bugfix:  73_AutoShuttersControl: fix setPosSetCmd Object
+  - bugfix:  73_AutoShuttersControl: fix parts of Commandref
+  - bugfix:  98_SmarterCoffee: fix Undefined subroutine &SmarterCoffee::fhem
+  - feature: 72_TA_CMI_JSON: added Logging Analog/Digital and RAS values.
+  - feature: 98_livetracking: added OsmAnd server for Traccar iOS client
+  - new:     73_AutoShuttersControl: Module for the automated control of
+                                     shutters based on certain properties
+  - feature: 93_DbRep: V8.8.0, attribute valueFilter applied to more functions,
+                       new attribute 'fastStart'. (see 'get ... versionNotes')
+  - feature: 00_10_MQTT2_CLIENT added (Forum #92888)
+  - bugfix:  46_Aqicn: fix commandref, change to packages
+  - bugfix:  88_HMCCU: fixed set toggle command
+  - new:     98_livetracking: added module
+  - bugfix:  38_netatmo: changed geocoding to openstreetmap
+  - bugfix:  88_HMCCU: support for CCU firmware 3.41.7
+  - bugfix:  38_netatmo: fixed ignored values after 'dead' state
+  - feature: 72_XiaomiDevice: load_power reading for power plug
+  - feature: 34_ESPEasy: added set cmds: active/inactive/reopen, shutdown tcp
+               server port if bridge is disabled/inactive, tcp server will be
+               started first after FHEM's global event 'INITIALIZED'.
+  - new:     72_TA_CMI_JSON: introduced JSON-API integration with CMI devices
+  - changed: 49_SSCam: usage of attribute \"livestreamprefix\" changed,
+                       minor code changes, SSCamSTRM changed for compatibility
+                       and new attributes with direct attribute help
+  - feature: 74_Unifi: Added readings for wan_ip and results of speedtest
+  - feature: 77_UWZ: new language support, french and hollandisch
+  - change:  93_DbRep: V8.6.0, devices and readings can be excluded by 
+                       EXCLUDE-option in attributes "reading/device", 
+                       reduceLog use attributes "device/reading" - see
+                       commandref for further information
+  - change:  73_AMADCommBridge 74_AMADDevice: change commandref, change version
+  - feature: 70_ZoneMinder: introduced Attribute usePublicUrlForZmWeb
+  - bugfix   98_SmarterCoffee: fix fhem crash bug
+  - feature: 88_HMCCU: client device update optimized
+  - bugfix:  89_FULLY: fixed version check bug
+  - feature: 74_AMADtaskerset: import with share link
+  - change:  42_AptToDate: change to package methode
+  - bugfix:  74_XiaomiBTLESens: fix humidity code
+  - feature: 98_Verkehrsinfo.pm: add attribut disable
+  - feature: allowed: multi-allowed changes (Forum #92423)
+  - feature: 93_DbRep: V8.4.0, reduceLog from DbLog integrated into DbRep, 
+                       sqlCmd/dbValue with textField-long as default, both 
+                       attributes timeOlderThan / timeDiffToNow can be set,
+                       get versionNotes changed to support en/de, new attribute
+                       "countEntriesDetail", countEntries separate count of  
+                       every reading if attribute "countEntriesDetail" is set
+  - change:  49_SSCam: COMPATIBILITY changed to 8.2.1
+  - bugfix:  74_XiaomiBTLESens : fix warning Illegal hexadecimal digit
+                                 ignored
+  - bugfix:  93_DbLog: timer not deleted if reopen after reopen xxx executed
+             (forum.fhem.de/index.php/topic,91869.msg848433.html#msg848433)
+  - feature: 70_ZoneMinder: added attribute loginInterval and setter for login
+  - bugfix:  38_netatmo: changed connection check mechanism
+  - new:     98_SmarterCoffee: new modul for SmarterCoffee devices
+  - bugfix:  74_XiaomiBTLESens: fix humidity bug
+  - feature: 49_SSCam: direct help for attributes, new get versionNotes command
+  - change:  ROOMMATE, GUEST: Support for updated GEOFANCY version
+  - feature: 98_GEOFANCY: add new reading LocTravDist; add support for
+                Geofency.app webhook attributes radius, currentLatitude,
+                currentLongitude, motion, wifiSSID and wifiBSSID.
+                New readings: PosBSSID, PosLat, PosDistHome, PosDistLoc,
+                PosLong, PosMotion, PosSSID, PosTravDist
+  - bugfix:  98_GEOFANCY: fixed last* readings
+  - feature: 89_FULLY: New commands for sound playback and photo.
+  - bugfix:  74_XiaomiBTLESens: fix disableForTimer Problem after reboot
+  - feature: 31_HUEDevice: added water reading for Xiaomi Aqara Water sensor
+  - bugfix:  73_GardenaSmartBridge/Device
+                fix Undefined subroutine &GardenaSmartDevice
+  - change:  93_DbLog: Log output of recuceLogNbl & use of charFilter enhanced
+  - feature: 93_Log2Syslog: attribute sslCertPrefix added (Forum:#92030)
+  - bugfix:  10_IT fix usage with multible io devices
+  - bugfix:  73_GardenaSmartBridge/Device fix typo oK to ok, change to
+                package System
+  - change:  93_DbRep: V8.2.3, check availability of DbLog-device at 
+                       definition time of DbRep-device
+  - change:  93_Log2Syslog: send BSD-format changed, commandref revised
+  - bugfix:  93_DbRep: fix don't get the real min timestamp in special cases
+  - bugfix:  51_MOBILEALERTS: Fix temperature for MA10320PRO
+  - change:  93_DbLog, 93_DbRep: minor fix time until DB is closed
+  - change:  38_netatmo: changed weathermap calls to new endpoints
+  - feature: 5.9 released
+
+- 2018-10-07 (5.9)
+  - change:  93_DbRep: direct help for attributes
+  - bugfix:  72_XiaomiDevice: set incorrect fan speed to 0
+  - bugfix:  38_netatmo: increased timeouts to counter server issues, logging
+  - bugfix:  88_HMCCU: Detection of non standard addresses
+  - feature: 93_Log2Syslog: TCP-Server in Collector-mode / SSL-support and a 
+                            lot more, pls. see new get versionNotes command 
+                            for further Information
+  - feature: 93_DbRep: 8.1.0, new get versionNotes command
+  - bugfix:  88_HMCCU: Temporary CCU programs are ignored now.
+  - change:  19_Revolt: allow adjustment of energy value, filtering of 
+             implausible values
+  - bugfix:  72_XiaomiDevice: better handling of definition w/ missing token
+  - change:  32_withings: add in_bed for sleep trackers, ignore inactive users
+  - change:  57_Calendar: new attribute quirks with ignoreDtStamp value.
+  - change:  57_Calendar: cutoffOlderThan also removes recurring events when
+             the series has ended.
+  - change:  55_DWD_OpenData: KML based forecast, readings have changed,
+             attr forecastProperties must be updated (forum #83097)
+  - bugfix:  12_HProtocolGateway: Filllevel conversion corrected
+  - bugfix:  57_Calendar.pm: make ical file work again
+  - change:  34_ESPEasy: get/set cmd handling rewritten, more supported ESP
+             Easy cmds, user defined cmds/mappings, nfx plugin handling
+             changed (Forum #91353)
+  - change:  93_DbRep: an invalid timestamp will put into state if found on
+                       startup
+  - bugfix:  38_netatmo: fixed changed values and deprecated API calls
+  - bugfix:  93_DbLog: 3.12.1, crash if SVG called (forum:#91285)
+  - change:  32_withings: API endpoint changed back to Withings servers
+  - bugfix:  93_DbLog: 3.12.0, SVG-select corrected
+             (forum.fhem.de/index.php/topic,65860.msg815640.html#msg815640)
+  - bugfix:  88_HMCCU: Fixed device definition bug.
+  - bugfix:  88_HMCCU: Fixed shutdown bug.
+  - bugfix:  32_withings: API endpoint change to Nokia servers
+  - feature: 93_DbRep: V8.0.0, restoreMySQL for clientSide dumps implemented
+  - bugfix:  74_XiaomiBTLESens: fix bug in disabledForInterval (Forum #835350)
+  - change:  88_HMCCU: New release
+  - feature: 93_DbLog: 3.11.0, function reduceLog[Nbl] syntax extended to limit
+                               days to reduce (pls. see commandref for details)
+  - change:  01_FHEMWEB.pm: change default style to f18
+  - change:  01_FHEMWEB.pm: change iconPath: to fhemSVG:openautomation:default
+  - bugfix:  72_XiaomiDevice: update vacuum volume readings after set
+  - change:  98_DOIFtools: improved direct help contetn
+  - change:  38_netatmo: removed rain sum readings
+  - feature: 00_MYSENSORS: FOTA (thanks Beta-User), gateway fix (thanks Sidey)
+  - new:     12_HProtocolGateway / 12_HProtocolTank
+  - bugfix:  72_XiaomiDevice: remove unused battery readings for new fans
+  - feature: 49_SSCam: activate/deactivate cam internal PIR-sensor
+  - new:     10_MQTT_GENERIC_BRIDGE an MQTT bridge, which simultaneously
+             collects data from several FHEM devices and passes
+             their readings via MQTT or set readings from
+             the incoming MQTT messages or executes them
+             as a 'set' command on the configured FHEM device.
+  - feature: 72_XiaomiDevice: vacuum events, resume zoned cleanup
+  - feature: 51_MOBILEALERTS: Added MA10120PRO
+  - feature: 51_MOBILEALERTS: Added TFA30.3060.01.IT
+  - change:  89_FULLY: Set start URL and bug fixes
+  - bugfix:  49_SSCam: V7.0.1, enable/disable issue
+             (forum.fhem.de/index.php/topic,45671.msg830869.html#msg830869)
+  - change:  98_DOIFtools: add help labels in commandref for attr, set and get
+                add MODEL to statistics report, check DOIF excludes Perl mode
+  - new:     98_MSwitch.pm: Multi Switch Modul
+  - feature: 93_DbRep: V7.19.0, attribute "valueFilter" to filter datasets in
+                                fetchrows
+  - feature: 49_SSCam: V7.0.0, compatibility to SVS 8.2.0
+  - feature: 93_Log2Syslog: V4.8.5, new Syslog-Server Mode and some other
+                            improvements, version is moved from contrib
+  - bugfix:  73_GardenaSmartBridge fix get humidity bug, add rename Fn
+  - change:  71_YAMAHA_AVR: renamed attributes:
+                "request-timeout" => "requestTimeout"
+                "volume-smooth-change" => "volumeSmoothChange"
+                "volume-smooth-steps" => "volumeSmoothSteps"
+             already configured values will be converted by FHEM automatically
+  - feature: 71_YAMAHA_AVR: add new set command tunerFrequencyBand to change
+             between FM and DAB band on DAB-based models
+  - bugfix:  71_YAMAHA_AVR: fix set commands preset/presetUp/presetDown for
+             input tuner on DAB based models
+  - bugfix:  71_YAMAHA_AVR: fix set commands remoteControl tunerPresetUp,
+             tunerPresetDown and tunerFrequency for DAB based models
+  - added:   98_systemd_watchdog: tested and moved from contrib
+  - bugfix:  36_Vallox: Initialization bug fixed
+  - added:   00_MQTT: ability for client notifications: on connect,
+                      on disconnect, on timeout
+  - fixed:   00_MQTT: failure on handling with mqtt-devices without
+                      or with wrong devio attributes
+  - change:  maintainer change for 00_MQTT, 10_MQTT_DEVICE, 10_MQTT_BRIDGE
+             (eisler => hexenmeister)
+  - feature: 36_Vallox: Added DF Method, Added CO2SetPoint Handling, Optimized
+  - feature: 59_WUup: added attribute unit_solarradiation
+  - bugfix:  38_netatmo: removed heating home/room autocreate
+  - feature: 46_SmartPi: exchange commandref, add NotifyFn
+  - new:     00_MQTT2_SERVER / 10_MQTT2_DEVICE
+  - bugfix:  93_DbRep: fix in fetchrow function (forum:#89886),fix highlighting
+  - bugfix:  82_LGTV_WebOS: fix set cmd for AmazonLovefilm
+  - feature: 51_MOBILEALERTS: added feature to adjust values in define
+  - changed: 09_CUL_FHTTK: adapted battery reading to new common reading
+                Forum #87575
+  - bugfix:  82_LGTV_WebOS: fix uninitialized value
+  - change:  98_dewpoint: adjust log level for FAN/ALARM on/off to 4
+  - bugfix:  82_LGTV_WebOS: fix current program list readings
+  - change:  74_Unifi: changed readings -UC_newClients and -AP_utilization
+  - bugfix:  36_WMBUS: fix decryption for AES CBC mode
+  - feature: 42_AptToDate: add dist-upgrade available with Attribut
+  - change:  74_XiaomiBTLESens: more debug messages, delete old batteryreadings
+  - change:  83_IOhomecontrol, 84_IOhomecontrolDevice: complete rewrite and
+             extended features
+  - feature: 42_AptToDate: add Attribut upgradeListReading for Reading in JSON
+  - change:  98_DOIFtools: added shortcut remove_DOIFtoolsLog to commandref
+  - change:  01_FHEMWEB.pm: default plotEmbed to 0 (Forum #82351)
+  - feature: 73_GardenaSmartBridge: 74_GeardenaSmartDevice: add support for
+                                                            Irrigation Control
+  - change:  98_feels_like.pm: Improved algorithms, fix reDEFINE
+  - new:     42_AptToDate: Modul to retrieves apt information about Debian
+                           update state
+  - bugfix:  74_NUKIDevice: fix Perl Warnings
+  - feature: 88_HMCCU: Support for channel number in attribute ccuscaleval
+  - change:  98_DOIFtools: more precise hint related to DOELSE (Forum #89260)
+  - change:  98_feels_like.pm: Improved algorithms
+  - change:  98_dewpoint: new attributes absoluteHumidity, vapourPressure
+                          attribute absFeuchte is now deprecated,
+                          write warning to log
+  - bugfix:  41_Oregon: batterypercent typo, Forum #89120
+  - feature: 49_SSCam: HTTPS Support, buttons for refresh SSCamSTRM-devices
+  - changed: 14_Hideki: standard battery readings
+  - changed: 14_SD_WS: standard battery readings
+  - changed: 14_SD_WS07: standard battery readings
+  - changed: 14_SD_WS09: standard battery readings
+  - changed: 41_Oregon: standard battery readings
+  - change:  76_SMAInverter: Internal MODEL added
+  - feature: 49_SSCam: V5.3.0, new createStreamDev generic, control elements
+                       for runView content within fhemweb, some new CamLive-
+                       Readings, minor fixes
+  - change:  95_Dashboard: V3.10.1, added FW_hideDisplayName, Forum #88727
+  - change:  98_feels_like.pm: Improved algorithms
+                               New attribute "sensorType"
+                               minor bugfixes
+  - change:  82_LGTV_WebOS: change part of code
+  - bugfix:  49_SSCam: fix state turns to "off" even though cam is disabled
+  - bugfix:  38_netatmo: fixed camera recording and notification settings
+  - feature: 36_WMBUS: support for WMBUS type C and Kamstrup Multical 21
+                       encoding.
+                       ATTENTION: decryption has changed, please install
+                       the perl modules Crypt::Mode::CBC and
+                       Crypt::Mode::CTR if you want to decrypt messages.
+                       (sudo cpan -i Crypt::Mode::CBC Crypt::Mode::CTR)
+  - change:  93_DbLog: commandref hint for special character usage in passwords
+  - change:  74_AMADtasker: AMAD Taskerproject change to new battery states
+  - feature: 49_SSCamSTRM: new attr hideDisplayName regarding to Forum #88667
+  - bugfix:  49_SSCam: global vars
+  - bugfix:  88_HMCCU: fixed rpcServerAddr attribute and update of sysvar dpt
+  - change:  49_SSCam: V5.2.0, support longpoll refresh of SSCamSTRM-Devices
+                       Design change of SSCamSTRM-Devs due to longpoll support
+  - change:  82_LGTV_WebOS: change launchApp Vvalue for AmatonVideo and add
+                            set command for AmazonVid
+  - change:  74_XXiaomiBTLSens: Thermo/HydroSense new state format, new Reading
+                                batteryState and batteryPercent
+  - change:  49_SSCamSTRM: new attribute "forcePageRefresh" for better control
+                           of page refresh (for e.g. Floorplan,Dashboard)
+  - feature: 89_FULLY: Added screen saver commands.
+  - feature: 49_SSCam: V5.0.0, HLS Streaming implemented, new Streamingdevice
+                       based on module 49_SSCamSTRM, some improvements & fixes
+  - feature: 98_Text2Speech: added Duch language for Google TTS
+  - feature: 74_UnifiSwitch: initial version
+  - feature: 74_Unifi: new child-Module UnifiSwitch
+                       new reading UC_newClients for new clients
+                       block clients by mac-address
+  - change:  98_dewpoint: new attribute legacyStateHandling
+  - feature: 93_DbRep: V7.18.0, possible use of y:(\d) in timeDiffToNow,
+                       timeOlderThan, delEntries considers executeBeforeDump,
+                       executeAfterDump, minor fixes
+  - feature: 49_SSCam: PTZ-Panel integrated into created StreamDevice
+  - fixed:   74_Unifi: import encode_json for newest libs
+  - change:  10_KNX: new major release. See commandref for details. The
+                     following attributes are deprecated now: readonly,
+                     listenonly, slider and useSetExtensions.
+  - change:  36_WMBUS: standard battery readings
+  - change:  32_withings/38_netatmo/72_XiaomiDevice: standard battery readings
+  - bugfix:  98_dewpoint: Use NOTIFYDEV with framework functions
+  - feature: 57_Calendar: new parameter "limit" (forum #87566)
+  - bugfix:  55_DWD_OpenData: updateAlertsCache causing "not a HASH reference"
+                              error on some platforms (forum #83097)
+  - change:  98_dewpoint: Don't manipulate STATE of target device if has
+                          stateFormat defined.
+  - new:     55_DWD_OpenData: weather and alerts from DWD
+  - bugfix:  74_Unifi: Cookies for UnifiController 5.9.4
+  - bugfix:  74_GardenaSmartDevice: fix uninitialized value $abilities
+  - feature: 72_FB_CALLMONITOR: support for wildcard phonebook entries (numbers
+                                with trailing star sign)
+  - bugfix:  74_XiaomiBTLSens: bugfix
+  - new:     98_feels_like.pm: New module to compute a "feels like" temperature
+                               and the cloud coverage from a WH2600 like
+                               sensor array
+  - change:  52_I2C_HDC1008: improve and restructure I2C error handling
+  - bugfix:  57_Calendar: fix count for series with exceptions
+  - bugfix:  72_FB_CALLMONITOR: fix control code entries in phonebook and
+                                reverse search text file
+  - feature: 49_SSCam: V4.1.0, support Audiostream cams, minor internal changes
+  - change:  93_Log2Syslog: ssldebug for debugging SSL messages, minor fixes
+  - feature: 49_SSCam: V3.10.0, CreateStreamDev added, new lastrec_fw_MJPEG,
+                       lastrec_fw_MPEG4/H.264 playback MPEG4/H.264 recordings
+  - feature: 93_DbRep: V7.17.3, writeToDB - readingname can be replaced by the
+                       value of attribute "readingNameMap"
+  - change:  88_xs1Bridge: documentation | xs1 with password
+  - bugfix:  36_Vallox: Fixed Multireadings. Added Legacy Mapping.
+                        added set commands
+  - bugfix:  00_MQTT: topics and payload patch
+  - bugfix:  73_GardenaSmartBridge: fix fetch token after rereadcfg
+  - feature: 60_allergy: alternative data source for extended 5 day forecast
+  - new:     74_HusqvarnaAutomower.pm: New module to control your
+             Husqvarna Automower with original Connect Module (SIM)
+  - bugfix:  73_GardenaSmartBridge: fix delete password then rereadcfg
+  - bugfix:  93_DbRep: 7.17.2, doesn't writeToDB if device name contain "."
+  - feature: 93_DbLog: addLog - not available reading can be added as new one
+                       (forum:#86966)
+  - feature: 02_RSS: label and goto in layout definition (forum #86844)
+  - change:  59_Weather: reverted changes in HTML routine (forum #87187)
+  - feature: 59_Weather: italian translations and other (forum #87080)
+  - feature: 49_SSCam: V3.9.1, PTZ control panel added, please consider
+                       attributes "ptzPanel_.*" and command "createPTZcontrol"
+  - bugfix:  93_DbRep: V7.17.1, sqlCmd can't use §timestamp_begin§
+  - feature: 73_GardenaSmartBridge: add set command deleteAccountPassword
+  - change:  88_HMCCU: minor changes
+  - feature: 93_DbRep: new function dbValue, DbReadingsVal (blocking)
+  - bugfix:  93_DbLog: 3.10.7, create addLog-event if reading was not found
+  - bugfix:  73_GardenaSmartBridge: add error trigger for notify sub
+  - feature: 98_SVG.pm: horizontalLine* added (Forum #86800)
+  - change:  93_DbLog: verbose level in addlog changed if reading not found
+  - feature: 59_WUup: added AqPM2.5, AqPM10; fixed documentation
+  - bugfix:  73_ElectricityCalculator: missing notifydev implemented
+  - bugfix:  73_GasCalculator: missing notifydev implemented
+  - bugfix:  73_WaterCalculator: missing notifydev implemented
+  - change:  88_xs1Dev: xs1-function to set from FHEM
+  - change:  88_xs1Bridge: fix PEARL WARNING
+  - change:  10_MYSENSORS_DEVICE: implemented alive check thanks to Beta-User
+  - bugfix:  93_DbRep: 7.15.2, Internal MODEL is set, minor fixes
+  - change:  93_DbRep: 7.15.1, sqlCmd accept widget textField-long,
+                               Internal MODEL is set
+  - feature: 72_FB_CALLMONITOR: new attribute "sendKeepAlive" to send cyclic
+                                keep-alives when connected FritzBox for example
+                                is located behind another NAT router
+  - bugfix:  72_FB_CALLMONITOR: fix log message on every reverse search:
+                                "unknown reverse search method ,"
+  - bugfix:  93_DbLog: V3.10.4, fix addLog if no valueFn is used
+  - bugfix:  93_DbLog: V3.10.3, minor fixes in addLog function
+  - new:     00_Neuron.pm, 10_NeuronPin.pm: support for Neuron Devices
+  - feature: 59_WUup: add attribute round
+  - bugfix:  72_FB_CALLMONITOR: fix not working get command
+                                showPhonebookEntries for remote phonebooks
+  - bugfix:  73_GardenaSmartBridge: add commandref parts
+  - change:  93_DbLog: V3.10.2, event parsing of Weather changed, add option
+                       CN=<caller name> to addlog-function
+  - change:  49_SSCam: V3.8.4, usage of Internal MODEL changed
+  - bugfix:  00_SIGNALduino: fixed ws7000 decoding
+  - feature: 72_XiaomiDevice: predefined zones and points, carpet mode
+  - bugfix:  88_xs1Bridge: blacklist PEARL Warning + Code mod
+  - feature: 74_AMADDevice: add support to set and read Adaptive brightness
+  - bugfix:  88_xs1Bridge: blacklist option (forum #790923)
+  - bugfix:  49_SSCam: V3.8.3, fix of version 3.8.2
+  - change:  49_SSCam: V3.8.2, internal codereview, minor fixes
+  - feature: 73_GardenaSmartBridge/74_GardenaSmartDevice: rewrite parts of
+             Bridge Modul and add Support for predefined start point
+  - feature: 49_SSCam: V3.8.0, new setHome command, minor fixes
+  - feature: 72_XiaomiDevice: added zone and goto
+  - bugfix:  57_Calendar: fix weekly events, get full all, defaultTimeFormat
+  - change:  93_DbLog: V3.10.0, addLog considers DbLogExclude in Devices,
+                       keyword "!useExcludes" to switch off considering
+                       DbLogExclude in addLog, DbLogExclude & DbLogInclude
+                       can handle "/" in Readingname, commandref revised
+  - bugfix:  00_SIGNALduino: Perl Warnings and FHEM crash fixed
+  - added:   88_xs1Bridge: Documentation added
+  - added:   88_xs1Dev: various sensor types added
+  - feature: 57_Calendar: get ... vevents and much more (forum #86148)
+  - feature: 73_AMADCommBridge/74_AMADDevice: add new mediaPlayer Support, add
+                                              takeScreenshot function
+  - feature: 14_Hideki: changed decrypting and improved crc check
+  - change:  14_SD_WS_Maverick: reworked module, renamed readings
+                               added commandref
+  - bugfix:  14_SD_WS07: Error retrieving rssi value fixed
+  - feature: 14_SD_WS07: added correction-temp and correction-hum
+                         added two models temp/temp-hum
+  - change:  00_SIGNALduino: Protokoll 12.1 with protocol 12 (Hideki)
+                            combined and 12.1 removed
+  - feature: 49_SSCam: 3.7.0, new delPreset command, minor fixes
+  - bugfix:  10_OWServer: avoid init and autocreate on tentative connection
+  - feature: 49_SSCam: 3.6.0, new setPreset command, minor changes
+  - feature: 72_FB_CALLMONITOR: show a "not found" popup, when reverse search
+                                via get command fails
+  - feature: 93_DbRep: V7.15.0, new command sqlSpecial
+  - bugfix:  74_XiaomiBTLSens: fix commandref entrys
+  - feature: 49_SSCam: V3.5.0, new get command listPresets
+  - change:  93_DbRep: V7.14.8, exportToFile,importFromFile can use file as an
+                       argument, fix no save to database if value=0 (writeToDB)
+  - feature: 10_OWServer: added OWNet module version suggestion to define
+  - feature: 49_SSCam: V3.4.0, new commands startTracking, stopTracking for
+                       PTZ-Cams with object tracking capability
+  - added:   74_HOMBOT: add commandref summary, code design
+  - change:  73_GardenaSmartBridge: change logging output for username and
+                                    password
+  - feature: 93_DbRep: 7.14.6, attr expimpfile can use some kinds of wildcards
+  - feature: 59_WUup: V0.9.6, calculate solarradiation from lux to W/m²
+  - feature: 73_AMADCommBridge: fix Commandref, add allowfrom support
+  - bugfix:  74_XiaomiBTLESens: Backslash found where operator expected
+  - bugfix:  98_TRAFFIC: v1.3.7, fixed special characters and updateschedule
+  - change:  10_OWServer: autoselecting OWNet module
+  - bugfix:  72_FB_CALLLIST: allow newlines in mapping attributes values
+  - feature: 74_XiaomiBTLESens: add new set command resetBatteryTimestamp
+  - bugfix:  93_DbRep: some perl warnings fixed
+  - fhem.pl: restoreDir restructured (Forum #85801)
+  - added:   88_xs1Bridge: added blacklist function
+  - feature: 93_DbLog: V3.9.0, syntax of attribute excludeDevs enhanced
+  - update:  39_Talk2Fhem: Timephrases added, bugfixes and some changes
+  - bugfix:  74_AMADCommBridge: fix Commandref
+  - bugfix:  82_LGTV_WebOS: fix litte typos fix eval bug
+  - update:  21_HEOS: fix Use of uninitialized value {repeat}
+                      in substitution (s///)
+  - change:  88_xs1Bridge: Typ timerswitch added
+  - change:  88_xs1Dev: Typ timerswitch added
+  - feature: 72_FB_CALLMONITOR: new reverse search provider 11880.com (german)
+                                and herold.at (austrian)
+  - change:  93_DbRep: V7.14.4, increased timeout of special function
+  - feature: 74_Unifi: added set updateClient, encrypt user and password
+  - change:  49_TBot_List: deleteonly lists / internal changes
+  - change:  50_TelegramBot: more silent cmds, caption formatting,several fixes
+  - change:  lib/OWNet.pm: updated to latest version from
+             https://sourceforge.net/p/owfs/code/ci/master/tree/module/
+             ownet/perl5/OWNet/lib/OWNet.pm
+  - feature: 66_ECMD: new attribute stop
+  - change:  93_DbLog: V3.8.9, commandref revised
+  - feature: fhem.pl: OldReading* added (Forum #85406)
+  - feature: 93_DbRep: V7.14.3, minTimestamp - get lowest timestamp in database
+  - bugfix:  72_FB_CALLLIST: fix broken german umlaut in timestamps on
+                             perl version >= 5.22
+  - bugfix:  72_FB_CALLMONITOR: fixing reverse search via dasoertliche.de
+  - feature: 39_Talk2Fhem: V0.5 Object radiusing
+  - bugfix:  93_DbLog: V3.8.8, no exit if configuration couldn't be read
+  - change:  93_DbLog: V3.8.7, no change limits got fron SVG
+  - bugfix:  88_xs1Dev: new type shutter integrated (Forum #85137)
+  - bugfix:  88_xs1Bridge: actuator functions incorrect (Forum #85137)
+  - bugfix:  93_DbRep: fix perl warning
+  - bugfix:  38_netatmo: fixed public stations update, added fixed interval
+  - bugfix:  93_DbRep: V7.14.1, bugfix for PostgreSQL
+  - added:   88_xs1Dev: added new module for control xs1
+  - changed: 88_xs1Bridge: changed for another module
+  - bugfix:  88_HMCCU: Fixed bug in attribute peer
+  - bugfix:  32_withings, 38_netatmo: maintenance update
+  - added:   72_XiaomiDevice: added new module for Xiaomi WiFi devices
+  - feature: 93_DbRep: V7.14.0, new command syncStandby
+  - bugfix:  21_HEOS: decode_json() in a eval, fix play_previous
+  - bugfix:  73_NUKIBridge/74_NUKIDevice: decode_json() in a eval
+  - Update:  73_AMADCommBridge/74AMADDevice: 4.2 new Version with Tasker Support
+  - bugfix:  14_CUL_TCM97001: Fix temperature reading
+  - bugfix:  49_SSCam: V3.3.0, code review, API bug fix of runview lastrec,
+                       commandref revised (forum:#84953)
+  - bugfix:  73_ElectricityCalculator: Spelling error "di(s)abled" corrected
+  - bugfix:  73_GasCalculator:         Spelling error "di(s)abled" corrected
+  - bugfix:  73_WaterCalculator:       Spelling error "di(s)abled" corrected
+  - bugfix:  93_DbRep: V7.13.2, fix of aggregation month
+  - feature: 00_MQTT: topic with space or colon
+  - bugfix:  98_GOOGLECAST: fix open connections and state value
+  - feature: 10_MQTT_DEVICE: add SetExtensions
+  - bugfix:  00_MQTT: small bugfix
+  - feature: 98_DOIFtools: support for multiple holiday files in holiday2we for
+             next timer calculation
+  - change:  53_GHoma: plugs with energy measurement implemented
+                      reading energy now in kWh / SetExtensions / DbLog_splitFn
+  - change:  93_DbRep: commandref revised
+  - change:  93_DbLog: V3.8.5, Parse Event for Zwave changed
+  - feature: 00_MQTT: new attribute "client-id"
+  - feature: 93_DbRep: V7.13.0, changeValue may use perlcode {} as "new string"
+  - feature: 93_DbRep: V7.12.0, compression of dumpfile, restore of compressed
+                       files possible
+  - change:  77_SMAEM: V3.1.0, extend error handling in define
+  - bugfix:  73_ElectricityCalculator: Min dt for calc. reduced from 30 to 1 s
+  - feature: 93_DbRep: V7.11.0, "repairSQLite" to repair a corrupted SQLite DB
+  - bugfix:  88_xs1Bridge: code changeover + safety connection check
+  - bugfix:  73_PRESENCE: new collectord .deb package fixing perl warnings
+  - bugfix:  88_HMCCU: fixed CUxD bug and minor bugs
+  - feature: 93_DbRep: V7.10.0, new "changeValue" command, minor fixes
+  - bugfix:  88_xs1Bridge: fix Filelog check
+  - new:     39_Talk2Fhem: new module for language control
+  - feature: 70_BRAVIA: TV input select for all active tuners
+                        Channel selection by channel uri
+                        Optimized fetch of app and input presets
+  - feature: 98_structure: saveStructState/restoreStructState (Forum #84154)
+  - bugfix:  74_XiaomiBTLESens: fix corrupt character for temperature
+  - bugfix:  74_XiaomiBTLESens: fix humidity bug than temperature is lower 10
+  - feature: 88_xs1Bridge: automatic Logfile after define | feature extension
+  - changed: 98_weekprofile: send values for on/off instead of "on"/"off"
+  - feature: 93_DbRep: V7.9.0, new attribute "avgTimeWeightMean" (averageValue)
+                               some code review and corrections
+  - bugfix:  88_xs1Bridge: fix Code
+  - bugfix:  74_XiaomiBTLESens: fix many bugs with ssh connection, fix negativ
+                                temperature bug
+  - feature: 93_DbRep:V7.8.1, new command "eraseReadings", some fixes
+  - bugfix:  93_DbLog:V3.8.4, cover userCommands, avoid crash (forum:#83973)
+  - feature: 51_MOBILEALERTS: Added directionInt for MA10660
+  - changed: 50_MOBILEALERTSGW/51_MOBILEALERTS: Migrate to readingsDelete
+  - new:     98_freezemon: initial check-in
+  - feature: 74_Unifi: added voucher-functions
+  - change: 30_MilightBridge: Use new RemoveInternalTimer function
+  - new:     52_I2C_EMC1001.pm: initial check in
+  - feature: 30_HUEBridge, 31_HUEDevice: added createGroupReadings attribute
+  - feature: f18: implement dragging / dashboard
+  - change:  93_DbLog: V3.8.3, configCheck improved, execute cache only every
+                       syncInterval/2 if cacheLimit reached, error-handling
+                       improved
+  - bugfix:  93_DbRep: V7.7.1, minor fix if disabled
+  - feature: 93_DbRep: V7.7.0, attribute "averageCalcForm" - select variant of
+                       averageValue reporting, calc of daily medium temperature
+                       according german weather service
+  - bugfix:  88_HMCCU: Fixed missing events after get vars command
+                       Fixed state after RPC server start
+  - change:  74_Unifi: SSIDs-Readings and drop-downs use goodReadingName()
+  - feature: 72_FB_CALLLIST: enhanced possibilities to disable a FB_CALLLIST
+                             definition (via attribute "disable")
+                             new attribute processEventsWhileDisabled
+  - feature: 73_PRESENCE: new presenced deb package (ping command, systemd)
+  - feature: 93_DbRep: V7.6.1, data with "|" in value are possible to process,
+                       attr "sqlCmdHistoryLength" to use sqlCmdHistory list,
+                       attr "fetchMarkDuplicates" to highlight multiple data
+  - update:  88_HMCCU: Version 4.2
+  - new:     88_HMCCURPCPROC: Sub process based RPC server for HMCCU.
+  - feature: 73_PRESENCE: new collectord package (RSSI based room selection
+                          for BTLE devices (lepresenced), ping command for
+                          daemon monitoring, systemd service unit)
+  - bugfix:  93_DbLog: use of uninitialized value $txt if addlog has no value
+  - feature: 33_readingsGroup: added german commandref (by HomeAuto_User)
+  - feature: 10_pilight_ctrl: support bh1750 illuminance sensor
+  - feature: 71_YAMAHA_NP: Added player readings support for
+                           airplay and spotify inputs.
+  - change:  93_DbLog:V3.8.0, log events containing pipe "|" possible
+  - bugfix:  98_TRAFFIC: v1.3.5, fixed return readings in DbLog_SplitFn
+  - feature: attr: -a and -r Options added (Forum #83414)
+  - feature: 20_FRM_IN: added Firmata 2.5 feature PIN_MODE_PULLUP
+                        note: requires perl-firmata 0.64
+  - change:  74_Unifi: SSIDs-Readings and drop-downs use goodReadingName()
+  - feature: new module 37_NotifyAndroidTV.pm to send notifications
+             to Notifications for Android TV/Fire TV apps (justme1968)
+  - bugfix:  98_TRAFFIC: v1.3.4, fixed DbLog_SplitFn, misc improvements
+  - change:  72_FB_CALLMONITOR: reverse search provider klicktel.de is
+                                DEPRECATED and will be removed in a future
+                                release. please use dasoertliche.de instead.
+                                attribute apiKeyKlicktelDe removed
+  - bugfix:  93_DbLog: V3.7.1, fix typo in commandref
+  - change:  93_DbRep: V7.5.5, minor corrections in delSeqDoublets
+  - change:  72_FB_CALLMONITOR: new attribute apiKeyKlicktelDe and
+                                apiKeySearchCh to configure own private API keys
+                                for reverse search via klicktel.de or search.ch
+  - feature: 93_DbRep: V7.5.4, dumpFilesKeep can be set to "0", new attribute
+                       "ftpDumpFilesKeep" for version management on FTP,
+                       delSeqDoublets optimized for consumption of resources
+  - feature: 98_DOIFtools: blockinginfo added to running timer info
+  - change:  73_PRESENCE: following attributes were renamed:
+                          * ping_count => pingCount
+                          * fritzbox_speed => fritzboxCheckSpeed
+                          * bluetooth_hci_device => bluetoothHciDevice
+                          existing configuration will be converted automatically
+  - bugfix:  74_XiaomiBTLESens: fix error messages
+  - feature: 46_TeslaPowerwall2AC: Powerwalls overwiev
+  - feature: 73_PRESENCE: new set commands overrideInterval and clearOverride
+                          to temporary override the check interval.
+                          new attributes retryCount and retryInterval
+  - feature: 89_FULLY: Added support for attribute disable
+  - change:  93_DbLog: V3.7.0, log verbose 5 enhanced, configuration read check
+                       added to configCheck
+  - feature: 74_Unifi: new Readings for WLAN-states, fixed Warning
+  - feature: 93_DbRep: V7.5.1, new set-options display/writeToDB for
+                       (max|min|sum|average|diff)Value,
+                       create background_processing_time before execute
+                       commands in attribute "executeAfterProc" (db-dumps)
+  - feature: 10_FRM: new attribute "disable", new states "disabled",
+                     "defined" and "connected", new attribute "errorExclude",
+                     new reading "stringMessage", new internal "pullup_pins"
+  - bugfix:  74_XiaomiBTLESens: fix Illegal hexadecimal digit ' ' ignored
+  - change:  74_XiaomiBTLESens: better timer logic
+  - feature: 20_FRM_AD: analog resolution now depending on device capability
+  - change:  93_DbLog: V3.6.5, avoid shutdown problem if database is too slow,
+                       extend configCheck with shutdown preparation check,
+                       fix logentries if device disabled and db not available
+  - bugfix:  74_Unifi: fixed blockClient
+  - bugfix:  98_dewpoint.pm: Fix event processing when updating STATE
+  - bugfix:  73_ElectricityCalculator.pm: Spelling error
+  - change:  74_XiaomiBTLESens: Code clean
+  - feature: 21_HEOSPlayer: add input URL as set command
+  - feature: 74_Unifi: add new set command to en-/disable Site Status-LEDs
+  - bugfix:  74_XiaomiBTLESens: fix ssh gatttool which test
+  - new:     74_XiaomiBTLESens: modul replace 74_XiaomiFlowerSens, add Support
+                                for Xiamomi Themometer/Hygrometer mit Display
+  - bugfix:  42_SYSMON: Falsche Angabe von Ram free / used bei Debian Stretch
+  - bugfix:  70_BRAVIA: fixed hash for space
+                        (application, channel, input names)
+  - change:  93_DbLog: change verbose level of addlog from 2 to 4
+  - bugfix:  93_DbRep: old dumpfiles not deleted by dumpMySQL clientSide
+  - bugfix:  70_BRAVIA: typo fixed, 'set application' works now
+  - feature: 93_DbRep: V7.4.0, new commands dumpSQLite/restoreSQLite,
+                       execute commands before/after set optimizeTables,
+                       vacuum, restoreMySQL, restoreSQLite available,
+                       CAUTION !! attributes executeBeforeDump/executeAfterDump
+                       are renamed to executeBeforeProc/executeAfterProc
+  - feature: 74_Unifi: add new set commands to block/unblock clients,
+                       enable/disable WLAN, new client-Reading essid
+  - feature: structure: implement dynamic members via devspec (Forum #82604)
+  - feature: new module 74_UnifiVideo for UnifiVideo integration (justme1968)
+  - change:  93_DbLog: V3.6.2, new attribute "exportCacheAppend", minor fix in
+                       Log verbose 5
+  - bugfix:  82_LGTV_WebOS: fix wrong paired reading and more
+  - change:  98_dewpoint: Use NOTIFYDEV
+  - bugfix:  93_DbRep: syntax error if perl version < 5.20
+  - feature: 74_AMADDevice: add new set command "takePicture",change Commandref
+  - feature: 98_GOOGLECAST: support speak command for TTS
+                            set castdevice speak "Hallo"
+  - feature: 51_MOBILEALERTS: Added Sensor WL2000
+  - change:  93_DbRep: V7.3.0, charfilter avoid control characters in datasets
+                       to export, function exportToFile importFromFile improved
+  - feature: FHEMWEB: new style f18
+  - feature: 98_weekprofile.pm: new set command 'reread_master'
+  - change:  10_SOMFY: minor changes remvoe debug and add parsestate reading
+  - bugfix:  74_XiaomiFlowerSens: fix error then use ssh and no connect
+  - change:  72_FB_CALLIST: mapping tables (icon-mapping, external-mapping,...)
+             will be evaluated after initialization is finished (Forum: #81892)
+  - feature: 01_FHEMWEB.pm: -> as room separator (Forum #82151)
+  - bugfix:  10_FRM: accept Firmata firmware without AnalogInputFirmata
+  - bugfix:  10_MYSENSORS_DEVICE: corrected S_LIGHT_LEVEL
+  - bugfix:  93_DbRep: fix "month out of range" that causes fhem crash
+  - feature: 20_FRM_PWM: new attribute "restoreOnStartup"
+  - feature: 20_FRM_OUT: new attributes "activeLow" and "valueMode"
+  - feature: 10_FRM: SerialFirmata support
+  - update:  10_FRM: OWX IODev assignment
+  - update:  10_FRM: Firmata 2.7+ support
+  - bugfix:  98_weekprofile: fix "error restore topic"
+  - change:  14_CUL_TCM97001: Fix Logoutput, Fix device output with
+             multiple sensors
+  - change:  74_AMADDevice: change DEF and add Attribut IODev, add Reading
+                            incommingSmsText
+  - change:  74_XiaomiFlowerSens: fix Problems with sshHost Methode
+  - change:  73_GardenaSmartBridge/74_GardenaSmartDevice: add NotifyFn Support
+             change AttrFn Routine
+  - feature: 93_DbRep: V7.2.0, new attributes "seqDoubletsVariance",
+                       "timeYearPeriod", minor fixes
+  - feature: 98_TRAFFIC: v1.3.3, added alternatives, various improvements
+  - feature: 70_BRAVIA: new command "application" to start an application on TV
+  - feature: FHEMWEB: add structure to roomnames (Forum #63530)
+  - feature: 98_dewpoint: Generated readings are now subject to standard
+                       processing.
+                       ! Be sure to add readings to event-on- .... attributes
+                       ! if you want events to be generated !
+  - feature: 93_DbLog: V3.6.0, check global blockingCallMax in configCheck,
+                       configCheck available also for SQLITE now
+  - feature: 10_SOMFY: internal rework / prep for Alex / position command
+  - feature: 70_BRAVIA: new command "text" to add text to an input field
+  - changed: allowed.pm/fhem.pl: SecurityCheck cleanup, Forum #81509
+  - new:     88_xs1Bridge: New modul to read xs1 EZcontrol
+  - change:  93_DbRep: V7.0.0, changelog:
+                       - faster exec if no time attribut/aggregation is set
+                       - bugfix in fetchrows if data contain chars like "'
+                       - new command get blockinginfo
+                       - identify if reopen is running on assigned dblog-device
+                       - bugfix in delSeqDoublets
+                       - internal code changes/reviews
+  - feature: 50_TelegramBot: new set cmd silentmsg to disable_notification
+  - bugfix:  73_GardenaSmart: v0.4.0 bugfixes
+  - feature: 31_PLAYBULB: v1.4.0 support for Sphere Model BTL301w
+  - change:  77_UWZ: v2.0.0, replace Iconv-Converter with perl encode()
+  - change:  93_DbLog: V3.4.0, importCacheFile, addCacheLine use char filter
+                       (switch it on with attribute useCharfilter)
+  - feature: 98_GOOGLECAST: support displaying websites on Chromecast
+                            pychromecast > 1.0.0 needed
+                            support skip/rewind
+  - feature: 10_EQ3BT: support maxRetries and timeout attribute
+  - bugfix:  98_DLNARenderer: fix renew subscription warnings
+  - feature: 98_BOSEST: support Audio Notification API for TTS
+                        no more minidlna installation needed
+                        only supported for up to 100 characters
+  - new:     97_PiXtendV2: New module to control a PiXtend V2 -S- board
+  - change:  93_DbLog: V3.4.0, avoid output RUNNING_PID + args by "list device"
+  - new:     50_MOBILEALERTSGW/51_MOBILEALERTS: New moduls for MobileAlerts
+  - change:  93_DbRep: V6.4.2, changelist:
+                       - prepare for usage of datetime picker widget
+                       - new attr "sqlResultFieldSep" (field separator)
+                       - change "delSeqDoublets" to respect attribute "limit"
+                       - bug fix in "delSeqDoublets delete" function
+  - change:  93_DbLog: V3.3.0 ,changelist to last version 2.2.15:
+                       - enhanced log output of reduceLog,reduceLogNbl
+                       - new command addCacheLine,add data to cache immediately
+                       - new attr "useCharfilter"
+                       - new attr "commitMode", see commandref
+                       - avoid print out the content of cache by "list device"
+                       - minor fixes
+  - feature: 99_weekprofile: add support for CCU2 (experimental)
+  - change:  93_DbRep: V6.3.2 ,changelist to last version:
+                       - new command delSeqDoublets
+                       - add last command option to internal LASTCMD
+                       - add format d:xx h:xx m:xx s:xx for attributes
+                         timeDiffToNow, timeOlderThan
+                       - new attribute fetchRoute to switch asc,desc datafetch
+  - change:  HttpUtils: compression activated
+             disable it with attr global httpcompress 0
+  - bugfix:  46_SmartPi: fix syntax error bug in Attribut Sub
+  - change:  98_dewpoint: Refactoring using API calls, verbose attribute added
+  - change:  FileLog removes newlines from the data (Forum #79684)
+  - bugfix:  98_Siro.pm: Support favorit for model ERB15LE
+  - feature: notify/FileLog: add ignoreRegexp attribute (Forum #79684)
+  - feature: 46_SmartPi: add decimal Attr, fix Notify bug
+  - bugfix:  74_XiaomiFlowerSens: fix many Notify bugs
+  - change:  backup is always started in the background (Forum #80237)
+  - bugfix:  72_FB_CALLMONITOR: fix not working reverse-search-phonebook
+             file import
+  - change:  93_DbLog: V2.22.15, some Log verbose level adapted/added
+  - bugfix:  44_S7_ARead: event-on-change-reading
+  - bugfix:  44_S7_AWrite: event-on-change-reading
+  - bugfix:  44_S7_DRead: event-on-change-reading
+  - bugfix:  44_S7_DWrite: event-on-change-reading
+  - bugfix:  44_S7_S5Client.pm: loading serial modul
+  - change:  89_FULLY: on-timer implemented
+  - change:  77_SMAEM: V3.0.1, use abort cause of BlockingCall
   - change:  93_Log2Syslog: V3.2.0, add NOTIFYDEV (if possible)
   - change:  70_BRAVIA: set remoteControl supports command codes
   - change:  98_dewpoint: Consolidated and corrected formulas for dewpoint
-                          (Forum #78359) 
+                          (Forum #78359)
   - fix:     00_SIGNALduino: Fix Bresser Sensor and perl sensor
                              max length was to short (Forum #79929)
   - bugfix:  74_GardenaSmartBridge: change state to connected
   - bugfix:  74_XiaomiFlowerSens: fix change InternalTimer now
-  - bugfix:  49_SSCam: V3.2.4, don't retrieve presets during restart if cam is 
+  - bugfix:  49_SSCam: V3.2.4, don't retrieve presets during restart if cam is
                        disabled
   - feature: 98_Hyperion: - new "set binary restart/stop"
                           - non-blocking for "get configFiles",
@@ -21,14 +816,14 @@
              14_SD_WS: new tfa sensor supported
              14_SD_WS07: extraction of rssi value support
              14_SD_WS09: wind/rain total support
-  - change:  93_DbLog: V2.22.14, create state-events if state has been changed 
+  - change:  93_DbLog: V2.22.14, create state-events if state has been changed
                        (Forum:#78867)
   - feature: 10_EQ3BT: support remote Bluetooth interface via SSH (thx@Cooltux!)
   - feature: 93_DbRep: V6.0.0, FTP transfer dumpfile after dump (MySQL), delete
                        old dumpfiles within Blockingcall, minor fixes
   - feature: 57_Calendar: new field categories (nils_, Forum #79237)
   - change:  72_FB_CALLMONITOR: delete stored FRITZ!Box password in
-             FHEM/uniqueID file upon deletion of a FB_CALLMONITOR definition  
+             FHEM/uniqueID file upon deletion of a FB_CALLMONITOR definition
   - feature: TR064Utils.pm added
   - changed: 88_HMCCU: Improved attributes ccureadingfilter, stripnumber
   - feature: 89_FULLY: New commands for motion detection and brightness
@@ -39,8 +834,8 @@
   - new:     89_FULLY: Control Fully Browser
   - bugfix:  72_FB_CALLMONITOR: replace all unicode placeholders correctly
              in reverse search results
-  - feature: 72_FB_CALLMONITOR: block calls, that matches configured 
-             blocking rules (deflections) from the FritzBox 
+  - feature: 72_FB_CALLMONITOR: block calls, that matches configured
+             blocking rules (deflections) from the FritzBox
              (new attribute check-deflections), see commandref for details
   - changed: 98_Dooya: updated module
   - new:     98_Siro: New module for Siro blinds
@@ -62,11 +857,11 @@
                readingsGroup for DOIF, an userReadings for DOIF, a DOIFtoolsLog
                or an icon for DOIF by user request
   - feature: 74_XiaomiFlowerMonitor: add attribut for Blocking.pm logoutput
-  - bugfix:  14_CUL_TCM97001: Bug: "other state" bei W174, 
+  - bugfix:  14_CUL_TCM97001: Bug: "other state" bei W174,
              Plausibility check for W174, Append documentation
-  - bugfix:  71_YAMAHA_AVR: fix max volume when using float values in 
+  - bugfix:  71_YAMAHA_AVR: fix max volume when using float values in
              set command "volume"
-  - bugfix:  93_DbRep: V5.8.6, don't limit length of attr reading/device if 
+  - bugfix:  93_DbRep: V5.8.6, don't limit length of attr reading/device if
                        attr contains a list
   - feature: 70_KODI: added reading jsonResponse which contains the last
                         received message from Kodi
@@ -117,7 +912,7 @@
   - change:  76_SMAInverter: V2.9.2, adapted to use extended abortArg
   - feature: 77_UWZ: add new sortby creation and add Italia Maps
   - feature: 49_SSCam: V3.2.3, new optimizeParams command to set cam properties
-  - bugfix:  72_FB_CALLMONITOR: fix wrong reverse-search of emergency call 
+  - bugfix:  72_FB_CALLMONITOR: fix wrong reverse-search of emergency call
              (110/112/...), fix missing deletion of phonebook on reread.
   - change:  93_DbRep: V5.6.4, use new Blocking.pm abortArg
   - bugfix:  22_HOMEMODE: v1.1.10 - fix notifydev for HomeEventsHolidayDevices
@@ -131,10 +926,10 @@
   - bugfix:  73_GardenaSmartBridge: fix part of code
   - feature: 49_SSCam: V3.1.0, move extevent from CAM- to SVS-model, Reading
                        PollState enhanced, minor fixes
-  - change:  93_DBLog: V2.22.8, avoid multiple entries of 
+  - change:  93_DBLog: V2.22.8, avoid multiple entries of
                        Device:Reading-combinations in Dopdown-list when
                        creating SVG
-  - bugfix:  10_MQTT_BRIDGE: fix comandref $device 
+  - bugfix:  10_MQTT_BRIDGE: fix comandref $device
   - feature: 74_AMADDevice: add media support for YouTubeKids
   - bugfix:  74_AMADautomagicFlowset_4.0.9.xml: fix restore volume bug
   - feature: 73_GardenaSmartBridge: add syntax check for disabledForIntervals
@@ -150,7 +945,7 @@
   - feature: 50_TelegramBot: hide cmd in favorites/changed favorites confirm
   - feature: 49_SSCam: V2.9.0, function get homeModeState, minor fixes,
                        commandref revised
-  - bugfix:  00_MQTT: fix event-on-change Reading 
+  - bugfix:  00_MQTT: fix event-on-change Reading
   - changed: 30_HUEBridge: added set inactive/active commands
                            create event for lastError reading
   - change:  93_DbLog: V2.22.6 commandref revised
@@ -163,7 +958,7 @@
   - feature: 82_LGTV_WebOS: version 1.0.0 add WakeOnLAN function
   - bugfix:  00_MQTT: fix Undef
   - feature: 83_IOhomecontrol: new attribute setCmds
-  - bugfix:  00_MQTT: added delete 
+  - bugfix:  00_MQTT: added delete
   - new:     83_IOhomecontrol: control IOhomecontrol devices via REST API
   - feature: 31_PLAYBULB: add support for Candle S Firmware 1.4
   - feature: 73_GardenaSmartBridge: add attribut disabledForInterval
@@ -201,7 +996,7 @@
   - bugfix:  93_DbRep: V5.6.2, commandref revised
   - feature: 00_MQTT: OnMessageFn, last-will, onConnect/onDisconnect
   - feature: 10_MQTT_DEVICE: improved publishSet, retain, subscribeReadings
-  - feature: 10_MQTT_BRIDGE: improved retain, subscribeSet 
+  - feature: 10_MQTT_BRIDGE: improved retain, subscribeSet
   - new:     31_Aurora.pm: first release
   - bugfix:  21_HEOS: fix missing curl
   - bugfix:  31_PLAYBULB: code cleaning
@@ -213,7 +1008,7 @@
   - bugfix:  49_SSCam: V2.7.0, set maximum password lenth to 20
   - bugfix:  73_AMADCommBridge: fix AnalyzeCommandChain sub call, fix
                                 AMADautomagicFlowset
-  - bugfix:  72_FB_CALLLIST: fix shifted table header 
+  - bugfix:  72_FB_CALLLIST: fix shifted table header
   - new:     59_WUup: first release (Forum #65587)
   - feature: 49_SSCam: V2.6.3, snapGallery can be triggered by e.g. notify
   - bugfix:  93_DbLog: V2.22.3, Forum:#74690, unitialized message in row ...
@@ -245,7 +1040,7 @@
   - feature: 57_Calendar: reduce memory footprint (forum #74481)
   - bugfix:  74_AMADDevice: fix openurl bug
   - bugfix:  49_SSCam: "uninitialized value in pattern ..." on fhem start
-  - feature: 49_SSCam: V2.4.0, new commands "snapinfo" and 
+  - feature: 49_SSCam: V2.4.0, new commands "snapinfo" and
                        "runView lastsnap_fw", minor fixes
   - feature: 93_DbLog: V2.22.0, new attribute "addStateEvent"
   - bugfix:  74_AMADDevice: Version 4.0.1 Charset utf8
@@ -256,15 +1051,15 @@
   - new:     70_NEUTRINO: new modul for neutrino sat receiver
   - bugfix:  74_AMAD: Change Commandref
   - change:  93_DbLog: V2.21.2, some improvements like get reading 'state' of
-                       state-events, timeout increased, change configCheck for 
-                       DbRep Report_Idx 
+                       state-events, timeout increased, change configCheck for
+                       DbRep Report_Idx
   - new:     46_SmartPi: Support read data from  Smart Pi expansion module
   - change:  93_DbRep: V5.6.1, commandref revised, minor fixes
-  - feature: 93_DbRep: V2.6.0, new get-command "procinfo" (MySQL), default 
+  - feature: 93_DbRep: V2.6.0, new get-command "procinfo" (MySQL), default
                        timeout changed to 86400
   - bugfix:  93_DbRep: minor bugfixes (thanks to Omega)
   - feature: 49_TBot_List: configure also add with attr confirmUnsolicited
-  - feature: 49_TBot_List: configure confirm delete  as attribute confirmDelete 
+  - feature: 49_TBot_List: configure confirm delete  as attribute confirmDelete
   - changed: 98_fheminfo.pm: remove release, featurelevel, uptime infos
   - added:   98_uptime.pm: new command module to show FHEM uptime
   - change:  93_DbLog: V2.19.0, replace internal DBMODEL by MODEL completely
@@ -279,7 +1074,7 @@
   - bugfix:  93_DbLog: V2.18.3, cannot load V2.18.2, new internal 'model'
   - bugfix:  list: do not change the upper casing of hashes (Forum #73828)
   - bugfix:  71_YAMAHA_NP: Prevent directPlay from starting netradio stream
-             several times in slow internet connections 
+             several times in slow internet connections
   - feature: 93_DbLog: V2.18.2, new command configCheck for MySQL, PostgreSQL
   - new:     98_archetype: introducing new  module to inheritance attributes
                 and defines devices
@@ -296,7 +1091,7 @@
   - feature: YAMAHA_AVR: new set commands / readings to control HDMI outputs
              (only for models with two HDMI outputs)
   - featere: exclude_from_update can check the source too (Forum #73275)
-  - change:  93_DbRep: V5.2.0, preparation for UTF-8 support by DbLog 
+  - change:  93_DbRep: V5.2.0, preparation for UTF-8 support by DbLog
   - bugfix:  36_Vallox: Changed read. Added attributes. Changed DeviceID.
   - bugfix:  MQTT: undef patch
   - bugfix:  ESPEasy: added missing event command (Forum #73291)
@@ -307,7 +1102,7 @@
   - feature: 98_structure.pm: add evaluateSetResult attribute (Forum #73113)
   - feature: ESPEasy: improved defineFn if bridge port is missing, docu update
   - feature: 37_Spotify: resume on target
-  - feature: 93_DbRep: V5.1.0, create dumps of MySQL on client- or serverside, 
+  - feature: 93_DbRep: V5.1.0, create dumps of MySQL on client- or serverside,
                        column UNIT is added to the result of fetchrows-command
   - feature: ESPEasy: command reference revised
   - bugfix:  49_SSCam: crash after FHEM-restart if answer from DS is empty
@@ -315,13 +1110,13 @@
   - feature: ESPEasy: added: dmx, motorshield, neopixel, candle, serialsend...
   - feature: 57_Calendar: asynchronous parsing, disable update
   - change:  34_ESPEasy: add IPv6 ULA to local IPs, add regexps to ACLs
-  - bugfix:  93_DbLog: V2.16.11, lock SQLite from logging if deleteOldDaysNbl 
+  - bugfix:  93_DbLog: V2.16.11, lock SQLite from logging if deleteOldDaysNbl
                        or reduceLogNbL is running in async mode
   - feature: ESPEasy: improved dual ip stack support
   - change:  FHEMWEB/telnet needs password if directly(!) connected to the
              internet, see https://forum.fhem.de/index.php?topic=72717
   - change:  34_ESPEasy: adjustments due to changes in TcpServerUtils.pm
-  - feature: 44_S7_ARead: supports for Logo7 and Logo8 short notations 
+  - feature: 44_S7_ARead: supports for Logo7 and Logo8 short notations
   - feature: 44_S7_AWrite: supports for Logo7 and Logo8 short notations
   - feature: 37_Spotify: specify default device by its name
   - feature: 98_alarmclock: New feature stop Alarm
@@ -339,8 +1134,8 @@
                            added _utilization and _poePower readings
   - feature: 93_DbRep: v4.16.1, json as option of sqlResultFormat
   - feature: 31_PLAYBULB: add support for ssh remote control
-  - change:  42_Nextion: fault tolerance in reader / fixes  
-  - feature: 50_TelegramBot: favorites rework - inline / allow : in inline 
+  - change:  42_Nextion: fault tolerance in reader / fixes
+  - feature: 50_TelegramBot: favorites rework - inline / allow : in inline
   - change:  49_TBot_List: changed query data to prefix TBL_ / quiet peerid
   - feature: 98_alarmclock: New features AlarmTime9_Vacation, skip next Alarm
   - new      21_HEOS*: new modules to provide HEOS Multiroomsystem
@@ -349,17 +1144,17 @@
   - feature: 98_alarmclock: New feature PresenceDevice
   - change:  49_SSCam: version 2.2.1, last record playback possible as iFrame,
                        deviceoverview available,
-                       CAUTION - syntax of runView options has been changed !!  
+                       CAUTION - syntax of runView options has been changed !!
   - change:  22_HOMEMODE: v1.1.0 please change %ALARM% to %ALARMHR%
   - change:  93_DbRep: version 4.15.0, limitation of fetchrows result to 1000
-                       adjustable by attr limit, performance increased in many 
+                       adjustable by attr limit, performance increased in many
                        cases, some bugfixes of PostgreSQL sumValue/averageValue
   - change:  93_DbLog: new version 2.16.10, syntax of addlog command changed,
                        reading userCommandResult contains "no result" if the
                        db interface delivers undef
   - feature: 93_DbRep: new version 4.14.0, new command sqlCmd to execute
                        arbitrary sql commands (thanks viegener for input),
-                       DbRep provides an userExit interface to execute 
+                       DbRep provides an userExit interface to execute
                        customer code independent from events
   - bugfix:  74_NUKIDevice: fix success Reading num
   - bugfix:  42_SYSMON: wlan speed, memory usage detection
@@ -377,7 +1172,7 @@
   - feature: 31_PLAYBULB: support for new Garden Model, move battery Reading to
                           powerLevel and add powerCharge Reading for Garden
   - feature: 00_DFPlayerMini: improved requestAck handling
-  - change:  49_SSCam: new version 2.1.3, change of internal processes, new 
+  - change:  49_SSCam: new version 2.1.3, change of internal processes, new
              get scanVirgin command
   - bugfix:  73_ElectricityCalculator: SiPrefix multiplier instead divider
   - bugfix:  73_GasCalculator: SiPrefix multiplier instead divider
@@ -387,7 +1182,7 @@
   - change:  71_YAMAHA_AVR: changing values of reading values conform
              to FHEM AV guidelines ("stopped", "playing" or "paused")
   - bugfix   73_km200.pm: Errorlist unsorted timestamp part 3
-  - bugfix:  76_SMAInverter: version 2.9.1, issues for some inverter types 
+  - bugfix:  76_SMAInverter: version 2.9.1, issues for some inverter types
                              e.g. SunnyBoy systems
   - bugfix:  36_Vallox: Correction of binary reading interpretations. Optimized.
                 Added Set for binary values.
@@ -417,7 +1212,7 @@
   - feature: 82_LGTV_WebOS: Version 0.6.0, pingPresence, Bugfixes
   - bugfix:  02_FTUISRV: fix replacesetMagic to use hash - fhem.pl warning
   - bugfix:  10_pilight_ctrl: fix GS-iwds07
-  - feature: 98_TRAFFIC: v1.3.1, attribute change, map setting save buttons 
+  - feature: 98_TRAFFIC: v1.3.1, attribute change, map setting save buttons
   - feature: 98_TRAFFIC: v1.3, map customizable, enhancements, fix JSON error
   - change:  76_SMAInverter: changed SMA_logon, enhanced inverter Types
   - feature: 98_DLNARenderer: support $readingFnAttributes
@@ -440,7 +1235,7 @@
   - bugfix:  98_weekprofile: handle csrfToken
   - bugfix:  02_HTTPSRV: strip parameters from filename
   - bugfix:  88_HMCCURPC: fixed binary RPC init procedure
-  - feature: 93_DBLog: new version 2.16.3, new command addlog, 
+  - feature: 93_DBLog: new version 2.16.3, new command addlog,
                        new attr valueFn, split events of ZWAVE
   - bugfix:  38_netatmo: fixed camera settings dependencies
   - update:  88_HMCCU: Version 4.0 with CUxD support
@@ -458,20 +1253,20 @@
   - update:  88_HMCCU: Optimized reading update performance
   - feature: 00_SONOS: New lists for groupinformations
   - bugfix:  88_HMCCU: Fixed toggle function for HMCCUCHN devices
-  - change:  93_DbLog: new version 2.14.4, new set-commands exportCache, 
-                       importCachefile, some fixes (e.g. many SVGs from SQLite 
+  - change:  93_DbLog: new version 2.14.4, new set-commands exportCache,
+                       importCachefile, some fixes (e.g. many SVGs from SQLite
                        in one room)
-  - bugfix:  93_DbRep: bugfix timestamp in minValue, maxValue if DB-VALUE 
+  - bugfix:  93_DbRep: bugfix timestamp in minValue, maxValue if DB-VALUE
                        contains more than one numeric value (e.g. in sysmon)
   - bugfix:  38_netatmo: sanity check for dynamic interval
   - bugfix:  88_HMCCU: fixed bug in update of virtual devices
   - feature: 70_BRAVIA: command remoteControl supports 'Netflix'
   - feature: 50_TelegramBot:  favorite handling / hidden favorites /
-                utf8Special for unicode issues / 
+                utf8Special for unicode issues /
   - new:     00_DFPlayerMini: module to control an embedded MP3 player
   - feature: 75_MSG: add support for PostMe module
   - feature: 74_XiaomiFlowerSens: 1.0.1 new Attributs minLux and maxLux
-  - feature: 98_monitoring: blacklist attribute is now a space seperated list 
+  - feature: 98_monitoring: blacklist attribute is now a space seperated list
                 of devspecs instead a comma seperated list of devices
   - bugfix:  32_withings: web token fix
   - bugfix:  93_DbRep: switch wintertime to summertime, minor fixes
@@ -517,7 +1312,7 @@
   - bugfix:  00_SONOS: Errorhandling for RadioName etc.
   - feature: 98_template: new FHEM command template
   - feature: 70_MEDIAPORTAL: Plugins can be retreived and changed to
-  - update:  00_SONOS: New version, see Wiki- or File-Changelog 
+  - update:  00_SONOS: New version, see Wiki- or File-Changelog
   - update:  88_HMCCU: Code optimized. Fixed Windows process ID bug.
   - bugfix:  71_YAMAHA_NP: Fixed tuner readings in standby.
   - bugfix:  42_Nextion:  mult. fixes - page10 / disconnect / init
@@ -552,10 +1347,10 @@
                       non-blocking variants of count, reducelog and
                       deleteOldDays
   - update:  88_HMCCU: Code optimized
-  - new:     49_TBot_List.pm: initial check in 
+  - new:     49_TBot_List.pm: initial check in
   - feature: 42_Nextion:  attributes disable/timeout, fix for page 10
   - update:  02_FTUISRV: doc change on ftui-if
-  - feature: 50_TelegramBot:  Secured: api key handled in setkey/getkey 
+  - feature: 50_TelegramBot:  Secured: api key handled in setkey/getkey
                   msgChatId with peer / communication with TBot_List
   - update:  98_DOIFtools: add a possibility to set the attribute icon for DOIF
                 by multiselect to helper_doif, DOIF's new icon D[:]IF
@@ -589,8 +1384,8 @@
   - bugfix:  74_XiaomiFlowerSens: 0.6.4 rewrite Errorhandling
   - bugfix:  70_BRAVIA: utf-8 character handling
                         use WOL only if device is absent (exception 2013 model)
-                        respect channel uri for tv input selection 
-  - changed: 93_DbRep: V4.10.3, rename reading "diff-overrun_limit-" 
+                        respect channel uri for tv input selection
+  - changed: 93_DbRep: V4.10.3, rename reading "diff-overrun_limit-"
              to "diff_overrun_limit_"
   - changed: 57_Calendar: avoid some warnings
   - bufix:   00_MQTT: fixed delete MQTT_DEVICE
@@ -605,7 +1400,7 @@
   - update:  88_HMCCU.pm: version 3.9.001 with minor changes
   - update:  98_DOIFtools: add attribute to move event monitor directly above
                 readings section in detail view of DOIF
-  - update:  93_DbLog: update to version 2.11.1, solves some issues since 
+  - update:  93_DbLog: update to version 2.11.1, solves some issues since
                 version 2.10.4, command set ... reopen extended
   - update:  98_DOIFtools.pm: add some hints, improved logfile handling
   - bugfix:  74_XiaomiFlowerSens: 0.6.3 fix blockingDone Routine
@@ -655,14 +1450,14 @@
                           pM_consumption to circumvent overlapping of commonly
                           used reading 'power' where it is normally used as
                           boolean.
-  - update:  93_DbLog: its now version 2.10.4, some improvements and new 
+  - update:  93_DbLog: its now version 2.10.4, some improvements and new
                        attributes
   - update:  74_XiaomiFlowerSens: 0.6.0 rewrite subroutinen for better handling
   - bugfix:  88_HMCCU.pm: fixed default attributes
   - update:  98_DOIFtools.pm: filter mentioned in event report
              Event monitor toggles instead on/off
              some shortcuts for get and set commands, hideable by attribute
-  - new:     98_mark: new command mark added 
+  - new:     98_mark: new command mark added
                       to mark devices TEMPORARY or VOLATILE
   - bufix:   00_MQTT: fixed delete MQTT device
                       added setKeyValue/getKeyValue for username and password
@@ -683,17 +1478,17 @@
   - update:  DOIFtools:documentation
   - new:     98_DOIFtools: tools for DOIF
   - bugfix:  93_DbLog: its now version 2.9.2 (thanks to DS_Starter)
-               new bugfix for SQLite issue SVGs, DbLog_Log changed to 
+               new bugfix for SQLite issue SVGs, DbLog_Log changed to
                  $dev_hash->{CHANGETIME}, DbLog_Push
                changed (db handle new separated)
-               changed DbLog_ParseEvent to CallInstanceFn, 
+               changed DbLog_ParseEvent to CallInstanceFn,
                renamed flushCache to purgeCache,
-               renamed syncCache to commitCache, 
+               renamed syncCache to commitCache,
                attr cacheEvents changed to 0,1,2
                changed DbLog_ParseEvent to CallFn
   - change:  73_PRESENCE: new collectord package to support RSSI selection
   - feature: 73_NUKIBridge,74_NUKIDevice: add NUKIDevice Readings rssi paired
-  - feature: 73_PRESENCE: 
+  - feature: 73_PRESENCE:
              - new mode "event" to determine presence state based on events of
                 other FHEM definitions.
              - new attributes "absenceTimeout" and "presenceTimeout" for
@@ -709,13 +1504,13 @@
   - bugfix:  74_XiaomiFlowerSens: fix disableForInterval Bug
   - bugfix:  88_HMCCU.pm: fixed attribute substexcl
   - update:  88_HMCCU.pm: new version 3.7
-  - bugfix:  contrib/Widgets/DateTimePicker/fhemweb_datetime.js: 
+  - bugfix:  contrib/Widgets/DateTimePicker/fhemweb_datetime.js:
              - added set parameter to ID to differentiate datetime widgets
   - new   :  74_XiaomiFlowerSens, to retrieves data from a Xiaomi Flower Monito
   - update:  73_NUKIBridge, 74_NUKIDevice
              set Commands are filtered by Attributs,better check alive function
              Callback/Webhook support for software bridge
-  - bugfix:  93_DbLog.pm: is now version 2.8.8, no dropdown list in SVG in 
+  - bugfix:  93_DbLog.pm: is now version 2.8.8, no dropdown list in SVG in
                           asynchronous mode, minor fixes
   - feature: 20_ROOMMATE,20_GUEST: introduce new attribute r*_presenceDevices
                                    to allow easy status synchronisation with
@@ -735,7 +1530,7 @@
   - change:  70_Pushover: old msg set syntax was declared as being deprecated.
   - feature: 93_DbLog: can now working in  async mode (thanks to DS_Starter)
   - new:     19_VBUSIF: new Device to connect an RESOL VBUS Device
-  - new:     21_VBUSDEV: new locical Device to connect to different 
+  - new:     21_VBUSDEV: new locical Device to connect to different
              Resol and compatible VBUS Devices via VBUSIF.pm
   - bugfix:  73_GasCalculator: Reset for calendar year fixed
   - bugfix:  73_ElectricityCalculator: Reset for calendar year fixed
@@ -752,15 +1547,15 @@
   - feature: 10_SOMFY: new RTS commands 0x9 und 0xA (set wind_sun_9/wind_only_a
   - bugfix:  93_DbRep: importFromFile format problem if UNIT-field wasn't set
   - feature: 98_fhemdebug, to aid "Error: >< no TYPE" debugging.
-  - feature: 70_Jabber Added possibility to change componentname via 
+  - feature: 70_Jabber Added possibility to change componentname via
              attr JabberDomain
-  - feature: 93_DbRep: function readingRename added, delEntries is able to 
+  - feature: 93_DbRep: function readingRename added, delEntries is able to
              use SQL-Wildcards in attr reading/device
   - bugfix:  98_Verkehrsinfo.pm: Fix state update, Hessenschau message
-  - feature: 50_TelegramBot:  msgForceReply, disable, 
+  - feature: 50_TelegramBot:  msgForceReply, disable,
                   keyboards in messages, inline keyboards and dialogs
   - bugfix:  74_NUKIDevice: Fix Problem with battery Reading
-  - update:  97_TrashCal.pm: fetches shared dates at an public webpage 
+  - update:  97_TrashCal.pm: fetches shared dates at an public webpage
                 of waste disposal
   - bugfix:  73_GasCalculator: Corrected month of annual reading
   - bugfix:  73_ElectricityCalculator: Corrected month of annual reading
@@ -782,16 +1577,16 @@
   - bugfix:  93_DbRep: bugfix group by-clause due to incompatible changes made
                        in MyQL 5.7.5 (Forum #msg541103)
   - feature: 66_ECMD, 67_ECMDDevice:
-              - if split is used, the strings at which the messages are split 
+              - if split is used, the strings at which the messages are split
                 are still part of the messages
               - no default attributes for requestSeparator and responseSeparato
-              - input of raw data as perl-encoded string (for setting 
+              - input of raw data as perl-encoded string (for setting
                 attributes)
               - be more verbose and explicit at loglevel 5
               - documentation corrected and amended
-  - feature: 57_Calendar: BYDAY: recognizes and honors one or several weekdays 
+  - feature: 57_Calendar: BYDAY: recognizes and honors one or several weekdays
                           with and without prefix (e.g. -1SU, 2MO) with MONTHLY
-  - bugfix:  contrib/Widgets/DateTimePicker/fhemweb_datetime.js: parameter 
+  - bugfix:  contrib/Widgets/DateTimePicker/fhemweb_datetime.js: parameter
              settings fixed -> e.g. defaultTime:21:00
   - bugfix:  88_HMCCU: Fixed memory leak in RPC server
   - feature: 01_FHEMWEB: Dump "Probably associated with" in Raw definition
@@ -828,8 +1623,8 @@
   - feature: 37_dash_dhcp: added devAlias attribute
   - update:  74_AMAD: statusRequest every Time
   - change:  93_DbRep: code reviewed, no functional changes
-  - change:  93_DbRep: DbRep version as INTERNAL, check if DBI module is 
-                       installed 
+  - change:  93_DbRep: DbRep version as INTERNAL, check if DBI module is
+                       installed
   - bugfix:  76_MSGMail: Clean up net::smtp version number before comparison
   - bugix:   14_Hideki:  fixed wrong return in ParseFn (msg533900)
              14_SD_WS:   fixed wrong return in ParseFn (msg533900)
@@ -845,11 +1640,11 @@
                           new reading effectArgs
   - bugfix:  98_Hyperion: clear is working now
                           effects with dash in name are accepted now
-  - change:  93_DbRep: sub diffValue changed due to Forum #msg520154, 
-                       attr diffAccept added, add diffValue state Warnings due 
-                       to several situations and generate readings 
+  - change:  93_DbRep: sub diffValue changed due to Forum #msg520154,
+                       attr diffAccept added, add diffValue state Warnings due
+                       to several situations and generate readings
                        not_enough_data_in_period / diff-overrun_limit
-  - change:  YAMAHA_AVR: create events even when current.* readings will be 
+  - change:  YAMAHA_AVR: create events even when current.* readings will be
              set to an empty string. (Forum: #60902)
   - bugfix:  10_ZWave: possible changes for multichannel devices (Forum #50176)
   - new:     39_siri.pm: configuration of fhem/siri integration
@@ -877,7 +1672,7 @@
   - bugfix:  93_DbRep: calc issue due to daylight saving time end (winter time)
   - new:     30_pilight_raw.pm: New Attribut sendCount
   - bugfix: 10_SOMFY: wrong attribute reference ...-up-time-to-close removed
-  - new:     42_Nextion.pm: New module to connect Nextion displays 
+  - new:     42_Nextion.pm: New module to connect Nextion displays
   - changed: YahooWeatherAPI: react on wrong units
   - changed: Pushsafer: optimized picture file error handling
   - new:     59_Wunderground: new weather module to fetch
@@ -885,7 +1680,7 @@
   - bugfix:  50_HP1000: correct default unit for windSpeed/windGust from m/s to
                         km/h and transfer unit conversions to new UConv.pm
   - feature: Pushsafer: new option "picture", "picture2" and "picture3" for
-                        "message" set command to send pictures from local 
+                        "message" set command to send pictures from local
                         filesystem or a IPCAM device. See commandref for detail
   - change:  FB_CALLMONITOR: open TCP connection non-blocking,
                              shutdown connection when disabled
@@ -893,12 +1688,12 @@
   - feature: 10_SOMFY: positionInverse für homebridge + fixes
   - feature: 50_TelegramBot:  multibot support / markup on send text / msgEdit
   - feature: 93_DbRep: get svrinfo contains SQLite database file size (MB)
-  - feature: 93_DbRep: get data of dbstatus, dbvars, tableinfo, svrinfo 
+  - feature: 93_DbRep: get data of dbstatus, dbvars, tableinfo, svrinfo
                        (database dependend)
-  - added:   70_Pushsafer: new module to send push notifications via 
+  - added:   70_Pushsafer: new module to send push notifications via
              www.pushsafer.com
   - feature: 93_DbRep: allow SQL-Wildcards (% _) in attr reading & attr device
-  - bugfix:  49_SSCam: Experimental keys on scalar is now forbidden 
+  - bugfix:  49_SSCam: Experimental keys on scalar is now forbidden
                        (Perl >= 5.23) Forum: #msg501709
   - added:   37_dash_dhcp.pm: new module for amazon dash buttons
   - feature: 98_Hyperion: removed attribute hyperionAttrRestore
@@ -906,7 +1701,7 @@
   - added:   73_NUKIBridge,74_NUKIDevice: New Modules to control Nuki Smartlock
   - feature: 98_Hyperion: new attribute hyperionAttrRestore
                           readings will always be refreshed now
-  - feature: 93_DbRep: deviceRename added, new Internal DATABASE, 
+  - feature: 93_DbRep: deviceRename added, new Internal DATABASE,
                        Internal/Attribute ROLE added for Autorename-function
   - bugfix:  93_DbRep: delEntries not running on SQLite
   - added:   74_THINKINGCLEANER: new module to support remote control of
@@ -917,11 +1712,11 @@
   - feature: 98_Hyperion: set configFile only available if at least two files
                           are found while get configFiles
                           minor code improvements
-  - feature: 50_TelegramBot: urlescaped filenames / location send-receive 
-                            timeout for send 
+  - feature: 50_TelegramBot: urlescaped filenames / location send-receive
+                            timeout for send
   - feature: 73_ElectricityCalculator: header and readingFnAttributes added
   - feature: 73_GasCalculator: header and readingFnAttributes added
-  - feature: 73_km200: header and readingFnAttributes added 
+  - feature: 73_km200: header and readingFnAttributes added
   - feature: 93_DbRep: function minValue added
   - bugfix:  38_netatmo: fix for invalid forecast data crashing FHEM
   - feature: 98_Hyperion: version check for hyperion server
@@ -933,16 +1728,16 @@
   - feature: readingsGroup: allow grouping of similar readings from one device
   - feature  14_SD_WS09: WH1080 CRC-Berechung angepaßt--> automatische
                          Modelauswahl
-  - feature: 00_SIGNALduino: nonblocking communication, improved init 
+  - feature: 00_SIGNALduino: nonblocking communication, improved init
                and keepalive, fixed manchester related stuff, Supports
-               Somfy RTS Protocol. Decoding manchester encoded messages 
+               Somfy RTS Protocol. Decoding manchester encoded messages
                longer than buffer is now possible.
-               new function sendMSG. 
+               new function sendMSG.
                Firwmware updated to 3.3.0, please flash
-               supports send command from IT Module. 
+               supports send command from IT Module.
                Serval new protocols implemented.
-  - bufgix:  14_SD_WS09.pm 
-                WH1080 CRC corrected --> model is selectet per default  
+  - bufgix:  14_SD_WS09.pm
+                WH1080 CRC corrected --> model is selectet per default
   - feature: 98_Dooya: Deatures shutters and blinds with dooya protocol
   - feature: 14_SD_WS_Maverick: Supports Maverick bbq thermometer
   - feature: 14_SD_WS: Multi purpose Module to support various weather sensors.
@@ -954,21 +1749,21 @@
   - feature: 93_DbRep: Internal "LASTCMD" added,
                        new reading background_processing_time,
                        diffValue calculation moved to backgrd to reduce load
-  - feature: 93_DbRep: new function importFromFile to import data from file 
+  - feature: 93_DbRep: new function importFromFile to import data from file
                        (CSV format)
   - bugfix:  73_ElectricityCalculator: Crash due wrong hash pointer assignment
   - feature: new optional arguments for device creation in  copy command
-  - bugfix:  49_SSCam: bugfix of get presets, get patrols of zoom-cams 
+  - bugfix:  49_SSCam: bugfix of get presets, get patrols of zoom-cams
                        without pan/tilt
   - updated: 74_AMAD: New Version 2.6.3 new Reading userFlowState,
                       new set Command userFlowState, checkAndroidVersion
                       on doNotDisturb Reading
   - change:  suppressReading attribute added for all devices (Forum #57841)
   - bugfix:  88_HMCCU: Fixed CUxD device datapoint handling
-  - change:  10_IT: create events during readings update. 
+  - change:  10_IT: create events during readings update.
                     change logging
-                    Add Sensor EV1527 
-                    Support for SIGNALduino 
+                    Add Sensor EV1527
+                    Support for SIGNALduino
                     (Forum #52827)
   - change:  88_HMCCU: fixed bug in attribute stripnumber. Added autocreate
   - change:  49_SSCam: internal timer of start-routines optimized
@@ -978,19 +1773,19 @@
   - change:  10_ZWAVE: TRANSMIT_NO_ACK is reading only (Forum #57781)
   - feature: 93_DbRep: new attr readingPreventFromDel to prevent readings from
                        deletion when a new operation starts
-  - change:  49_SSCam: attr simu_SVSversion changed, added 407 errorcode msg, 
+  - change:  49_SSCam: attr simu_SVSversion changed, added 407 errorcode msg,
                        external recording changed for SVS 7.2
   - bugfix:  73_ElectricityCalculator: get/set list per device and not global
   - bugfix:  98_DLNARenderer: fix pauseToggle/next/prev (thx@MattG)
   - bugfix:  73_GasCalculator:         get/set list deleted for CounterDevice
   - bugfix:  73_ElectricityCalculator: get/set list deleted for CounterDevice
-  - bugfix:  73_km200: Bugfix for double entries in RespondingServices. 
+  - bugfix:  73_km200: Bugfix for double entries in RespondingServices.
   - feature: 73_km200: New service type found: "serviceinfo".
   - added:   HMCCUConf: Interface between FHEM and Homematic CCU2
   - added:   88_HMCCU: Interface between FHEM and Homematic CCU2
   - added:   88_HMCCUCHN: Interface between FHEM and Homematic CCU2
   - added:   88_HMCCUDEV: Interface between FHEM and Homematic CCU2
-  - change:  93_DbRep: changed format of diffValue-reading if no value was 
+  - change:  93_DbRep: changed format of diffValue-reading if no value was
                        selected
   - new:     24_TPLinkHS110: Support for TPLink HS100/110 wifi power outlet
   - bugfix:  73_GasCalculator:         get/set list corrected for CounterDevice
@@ -1013,7 +1808,7 @@
   - updated: 74_AMAD: New Version 2.6.2 CommandRef Update, new set command for
                       media control
   - change:  98_Hyperion: non-blocking server connection
-  - feature: 49_SSCam: function get stmUrlPath added, fit to new commandref 
+  - feature: 49_SSCam: function get stmUrlPath added, fit to new commandref
                        style, attribute showStmInfoFull added
   - change:  57_CALVIEW: fixed internal timer error
   - change:  38_netatmo: error state, enabled debug logging for verbose 5
@@ -1022,8 +1817,8 @@
   - feature: 90_at: computeAfterInit attribute (Forum #56706)
   - change:  93_DbRep: fit to new commandref style
   - bugfix:  20_ROOMMATE,20_GUEST: Fixed wakeuptimer <> at-device sync
-  - feature  93_DbRep: current_year_begin, previous_year_begin, 
-                       current_year_end, previous_year_end added as possible 
+  - feature  93_DbRep: current_year_begin, previous_year_begin,
+                       current_year_end, previous_year_end added as possible
                        values for timestmp attribute,
                        new attribute timeOlderThan, commandref continued
   - feature: attr global commandref modular, Forum #39854
@@ -1045,7 +1840,7 @@
   - changed: 98_Hyperion: introducing new attribute hyperionNoSudo
   - changed: 38_netatmo: removed event-on-change default, min HOME interval
   - changed: 93_DbRep: usage of "insert" changed, pls. refer to commandref
-  - changed: 93_DbRep: function "insert" added, check of numeric value type 
+  - changed: 93_DbRep: function "insert" added, check of numeric value type
              in functions maxvalue, diffvalue
   - added:   98_Hyperion: initial release of completely new module
   - feature: 10_OWServer/11_OWDevice: new device DS2433 4kbit 1-Wire RAM
@@ -1078,8 +1873,8 @@
   - added:   77_SMASTP: Support for SMA Sunny Tripower Inverter
   - added:   77_SMAEM: Support for SMA Energy Meter
   - added:   00_HMUARTLGW: new module for eQ-3 HomeMatic UART/LanGateway
-  - change:  93_DbRep:  function "diffValue" added, readingnames changed to 
-             ensure valid reading order, write "-" for reading-value if no 
+  - change:  93_DbRep:  function "diffValue" added, readingnames changed to
+             ensure valid reading order, write "-" for reading-value if no
              dataset is found in selection timerange
   - updated: 74_AMAD: New Minor Release 2.4 new AMADCommBridge API
   - changed: 10_ZWave: alarm Events text changed, comma replaced, Forum #53389
@@ -1120,8 +1915,8 @@
   - changed: 30_HUEBridge: added disabledForIntervals, added lastError,
               use state/stateFormat instead of STATE
   - feature: PRESENCE: added lepresenced to commandref (by PatrickR)
-  - feature: PRESENCE: new attribute bluetooth_hci_device to select a 
-             specific bluetooth sender for presence checking 
+  - feature: PRESENCE: new attribute bluetooth_hci_device to select a
+             specific bluetooth sender for presence checking
              (only for mode "local-bluetooth")
   - feature: 74_AMAD: new Feature added support for do not Disturb Mode
   - bugfix : 74_HOMBOT: check path for sshpass
@@ -1131,7 +1926,7 @@
   - deleted: 52_I2C_GY30_BH1750FVI: Arno Augustin hatte fast zeitgleich
              eine  technisch bessere Variante entwickelt. Diese ist
              nicht mehr notwendig
-  - updated: 52_I2C_HDC1008: Umbau auf asynchrones I2C lesen, 
+  - updated: 52_I2C_HDC1008: Umbau auf asynchrones I2C lesen,
              alle sleeps entfernt
   - feature: 74_AMAD: new Feature change current volume + or - value
                       set TABLET volume -5
@@ -1157,14 +1952,14 @@
   - change:  70_ONKYO_AVR: rewrite based on IODev
   - feature: configDB: new command 'configdb dump' added.
              currently only supported for sqlite!
-  - bugfix:  FB_CALLLIST: fix not working calllist when renaming the 
+  - bugfix:  FB_CALLLIST: fix not working calllist when renaming the
              configured FB_CALLMONITOR definition.
   - feature: 10_SOMFY : Added readingFnAttributes
   - bugfix:  FB_CALLLIST: no reading update when list becomes empty
   - feature: added new module 37_plex.pm
   - feature: FBAHAHTTP module as replacement for the deprecated FBAHA
   - feature: 50_TelegramBot reply set command / allowedCommands as restriction
-  - change:  49_SSCam: get "snapfileinfo" will get back an Infomessage if 
+  - change:  49_SSCam: get "snapfileinfo" will get back an Infomessage if
                        Reading "LastSnapId" isn't available
   - feature: dummy attribute useSetExtensions
   - change:  speedtest: create readings without units
@@ -1173,7 +1968,7 @@
   - bugfix : 74:AMAD: modify informationsflow
   - feature: 00_ZWDongle: add backupCreate / backupRestore
   - bugfix:  49_SSCam: module will not load due to Unknown warnings category
-                       'experimental' when using an older perl version 
+                       'experimental' when using an older perl version
   - feature: 71_PHILIPS_AUDIO : Added input support for AW9000
   - bugfix:  50_TelegramBot: contact handling failed (/ in contact names ??)
   - feature: new module 02_FTUISRV.pm for server side templates for tablet UI
@@ -1187,7 +1982,7 @@
   - bugfix:  14_CUL_TCM97001: Fix battery bits.
              Fix Auriol receive
   - feature: 50_TelegramBot  supergroup support description for favorites
-                             text customization for response messages        
+                             text customization for response messages
   - feature: 49_SSCam: motion detection parameters can be entered if
                        motion detection by camera or by SVS is used
   - feature: 74_AMAD: Flowinstaller and FlowsetUpdater - Support for older
@@ -1195,19 +1990,19 @@
   - change:  59_Weather: included caching in YahooWeatherAPI
   - change:  49_SSCam: behavior of "set ... on" changed, Attr "recextend" added
              please have a look at commandref and Wiki
-  - bugfix:  49_SSCam: setstate-warning if FHEM is restarted and SVS not 
+  - bugfix:  49_SSCam: setstate-warning if FHEM is restarted and SVS not
              reachable (Forum: #308)
   - bugfix:  userReadings trigger is always $ terminated (Forum #52165)
   - bugfix:  74_AMAD: fix checkActivTask
   - bugfix:  74_AMAD: fix Commandref, APSSID for non WLAN Devices
   - change:  YAMAHA_AVR: removed set command tunerPreset,
-             added new set command preset to select a configured preset for 
+             added new set command preset to select a configured preset for
              the currently selected input. Please change your configuration
              to new command if you use tunerPreset in notify/at definitions
-  - feature: PRESENCE: new attribute absenceThreshold to define a number of 
-             checks that have to result in "absent" before the state of 
+  - feature: PRESENCE: new attribute absenceThreshold to define a number of
+             checks that have to result in "absent" before the state of
              PRESENCE is changed to absent. See commandref for details.
-  - bugfix:  PRESENCE: new collectord script and .deb package fixing not 
+  - bugfix:  PRESENCE: new collectord script and .deb package fixing not
              working statusRequest when a room in collectord is disconnected
   - updated: 74_AMAD: New Minor Release 2.0 Please read the Wiki or Commandref
                       !!! ATTENTION !!! Modify Definition is necessary
@@ -1222,15 +2017,15 @@
   - change:  49_SSCAM: change to new RemoveInternalTimer for functions
   - feature: new module 52_I2C_K30.pm added
   - bugfix:  98_weekprofile: send reference profile to device
-  - feature: 10_pilight_ctrl | 30_pilight_switch: support protocol daycom 
+  - feature: 10_pilight_ctrl | 30_pilight_switch: support protocol daycom
   - feature: 59_Weather: rewritten to use JSON API
   - bugfix:  49_SSCAM: "link_open" doesn't work after last update
   - added:   70_BRAVIA: new module for Sony Televisions
-  - feature: 98_statistics: attr specialDeltaPeriod (new) enhanced for more 
+  - feature: 98_statistics: attr specialDeltaPeriod (new) enhanced for more
              than one value and different periods
   - bugfix:  00_SIGNALduino: Replaced firmware with an old one.
   - feature: 49_SSCAM: add "lastrec","lastrec_open" to playback last recording
-  - change:  49_SSCAM: "ptzlistpresets" - "id" changed to "position" according 
+  - change:  49_SSCAM: "ptzlistpresets" - "id" changed to "position" according
              to Synology-ticket,
              run "geteventlist" automatically after recording-stop,
              delay of InternalTimer(s) changed
@@ -1240,14 +2035,14 @@
   - fixed:   10_pilight_ctrl send long raw codes
   - fixed:   98_weekprofile fix mutated vowels
   - feature: 50_TelegramBot  new option to retry for send &
-                             confirmation dialog for favorites 
+                             confirmation dialog for favorites
   - fixed:   configDB.pm - fix filelist problem on perl >= 5.20
   - fixed:   configDB.pm - add modpath evaluation
   - feature  71_PHILIPS_AUDIO Added model attribute
   - feature  71_YAMAHA_NP Added model attribute
   - feature  71_YAMAHA_NP: Smooth volume change added. General code cleanup
   - change:  49_SSCAM: routine "initonboot" changed
-  - bugfix:  49_SSCAM: default recordtime 15 s is used if attribute "rectime" 
+  - bugfix:  49_SSCAM: default recordtime 15 s is used if attribute "rectime"
              is set to "0"
   - bugfix:  YAMAHA_AVR: fix not working navigateListMenu under certain
              circumstances
@@ -1263,13 +2058,13 @@
   - feature: FB_CALLLIST: new attribute "expire-calls-after" to automatically
              delete call entries after a certain time frame. See commandref
              for details and syntax.
-  - feature: FB_CALLLIST: new reading "numberOfCalls" which shows the number 
+  - feature: FB_CALLLIST: new reading "numberOfCalls" which shows the number
              of shown call entries.
   - bugfix:  00_SIGNALduino: updated firmware to 3.2.0-hf1
                              solves MU and MC issue
-  - bugfix:  PRESENCE/presenced: fixed crash of presenced when receiving an 
+  - bugfix:  PRESENCE/presenced: fixed crash of presenced when receiving an
              invalid command, new deb packages released (see commandref)
-  - bugfix:  44_TEK603: Fixed TankLevel=NO_DATA 
+  - bugfix:  44_TEK603: Fixed TankLevel=NO_DATA
   - feature: LGTV_IP12: new reading "power"
   - change:  LGTV_IP12: changed values of mute reading from true/false to on/of
   - bugfix:  30_MilightBridge: suppress protocol change message on startup
@@ -1280,35 +2075,35 @@
   - feature: new module LGTV_IP12 for controlling LG SmartTV's manufactured
              between 2012-2014 via network connection
   - feature: 30_MilightBridge: Support tcp bridge.
-  - bugfix:  30_MilightBridge/98_ping: Use Blocking.pm for ping checks so 
+  - bugfix:  30_MilightBridge/98_ping: Use Blocking.pm for ping checks so
              it does not block main thread.
   - feature  49_SSCAM: functions for cam-livestream added
   - bugfix:  73_km200.pm: Bugfix InternalTimer; Improvement Log Level
   - bugfix:  pre-coomit-hook test
-  - bugfix:  98_weekprofile: detect channel of HM-CC-TC as correct thermostat 
+  - bugfix:  98_weekprofile: detect channel of HM-CC-TC as correct thermostat
   - bugfix:  00_SIGNALduino: Version 3.2.0 Module & Firmware
              serval fixes and enhacements, improved stability, supports many
              new protocols, ITv3 sockets and switches, new sendMsg Function.
              You need to flash your SIGNALduino with the new firmware.
   - bugfix:  14_Hideki: support rain sensors
-  - bugfix:  14_SD_WS07: Fixed some wordings   
+  - bugfix:  14_SD_WS07: Fixed some wordings
   - feature: 14_SD_WS09  Module for WH1080
              (WS-0101, TFA30.3189) & CTW600 868MHz OOK/AS
-  - feature: TimeSeries: median, holdtime for event-aggregator 
+  - feature: TimeSeries: median, holdtime for event-aggregator
   - feature: 57_CALVIEW: added internal notify-fn for calendar-devices,
-             added attr disable for internal notify-fn, removed ts state and 
+             added attr disable for internal notify-fn, removed ts state and
              started_* reading, removed old mode-attributes /def modes,
              changed commandref
   - bugfix:  49_SSCam: fixed a problem that the state is "disable" instead of
              "disabled" if a camera is disabled and FHEM will be restarted
   - feature: 98_weekprofile: attribute widgetEditDaysInRow to control visible
              days in one row
-  - feature: 49_SSCAM: function "get ... eventlist" added, Reading CamEventNum 
+  - feature: 49_SSCAM: function "get ... eventlist" added, Reading CamEventNum
              added which containes total number of camera events, change usage
              of reading "LastUpdateTime"
   - added:   79_BDKM: new module for Buderus KM Gateways
   - feature: 57_Calendar: get ... uid ...
-  - feature  49_SSCAM: function "runPatrol" added that starts predefined 
+  - feature  49_SSCAM: function "runPatrol" added that starts predefined
              patrols of PTZ-cameras, Reading "CamDetMotSc" added
   - feature: LightScene: added nextScene and previousScene commands
   - feature  49_SSCAM: Reading "CamExposureControl" added
@@ -1336,7 +2131,7 @@
   - feature: 49_SSCAM: feature for retrieval snapfilename added
   - bugfix:  57_Calendar: weekly recurring events on several weekdays,
              missing description
-  - feature: 57_Calendar: RDATE enabled             
+  - feature: 57_Calendar: RDATE enabled
   - bugfix:  49:SSCAM: "goAbsPTZ" may be unavailable on Windows-systems
   - feature  49_SSCAM: added function "move" for continuous PTZ action
   - feature: 02_RSS: continue image update sequence after error (HTML)
@@ -1368,11 +2163,11 @@
   - feature: New module 74_HOMBOT to control LG Hombot vacuum cleaner
   - bugfix:  49_SSCAM: credentials won't be deleted if "rereadcfg" is used
   - bugfix:  76_MSGMail: Make use of attribute mailtype again (enabling html)
-  - feature: 49_SSCAM: added function "svsinfo" to get informations about 
+  - feature: 49_SSCAM: added function "svsinfo" to get informations about
              installed SVS-package
-  - bugfix:  49_SSCAM: saved Credentials were deleted if a device will be 
+  - bugfix:  49_SSCAM: saved Credentials were deleted if a device will be
              deleted
-  - change:  49_SSCAM: if Availability = "disconnected" then "state"-value 
+  - change:  49_SSCAM: if Availability = "disconnected" then "state"-value
              will be "disconnected" too
   - feature: 70_Pushalot: added support for TimeToLive parameter.
   - bugfix:  60_allergy: fixed invalid readings names
@@ -1380,7 +2175,7 @@
   - feature: 91_notify: add readLog attribute
   - feature: 98_ping: Add attribute for minimum fails before reporting
              (minFailCount)
-  - bugfix:  PRESENCE: fix log warning "use of uninitialized value ..." when 
+  - bugfix:  PRESENCE: fix log warning "use of uninitialized value ..." when
              using power set command without any argument.
   - added:   60_allergy: Allergy forecast data for Germany
   - feature: FB_CALLLIST: new attribute number-cmd to execute a FHEM command
@@ -1391,11 +2186,11 @@
   - feature: 31_MilightDevice: Color changes during dim on lower brightness
   - bugfix:  30_MilightBridge/31_MilightDevice: Variable fallbacks, colorcast
   - bugfix:  44_TEK603: fixed wrong values.
-  - bugfix:  49_SSCam: fixed the problem a recording may still stay active if 
+  - bugfix:  49_SSCam: fixed the problem a recording may still stay active if
              fhem will be restarted after a recording was triggered and
              the recordtime wasn't be over,
              Enhancement of readings.
-  - change:  76_MSGMail: move email delivery from MSGMail_set to MSGMail_send 
+  - change:  76_MSGMail: move email delivery from MSGMail_set to MSGMail_send
              to be usable from perl; use Blocking_Call to deliver email
   - change:  55_GDS.pm uses setKeyValue/getKeyValue for user credentials
   - feature: new module 52_I2C_BME280.pm added (klausw)
@@ -1404,7 +2199,7 @@
              added "set credentials" command to save username/password,
              added Attribute "session" to make login-session selectable,
              NOTE: You have to adapt your define-strings after update !!
-             look at commandref or forum-post for details: 
+             look at commandref or forum-post for details:
              forum.fhem.de/index.php/topic,45671.msg397449.html#msg397449
   - bugfix:  73_GasCalculator: Bugfix in Commandref and 2 attributes renamed.
   - feature: 98_weekprofile: including topics\categories
@@ -1418,12 +2213,12 @@
   - feature: update is executed per default in the background
   - bugfix:  FB_CALLLIST: fix "Use of uninitialized value" warnings on startup
   - change:  49_SSCam: Change of define-string related to rectime.
-                       Note: see all changes of rectime usage in commandref 
+                       Note: see all changes of rectime usage in commandref
                        or in Forum:
                        .../index.php/topic,45671.msg391664.html#msg391664
   - added:   98_count: count devices specified by devspec or all
   - bugfix:  57_CALVIEW: bugfix for started terms
-  - feature: 10_KOPP_FC: Receive Mode for dimmer implemented, 
+  - feature: 10_KOPP_FC: Receive Mode for dimmer implemented,
     change:  10_KOPP_FC: removed "toggle" command, use "on" or "off" instead
   - change:  49_SSCam: Vars "USERNAME" and "RECTIME" removed from Internals,
                       Var (Internals) "SERVERNAME" changed to "SERVERADDR",
@@ -1440,7 +2235,7 @@
   - feature: 51_I2C_TSL2561: support non-blocking I2C-IO, especially when
                              using Firmata over LAN
   - feature: FB_CALLLIST: new attribute answMachine-is-missed-call to treat
-                          incoming calls, which were taken by an answering 
+                          incoming calls, which were taken by an answering
                           machine, as "missed call". Only relevant for
                           list-type "missed-call".
   - change:  FB_CALLMONITOR: reading "missed_call_line" will not be triggered
@@ -1475,7 +2270,7 @@
   - bugfix:  95_Dashboard: fixed issue when using cmdIcon attribute
                            for devices.
   - feature: 71_PHILIPS_AUDIO: select presets and favorites by name.
-  - feature: 50_TelegramBot: alias for commands, new readings, 
+  - feature: 50_TelegramBot: alias for commands, new readings,
                              support for sending media files; plus fixes
   - feature: 20_ROOMMATE,
              20_GUEST: new attribute r*_geofenceUUIDs for direct GEOFANCY
@@ -1485,7 +2280,7 @@
                           readings created (improves security/stability)
   - feature: configDB: rescue mode added, read forum #46538
   - changed: 49_SSCam: documentation changed
-             HINT: use IP-Adresses instead of hostnames in SSCAM-Define! 
+             HINT: use IP-Adresses instead of hostnames in SSCAM-Define!
   - bugfix:  FB_CALLLIST: fix not working longpoll update in FHEMWEB
   - change:  FB_CALLLIST: saved list will be deleted from filesystem
               when delete <name> is executed
@@ -1508,7 +2303,7 @@
   - bugfix:  51_I2C_TSL2561: correct lux calculation floatArithmetics case
   - feature: YAMAHA_AVR: add pointer to main zone in Internals for zone defs
   - change:  YAMAHA_AVR: DSP based models use command queue of main zone
-             to execute commands for zone definitions 
+             to execute commands for zone definitions
              (many thanks to dev0 for patience and support)
   - bugfix:  YAMAHA_AVR: fix navigateListMenu for RX-Vx71 series models,
              fix bass/treble missbehaviour for DSP based models
@@ -1519,7 +2314,7 @@
   - feature: 57_CALVIEW.pm: added new function for running terms
   - change:  57_CALVIEW.pm: improved commandref
   - feature: 98_update.pm: support multiple repositories (Forum #45121)
-  - change:  71_YAMAHA_NP: More secure FM frequency input 
+  - change:  71_YAMAHA_NP: More secure FM frequency input
   - feature: FHEMWEB/Event Monitor: optional FHEM Log monitor.
   - feature: 50_Telegrambot: multiple contacts for send etc/removed depreacted
       messageTo,sendImageTo,sendPhotoTo/allowunknowncontacts
@@ -1533,9 +2328,9 @@
   - feature: YAMAHA_NP: Direct FM frequency setting.
   - feature: 30_pilight_xyz: possibility to change IO-Device (IODEV)
   - bugfix: YAMAHA_AVR: fixing not correctly volume smoothing
-  - change: 49_SSCam: turned completly to HttpUtils_NonblockingGet for 
-                       calling websites nonblocking, 
-                       LWP is not needed anymore, 
+  - change: 49_SSCam: turned completly to HttpUtils_NonblockingGet for
+                       calling websites nonblocking,
+                       LWP is not needed anymore,
                        use of InternalTimer instead of fhem(sleep),
                        improve usage of verbose-modes
   - change:  10_RESIDENTS.pm: Readings residentsTotalOwners* were renamed to
@@ -1549,26 +2344,26 @@
              - new set command/reading partyMode
              - disabledForInterval attribute added
              see details in commandref
-  - change: YAMAHA AVR: optimized HTTP request command queue to allow 
+  - change: YAMAHA AVR: optimized HTTP request command queue to allow
             correct processing of concatenated set commands
             (no sleep commands neccesary anymore)
   - bugfix: 95_Dashboard: fixed local link in command ref
   - bugfix: 10_IT: Ignore sending if dummy (Forum ID 44990)
     feature: 10_IT: Add functionality for setting ITClock (Forum ID 44451)
-  - bugfix: 14_CUL_TCM97001: Fix creation of plots 
+  - bugfix: 14_CUL_TCM97001: Fix creation of plots
   - updated: 74_AMAD: New Mijor Release 1.0.0
                       Add Reading Android Version
                       Add VoiceInput fo VoiceCommands
                       Bug Fixes
                       Call ReadingsVal from Automagic HTTP Request with Respons
-  - feature: 89_rssFeed: New module to get data from rss news feeds 
+  - feature: 89_rssFeed: New module to get data from rss news feeds
   - feature: FB_CALLMONITOR: added attribute disabledForIntervals to specify
              specific time ranges, where FB_CALLMONITOR will be disabled
              (see commandref for the exact syntax)
   - changed: YAMAHA_AVR: added HTTP request queue, send only one request at the
              same time. This increases command reliability and response
              behaviour of the AV receiver.
-  - bugfix:  49_SSCam: avoid problems when running this module on 
+  - bugfix:  49_SSCam: avoid problems when running this module on
              windows systems
   - feature: 14_CUL_TCM97001: Add redirect for Eurochron to SD_WS07 modul
                               Add support for KW9010 sensor
@@ -1596,10 +2391,10 @@
              via set command on
   - bugfix:  95_Dashboard: fixed javascript bug causing tabs not to load
   - feature: 36_DavisVantage.zip (author: "habeIchVergessen")
-             Receive Davis Vantage Weather Stations with JeeLink 
+             Receive Davis Vantage Weather Stations with JeeLink
              and the KeyValueProtocol module
   - feature: new module 36_KeyValueProtocol
-  - bugfix:  95_Dashboard: the fhem root url is not hardcoded any more 
+  - bugfix:  95_Dashboard: the fhem root url is not hardcoded any more
              but read from the $FW_ME variable. Fixed a problem that causes
              drag&drop being still activated when the dashboard was locked.
              (resize/move)
@@ -1633,7 +2428,7 @@
              respectively.
   - feature: Introduce FHEM message routing by new command 'msg'
   - bugfix:  98_Text2Speech: Google fixed, svox-pico added
-  - bugfix:  00_SIGNALduino: Updated Firmware (3.8.1-HF1) 
+  - bugfix:  00_SIGNALduino: Updated Firmware (3.8.1-HF1)
              fixed send raw
   - updated: 74_AMAD: New Mijor Release 0.8.1
   - bugfix:  74_AMAD: fix call statusRequest then screen off is set
@@ -1668,15 +2463,15 @@
                  matchBrackets:true, autofocus:true, theme:"blackboard",
                  lineNumbers:true, autoRefresh:true
                this can be overwritten with fhemweb attribute 'codemirrorParam'
-  - updated: codemirror version to 5.8 
+  - updated: codemirror version to 5.8
              the default codemirror javascript files are now minified
   - feature: 70_XBMC: -added disable attribute
                       -added reading tvshowid
-  - feature: new module 00_SIGNALduino.pm and 90_SIGNALduino_un: added 
+  - feature: new module 00_SIGNALduino.pm and 90_SIGNALduino_un: added
              SIGNALduino module and firmware
-  - feature: new module 14_Hideki.pm: added module for sensors with hideki 
+  - feature: new module 14_Hideki.pm: added module for sensors with hideki
              protocol
-  - feature: new module 14_SD_WS07.pm: added module for sensor devices with 
+  - feature: new module 14_SD_WS07.pm: added module for sensor devices with
              protocol id7
   - feature: 32_yowsup.pm: allow comma separated receiver list on master send
   - bugfix:  YAMAHA_AVR: fixing not working remoteControl commands for
@@ -1696,7 +2491,7 @@
   - feature: 73_km200: Improving error message in state
   - feature: SYSMON: FormatString for SYSMON_ShowValues.
   - feature: 36_JeeLink: added timeout attribute (by HCS)
-  - change: 14_CUL_TCM: implement new sensor types. Fix some wrong 
+  - change: 14_CUL_TCM: implement new sensor types. Fix some wrong
                         interpretations. Add additional readings.
   - feature: on/off-till-overnight (SetExtensions.pm)
   - bugfix:  73_km200: Bugfix for freeze in "Sounding"
@@ -1746,7 +2541,7 @@
   - bugfix:  38_CO20.pm: removed unneccesary error messages due to USB timeout
   - feature: 70_PushNotifier: use regexe for deviceID
   - bugfix:  30_pilight_temp: pressure, windavg, winddir, windgust from weather
-             stations without temperature 
+             stations without temperature
   - feature: 74_Unifi: - new readings for controller, accesspoints and clients
                        - new Setter: archiveAlerts, disconnectClient, restartAP
                          setLocateAP, unsetLocateAP
@@ -1754,14 +2549,14 @@
                        - new Attributes: eventPeriod, httpLoglevel
   - feature: 30_pilight_temp: - Added support for pressure, windavg, winddir,
               windgust from weather stations
-  - feature: 98_Text2Speech.pm: 
+  - feature: 98_Text2Speech.pm:
               - Quality and Speed as new Parameter
               - Bugfixing with Google Download
               - added VoiceRSS as new Ressouce
               - TTS_FileTemplateDir: Beginning with absolute directory now
                 possible
               - TTS_Timeout (optional) added
-  - feature: 74_Unifi: - ReadingNames now by default (in this order): 
+  - feature: 74_Unifi: - ReadingNames now by default (in this order):
                          Attr 'devAlias' > controllerAlias > hostname > user_id
                        - Attr 'devAlias' now can rename:
                          controllerAlias, hostname, user_id
@@ -1793,7 +2588,7 @@
                 - Added Attribute for separate muteRegexPattern
                 - Added Attribute httpNoShutdown
                 - Added possibility to disable ampInput check
-  - feature: YAMAHA_AVR: new reading "newFirmware" for indicating firmware 
+  - feature: YAMAHA_AVR: new reading "newFirmware" for indicating firmware
              update. new argument "direct" for volume commands to avoid
              volume smoothing (if activated)
   - added:   70_VolumeLink.pm: New module to link the volume-level and
@@ -1846,18 +2641,18 @@
   - bugfix:  SOMFY: Only send stop if position changed
              improved timing for position update fix typos (go-my instead of
              go_my)
-  - feature: ios6touchpadstyle: style adjustments for the Dashboard 
+  - feature: ios6touchpadstyle: style adjustments for the Dashboard
              module version 3.0
   - bugfix:  10_IT: Correct command parsing (forum id 38467)
   - bugfix:  Dashboard: corrected version number
   - feature: SYSSTAT: added mibs attribute for snmp monitoring
   - bugfix:  Dashboard: fixed CSS height issue for rows (top, center, bottom)
-  - feature: FB_CALLLIST: new attribute "external-mapping", new column for 
+  - feature: FB_CALLLIST: new attribute "external-mapping", new column for
              external_connection reading (see commandref for details, by
              Michael)
   - feature: Dashboard: release version 3.0
   - bugfix: SYSMON: 'disable' not working at FHEM-start
-  - bugfix: Text2Speech: ogg/wav as direkt mp3files are now possible 
+  - bugfix: Text2Speech: ogg/wav as direkt mp3files are now possible
   - bugfix: SOMFY: Added attr "additionalPosReading" to store current position
                    Bugfixing, made position calculation more stable
   - bugfix: 10_IT: Fix readings State for IT V3 switch (Forum #38406)
@@ -1865,17 +2660,17 @@
             capability)
   - change: FRITZBOX: for most features no telnet access needed anymore
              Execution of own TR-064 commands now possible
-  - bugfix: FB_CALLMONITOR: fixing not working company numbers 
+  - bugfix: FB_CALLMONITOR: fixing not working company numbers
   - bugfix: 34_NUT: Handling bei Verlust der Verbindung verbessert
   - bugfix: 31_MilightDevice: Small changes from MarkusM
                             (Remove dependency on Math::Round)
-  - bugfix: 30_MilightBridge: Minor change to ping code to try and resolve 
+  - bugfix: 30_MilightBridge: Minor change to ping code to try and resolve
                             crash when hostname not in dns
   - bugfix: pilight_ctrl: reset - clear send queue
   - feature: pilight_ctrl: add attribute SendTimeout for aborting sending
              commands
   - feature: FB_CALLMONITOR: add TR-064 support for remote phonebook reading
-             via official AVM API (by JoWiemann) 
+             via official AVM API (by JoWiemann)
   - feature: 10_pilight_ctrl.pm: added disconnect
   - feature: 32_yowsup.pm: added home attribute
   - feature: readingsGroup: allow commands for attributes
@@ -1899,7 +2694,7 @@
   - bugfix:  73_km200: Bugfix for sorting and comparison method
   - bugfix: SYSMON: CPU frequency
   - feature: OWServer/OWDevice: new device EDS00XX (forum #37453)
-  - feature: 59_Weather: french translations and pressure shown in 
+  - feature: 59_Weather: french translations and pressure shown in
              state (phervier)
   - feature: 36_LaCrosse: Implemented WS 1600
   - feature: 10_IT: Add HE800 support see
@@ -1926,7 +2721,7 @@
                93_DbLog_dbReadings_using_DbLogType.diff
   - bugfix:  14_CUL_TCM97001: Fix some uninitialized vars, update docu
   - feature: 30_pilight_temp: attribut corrHumidity to correct humidity
-  - feature: 76_MSGMail: Add attribute mailtype as suggested by Roger 
+  - feature: 76_MSGMail: Add attribute mailtype as suggested by Roger
                          (forum #37206)
   - feature: 30_pilight_temp: reading battery state, attribut corrTemp to
              correct temperature
@@ -1936,7 +2731,7 @@
   - feature: 10_pilight_ctrl possibility to ignore all incomming messages,
              added protocol quigg_gt*
   - change:  MSG: Replace file and mail related code with delegates
-  - change:  MSGFile: Assimilate file related code from 75_MSG 
+  - change:  MSGFile: Assimilate file related code from 75_MSG
                       to make it standalone, without requiring MSG device
   - change:  MSGMail: Assimilate mail related code from 75_MSG
                       to make it standalone, without requiring MSG device
@@ -1944,7 +2739,7 @@
              (required for libnet-3.06)
   - change: MilightDevice/MilightBridge: Fixes, features, changes (by MarkusM)
   - bugfix: SYSMON: network speed
-  - improved: I2C_TSL2561: asynchronous measurements, new readings (by jensb), 
+  - improved: I2C_TSL2561: asynchronous measurements, new readings (by jensb),
               new set update command, removed get command
   - feature: SYSMON: method to create html bar chart (thanks to snx)
   - added: SYSMON: new statistic readings for RAM and SWAP
@@ -1954,14 +2749,14 @@
   - fixed: SYSMON: cpu_freq_stat
   - fixed:  SYSMON: some warnings
   - added:  SYSMON: new readings <network>_speed, cpuX_freq_stat,
-            cpuX_idle_stat, cpu_temp_stat 
+            cpuX_idle_stat, cpu_temp_stat
   - improved:  SYSMON: documentation
   - change:  WMBus: support for Easymeter
   - added:   New modules 10_pilight_ctrl, 30_pilight_dimmer, 30_pilight_switch
              and 30_pilight_temp to support pilight (sending and receiving)
   - bugfix:  98_EDIPLUG: change kW/h to kWh and fix missing Id
   - feature: FB_CALLMONITOR: new reverse search method "textfile" for custom
-                             definitions 
+                             definitions
   - bugfix:  FB_CALLMONITOR: correct reverse search of Call-By-Call outgoing
              calls
   - feature: FB_CALLMONITOR: reverse search order can now be configured
@@ -2021,7 +2816,7 @@
   - feature: 02_HTTPSRV: query string sets readings (Stefan Strobel)
   - bugfix:  57_CALVIEW: - bugfix in set function
   - change:  57_CALVIEW: - fixed function 'set intervall'
-             - see comandref for detail (now use the define 
+             - see comandref for detail (now use the define
                for change intervall)
   - change:  73_km200 - More Services added
   - bugfix:  73_km200 - Re-Read bug in set function corrected
@@ -2053,17 +2848,17 @@
              into rgb values. See forum thread #30128
   - feature: FB_CALLMONITOR: read all available phonebooks directly wia
              web interface (also online phonebooks from Google, etc.).
-             new attributes fritzbox-remote-phonebook-via and 
+             new attributes fritzbox-remote-phonebook-via and
              fritzbox-remote-phonebook-exclude.
              new get command showPhonebookIds. Details can be read in
              commandref (by JoWiemann)
   - feature: 02_RSS.pm: new attribut autoreread; new NotifyFn and UndefFN;
              new layout commands textboxf, embed, push, pop;
              FWext is automatically deleted after deletion of last
-             RSS device; RSS Overview and elements opened in new tab; 
+             RSS device; RSS Overview and elements opened in new tab;
              refresh 0 to disable autorefresh; new function plotFromUrl
   - bugfix:  SOMFY: use correct attributename when calculating updatetime
-  - feature: 95_FLOORPLAN.pm: arrange by drag&drop, 
+  - feature: 95_FLOORPLAN.pm: arrange by drag&drop,
              copy, rename, delete processes userattr fp_<name>
   - added:   30_LIGHTIFY.pm: New module for OSRAM LIGHTIFY gateways
   - changed: 98_pilight.pm: New protocols
@@ -2085,7 +2880,7 @@
   - bugfix:  SYSMON: some warnings
   - changed: SYSMON: documentation
   - feature: SYSMON: query parameters from remote system (telnet)
-  - feature: 71_YAMAHA_NP.pm Improved timer setting 
+  - feature: 71_YAMAHA_NP.pm Improved timer setting
   - feature: 55_GDS uses own FWEXT instead HTTPSRV
   - feature: 98_logProxy.pm added postFn and scale2reading options
   - feature: 70_Pushbullet.pm: new module 70_Pushbullet.pm
@@ -2102,8 +2897,8 @@
   - changed: 71_YAMAHA_NP.pm: Provide entire http link to Player AlbumArt.
   - changed: 71_YAMAHA_NP.pm: Minor code improvements.
   - changed: 71_YAMAHA_NP.pm: Perl code clean-up after 'perlcritic' check.
-  - feature: 71_YAMAHA_NP.pm: New readings: tunerModeDAB, tunerBitrateDAB, 
-                                 tunerAudioModeDAB, tunerFrequencyDAB. 
+  - feature: 71_YAMAHA_NP.pm: New readings: tunerModeDAB, tunerBitrateDAB,
+                                 tunerAudioModeDAB, tunerFrequencyDAB.
                               New internals: NP_ICON_x, UDN, Friendly_Name
   - changed: 73_km200.pm: More services found.
   - bugfix:  FB_CALLMONITOR: read phonebooks after all attributes are set
@@ -2111,25 +2906,25 @@
   - feature: 70_XBMC.pm: clear readings when stopping media
   - feature: 70_XBMC.pm: new reading is3DFile for 3D files
   - bugfix:  70_XBMC.pm: improved JSON separator
-  - added:   73_km200: More services added. 
+  - added:   73_km200: More services added.
   - changed: 73_km200: Fhem get-command is able to return raw.
   - bugfix:  73_km200: Handling of unknown attributes corrected.
-  - feature: 31_MilightDevice.pm: Add hue/ct colorpickers.  
+  - feature: 31_MilightDevice.pm: Add hue/ct colorpickers.
                                   Add "presets" set command.
-  - feature: 70_XBMC.pm: new commands poweron,poweroff. 
+  - feature: 70_XBMC.pm: new commands poweron,poweroff.
                          configurable by attribute powerCmd
-  - added: 71_YAMAHA_NP.pm: New module for controlling Yamaha 
+  - added: 71_YAMAHA_NP.pm: New module for controlling Yamaha
                             network players such as CRX-N560(D)
   - bugfix: FB_CALLMONITOR: fix not working telnet login, when user based
             authentication is configured in FritzBox
   - feature: 02_RSS.pm: improved frontpage for RSS
   - bugfix: FB_CALLMONITOR  regognize "user:" as login prompt for
             remote telnet connection (phonebook)
-  - changed: 73_km200.pm: DoNotPoll includes top-down hierarchy 
-  - bugfix : 73_km200.pm: Correction of commandref - entry 
-  - changed: 98_Text2Speech (thanks to TeeVau): 
+  - changed: 73_km200.pm: DoNotPoll includes top-down hierarchy
+  - bugfix : 73_km200.pm: Correction of commandref - entry
+  - changed: 98_Text2Speech (thanks to TeeVau):
                              added calculate the MP3 Duration into Reading
-                             adjust Volume now in indirect mode possible 
+                             adjust Volume now in indirect mode possible
   - changed: 57_CALVIEW.pm: code cleanup
   - changed: 73_km200.pm: Reading will be deleted after set by DoNotPoll
   - bugfix:  73_km200.pm: German commandref still contained English text
@@ -2144,7 +2939,7 @@
   - fix: 66_ECMD: use STATE not state for connection checking (forum #31307)
   - feature: 57_Calendar: enable gzipped ical files (forum #31845)
   - bugfix: 70_Jabber.pm: XMPP DNS SVR record query added
-  - bugfix: 70_PIONEERAVR: fixed "missed to call readingsBeginUpdate first" 
+  - bugfix: 70_PIONEERAVR: fixed "missed to call readingsBeginUpdate first"
   - feature: fhemweb.js rewrite based on jQuery, single-widget-implementation
   - feature: SVG: multiple sources allowed, Plot-Editor
   - feature: textfield-long and knob widgets
@@ -2172,7 +2967,7 @@
   - added: some new icons (hourglass, frost, sani_heating_level_XX)
   - fix:   sani_heating_boost (possibility to colorize)
   - feature: FB_CALLMONITOR: add remote phonebook lookup via telnet connection
-                             to FritzBox (JoWiemann). 
+                             to FritzBox (JoWiemann).
   - bugfix: 70_PIONEERAVR & 71_PIONEERAVRZONE: fixed not working set-extensions
     (on-for-timer,...)
   - feature: fheminfo: report third-party modules
@@ -2184,7 +2979,7 @@
                         added httpUtils for nonblocking mode
   - feature: HUEDevice: added group handling
                         added renaming of devices and groups in the bridge
-  - added: 30_MilightBridge / 31_MilightDevice: Support Milight 
+  - added: 30_MilightBridge / 31_MilightDevice: Support Milight
            (Applamp/LimitlessLED/EasyBulb) LED lights/strips/controllers.
   - feature: HUEDevice: allow ct presets in webCmd
                         new subTypes extcolordimer and ctdimer
@@ -2197,8 +2992,8 @@
   - feature: readingsGroup: added valuePrefix and valueSuffix attributes
                             added collapsed/collapsible to visibility attribute
                             added visibility command
-  - bugfix: FB_CALLMONITOR: fixing not working company numbers 
-            reverse search for search.ch 
+  - bugfix: FB_CALLMONITOR: fixing not working company numbers
+            reverse search for search.ch
   - bugfix: 70_PushNotifier repair set function (xusader)
   - bugfix: PRESENCE: fixing not working timer, when using set [...]
     statusRequest
@@ -2225,7 +3020,7 @@
   - fhem 5.6 released
 
 - 2014-11-09 (5.6)
-  - bugfix: FB_CALLMONITOR: fixing race condition of missing events while 
+  - bugfix: FB_CALLMONITOR: fixing race condition of missing events while
                             performing multiple calls
   - feature: PROPLANTA: captures weather forecast from web pagewww.proplanta.de
   - feature: 15_CUL_EM added attribute maxPeak (arnoaugustin)
@@ -2240,7 +3035,7 @@
   - added: MYSENSORS_DEVICE: represent a MySensors sensor- or actor node
   - feature: global ATTR/DELETEATTR/MODIFIED events
   - feature: 55_GDS.pm - attr disable added
-  - bugfix: SYSMON: prevent endless loop at startup with 'disable' attribute  
+  - bugfix: SYSMON: prevent endless loop at startup with 'disable' attribute
   - feature: SYSMON: added FritzBox informations: DSL rate, DSLAM sync time,
              count of CRC an FEC
   - bugfix: SYSMON: unwanted characters in dsl info lines
@@ -2267,7 +3062,7 @@
   - added: FRM_IN: digital input for FRM
   - added: FRM_OUT: digital output for FRM
   - added: FRM: connect Arduino with firmata to fhem
-  - change: 57_Calendar: line parsing rewritten, care for missing 
+  - change: 57_Calendar: line parsing rewritten, care for missing
                          modification timestamps
   - change: SYSMON: support userReadings in SYSMON_ShowValues
   - change: 59_Weather: change icon for condition clear to sunny.png
@@ -3471,7 +4266,7 @@
 
 - 2006-11-08 (2.8)
   - feature: store oldvalue for triggers. perl only. requested by peter.
-  - feature: inform cmd. Patch by Martin. There are many Martins around here 
+  - feature: inform cmd. Patch by Martin. There are many Martins around here
   - bugfix:  XML: fix & and < and co
   - bugfix:  Accept KS300 negative temperature values
   - change:  the FS20 msg "rain-msg" is called now "activate"
@@ -3686,4 +4481,3 @@
 
 - 2005-10-27 (1.3)
   - Bugfix: multiple at commands at the same time.
-

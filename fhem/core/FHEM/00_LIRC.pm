@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_LIRC.pm 11984 2016-08-19 12:47:50Z rudolfkoenig $
+# $Id: 00_LIRC.pm 18140 2019-01-05 11:24:19Z rudolfkoenig $
 package main;
 
 use strict;
@@ -43,13 +43,17 @@ LIRC_Define($$)
   my $config = $a[2];
 
   Log3 $name, 3, "LIRC opening $name device $config";
-  my $lirc = Lirc::Client->new({
+  my $lirc;
+  eval {
+    $lirc = Lirc::Client->new({
         prog    => 'fhem',
         rcfile  => "$config", 
         debug   => 0,
         fake    => 0,
     });
-  return "Can't open $config: $!\n" if(!$lirc);
+  };
+  return "Error initializing Lirc::Client: $@" if($@);
+  return "Can't open $config: $!" if(!$lirc);
   Log3 $name, 3, "LIRC opened $name device $config";
 
   my $select = IO::Select->new();

@@ -1,4 +1,4 @@
-# $Id: 31_Aurora.pm 14962 2017-08-26 18:10:59Z justme1968 $
+# $Id: 31_Aurora.pm 18121 2019-01-02 21:16:33Z justme1968 $
 
 package main;
 
@@ -43,6 +43,7 @@ Aurora_Initialize($)
 
   #Consumer
   $hash->{DefFn}    = "Aurora_Define";
+  $hash->{NotifyFn} = "Aurora_Notify";
   $hash->{UndefFn}  = "Aurora_Undefine";
   $hash->{SetFn}    = "Aurora_Set";
   $hash->{GetFn}    = "Aurora_Get";
@@ -127,6 +128,8 @@ Aurora_Define($$)
   $interval = 60 if( defined($interval) && $interval < 10 );
   $hash->{INTERVAL} = $interval;
 
+  $hash->{helper}{last_config_timestamp} = 0;
+
   $hash->{helper}{on} = -1;
   $hash->{helper}{colormode} = '';
   $hash->{helper}{ct} = -1;
@@ -143,15 +146,36 @@ Aurora_Define($$)
   my $icon_path = AttrVal("WEB", "iconPath", "default:fhemSVG:openautomation" );
   $attr{$name}{'color-icons'} = 2 if( !defined( $attr{$name}{'color-icons'} ) && $icon_path =~ m/openautomation/ );
 
+  $hash->{NOTIFYDEV} = "global";
+
   RemoveInternalTimer($hash);
   if( $init_done ) {
-    Aurora_OpenDev($hash);
-  } else {
-    #InternalTimer(gettimeofday()+10, "Aurora_GetUpdate", $hash, 0);
+    Aurora_OpenDev($hash) if( !IsDisabled($name) );
   }
 
   return undef;
 }
+
+sub
+Aurora_Notify($$)
+{
+  my ($hash,$dev) = @_;
+  my $name  = $hash->{NAME};
+  my $type  = $hash->{TYPE};
+
+  return if($dev->{NAME} ne "global");
+  return if(!grep(m/^INITIALIZED|REREADCFG$/, @{$dev->{CHANGED}}));
+
+  if( IsDisabled($name) > 0 ) {
+    readingsSingleUpdate($hash, 'state', 'inactive', 1 ) if( ReadingsVal($name,'inactive','' ) ne 'disabled' );
+    return undef;
+  }
+
+  Aurora_OpenDev($hash);
+
+  return undef;
+}
+
 
 sub
 Aurora_Undefine($$)
@@ -188,7 +212,7 @@ Aurora_OpenDev($)
     Log3 $name, 2, "Aurora_OpenDev: got empty config";
     return undef;
   }
-  Log3 $name, 5, "Aurora_OpenDev: got config " . Dumper $result;
+  Log3 $name, 5, "Aurora_OpenDev: got config " . Dumper $result if($Aurora_hasDataDumper);
 
   if( !defined($result->{'linkbutton'}) || !AttrVal($name, 'key', undef) )
     {
@@ -282,12 +306,6 @@ Aurora_dispatch($$$;$)
       RemoveInternalTimer($hash);
       InternalTimer(gettimeofday()+1, "Aurora_GetUpdate", $hash, 0);
     }
-  } elsif( $param->{type} eq 'effects' ) {
-    $hash->{helper}{effects} = $json->{effectsList};
-    if( my $effect = $json->{select} ) {
-      if( $effect ne $hash->{helper}{effect} ) { readingsSingleUpdate($hash, 'effect', $effect, 1 ) };
-      $hash->{helper}{effect} = $effect;
-    }
   }
 }
 
@@ -297,7 +315,7 @@ Aurora_dispatch($$$;$)
 sub
 Aurora_SetParam($$@)
 {
-  my ($name, $obj, $cmd, $value, $value2) = @_;
+  my ($name, $obj, $cmd, $value, $value2, @a) = @_;
 
   if( $cmd eq "color" ) {
     $value = int(1000000/$value);
@@ -417,6 +435,7 @@ Aurora_SetParam($$@)
   } elsif( $cmd eq "effect" ) {
     $obj->{'select'} = "$value";
     $obj->{'select'} .= " $value2" if( $value2 );
+    $obj->{'select'} .= " ". join(" ", @a) if( @a );
   } elsif( $cmd eq "transitiontime" ) {
     $obj->{'transitiontime'} = 0+$value;
   } elsif( $name &&  $cmd eq "delayedUpdate" ) {
@@ -455,7 +474,7 @@ Aurora_Set($@)
       return undef;
     }
 
-    Aurora_SetParam($name, \%obj, $cmd, $value, $value2);
+    Aurora_SetParam($name, \%obj, $cmd, $value, $value2, @a);
   }
 #Log 1, Dumper \%obj;
 
@@ -703,26 +722,32 @@ Aurora_GetUpdate($)
 
   return undef if(IsDisabled($name));
 
-  my($err,$data) = HttpUtils_NonblockingGet({
-    url => "http://$hash->{IP}:16021/api/v1/$attr{$name}{token}/state",
-    timeout => 2,
-    method => 'GET',
-    noshutdown => $hash->{noshutdown},
-    hash => $hash,
-    type => 'state',
-    callback => \&Aurora_dispatch,
-  });
+  my ($now) = gettimeofday();
+  if( $hash->{LOCAL} || $now - $hash->{helper}{last_config_timestamp} > 300 ) {
+    my($err,$data) = HttpUtils_NonblockingGet({
+      url => "http://$hash->{IP}:16021/api/v1/$attr{$name}{token}",
+      timeout => 2,
+      method => 'GET',
+      noshutdown => $hash->{noshutdown},
+      hash => $hash,
+      type => 'state',
+      callback => \&Aurora_dispatch,
+    });
 
-  ($err,$data) = HttpUtils_NonblockingGet({
-    url => "http://$hash->{IP}:16021/api/v1/$attr{$name}{token}/effects",
-    timeout => 2,
-    method => 'GET',
-    noshutdown => $hash->{noshutdown},
-    hash => $hash,
-    type => 'effects',
-    callback => \&Aurora_dispatch,
-  });
+    $hash->{helper}{last_config_timestamp} = $now;
 
+  } else {
+    my($err,$data) = HttpUtils_NonblockingGet({
+      url => "http://$hash->{IP}:16021/api/v1/$attr{$name}{token}/state",
+      timeout => 2,
+      method => 'GET',
+      noshutdown => $hash->{noshutdown},
+      hash => $hash,
+      type => 'state',
+      callback => \&Aurora_dispatch,
+    });
+
+  }
 
   return undef;
 }
@@ -757,18 +782,19 @@ Aurora_Parse($$)
   Log3 $name, 5, Dumper $result if($Aurora_hasDataDumper);
 
   $hash->{name} = $result->{name} if( defined($result->{name}) );
-  $hash->{type} = $result->{type} if( defined($result->{type}) );
-  $hash->{class} = $result->{class} if( defined($result->{class}) );
-  $hash->{uniqueid} = $result->{uniqueid} if( defined($result->{uniqueid}) );
+  $hash->{serialNo} = $result->{serialNo} if( defined($result->{serialNo}) );
+  $hash->{manufacturer} = $result->{manufacturer} if( defined($result->{manufacturer}) );
+  $hash->{model} = $result->{model} if( defined($result->{model}) );
+  $hash->{firmwareVersion} = $result->{firmwareVersion} if( defined($result->{firmwareVersion}) );
 
-  $hash->{modelid} = $result->{modelid} if( defined($result->{modelid}) );
-  $hash->{productid} = $result->{productid} if( defined($result->{productid}) );
-  $hash->{swversion} = $result->{swversion} if( defined($result->{swversion}) );
-  $hash->{swconfigid} = $result->{swconfigid} if( defined($result->{swconfigid}) );
-  $hash->{manufacturername} = $result->{manufacturername} if( defined($result->{manufacturername}) );
-  $hash->{luminaireuniqueid} = $result->{luminaireuniqueid} if( defined($result->{luminaireuniqueid}) );
+  if( my $effects = $result->{effects} ) {
+    $hash->{helper}{effects} = $effects->{effectsList} if( defined($effects->{effectsList}) );
 
-  $attr{$name}{model} = $result->{modelid} if( !defined($attr{$name}{model}) && $result->{modelid} );
+    if( my $effect = $effects->{select} ) {
+      if( $effect ne $hash->{helper}{effect} ) { readingsSingleUpdate($hash, 'effect', $effect, 1 ) };
+      $hash->{helper}{effect} = $effect;
+    }
+  }
 
   $attr{$name}{devStateIcon} = '{(Aurora_devStateIcon($name),"toggle")}' if( !defined( $attr{$name}{devStateIcon} ) );
 
@@ -783,6 +809,7 @@ Aurora_Parse($$)
   readingsBeginUpdate($hash);
 
   my $state = $result;
+  $state = $state->{'state'} if( defined($state->{'state'}) );
 
   my $on        = $state->{on}{value};
      $on = $hash->{helper}{on} if( !defined($on) );
@@ -915,11 +942,7 @@ Aurora_Attr($$$;$)
     <br>
     Notes:
       <ul>
-      <li>with current bridge firware versions groups have <code>all_on</code> and <code>any_on</code> readings,
-          with older firmware versions groups have no readings.</li>
       <li>not all readings show the actual device state. all readings not related to the current colormode have to be ignored.</li>
-      <li>the actual state of a device controlled by a living colors or living whites remote can be different and will
-          be updated after some time.</li>
       </ul><br>
   </ul><br>
 

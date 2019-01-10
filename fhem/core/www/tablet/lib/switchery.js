@@ -1611,6 +1611,14 @@ var defaults = {
  * @param {Object} options
  * @api public
  */
+    
+function extend(){
+    for(var i=1; i<arguments.length; i++)
+        for(var key in arguments[i])
+            if(arguments[i].hasOwnProperty(key))
+                arguments[0][key] = arguments[i][key];
+    return arguments[0];
+}
 
 function Switchery(element, options) {
   if (!(this instanceof Switchery)) return new Switchery(element, options);
@@ -1628,6 +1636,10 @@ function Switchery(element, options) {
   if (this.isDisabled() === true) this.disable();
 }
 
+Switchery.prototype.reinit = function(config) {
+    this.options = $.extend({}, this.options, config);
+};
+    
 /**
  * Hide the target element.
  *
@@ -1695,15 +1707,14 @@ Switchery.prototype.setPosition = function (clicked) {
 
   if (checked === true) {
     this.element.checked = true;
-
-    //if (window.getComputedStyle) jack.style.left = parseInt(window.getComputedStyle(switcher).width) - parseInt(window.getComputedStyle(jack).width) + 'px';
-    //else jack.style.left = parseInt(switcher.currentStyle['width']) - parseInt(jack.currentStyle['width']) + 'px';
-    jack.style.left = $(switcher).width() - $(jack).width() + 'px';
+      jack.style.right = 0;
+      jack.style.left = 'initial';
 
  if (this.options.color) this.colorize();
     this.setSpeed();
   } else {
     jack.style.left = 0;
+    jack.style.right = 'initial';
     this.element.checked = false;
     this.switcher.style.boxShadow = 'inset 0 0 0 0 ' + this.options.secondaryColor;
     this.switcher.style.borderColor = this.options.secondaryColor;

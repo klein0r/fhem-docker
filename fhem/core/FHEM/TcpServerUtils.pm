@@ -1,5 +1,5 @@
 ##############################################
-# $Id: TcpServerUtils.pm 14862 2017-08-07 15:16:03Z rudolfkoenig $
+# $Id: TcpServerUtils.pm 17529 2018-10-14 12:57:06Z rudolfkoenig $
 
 package main;
 use strict;
@@ -30,11 +30,11 @@ TcpServer_Open($$$)
     Domain    => ($hash->{IPV6} ? AF_INET6() : AF_UNSPEC), # Linux bug
     LocalHost => $lh,
     LocalPort => $port,
-    Listen    => 10,
+    Listen    => 32,    # For Windows
     Blocking  => ($^O =~ /Win/ ? 1 : 0), # Needed for .WRITEBUFFER@darwin
     ReuseAddr => 1
   );
-  $hash->{STATE} = "Initialized";
+  readingsSingleUpdate($hash, "state", "Initialized", 0);
   $hash->{SERVERSOCKET} = $hash->{IPV6} ?
         IO::Socket::INET6->new(@opts) : 
         IO::Socket::INET->new(@opts);
@@ -111,14 +111,19 @@ TcpServer_Accept($$)
     # Certs directory must be in the modpath, i.e. at the same level as the
     # FHEM directory
     my $mp = AttrVal("global", "modpath", ".");
-    my $ret = IO::Socket::SSL->start_SSL($clientinfo[0], {
-      SSL_server    => 1, 
-      SSL_key_file  => "$mp/certs/server-key.pem",
-      SSL_cert_file => "$mp/certs/server-cert.pem",
-      SSL_version => $sslVersion,
-      SSL_cipher_list => 'HIGH:!RC4:!eNULL:!aNULL',
-      Timeout       => 4,
-      });
+    my $certPrefix = AttrVal($name, "sslCertPrefix", "certs/server-");
+    my $ret;
+    eval {
+      $ret = IO::Socket::SSL->start_SSL($clientinfo[0], {
+        SSL_server    => 1, 
+        SSL_key_file  => "$mp/${certPrefix}key.pem",
+        SSL_cert_file => "$mp/${certPrefix}cert.pem",
+        SSL_version => $sslVersion,
+        SSL_cipher_list => 'HIGH:!RC4:!eNULL:!aNULL',
+        Timeout       => 4,
+        });
+      $! = EINVAL if(!$clientinfo[0]->blocking() && $!==EWOULDBLOCK);
+    };
     my $err = $!;
     if( !$ret
       && $err != EWOULDBLOCK
@@ -142,7 +147,7 @@ TcpServer_Accept($$)
   $nhash{CD}    = $clientinfo[0];     # sysread / close won't work on fileno
   $nhash{TYPE}  = $type;
   $nhash{SSL}   = $hash->{SSL};
-  $nhash{STATE} = "Connected";
+  readingsSingleUpdate(\%nhash, "state", "Connected", 0);
   $nhash{SNAME} = $name;
   $nhash{TEMPORARY} = 1;              # Don't want to save it
   $nhash{BUF}   = "";

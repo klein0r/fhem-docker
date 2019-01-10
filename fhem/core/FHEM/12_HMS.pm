@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 12_HMS.pm 15027 2017-09-08 09:11:43Z rudolfkoenig $
+# $Id: 12_HMS.pm 16797 2018-05-29 19:35:43Z rudolfkoenig $
 package main;
 
 use strict;
@@ -228,6 +228,8 @@ HMS_Parse($$)
   my $max = int(@txt);
   for( my $i = 0; $i < $max; $i++) {
     readingsBulkUpdate($def, $txt[$i], $v[$i]);
+    readingsBulkUpdate($def, "batteryState", $v[$i] eq "empty" ? "low" : "ok")
+      if($txt[$i] eq "battery");
   }
   readingsBulkUpdate($def, "type", $type);
   readingsBulkUpdate($def, "state", $val);

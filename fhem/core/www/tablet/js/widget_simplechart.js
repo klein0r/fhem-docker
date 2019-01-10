@@ -61,6 +61,7 @@ var Modul_simplechart = function () {
         var caption = elem.data('caption');
         var noticks = (elem.data('width') <= 100) ? true : elem.hasClass('noticks');
         var days = parseFloat(elem.attr('data-daysago') || 0);
+        var endnow = elem.data('endplotnow');
         var now = new Date();
         var ago = new Date();
         var vals = [];
@@ -69,13 +70,30 @@ var Modul_simplechart = function () {
         if (days > 0 && days < 1) {
             ago.setTime(now.getTime() - (days * 24 * 60 * 60 * 1000));
             mindate = ago.yyyymmdd() + '_' + ago.hhmmss();
+        } else if (endnow) {
+            ago.setDate(now.getDate() - days);
+            //align to hours if span is larger than 12h
+            if (days > 0.5) {
+                mindate = ago.yyyymmdd() + '_' + ago.getHours() + ':00:00';
+            } else {
+                mindate = ago.yyyymmdd() + '_' + ago.hhmm() + ':00';
+            }
         } else {
             ago.setDate(now.getDate() - days);
             mindate = ago.yyyymmdd() + '_00:00:00';
         }
         //var maxdate= now.yyyymmdd() + '_23:59:59';
-        maxdate.setDate(now.getDate() + 1);
-        maxdate = maxdate.yyyymmdd() + '_00:00:00';
+        if (!endnow) {
+            maxdate.setDate(now.getDate() + 1);
+            maxdate = maxdate.yyyymmdd() + '_00:00:00';
+        }
+        else if (days > 0.5) {
+            maxdate.setHours(maxdate.getHours() + 1);
+            maxdate = maxdate.yyyymmdd() + '_' + maxdate.getHours() + ':00:00';
+        } else {
+            maxdate.setMinutes(maxdate.getMinutes() + 1);
+            maxdate = nextmin.yyyymmdd() + '_' + nextmin.hhmm() + ':00';
+        }
 
         //console.log( "mindate: " + mindate);
         //console.log( "maxdate: " + maxdate);
@@ -90,6 +108,7 @@ var Modul_simplechart = function () {
         }
         if (!column_spec.match(/.+:.+/)) {
             console.log('columnspec ' + column_spec + ' is not ok in simplechart' + (elem.attr('data-device') ? ' for device ' + elem.attr('data-device') : ''));
+            return;
         }
 
         var logdevice = elem.attr("data-logdevice");
@@ -117,6 +136,7 @@ var Modul_simplechart = function () {
                                 len = 0;
                             if (val > max && $.isArray(maxarray)) {
                                 for (j = maxarray.length-1; j > 0; j--) {
+                                    console.log('------------------------j:',j);
                                     if (maxarray[j] > val) {
                                         max = maxarray[j];
                                         break;

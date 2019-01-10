@@ -1,4 +1,4 @@
-# $Id: 10_HXBDevice.pm 7686 2015-01-24 11:54:59Z borisneubert $
+# $Id: 10_HXBDevice.pm 16375 2018-03-10 15:40:02Z neubert $
 ##############################################################################
 #
 #     10_HXBDevice.pm
@@ -280,6 +280,8 @@ HXBDevice_Parse($$)
 #############################
 
 =pod
+=item summary    receive multicast messages from a Hexabus device
+=item summary_DE empfange Multicast-Nachrichten von einem Hexabus-Ger&auml;
 =begin html
 
 <a name="HXBDevice"></a>

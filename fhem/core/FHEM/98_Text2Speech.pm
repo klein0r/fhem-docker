@@ -1,6 +1,6 @@
 
 ##############################################
-# $Id: 98_Text2Speech.pm 13704 2017-03-14 19:33:42Z Tobias.Faust $
+# $Id: 98_Text2Speech.pm 16849 2018-06-11 08:50:38Z Tobias.Faust $
 #
 # 98_Text2Speech.pm
 #
@@ -84,7 +84,8 @@ my %language        = ("Google"     =>  {"Deutsch"        => "de",
                                          "France"         => "fr",
                                          "Spain"          => "es",
                                          "Italian"        => "it",
-                                         "Chinese"        => "cn"
+                                         "Chinese"        => "cn",
+                                         "Dutch"          => "nl"
                                          },
                        "VoiceRSS"   =>  {"Deutsch"        => "de-de",
                                          "English-US"     => "en-us",

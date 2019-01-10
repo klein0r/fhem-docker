@@ -1,4 +1,4 @@
-# $Id: 73_WaterCalculator.pm 15117 2017-09-22 13:41:02Z Sailor $
+# $Id: 73_WaterCalculator.pm 16603 2018-04-13 17:58:42Z Sailor $
 ########################################################################################################################
 #
 #     73_WaterCalculator.pm
@@ -95,6 +95,7 @@ sub WaterCalculator_Define($$$)
 	$hash->{REGEXP} = $RegEx;	
 
 	### Writing values to global hash
+	notifyRegexpChanged($hash, $RegEx);
 	$hash->{NAME}							= $name;
 	$hash->{STATE}              			= "active";
 	$hash->{REGEXP}             			= $RegEx;
@@ -139,7 +140,7 @@ sub WaterCalculator_Attr(@)
 	my $name                   = $a[1];
 	my $hash                   = $defs{$name};
 	
-	### Check whether "disbale" attribute has been provided
+	### Check whether "disable" attribute has been provided
 	if ($a[2] eq "disable")
 	{
 		if    ($a[3] eq 0)
@@ -148,7 +149,7 @@ sub WaterCalculator_Attr(@)
 		}
 		elsif ($a[3] eq 1)		
 		{	
-			$hash->{STATE} = "diabled";
+			$hash->{STATE} = "disabled";
 		}
 	}
 	

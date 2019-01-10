@@ -1,4 +1,3 @@
-@charset "UTF-8";
 @import url(https://fonts.googleapis.com/css?family=Open+Sans);
 @import url(https://fonts.googleapis.com/css?family=Source+Code+Pro);
 html, body, div, span, applet, object, iframe, h1, h2, h3, h4, h5, h6, p, blockquote, pre, a, abbr, acronym, address, big, cite, code, del, dfn, em, img, ins, kbd, q, s, samp, small, strike, strong, sub, sup, tt, var, b, u, i, center, dl, dt, dd, ol, ul, li, fieldset, form, label, legend, table, caption, tbody, tfoot, thead, tr, th, td, article, aside, canvas, details, embed, figure, figcaption, footer, header, hgroup, menu, nav, output, ruby, section, summary, time, mark, audio, video { margin: 0; padding: 0; border: 0; font: inherit; font-size: 100%; vertical-align: baseline; }
@@ -19,7 +18,9 @@ a img { border: none; }
 article, aside, details, figcaption, figure, footer, header, hgroup, main, menu, nav, section, summary { display: block; }
 
 /* Author: Matthias Kleine */
-body { background: #354d69 url(../hausautomatisierung-com/images/bg_wrapper.jpg) no-repeat center 0 fixed; color: #fff; font-family: 'Open Sans', sans-serif; font-size: 13px; margin: 0 auto; padding: 0; tab-size: 4; }
+body { background: #354d69 url(../hausautomatisierung-com/images/bg_wrapper.jpg) no-repeat center 0 fixed; background-size: cover; background-position: top center; color: #fff; font-family: 'Open Sans', sans-serif; font-size: 13px; margin: 0 auto; padding: 0; tab-size: 4; background-size: cover; }
+
+div { font-family: 'Open Sans', sans-serif !important; font-size: 13px !important; }
 
 body.dashboard_fullsize #content { border: none !important; float: none !important; height: 100% !important; overflow: visible !important; padding: 0 !important; position: inherit !important; width: 100% !important; }
 
@@ -31,20 +32,22 @@ button.dist { border: 0; cursor: pointer; margin: 10px; }
 
 #logo { background: url(../hausautomatisierung-com/images/haus_automatisierung.png) no-repeat; height: 120px; margin-left: 40px; margin-top: 10px; position: fixed; width: 220px; }
 #logo .theme-version { opacity: 0.7; }
+#logo #clock { opacity: 0.7; position: absolute; right: 0; top: 0; }
 
 #content, #right { bottom: 20px; left: 180px; position: absolute; right: 10px; top: 50px; }
 
 #content, #hdr, #right { left: 320px; }
 
-input[type="text"] { border: 2px #e56524 solid; background: none; }
+input[type="text"] { border: 1px #e56524 solid; background: none; }
 
-#hdr { left: 320px; position: absolute; top: 10px; }
-#hdr input.maininput { color: #fff; width: 1000px; font-size: 16px; box-sizing: border-box; }
+#hdr { left: 310px; position: fixed; top: 0px; background: #fffffff0; padding: 10px; z-index: 99; border-radius: 0 0 4px 4px; box-shadow: 0 3px 3px #11111130; }
+#hdr input.maininput { color: #e56524; width: 1000px; font-size: 16px; box-sizing: border-box; }
 #hdr input.maininput:focus { outline: none; }
-#hdr:after { color: #e56524; content: '!!! Bitte Theme-JS aktivieren für vollen Funktionsumfang: attr WEB JavaScripts codemirror/fhem_codemirror.js hausautomatisierung-com/custom.js'; margin-top: 5px; display: block; background: #fff; padding: 5px; opacity: 0.9; }
+#hdr:after { color: #e56524; content: 'Theme-JS aktivieren fuer vollen Funktionsumfang: attr WEB JavaScripts codemirror/fhem_codemirror.js hausautomatisierung-com/custom.js'; margin-top: 5px; display: block; padding: 5px; opacity: 0.9; }
 #hdr.js-installed:after { content: none; }
+#hdr.header--hidden { -webkit-transform: translateY(-110%); -ms-transform: translateY(-110%); transform: translateY(-110%); }
 
-#errmsg { background: #e56524; border-bottom: 3px #fff solid; border-top: 3px #fff solid; color: #fff; font-size: 20px; font-weight: 700; left: 0; padding: 20px; position: fixed; top: 10px; width: 100%; z-index: 99999; }
+#errmsg { background: #e56524; border-bottom: 3px #fff solid; border-top: 3px #fff solid; color: #fff; font-size: 16px !important; font-weight: 700; left: 0; padding: 20px; position: fixed; top: 10px; width: 100%; z-index: 99999; opacity: 0.8; }
 #errmsg:after { content: ' !!!!'; }
 #errmsg:before { content: '!!!! '; }
 
@@ -54,8 +57,12 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; back
 
 #content { max-width: 1000px; }
 #content .get, #content .set, #content .attr { float: left; }
+#content pre { font-family: 'Source Code Pro', monospace !important; }
 #content .roomoverview .icon { margin-right: 5px; }
-#content .makeTable { clear: left; display: inline; float: left; width: 100%; font-size: 16px; text-transform: uppercase; letter-spacing: 10px; }
+#content .roomoverview .first-table-column { width: 25%; border-right: 2px #e56524 solid; }
+#content .modCmdinput[type="submit"] { border: 1px #e56524 solid; border-radius: 0; color: #e56524; padding: 1px 10px; background: transparent; font-size: 16px; }
+#content .makeTable { clear: left; display: inline; float: left; width: 100%; font-size: 16px !important; text-transform: uppercase; letter-spacing: 10px; overflow-x: scroll; }
+#content .makeTable .first-table-column { width: 25%; border-right: 2px #e56524 solid; }
 #content .makeTable table { font-size: 13px; text-transform: none; letter-spacing: normal; }
 #content .makeTable table.block td:nth-child(2) { width: 60%; }
 #content .makeTable + .makeTable { margin-top: 10px; }
@@ -64,20 +71,27 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; back
 #content .makeTable .slider .handle { height: 16px; line-height: 16px; }
 #content .slider { width: 350px; border: 1px #e56524 solid; }
 #content .slider .handle { -moz-user-select: none; -user-select: none; -webkit-user-select: none; background: #e56524; color: #f5f6f9; cursor: pointer; position: relative; text-align: center; width: 40px; }
+#content .colorpicker_ct .slider { background: url(../jscolor/ct_background.svg); background-size: 150px; }
+#content .colorpicker_ct_mired .slider { background: url(../jscolor/ct_mired_background.svg); background-size: 150px; }
+#content .colorpicker_hue .slider { background: url(../jscolor/hue_background.svg); background-size: 150px; }
+#content .dval > table { margin-bottom: 10px; }
+#content .dval > table .downText { line-height: 24px; font-family: 'Source Code Pro', monospace !important; }
+#content .dval input { border: 1px #e56524 solid; border-radius: 0; color: #e56524; padding: 1px 10px; background: transparent; font-size: 16px; }
 #content .makeSelect { background: #fff; border-left: 5px #e56524 solid; border-right: 5px #e56524 solid; box-sizing: border-box; clear: left; color: #676f7a; display: inline; float: left; padding: 5px; width: 100%; }
-#content .makeSelect .downText { line-height: 24px; }
-#content .makeSelect select { background-image: linear-gradient(45deg, transparent 50%, gray 50%), linear-gradient(135deg, gray 50%, transparent 50%), linear-gradient(to right, #ccc, #ccc); background-position: calc(100% - 20px) calc(0.5em), calc(100% - 15px) calc(0.5em), calc(100% - 2.5em) 0.2em; background-size: 5px 5px, 5px 5px, 1px 0.9em; background-repeat: no-repeat; border: 2px #e56524 solid; border-radius: 0; color: #e56524; font-size: 16px; line-height: 20px; height: 24px; margin-left: 5px; margin-right: 5px; padding: 0 10px; min-width: 200px; }
-#content .makeSelect input[type="submit"] { border: 2px #e56524 solid; border-radius: 0; color: #e56524; padding: 1px 10px; background: transparent; font-size: 16px; }
-#content .makeSelect input[type="text"] { border: 2px #e56524 solid; color: #555; background: transparent; font-size: 16px; }
-#content .makeSelect + .makeSelect { margin-top: 10px; }
+#content .makeSelect .downText { line-height: 24px; font-family: 'Source Code Pro', monospace !important; }
+#content .makeSelect select { background-image: linear-gradient(45deg, transparent 50%, gray 50%), linear-gradient(135deg, gray 50%, transparent 50%), linear-gradient(to right, #ccc, #ccc); background-position: calc(100% - 20px) calc(0.5em), calc(100% - 15px) calc(0.5em), calc(100% - 2.5em) 0.2em; background-size: 5px 5px, 5px 5px, 1px 0.9em; background-repeat: no-repeat; border: 1px #e56524 solid; border-radius: 0; color: #e56524; font-size: 16px; line-height: 20px; height: 24px; margin-left: 5px; margin-right: 5px; padding: 0 10px; min-width: 200px; }
+#content .makeSelect input[type="submit"] { border: 1px #e56524 solid; border-radius: 0; color: #e56524; padding: 1px 10px; background: transparent; font-size: 16px; height: 24px; }
+#content .makeSelect input[type="text"] { border: 1px #e56524 solid; color: #555; background: transparent; font-size: 16px; height: 20px; }
 #content .makeSelect + .makeTable { margin-top: 10px; }
 #content .makeSelect .slider { width: 250px; height: 22px; }
 #content .makeSelect .slider .handle { height: 22px; line-height: 22px; }
 #content table { border-collapse: collapse; max-width: 1000px; width: 100%; }
-#content table select { background-image: linear-gradient(45deg, transparent 50%, gray 50%), linear-gradient(135deg, gray 50%, transparent 50%), linear-gradient(to right, #ccc, #ccc); background-position: calc(100% - 15px) calc(0.5em + 1px), calc(100% - 10px) calc(0.5em + 1px), calc(100% - 2em) 0.4em; background-size: 5px 5px, 5px 5px, 1px 0.9em; background-repeat: no-repeat; border: 2px #e56524 solid; border-radius: 0; color: #e56524; font-size: 100%; line-height: 20px; padding: 0 0px 0 10px; min-width: 90px; max-width: 300px; }
+#content table.wide { width: 100%; }
+#content table select { background-image: linear-gradient(45deg, transparent 50%, gray 50%), linear-gradient(135deg, gray 50%, transparent 50%), linear-gradient(to right, #ccc, #ccc); background-position: calc(100% - 15px) calc(0.5em + 1px), calc(100% - 10px) calc(0.5em + 1px), calc(100% - 2em) 0.4em; background-size: 5px 5px, 5px 5px, 1px 0.9em; background-repeat: no-repeat; border: 1px #e56524 solid; border-radius: 0; color: #e56524; font-size: 100%; line-height: 20px; padding: 0 0px 0 10px; min-width: 90px; max-width: 300px; }
 #content table .slider { width: 150px; }
 #content table.block { background: #fff; border: none; color: #676f7a; }
 #content table.block.readings .changed { color: #e56524; }
+#content table.block.readings .changed:after { content: ' !!!'; }
 #content table .no-background { background: none !important; }
 #content table.block td:nth-child(1) { white-space: nowrap; }
 #content table.block tr.odd { background: #f5f6f9; }
@@ -87,11 +101,16 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; back
 #content table input + select, #content table select + select { margin-left: 10px; }
 #content #pedit { margin-bottom: 10px; text-transform: uppercase; font-size: 16px; letter-spacing: 10px; }
 #content #pedit > * { text-transform: none; font-size: 13px; letter-spacing: normal; }
-#content #pedit .plotEditor select.svgSrc, #content #pedit .plotEditor select.set { border: 2px #e56524 solid; border-radius: 0; color: #e56524; }
+#content #pedit .plotEditor select.svgSrc, #content #pedit .plotEditor select.set { border: 1px #e56524 solid; border-radius: 0; color: #e56524; }
 #content .SVGlabel { background: #f5f6f9; padding: 5px; }
-#content .devType { font-size: 20px; text-transform: uppercase; letter-spacing: 10px; margin-top: 10px; }
+#content .SVGplot { background: #f5f6f9; padding: 10px; }
+#content .odd .SVGplot, #content .even .SVGplot { background: none !important; }
+#content .devType { font-size: 16px !important; text-transform: uppercase; letter-spacing: 10px; margin-top: 10px; }
 #content .devType a { color: #fff; }
-#content .detLink { border: 2px #e56524 solid; padding: 2px 10px; display: inline-block; margin-top: 10px; line-height: 20px; margin-right: 10px; vertical-align: top; }
+#content .odd .devType, #content .even .devType { color: #676f7a; margin-left: 5px; margin-bottom: 10px; }
+#content .odd .devType a, #content .even .devType a { color: #676f7a; }
+#content .detLink { background: #00000061; border: 1px #e56524 solid; padding: 2px 10px; display: inline-block; margin-top: 10px; line-height: 20px; margin-right: 10px; margin-bottom: 20px; vertical-align: top; }
+#content .detLink a { color: #e56524; }
 #content #devSpecHelp { background: #fff; border-left: 5px #e56524 solid; color: #676f7a; font-family: 'Source Code Pro', monospace !important; max-width: 985px; padding: 5px; width: 100%; margin-top: 10px; }
 #content #devSpecHelp h3 { font-size: 16px; letter-spacing: 10px; text-transform: uppercase; font-weight: bold; }
 #content #devSpecHelp dd { margin-left: 50px; }
@@ -103,13 +122,16 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; back
 #content #devSpecHelp ul li { margin: 10px 0; }
 #content #devSpecHelp table td { padding: 5px; }
 #content #ZWHelp { font-size: 13px !important; text-transform: none !important; letter-spacing: normal !important; background: #fff; color: #676f7a; padding: 5px; box-sizing: border-box; }
+#content #ZWHelp.makeTable.help:empty { display: none; }
 #content div.img { width: 100%; background: #fff; padding: 5px; box-sizing: border-box; text-align: center; margin-top: 10px; margin-bottom: 10px; }
-#content .CodeMirror { width: 1000px !important; }
-#content #edit input[type="submit"].psc { border: 2px #e56524 solid; border-radius: 0; color: #e56524; font-size: 16px; margin: 10px; background: transparent; min-width: 200px; }
+#content .CodeMirror { width: auto; }
+#content #edit input[type="submit"].psc { border: 1px #e56524 solid; border-radius: 0; color: #e56524; font-size: 16px; margin: 10px; background: transparent; min-width: 200px; }
 
-#console { bottom: 0; overflow-y: auto; position: absolute; top: 2em; width: 100%; }
+#console { bottom: 0; overflow: auto; white-space: nowrap; position: absolute; top: 2em; width: 100%; }
 
-#console, .fhemlog { color: #fff; font-family: 'Source Code Pro', monospace; }
+textarea#console { white-space: normal; margin-top: 10px; margin-bottom: 10px; border-left: 5px #e56524 solid; font-size: 100%; }
+
+#console, .fhemlog { color: #fff; font-family: 'Source Code Pro', monospace; background: none; border: none; }
 
 #dashboard { margin-top: -10px; }
 #dashboard .dashboard-button { background: #f5f5f5 no-repeat 7px !important; border: 1px solid #ddd; border-radius: 0 !important; cursor: pointer; display: inline-block; height: 1.9em; margin-top: 2px; padding: 0 .6em; position: absolute; width: 14px; }
@@ -179,11 +201,15 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; back
 
 #menu { margin-left: 20px; margin-top: 140px; width: 260px; z-index: 9999; }
 #menu table { border-collapse: collapse; border-radius: 0; width: 100%; }
-#menu a { background: #fff; color: #676f7a; display: block; padding: 10px 15px; position: relative; line-height: 15px; }
+#menu a { background: #fff; color: #676f7a; display: block; padding: 10px 15px; position: relative; }
+#menu .menuTree { position: relative; }
+#menu .menuTree.level0.closed > td > div > a:after { width: 35px; height: 35px; content: ' '; position: absolute; top: 0; right: 0; background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 1792 1792" xmlns="http://www.w3.org/2000/svg"><path fill="rgb(229, 101, 36)" d="M1171 960q0 13-10 23l-466 466q-10 10-23 10t-23-10l-50-50q-10-10-10-23t10-23l393-393-393-393q-10-10-10-23t10-23l50-50q10-10 23-10t23 10l466 466q10 10 10 23z" transform="rotate(90,896,896)"/></svg>') !important; }
+#menu .menuTree.level0.open > td > div > a:after { width: 35px; height: 35px; content: ' '; position: absolute; top: 0; right: 0; background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 1792 1792" xmlns="http://www.w3.org/2000/svg"><path fill="rgb(229, 101, 36)" d="M1171 960q0 13-10 23l-466 466q-10 10-23 10t-23-10l-50-50q-10-10-10-23t10-23l393-393-393-393q-10-10-10-23t10-23l50-50q10-10 23-10t23 10l466 466q10 10 10 23z" transform="rotate(270,896,896)"/></svg>') !important; }
+#menu .menuTree > td > div > div { display: none; }
 #menu table.room { border: none; border-spacing: 0; margin-bottom: 10px; }
 #menu table.room .custom-menu-entry { color: #e56524; }
 #menu table.room img.icon, #menu table.room svg.icon { width: 20px; height: 20px; margin: 0; position: absolute; right: 10px; top: 7px; }
-#menu table.room #saveCheck { margin-top: -35px; background: transparent; color: red; border-right: 5px #e56524 solid; border-left: 5px #e56524 solid; text-indent: -9999px; margin-left: 220px; }
+#menu table.room #saveCheck { margin-top: -33px; background: transparent; border-right: 5px #e56524 solid; border-left: 5px #e56524 solid; text-indent: -9999px; margin-left: 220px; }
 #menu table.room tr.sel a { background: #e56524; color: #fff; }
 #menu table.room tr.sel svg.icon { fill: #fff; }
 #menu table.room tr.sel td a:after { border-bottom: 17px solid transparent; border-left: 13px solid #e56524; border-top: 17px solid transparent; content: " "; height: 0; margin-top: -17px; position: absolute; right: -13px; top: 50%; width: 0; }
@@ -194,15 +220,30 @@ svg { width: 32px; height: 32px; vertical-align: middle; }
 
 svg.on, svg.FS20_on { fill: #e56524 !important; }
 
+#ZWDongleNrSVG { background: #f5f6f9; margin-bottom: 10px; margin-top: 10px; border-left: 5px #e56524 solid; border-right: 5px #e56524 solid; box-sizing: border-box; width: 1000px !important; }
+
+svg.zw_nr { fill: transparent !important; }
+svg.zw_nr text { fill: #e56524; }
+svg.zw_nr .col_link { color: #e56524; stroke: #e56524; }
+svg.zw_nr .zwMargin { stroke: transparent; color: transparent; }
+svg.zw_nr .zwLine { stroke-width: 1px; }
+svg.zw_nr .zwBox { stroke-width: 2px; }
+svg.zw_nr .zwDongle { stroke-width: 3px; }
+
 svg:not([fill]):not(.jssvg) { fill: #676f7a; }
 
 .ui-dialog { background: #fff !important; border: 2px solid #e56524 !important; padding: .2em !important; border-radius: 0 !important; color: #676f7a !important; padding: 0 !important; }
+.ui-dialog .CodeMirror { width: auto; }
 
 .ui-widget-content { background: #fff !important; }
+.ui-widget-content pre { font-family: 'Source Code Pro', monospace !important; }
 
 .ui-button { border-radius: 0 !important; color: #e56524 !important; }
 
 .ui-dialog-titlebar { display: block !important; border: none !important; border-radius: 0 !important; background: #f5f6f9 !important; }
+
+#dashboard .ui-widget-content a, #dashboard .fhemlog, #dashboard #fwmenu li a { color: #e56524 !important; }
+#dashboard .ui-corner-all, #dashboard .ui-corner-top, #dashboard .ui-corner-right, #dashboard .ui-corner-left, #dashboard .ui-corner-bottom, #dashboard .ui-corner-bl, #dashboard .ui-corner-br, #dashboard .ui-corner-tl, #dashboard .ui-corner-tr { border-radius: 0 !important; border-bottom-right-radius: 0 !important; border-bottom-left-radius: 0 !important; border-top-right-radius: 0 !important; border-top-left-radius: 0 !important; }
 
 #right { max-width: 1000px; width: 100%; }
 #right > h3, #right > h4 { font-size: 20px; text-transform: uppercase; letter-spacing: 10px; margin-top: 10px; }

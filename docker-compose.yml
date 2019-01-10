@@ -3,40 +3,31 @@ version: '2'
 services:
     fhem:
         restart: always
-        expose:
-            - "8083"
-            - "7072"
         ports:
             - "8083:8083"
             - "7072:7072"
-        build: fhem
-        privileged: true
+        image: fhem/fhem:latest
         volumes:
             - ./fhem/core/:/opt/fhem/
         networks:
             - fhem-network
+        environment:
+            FHEM_UID: 1000
+            FHEM_GID: 1000
+            TIMEOUT: 10
+            RESTART: 1
+            TELNETPORT: 7072
+            TZ: Europe/Berlin
         depends_on:
             - "mysql"
             - "mqtt"
-
-    homebridge:
-        restart: always
-        image: oznu/homebridge
-        volumes:
-            - ./homebridge/config.json:/homebridge/config.json
-            - ./homebridge/package.json:/homebridge/package.json
-        environment:
-            - TZ=Europe/Berlin
-            - PGID=1000
-            - PUID=1000
-        network_mode: host
-        depends_on:
-            - "fhem"
 
     habridge:
         restart: always
         build: habridge
         network_mode: host
+        volumes:
+            - ./habridge/data/:/opt/habridge/data/
 
     mysql:
         restart: always

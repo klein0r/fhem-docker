@@ -9,7 +9,7 @@
 # Program skeleton (with some errors) by Arnold Barmettler 
 # http://lexikon.astronomie.info/java/sunmoon/
 #
-#  $Id: 95_Astro.pm 15430 2017-11-13 20:30:11Z phenning $
+#  $Id: 95_Astro.pm 17517 2018-10-12 15:45:49Z phenning $
 #
 ########################################################################################
 #
@@ -47,7 +47,7 @@ my $deltaT   = 65;  # Correction time in s
 my %Astro;
 my %Date;
 
-my $astroversion = 1.37;
+my $astroversion = 1.50;
 
 #-- These we may get on request
 my %gets = (
@@ -91,6 +91,7 @@ my %astro_transtable_EN = (
     "twilightastro"     =>  "Astronomical twilight",
     "twilightcustom"    =>  "Custom twilight",
     "sign"              =>  "Zodiac sign",
+    "dst"               =>  "daylight saving time",
     #--
     "today"             =>  "Today",
     "tomorrow"          =>  "Tomorrow",
@@ -124,7 +125,7 @@ my %astro_transtable_EN = (
     "virgo"     => "Maiden",
     "libra"     => "Scales",
     "scorpio"   => "Scorpion",
-    "Sagittarius" => "Archer",
+    "sagittarius" => "Archer",
     "capricorn" => "Goat",
     "aquarius"  => "Water Bearer",
     "pisces"    => "Fish",
@@ -135,7 +136,7 @@ my %astro_transtable_EN = (
     "phase"          => "Phase",
     "newmoon"        => "New Moon",
     "waxingcrescent" => "Waxing Crescent",
-    "firstquarter   "=> "First Quarter",
+    "firstquarter"   => "First Quarter",
     "waxingmoon"     => "Waxing Moon",
     "fullmoon"       => "Full Moon",
     "waningmoon"     => "Waning Moon",
@@ -177,6 +178,7 @@ my %astro_transtable_EN = (
     "twilightastro"     =>  "Astronomische Dämmerung",
     "twilightcustom"    =>  "Konfigurierte Dämmerung",
     "sign"              =>  "Tierkreiszeichen",
+    "dst"               =>  "Sommerzeit",
     #--
     "today"             =>  "Heute",
     "tomorrow"          =>  "Morgen",
@@ -210,7 +212,7 @@ my %astro_transtable_EN = (
     "virgo"     => "Jungfrau",
     "libra"     => "Waage",
     "scorpio"   => "Skorpion",
-    "Sagittarius" => "Schütze",
+    "sagittarius" => "Schütze",
     "capricorn" => "Steinbock",
     "aquarius"  => "Wassermann",
     "pisces"    => "Fische",
@@ -221,7 +223,7 @@ my %astro_transtable_EN = (
     "phase"          => "Phase",
     "newmoon"        => "Neumond",
     "waxingcrescent" => "Zunehmende Sichel",
-    "firstquarter   "=> "Erstes Viertel",
+    "firstquarter"   => "Erstes Viertel",
     "waxingmoon"     => "Zunehmender Mond",
     "fullmoon"       => "Vollmond",
     "waningmoon"     => "Abnehmender Mond",
@@ -353,7 +355,14 @@ sub Astro_round($$) { my ($x,$n)=@_; return int(10**$n*$x+0.5)/10**$n};
 sub Astro_tzoffset($) {
     my ($t)   = @_;
     my $utc   = mktime(gmtime($t));
+    #-- the following does not properly calculate dst
     my $local = mktime(localtime($t));
+    #-- this is the correction
+    my $isdst = (localtime($t))[8];
+    #-- correction
+    if($isdst == 1){
+      $local+=3600;
+    }
     return (($local - $utc)/36);
 }
 
@@ -365,7 +374,7 @@ sub Astro_tzoffset($) {
   
 sub Astro_HHMM($){
   my ($hh) = @_;
-  return("")
+  return("---")
     if (!defined($hh) || $hh !~ /\d*\.\d*/) ;
   
   my $h = floor($hh);
@@ -767,7 +776,12 @@ sub Astro_GMSTRiseSet($$$$$){
   #Log 1,"-------------------> Called Astro_GMSTRiseSet with $ra $dec $lon $lat $h";
 
   # my $tagbogen = acos(-tan(lat)*tan(coor.dec)); // simple formula if twilight is not required
-  my $tagbogen = acos((sin($h) - sin($lat)*sin($dec)) / (cos($lat)*cos($dec)));
+  my $tagbarg  = (sin($h) - sin($lat)*sin($dec)) / (cos($lat)*cos($dec));
+  if( ($tagbarg > 1.000000) || ($tagbarg < -1.000000) ){
+    Log 5,"[Astro_GMSTRiseSet] Parameters $ra $dec $lon $lat $h give complex angle";
+    return( ("---","---","---") );
+  };
+  my $tagbogen = acos($tagbarg);
 
   my $transit =     $RAD/15*(          +$ra-$lon);
   my $rise    = 24.+$RAD/15*(-$tagbogen+$ra-$lon); # calculate GMST of rise of object
@@ -810,6 +824,11 @@ sub Astro_RiseSet($$$$$$$$$$$){
 
   my ($transit1, $rise1, $set1) = Astro_GMSTRiseSet($ra1, $dec1, $lon, $lat, $altitude);
   my ($transit2, $rise2, $set2) = Astro_GMSTRiseSet($ra2, $dec2, $lon, $lat, $altitude);
+  
+  #-- complex angle
+  if( ($transit1 eq "---") || ($transit2 eq "---") ){
+    return( ("---","---","---") );
+  }
   
   #-- unwrap GMST in case we move across 24h -> 0h
   $transit2 += 24
@@ -876,6 +895,10 @@ sub Astro_SunRise($$$$$$){
   #-- rise/set time in UTC
   my ($transit,$rise,$set) = Astro_RiseSet($jd0UT, $sunCoor1->{diameter}, $sunCoor1->{parallax}, 
     $sunCoor1->{ra}, $sunCoor1->{dec}, $sunCoor2->{ra}, $sunCoor2->{dec}, $lon, $lat, 1,undef); 
+  if( $transit eq "---" ){
+    Log 1,"[Astro_SunRise] no solution possible - maybe the sun never sets ?";
+   return( ($transit,$rise,$set) ); 
+  }
   
   my ($transittemp,$risetemp,$settemp);
   #-- check and adjust to have rise/set time on local calendar day
@@ -910,28 +933,60 @@ sub Astro_SunRise($$$$$$){
 
 	#-- Twilight calculation
 	#-- civil twilight time in UTC. 
+	my $CivilTwilightMorning;
+	my $CivilTwilightEvening;
 	($transittemp,$risetemp,$settemp) = Astro_RiseSet($jd0UT, $sunCoor1->{diameter}, $sunCoor1->{parallax}, 
 	   $sunCoor1->{ra}, $sunCoor1->{dec}, $sunCoor2->{ra}, $sunCoor2->{dec}, $lon, $lat, 1, -6.*$DEG);
-	my $CivilTwilightMorning = Astro_mod($risetemp +$zone, 24.);
-	my $CivilTwilightEvening = Astro_mod($settemp  +$zone, 24.);
-
-	#-- nautical twilight time in UTC. 
+	if( $transittemp eq "---" ){
+      Log 3,"[Astro_SunRise] no solution possible for civil twilight - maybe the sun never sets below -6 degrees?";
+      $CivilTwilightMorning = "---";
+      $CivilTwilightEvening = "---";
+    }else{
+	  $CivilTwilightMorning = Astro_mod($risetemp +$zone, 24.);
+	  $CivilTwilightEvening = Astro_mod($settemp  +$zone, 24.);
+    }
+    
+	#-- nautical twilight time in UTC.
+	my $NauticTwilightMorning;
+	my $NauticTwilightEvening; 
 	($transittemp,$risetemp,$settemp) = Astro_RiseSet($jd0UT, $sunCoor1->{diameter}, $sunCoor1->{parallax}, 
 	  $sunCoor1->{ra}, $sunCoor1->{dec}, $sunCoor2->{ra}, $sunCoor2->{dec}, $lon, $lat, 1, -12.*$DEG);
-	my $NauticTwilightMorning = Astro_mod($risetemp +$zone, 24.);
-	my $NauticTwilightEvening = Astro_mod($settemp  +$zone, 24.);
+	if( $transittemp eq "---" ){
+      Log 3,"[Astro_SunRise] no solution possible for nautical twilight - maybe the sun never sets below -12 degrees?";
+      $NauticTwilightMorning = "---";
+      $NauticTwilightEvening = "---";
+    }else{
+      $NauticTwilightMorning = Astro_mod($risetemp +$zone, 24.);
+	  $NauticTwilightEvening = Astro_mod($settemp  +$zone, 24.);
+	}
 
 	#-- astronomical twilight time in UTC. 
+	my $AstroTwilightMorning;
+	my $AstroTwilightEvening;
 	($transittemp,$risetemp,$settemp) = Astro_RiseSet($jd0UT, $sunCoor1->{diameter}, $sunCoor1->{parallax}, 
 	  $sunCoor1->{ra}, $sunCoor1->{dec}, $sunCoor2->{ra}, $sunCoor2->{dec}, $lon, $lat, 1, -18.*$DEG);
-	my $AstroTwilightMorning = Astro_mod($risetemp +$zone, 24.);
-	my $AstroTwilightEvening = Astro_mod($settemp  +$zone, 24.);
+	if( $transittemp eq "---" ){
+      Log 3,"[Astro_SunRise] no solution possible for astronomical twilight - maybe the sun never sets below -18 degrees?";
+      $AstroTwilightMorning = "---";
+      $AstroTwilightEvening = "---";
+    }else{
+	  $AstroTwilightMorning = Astro_mod($risetemp +$zone, 24.);
+	  $AstroTwilightEvening = Astro_mod($settemp  +$zone, 24.);
+	}
 	
 	#-- custom twilight time in UTC
+	my $CustomTwilightMorning;
+	my $CustomTwilightEvening;
     ($transittemp,$risetemp,$settemp) = Astro_RiseSet($jd0UT, $sunCoor1->{diameter}, $sunCoor1->{parallax}, 
 	  $sunCoor1->{ra}, $sunCoor1->{dec}, $sunCoor2->{ra}, $sunCoor2->{dec}, $lon, $lat, 1, $Astro{ObsHor}*$DEG);
-	my $CustomTwilightMorning = Astro_mod($risetemp +$zone, 24.);
-	my $CustomTwilightEvening = Astro_mod($settemp  +$zone, 24.);
+	  if( $transittemp eq "---" ){
+      Log 3,"[Astro_SunRise] no solution possible for custom twilight - maybe the sun never sets below ".$Astro{ObsHor}." degrees?";
+      $CustomTwilightMorning = "---";
+      $CustomTwilightEvening = "---";
+    }else{
+	  $CustomTwilightMorning = Astro_mod($risetemp +$zone, 24.);
+	  $CustomTwilightEvening = Astro_mod($settemp  +$zone, 24.);
+	}
 	
 	return( ($transit,$rise,$set,$CivilTwilightMorning,$CivilTwilightEvening,
 	  $NauticTwilightMorning,$NauticTwilightEvening,$AstroTwilightMorning,$AstroTwilightEvening,$CustomTwilightMorning,$CustomTwilightEvening) );  
@@ -1146,8 +1201,8 @@ sub Astro_Compute($){
   $Astro{NauticTwilightEvening}   = Astro_HHMM($NauticTwilightEvening);
   $Astro{AstroTwilightMorning}    = Astro_HHMM($AstroTwilightMorning);
   $Astro{AstroTwilightEvening}    = Astro_HHMM($AstroTwilightEvening);
-  $Astro{CustomTwilightMorning}    = Astro_HHMM($CustomTwilightMorning);
-  $Astro{CustomTwilightEvening}    = Astro_HHMM($CustomTwilightEvening);
+  $Astro{CustomTwilightMorning}   = Astro_HHMM($CustomTwilightMorning);
+  $Astro{CustomTwilightEvening}   = Astro_HHMM($CustomTwilightEvening);
   
   #-- calculate data for the moon at given time
   my $moonCoor    = Astro_MoonPosition($sunCoor->{lon}, $sunCoor->{anomalyMean}, $TDT, $lon, $lat, $radius, $lmst*15.*$DEG);
@@ -1162,7 +1217,7 @@ sub Astro_Compute($){
   $Astro{MoonDiameter} = Astro_round($moonCoor->{diameter}*$RAD*60.,1); # angular diameter in arc seconds
   $Astro{MoonAge}      = Astro_round($moonCoor->{age}*$RAD,1);
   $Astro{MoonPhaseN}   = Astro_round($moonCoor->{phasen},2);
-  $Astro{MoonPhaseI}   = $astro_tt->{$moonCoor->{phasei}};
+  $Astro{MoonPhaseI}   = $moonCoor->{phasei};
   $Astro{MoonPhaseS}   = $astro_tt->{$moonCoor->{phases}};
   
   #-- calculate distance from the observer (on the surface of earth) to the center of the moon
@@ -1180,6 +1235,7 @@ sub Astro_Compute($){
   $Astro{ObsDate}= sprintf("%02d.%02d.%04d",$Date{day},$Date{month},$Date{year});
   $Astro{ObsTime}= sprintf("%02d:%02d:%02d",$Date{hour},$Date{min},$Date{sec});
   $Astro{ObsTimezone}= $Date{zonedelta};
+  $Astro{ObsIsDST}= $Date{isdst};
   
   #-- check season
   my $doj = $Date{dayofyear};
@@ -1212,17 +1268,26 @@ sub Astro_moonwidget($){
   $name    =~ s/'//g;
   my $hash = $defs{$name};
   
-  my @size=split('x',($FW_webArgs{size} ? $FW_webArgs{size} : '400x400'));
+  my $mooncolor = 'rgb(255,220,100)';
+  my $moonshadow = 'rgb(70,70,100)';
+
+  $mooncolor = $FW_webArgs{mooncolor} 
+    if ($FW_webArgs{mooncolor} );
+  $moonshadow = $FW_webArgs{moonshadow}
+    if ($FW_webArgs{moonshadow} );
+    
+  my @size = split('x', ($FW_webArgs{size} ? $FW_webArgs{size}  : '400x400'));
   
   $FW_RETTYPE = "image/svg+xml";
   $FW_RET="";
   FW_pO '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="'.$size[0].'px" height="'.$size[1].'px">';
   my $ma = Astro_Get($hash,("","text","MoonAge"));
+  my $mb = Astro_Get($hash,("","text","MoonPhaseS"));
 
   my ($radius,$axis,$dir,$start,$middle);
-  my $radius = 250;
-  my $axis  = sin(($ma+90)*$DEG)*$radius;
-  $axis = -$axis
+  $radius = 250;
+  $axis   = sin(($ma+90)*$DEG)*$radius;
+  $axis   = -$axis
     if ($axis < 0);
     
   if( (0.0 <= $ma && $ma <= 90) || (270.0 < $ma && $ma <= 360.0) ){
@@ -1239,9 +1304,10 @@ sub Astro_moonwidget($){
   }
  
   FW_pO '<g transform="translate(400,400) scale(-1,1)">';
-  FW_pO '<circle cx="0" cy="0" r="250" fill="rgb(70,70,100)"/>';
-  FW_pO '<path d="M 0 '.$start.' A '.$axis.' '.$radius.' 0 0 '.$dir.' 0 '.$middle.' A '.$radius.' '.$radius.' 0 0 0 0 '.$start.' Z" fill="rgb(255,220,100)"/>';
+  FW_pO '<circle cx="0" cy="0" r="250" fill="'.$moonshadow.'"/>';
+  FW_pO '<path d="M 0 '.$start.' A '.$axis.' '.$radius.' 0 0 '.$dir.' 0 '.$middle.' A '.$radius.' '.$radius.' 0 0 0 0 '.$start.' Z" fill="'.$mooncolor.'"/>'; 
   FW_pO '</g>';
+  #FW_pO '<text x="100" y="710" style="font-family:Helvetica;font-size:60px;font-weight:bold" fill="black">'.$mb.'</text>';
   FW_pO '</svg>';
   return ($FW_RETTYPE, $FW_RET); 
 }	         
@@ -1274,6 +1340,7 @@ sub Astro_Update($@) {
   $Date{hour} = $hour;
   $Date{min}  = $min;
   $Date{sec}  = $sec; 
+  $Date{isdst}= $isdst;
   #-- broken on windows
   #$Date{zonedelta} = (strftime "%z", localtime)/100;
   $Date{zonedelta} = Astro_tzoffset(time)/100;
@@ -1284,9 +1351,10 @@ sub Astro_Update($@) {
   
   readingsBeginUpdate($hash);
   foreach my $key (keys %Astro){   
-    readingsBulkUpdate($hash,$key,$Astro{$key});
+    readingsBulkUpdateIfChanged($hash,$key,$Astro{$key});
   }
   readingsEndUpdate($hash,1); 
+  readingsSingleUpdate($hash,"state","Updated",1);
 }
 
 ########################################################################################
@@ -1323,10 +1391,11 @@ sub Astro_Get($@) {
       #-- broken on windows
       #$Date{zonedelta} = (strftime "%z", localtime($fTot))/100;
       $Date{zonedelta} = Astro_tzoffset($fTot)/100;
+      $Date{isdst}     = (localtime($fTot))[8];
       #-- half broken in windows
       $Date{dayofyear} = 1*strftime("%j", localtime($fTot));
     }else{
-      return "[Astro_Get] $name has improper time specification, use YYYY-MM-DD HH:MM:SS";
+      return "[Astro_Get] $name has improper time specification $str, use YYYY-MM-DD HH:MM:SS";
     }
   }else{
     #-- Current time will be used
@@ -1339,6 +1408,7 @@ sub Astro_Get($@) {
     $Date{hour} = $hour;
     $Date{min}  = $min;
     $Date{sec}  = $sec; 
+    $Date{isdst}= $isdst; 
     #-- broken on windows
     #$Date{zonedelta} = (strftime "%z", localtime)/100;
     $Date{zonedelta} = Astro_tzoffset(time)/100;
@@ -1363,7 +1433,8 @@ sub Astro_Get($@) {
     if( $wantsreading==1 ){
       return $Astro{$a[2]};
     }else{
-      my $ret=sprintf("%s %s %s \n",$astro_tt->{"date"},$Astro{ObsDate},$Astro{ObsTime});
+      my $ret=sprintf("%s %s %s",$astro_tt->{"date"},$Astro{ObsDate},$Astro{ObsTime});
+      $ret .= (($Astro{ObsIsDST}==1) ? " (".$astro_tt->{"dst"}.")\n" : "\n" );
       $ret .= sprintf("%s %.2f %s, %d %s\n",$astro_tt->{"jdate"},$Astro{ObsJD},$astro_tt->{"days"},$Astro{ObsDayofyear},$astro_tt->{"dayofyear"});
       $ret .= sprintf("%s %s, %s %2d\n",$astro_tt->{"season"},$Astro{ObsSeason},$astro_tt->{"timezone"},$Astro{ObsTimezone});
       $ret .= sprintf("%s %.5f° %s, %.5f° %s, %.0fm %s\n",$astro_tt->{"coord"},$Astro{ObsLon},$astro_tt->{"longitude"},
@@ -1406,6 +1477,7 @@ sub Astro_Get($@) {
 
    <a name="Astro"></a>
         <h3>Astro</h3>
+        <ul>
         <p> FHEM module with a collection of various routines for astronomical data</p>
         <a name="Astrodefine"></a>
         <h4>Define</h4>
@@ -1434,11 +1506,13 @@ sub Astro_Get($@) {
         <li><i>JD</i> = Julian date</li>
         <li><i>Season,SeasonN</i> = String and numerical (0..3) value of season</li>
         <li><i>Time,Timezone</i> obvious meaning</li>
-        <li><i>GMST,ÖMST</i> = Greenwich and Local Mean Sidereal Time (in HH:MM)</li>
+        <li><i>IsDST</i> = 1 if running on daylight savings time, 0 otherwise</li>
+        <li><i>GMST,LMST</i> = Greenwich and Local Mean Sidereal Time (in HH:MM)</li>
 	    </ul>
 	    <p>
 	    An SVG image of the current moon phase may be obtained under the link 
-	    <code>&lt;ip address of fhem&gt;/fhem/Astro_moonwidget?name='&lt;device name&gt;'&amp;size='&lt;width&gt;x&lt;height&gt;'</code>
+	    <code>&lt;ip address of fhem&gt;/fhem/Astro_moonwidget?name='&lt;device name&gt;'</code>
+	    Optional web parameters are <code>[&amp;size='&lt;width&gt;x&lt;height&gt;'][&amp;mooncolor=&lt;color&gt;][&amp;moonshadow=&lt;color&gt;]</code>
 	    <p>
         Notes: <ul>
         <li>Calculations are only valid between the years 1900 and 2100</li>
@@ -1447,7 +1521,7 @@ sub Astro_Get($@) {
          (default: EN=english). For German output set <code>attr global language DE</code>.</li>
         <li>The time zone is determined automatically from the local settings of the <br/>
         operating system. If geocordinates from a different time zone are used, the results are<br/>
-        not corrected automatically.
+        not corrected automatically.</li>
         <li>Some definitions determining the observer position are used<br/>
         from the global device, i.e.<br/>
         <code>attr global longitude &lt;value&gt;</code><br/>
@@ -1465,7 +1539,6 @@ sub Astro_Get($@) {
         <a name="Astroget"></a>
         <h4>Get</h4>
         Attention: Get-calls are NOT written into the readings of the device ! Readings change only through periodic updates !<br/>
-       </li>
         <ul>
             <li><a name="astro_json"></a>
                 <code>get &lt;name&gt; json [&lt;reading&gt;]</code><br/>
@@ -1500,11 +1573,14 @@ sub Astro_Get($@) {
                     >room</a>, <a href="#eventMap">eventMap</a>, <a href="#loglevel">loglevel</a>,
                     <a href="#webCmd">webCmd</a></li>
         </ul>
+        </ul>
 =end html
 =begin html_DE
 
 <a name="Astro"></a>
 <h3>Astro</h3>
-Absichtlich keine deutsche Dokumentation vorhanden, die englische Version gibt es hier: <a href="/fhem/docs/commandref.html#Astro">Astro</a> 
+<ul>
+<a href="https://wiki.fhem.de/wiki/Modul_Astro">Deutsche Dokumentation im Wiki</a> vorhanden, die englische Version gibt es hier: <a href="/fhem/docs/commandref.html#Astro">Astro</a> 
+</ul>
 =end html_DE
 =cut

@@ -1,5 +1,5 @@
 #############################################
-# $Id: 98_GAEBUS.pm 12899 2016-12-28 16:52:39Z jamesgo $
+# $Id: 98_GAEBUS.pm 18193 2019-01-09 13:08:19Z jamesgo $
 # derived from 00_TUL.pm
 #
 # 17.07.2015 : A.Goebel : initiale Version mit loop, readingname via attribut, keine writes
@@ -43,6 +43,9 @@
 # 26.12.2016 : A.Goebel : fix handling for non "userattr" attributes
 # 27.12.2016 : A.Goebel : fix handling if ebusctl reports "usage:"
 # 27.12.2016 : A.Goebel : fix scan removed from supported classes
+# 13.12.2017 : A.Goebel : add "+f" as additional ebus command to disable "-f" for this request
+# 03.01.2019 : A.Goebel : fix mask tilde in set/get
+# 03.01.2019 : A.Goebel : fix change regexp for parsing commands from "/^w$delimiter.{1,7}$delimiter.*/" to "/^w$delimiter[^$delimiter]{1,}$delimiter.*/" to support "feuerung" as class
 
 package main;
 
@@ -187,6 +190,7 @@ GAEBUS_initParams ($)
 	}
 	#Log3 ($hash, 2, "GAEBUS Initialize: $setval:$allSetParamsForWriting");
   }
+
 }
 
 #####################################
@@ -256,6 +260,9 @@ GAEBUS_Set($@)
   my $type = shift @a;
   my $arg = join(" ", @a);
 
+  $type =~ s/\xe2\x88\xbc/~/g;
+  $arg  =~ s/\xe2\x88\xbc/~/g;
+
   #return "No $a[1] for dummies" if(IsDummy($name));
 
   #Log3 ($hash, 3, "ebus1: reopen $name");
@@ -323,7 +330,7 @@ GAEBUS_Set($@)
       $readingname       =~ s/:.*//;
   
       # only for "w" commands
-      if ($oneattr =~ /^w$delimiter.{1,7}$delimiter.*/ or $oneattr =~ /^w$delimiter.{1,7}install$delimiter.*/)
+      if ($oneattr =~ /^w$delimiter[^$delimiter]{1,}$delimiter.*/ or $oneattr =~ /^w$delimiter[^$delimiter]{1,}install$delimiter.*/)
       {
         unless ($readingname =~ /^\s*$/ or $readingname eq "1")
         {
@@ -372,7 +379,7 @@ GAEBUS_Set($@)
     {
       foreach my $oneattr (sort keys %{$attr{$name}})
       {
-        next unless ($oneattr =~ /^w.*$delimiter.{1,7}$delimiter.*$/ or $oneattr =~ /^w.*$delimiter.{1,7}install$delimiter.*$/);
+        next unless ($oneattr =~ /^w.*$delimiter[^$delimiter]{1,}$delimiter.*$/ or $oneattr =~ /^w.*$delimiter[^$delimiter]{1,}install$delimiter.*$/);
      
         my $readingname    = $attr{$name}{$oneattr};
         next if ($readingname ne $type);
@@ -384,6 +391,7 @@ GAEBUS_Set($@)
 
   }
 
+  $actSetParams =~ s/~/&sim;/g;
   return "Unknown argument $type, choose one of " . $actSetParams
   	if(!defined($sets{$type}));
 
@@ -409,7 +417,7 @@ GAEBUS_Get($@)
 
   if ($type eq "ebusd_hex")
   {
-    Log3 ($hash, 4, "$name Set $type $arg");
+    Log3 ($hash, 4, "$name Get $type $arg");
 
     my $answer = GAEBUS_doEbusCmd ($hash, "h", "", "", "$arg", "", 0);
 
@@ -471,7 +479,7 @@ GAEBUS_Get($@)
     $readingname       =~ s/:.*//;
 
     # only for "r" commands
-    if ($oneattr =~ /^r$delimiter.{1,7}$delimiter.*/)
+    if ($oneattr =~ /^r$delimiter[^$delimiter]{1,}$delimiter.*/)
     {
       $readings{$readingname} = $readingcmdname;
       $readingsCmdaddon{$readingname} = $cmdaddon;
@@ -531,6 +539,9 @@ GAEBUS_Get($@)
 
   # other read commands
 
+  if (defined($a[1])) { $a[1] =~ s/\xe2\x88\xbc/~/g };
+  if (defined($a[2])) { $a[2] =~ s/\xe2\x88\xbc/~/g };
+
   if ($a[1] =~ /^[r]$delimiter/) 
   {
     my $readingname = "";
@@ -547,6 +558,7 @@ GAEBUS_Get($@)
   # handle commands from %gets and show result from ebusd
 
 
+  $actGetParams =~ s/~/&sim;/g;
   return "Unknown argument $a[1], choose one of " . $actGetParams
   	if(!defined($gets{$a[1]}));
 
@@ -913,8 +925,17 @@ GAEBUS_doEbusCmd($$$$$$$)
 
   } elsif ($action eq "r") {
 
+    my $force = " -f "; 
+    $force = "" if ($io eq "h");
+
+    if ($cmdaddon =~ /\+f/) { 
+      $force = "";
+      $cmdaddon =~ s/\+f//;
+    }
+
     $cmd = "$io ";
-    $cmd .= " -f " if ($io ne "h");
+    #$cmd .= " -f " if ($io ne "h");
+    $cmd .= "$force";
     $cmd .= "-c $class " if ($class ne "");
     $cmd .= "$var ";
     $cmd .= "$cmdaddon";
@@ -1178,7 +1199,7 @@ GAEBUS_GetUpdatesDoit($)
   foreach my $oneattr (keys %{$attr{$name}})
   {
     # only for "r" commands
-    if ($oneattr =~ /^r$delimiter.{1,7}$delimiter.*/)
+    if ($oneattr =~ /^r$delimiter[^$delimiter]{1,}$delimiter.*/)
     {
 
       my ($readingnameX, $cmdaddon) = split (" ", $attr{$name}{$oneattr}, 2);
@@ -1401,6 +1422,7 @@ GAEBUS_valueFormat(@)
         the evaluation within the specified interval. (eg. OutsideTemp:3 will evaluate this reading every 3-th cycle)<br>
         All text followed the reading seperated by a blank is given as an additional parameter to ebusd. 
         This can be used to request a single value if more than one is retrieved from ebus.<br>
+	If "+f" is given as an additional parameter this will remove the "-f" option from the ebusd request. This will return the value stored in ebusd instead of requesting it freshly.<br>
         </li><br>
     <li>Attributes of the format<br>
         <code>[w]~&lt;class&gt;~&lt;variable-name&gt;</code><br>

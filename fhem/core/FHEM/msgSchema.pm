@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: msgSchema.pm 15175 2017-10-02 14:29:50Z loredo $
+# $Id: msgSchema.pm 17916 2018-12-07 18:46:40Z loredo $
 package main;
 sub msgSchema_Initialize() { }
 
@@ -91,6 +91,19 @@ my $db = {
             },
         },
 
+        'FULLY' => {
+            'Normal'        => 'set %DEVICE% speak %MSGSHRT%',
+            'ShortPrio'     => 'set %DEVICE% speak %SHOUTOUT%',
+            'Short'         => 'set %DEVICE% speak %SHOUTOUT%',
+            'defaultValues' => {
+                'ShortPrio' => {
+                    'SHOUTOUT' => 'Achtung!',
+                },
+                'Short' => {
+                    'SHOUTOUT' => 'Hinweis!',
+                },
+            },
+        },
     },
 
     'light' => {
@@ -360,6 +373,38 @@ my $db = {
                     'PostMe_TO'   => 'To: ',
                     'PostMe_SUB'  => 'Subject: ',
                     'PostMe_PRIO' => 'Priority: ',
+                },
+            },
+        },
+
+        'LaMetric2' => {
+            'Normal' =>
+'set %DEVICE% msg title=\'%TITLE%\' lifetime=%EXPIRE% priority=%LaMetric2_PRIORITY% sound=%LaMetric2_SOUND% repeat=%LaMetric2_REPEAT% cycles=%LaMetric2_CYCLES% message=\'%MSG%\'',
+            'High' =>
+'set %DEVICE% msg title=\'%TITLE%\' lifetime=%EXPIRE% priority=%LaMetric2_PRIORITY% sound=%LaMetric2_SOUND% repeat=%LaMetric2_REPEAT% cycles=%LaMetric2_CYCLES% message=\'%MSG%\'',
+            'Low' =>
+'set %DEVICE% msg title=\'%TITLE%\' lifetime=%EXPIRE% priority=%LaMetric2_PRIORITY% sound=%LaMetric2_SOUND% repeat=%LaMetric2_REPEAT% cycles=%LaMetric2_CYCLES% message=\'%MSG%\'',
+            'defaultValues' => {
+                'Normal' => {
+                    'EXPIRE'            => '120',
+                    'LaMetric2_PRIORITY' => 'warning',
+                    'LaMetric2_SOUND'    => 'notification',
+                    'LaMetric2_REPEAT'   => '1',
+                    'LaMetric2_CYCLES'   => '1',
+                },
+                'High' => {
+                    'EXPIRE'            => '120',
+                    'LaMetric2_PRIORITY' => 'critical',
+                    'LaMetric2_SOUND'    => 'alarm13',
+                    'LaMetric2_REPEAT'   => '3',
+                    'LaMetric2_CYCLES'   => '2',
+                },
+                'Low' => {
+                    'EXPIRE'            => '120',
+                    'LaMetric2_PRIORITY' => 'info',
+                    'LaMetric2_SOUND'    => 'positive5',
+                    'LaMetric2_REPEAT'   => '1',
+                    'LaMetric2_CYCLES'   => '1',
                 },
             },
         },

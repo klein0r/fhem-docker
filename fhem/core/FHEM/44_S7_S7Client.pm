@@ -1,4 +1,4 @@
-# $Id: 44_S7_S7Client.pm 12776 2016-12-14 18:09:08Z charlie71born $
+# $Id: 44_S7_S7Client.pm 15511 2017-11-27 21:13:16Z charlie71 $
 ##############################################
 
 use strict;
@@ -334,7 +334,7 @@ sub new {
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 );
 	$self->{PDU}->{DATA} = "";
-
+	$self->{TCPClient} = undef;
 	return bless $self, $class;
 }
 

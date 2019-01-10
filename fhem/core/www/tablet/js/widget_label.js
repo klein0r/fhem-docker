@@ -9,6 +9,21 @@
 
 var Modul_label = function () {
 
+/*    function formatValue(elem, val) {
+        if (elem.isValidData('format')) {
+            var pipe = elem.data('format'),
+                functs = pipe.split('|');
+            console.log(functs);
+            for (var i=0,len=functs.length;i<len;i++){
+                var func = functs[i].replace(')','').trim().split('('),
+                    params = func[1].split(',');
+                console.log(func[0],params); 
+                val = window[func[0]](params)
+            }
+        }
+        return val;
+    }*/
+
     function update_value(elem) {
 
         var value = (elem.hasClass('timestamp')) ? elem.getReading('get').date : elem.getReading('get').val;
@@ -18,6 +33,9 @@ var Modul_label = function () {
             var unit = elem.data('unit');
             val = me.substitution(val, elem.data('substitution'));
             val = me.map(elem.data('map-get'), val, val);
+            //val = me.round(val, elem.data('round'));
+            //val = formatValue(elem, val);
+            val = me.factor(val, elem.data('factor'));
             val = me.fix(val, elem.data('fix'));
             val = elem.data('pre-text') + val + elem.data('post-text');
             ftui.log(4, 'label.update_value: value=' + val);
@@ -36,7 +54,7 @@ var Modul_label = function () {
                 }
                 // init embedded widgets
                 if (elem.find('[data-type]').length > 0) {
-                    ftui.initWidgets('[data-uuid="' + elem.uuid() + '"]');
+                    ftui.initWidgets('[data-wgid="' + elem.wgid() + '"]');
                 }
             }
             me.update_cb(elem, val);
@@ -53,8 +71,7 @@ var Modul_label = function () {
         elem.initData('get', 'STATE');
         elem.initData('unit', '');
         elem.initData('color', '');
-        elem.initData('limits', elem.data('states') || []);
-        elem.initData('colors', ['#505050']);
+        elem.initData('limits', elem.data('states') || '');
         elem.initData('limits-get', (elem.data('device')) ? elem.data('device') + ':' + elem.data('get') : elem.data('get'));
         elem.initData('limits-part', elem.data('part'));
         elem.initData('substitution', '');
@@ -71,14 +88,6 @@ var Modul_label = function () {
             elem.initData('hide-off', '!on');
         }
         me.addReading(elem, 'hide');
-
-        // fill up colors to limits.length
-        // if an index s isn't set, use the value of s-1
-        for (var s = 0, len = elem.data('limits').length; s < len; s++) {
-            if (typeof elem.data('colors')[s] == 'undefined') {
-                elem.data('colors')[s] = elem.data('colors')[s > 0 ? s - 1 : 0];
-            }
-        }
 
         elem.data('fix', ($.isNumeric(elem.data('fix'))) ? Number(elem.data('fix')) : -1);
 
@@ -110,7 +119,7 @@ var Modul_label = function () {
         var limits = elem.data('limits');
         var colors = elem.data('colors');
         var classes = elem.data('classes');
-        if (limits) {
+        if (limits && $.isArray(limits)) {
             var idx = ftui.indexOfGeneric(limits, value);
             if (idx > -1) {
                 if (colors) {
@@ -131,36 +140,39 @@ var Modul_label = function () {
 
     function update(dev, par) {
 
-        // update from normal state reading
-        me.elements.filterDeviceReading('get', dev, par)
-            .each(function (index) {
-                update_value($(this));
-            });
+        me.elements.each(function (index) {
+            var elem = $(this);
 
-        //extra reading for dynamic color
-        me.elements.filterDeviceReading('color', dev, par)
-            .each(function (idx) {
-                var elem = $(this);
+
+            // update from normal state reading
+            if (elem.matchDeviceReading('get', dev, par)) {
+                update_value(elem);
+            }
+
+            //extra reading for dynamic color
+            if (elem.matchDeviceReading('color', dev, par)) {
                 var val = elem.getReading('color').val;
                 if (ftui.isValid(val)) {
                     val = '#' + val.replace('#', '');
                     elem.css("color", val);
                 }
-            });
+            }
 
-        //extra reading for hide
-        me.update_hide(dev, par);
-
-        //extra reading for colorize
-        me.elements.filterDeviceReading('limits-get', dev, par)
-            .each(function (idx) {
-                var elem = $(this);
-                var val = elem.getReading('limits-get').val;
-                if (ftui.isValid(val)) {
-                    var v = ftui.getPart(val, elem.data('limits-part'));
+            //extra reading for colorize
+            if (elem.matchDeviceReading('limits-get', dev, par)) {
+                var lval = elem.getReading('limits-get').val;
+                if (ftui.isValid(lval)) {
+                    var v = ftui.getPart(lval, elem.data('limits-part'));
                     update_colorize(v, elem);
                 }
-            });
+            }
+
+            me.updateHide(elem, dev, par);
+
+        });
+
+
+
     }
 
     // public

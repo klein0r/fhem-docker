@@ -4,23 +4,9 @@
 #
 # net4home Busconnector Device
 #
-# (c) 2014-2016 Oliver Koerber <koerber@net4home.de>
+# (c) 2014-2018 Oliver Koerber <koerber@net4home.de>
 #
-#
-# Fhem is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 2 of the License, or
-# (at your option) any later version.
-#
-# Fhem is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with fhem.  If not, see <http://www.gnu.org/licenses/>.
-#
-# $Id: 20_N4HBUS.pm 12459 2016-10-28 19:00:08Z okoerber $
+# $Id: 20_N4HBUS.pm 15729 2017-12-30 20:38:14Z oliverk $
 #
 ##############################################################################
 
@@ -31,7 +17,7 @@ use warnings;
 use POSIX;
 use Data::Dumper;
 
-my $n4hbus_Version = "1.0.1.2 - 27.10.2016";
+my $n4hbus_Version = "1.0.2.0 - 30.12.2017";
 
 sub N4HBUS_Read($@);
 sub N4HBUS_Write($$$$);
@@ -456,7 +442,7 @@ sub N4HBUS_Ready($) {
   </ul>
   <br />  
    The device can also be connected to the busconnector on the same machine. <br />
-   Default Port for communication is 3478. In case you need to change this please change also the Port in the conf of busconnector service.
+   Default Port for communication is 3478. In case you need to change this please change also the Port in the conf of Busconnector service.
   </ul>
   <br />
   <a name="N4HBUS_Readings"></a>
@@ -500,7 +486,6 @@ sub N4HBUS_Ready($) {
   in der Konfiguration des Services durchgef&uuml;hrt werden.<br />
   </ul>
   <br /> 
-  
   <a name="N4HBUS_Readings"></a>
   <b>Readings</b>
   <ul>

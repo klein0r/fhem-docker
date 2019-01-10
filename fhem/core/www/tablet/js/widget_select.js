@@ -120,14 +120,17 @@ var Modul_select = function () {
                         });
                         items = founditems;
                     } else {
-                        console.log(delimiter);
+                        //console.log(delimiter);
                         items = items.split(delimiter);
-                        console.log(items);
+                        //console.log(items);
                     }
                 }
                 elem.data('items', items);
                 me.fillList(elem);
-                me.setCurrentItem(elem);
+                // wait for DOM Update and then set current item
+                setTimeout(function () {
+                    me.setCurrentItem(elem);
+                },300);
             });
 			
 		//extra reading for hide
