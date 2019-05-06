@@ -2,10 +2,12 @@
 .idea
 !.gitkeep
 /fhem/core/FHEM/FhemUtils/uniqueID
+/fhem/core/fhem.cfg.bak
 /fhem/core/backup/*
 /fhem/core/cache/*
 /fhem/core/log/*
 /fhem/core/restoreDir/*
+/fhem/core/.ssh/*
 /mysql/data/*
 /mqtt/log/*
 /mqtt/data/*
