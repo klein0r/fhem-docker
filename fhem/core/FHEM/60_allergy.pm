@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 60_allergy.pm 16669 2018-04-28 21:42:29Z moises $$$
+# $Id: 60_allergy.pm 18406 2019-01-24 23:47:47Z moises $$$
 #
 #  60_allergy.pm
 #
@@ -24,8 +24,6 @@ use Time::Local;
 use Encode;
 
 use XML::Simple;
-use LWP::UserAgent;
-use HTTP::Request;
 
 use utf8;
 
@@ -122,7 +120,7 @@ sub allergy_Define($$$) {
     return undef;
   }
 
-  $hash->{STATE} = "Initialized";
+  #$hash->{STATE} = "Initialized";
 
   return undef;
 }

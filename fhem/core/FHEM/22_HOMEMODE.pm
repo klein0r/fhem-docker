@@ -1,5 +1,5 @@
 #####################################################################################
-# $Id: 22_HOMEMODE.pm 16642 2018-04-21 21:12:48Z DeeSPe $
+# $Id: 22_HOMEMODE.pm 19186 2019-04-14 18:41:30Z DeeSPe $
 #
 # Usage
 #
@@ -16,7 +16,7 @@ use Time::HiRes qw(gettimeofday);
 use HttpUtils;
 use vars qw{%attr %defs %modules $FW_CSRF};
 
-my $HOMEMODE_version = "1.4.5";
+my $HOMEMODE_version = "1.4.8";
 my $HOMEMODE_Daytimes = "05:00|morning 10:00|day 14:00|afternoon 18:00|evening 23:00|night";
 my $HOMEMODE_Seasons = "03.01|spring 06.01|summer 09.01|autumn 12.01|winter";
 my $HOMEMODE_UserModes = "gotosleep,awoken,asleep";
@@ -39,6 +39,7 @@ sub HOMEMODE_Initialize($)
   $hash->{NotifyOrderPrefix} = "51-";
   $hash->{FW_deviceOverview} = 1;
   $hash->{FW_addDetailToSummary} = 1;
+  $hash->{AttrRenameMap} = { "HomeYahooWeatherDevice" => "HomeWeatherDevice" };
 }
 
 sub HOMEMODE_Define($$)
@@ -185,7 +186,7 @@ sub HOMEMODE_Notify($$)
     {
       HOMEMODE_RESIDENTS($hash,$devname);
     }
-    elsif (AttrVal($name,"HomeYahooWeatherDevice",undef) && $devname eq AttrVal($name,"HomeYahooWeatherDevice",""))
+    elsif (AttrVal($name,"HomeWeatherDevice",undef) && $devname eq AttrVal($name,"HomeWeatherDevice",""))
     {
       HOMEMODE_Weather($hash,$devname);
     }
@@ -657,7 +658,7 @@ sub HOMEMODE_updateInternals($;$$)
       }
       $hash->{SENSORSBATTERY} = join(",",sort @sensors) if (@sensors);
     }
-    my $weather = HOMEMODE_AttrCheck($hash,"HomeYahooWeatherDevice");
+    my $weather = HOMEMODE_AttrCheck($hash,"HomeWeatherDevice");
     push @allMonitoredDevices,$weather if ($weather && !grep /^$weather$/,@allMonitoredDevices);
     my $twilight = HOMEMODE_AttrCheck($hash,"HomeTwilightDevice");
     push @allMonitoredDevices,$twilight if ($twilight && !grep /^$twilight$/,@allMonitoredDevices);
@@ -762,7 +763,7 @@ sub HOMEMODE_Get($@)
   my $params = "mode:noArg modeAlarm:noArg publicIP:noArg devicesDisabled:noArg";
   $params .= " contactsOpen:all,doorsinside,doorsoutside,doorsmain,outside,windows" if ($hash->{SENSORSCONTACT});
   $params .= " sensorsTampered:noArg" if ($hash->{SENSORSCONTACT} || $hash->{SENSORSMOTION});
-  if (AttrVal($name,"HomeYahooWeatherDevice",undef))
+  if (AttrVal($name,"HomeWeatherDevice",undef))
   {
     if (AttrVal($name,"HomeTextWeatherLong",undef) || AttrVal($name,"HomeTextWeatherShort",undef))
     {
@@ -1426,7 +1427,7 @@ sub HOMEMODE_Attributes($)
   push @attribs,"HomeTriggerPanic";
   push @attribs,"HomeTwilightDevice";
   push @attribs,"HomeUWZ";
-  push @attribs,"HomeYahooWeatherDevice";
+  push @attribs,"HomeWeatherDevice";
   return join(" ",@attribs);
 }
 
@@ -1695,12 +1696,19 @@ sub HOMEMODE_Attr(@)
       return $trans if (!HOMEMODE_CheckIfIsValidDevspec("TYPE=$attr_value","presence"));
       HOMEMODE_updateInternals($hash,1);
     }
-    elsif ($attr_name =~ /^(HomeSensorsContactReadings|HomeSensorsMotionReadings|HomeSensorsSmokeReading)$/)
+    elsif ($attr_name =~ /^(HomeSensorsContactReadings|HomeSensorsMotionReadings)$/)
     {
       $trans = $HOMEMODE_de?
         "Ungültiger Wert $attr_value für Attribut $attr_name. Es werden 2 Leerzeichen separierte Readings benötigt! z.B. state sabotageError":
         "Invalid value $attr_value for attribute $attr_name. You have to provide at least 2 space separated readings, e.g. state sabotageError";
       return $trans if ($attr_value !~ /^[\w\-\.]+\s[\w\-\.]+$/);
+    }
+    elsif ($attr_name eq "HomeSensorsSmokeReading")
+    {
+      $trans = $HOMEMODE_de?
+        "Ungültiger Wert $attr_value für Attribut $attr_name. Es wird ein einzelnes Reading benötigt! z.B. state":
+        "Invalid value $attr_value for attribute $attr_name. You have to provide one reading, e.g. state";
+      return $trans if ($attr_value !~ /^[\w\-\.]+$/);
     }
     elsif ($attr_name =~ /^(HomeSensorsContactValues|HomeSensorsMotionValues|HomeSensorsSmokeValue)$/)
     {
@@ -1809,7 +1817,7 @@ sub HOMEMODE_Attr(@)
         HOMEMODE_updateInternals($hash);
       }
     }
-    elsif ($attr_name eq "HomeYahooWeatherDevice" && $init_done)
+    elsif ($attr_name eq "HomeWeatherDevice" && $init_done)
     {
       $trans = $HOMEMODE_de?
         "$attr_value muss ein gültiges Gerät vom TYPE Weather sein!":
@@ -1834,7 +1842,7 @@ sub HOMEMODE_Attr(@)
       CommandDeleteAttr(undef,"$name HomeSensorHumidityOutside") if (AttrVal($name,"HomeSensorHumidityOutside",undef) && $attr_value eq AttrVal($name,"HomeSensorHumidityOutside",undef));
       if ($attr_value_old ne $attr_value)
       {
-        CommandDeleteReading(undef,"$name temperature") if (!AttrVal($name,"HomeYahooWeatherDevice",undef));
+        CommandDeleteReading(undef,"$name temperature") if (!AttrVal($name,"HomeWeatherDevice",undef));
         HOMEMODE_updateInternals($hash);
       }
     }
@@ -1850,7 +1858,7 @@ sub HOMEMODE_Attr(@)
       return $trans if (!HOMEMODE_CheckIfIsValidDevspec($attr_value,"humidity"));
       if ($attr_value_old ne $attr_value)
       {
-        CommandDeleteReading(undef,"$name humidity") if (!AttrVal($name,"HomeYahooWeatherDevice",undef));
+        CommandDeleteReading(undef,"$name humidity") if (!AttrVal($name,"HomeWeatherDevice",undef));
         HOMEMODE_updateInternals($hash);
       }
     }
@@ -2050,9 +2058,9 @@ sub HOMEMODE_Attr(@)
     {
       delete $hash->{".IP_TRIGGERTIME_NEXT"};
     }
-    elsif ($attr_name =~ /^(HomeYahooWeatherDevice|HomeTwilightDevice)$/)
+    elsif ($attr_name =~ /^(HomeWeatherDevice|HomeTwilightDevice)$/)
     {
-      if ($attr_name eq "HomeYahooWeatherDevice")
+      if ($attr_name eq "HomeWeatherDevice")
       {
         CommandDeleteReading(undef,"$name pressure|condition|wind");
         CommandDeleteReading(undef,"$name temperature") if (!AttrVal($name,"HomeSensorTemperatureOutside",undef));
@@ -2066,8 +2074,8 @@ sub HOMEMODE_Attr(@)
     }
     elsif ($attr_name =~ /^(HomeSensorTemperatureOutside|HomeSensorHumidityOutside)$/)
     {
-      CommandDeleteReading(undef,"$name .*temperature.*") if (!AttrVal($name,"HomeYahooWeatherDevice",undef) && $attr_name eq "HomeSensorTemperatureOutside");
-      CommandDeleteReading(undef,"$name .*humidity.*") if (!AttrVal($name,"HomeYahooWeatherDevice",undef) && $attr_name eq "HomeSensorHumidityOutside");
+      CommandDeleteReading(undef,"$name .*temperature.*") if (!AttrVal($name,"HomeWeatherDevice",undef) && $attr_name eq "HomeSensorTemperatureOutside");
+      CommandDeleteReading(undef,"$name .*humidity.*") if (!AttrVal($name,"HomeWeatherDevice",undef) && $attr_name eq "HomeSensorHumidityOutside");
       HOMEMODE_updateInternals($hash);
     }
     elsif ($attr_name =~ /^(HomeDaytimes|HomeSeasons|HomeSpecialLocations|HomeSpecialModes)$/ && $init_done)
@@ -2088,7 +2096,7 @@ sub HOMEMODE_replacePlaceholders($$;$)
 {
   my ($hash,$cmd,$resident) = @_;
   my $name = $hash->{NAME};
-  my $sensor = AttrVal($name,"HomeYahooWeatherDevice","");
+  my $sensor = AttrVal($name,"HomeWeatherDevice","");
   $resident = $resident ? $resident : ReadingsVal($name,"lastActivityByResident","");
   my $alias = AttrVal($resident,"alias","");
   my $audio = AttrVal($resident,"msgContactAudio","");
@@ -2347,7 +2355,7 @@ sub HOMEMODE_WeatherTXT($$)
 {
   my ($hash,$text) = @_;
   my $name = $hash->{NAME};
-  my $weather = AttrVal($name,"HomeYahooWeatherDevice","");
+  my $weather = AttrVal($name,"HomeWeatherDevice","");
   my $condition = ReadingsVal($weather,"condition","");
   my $conditionart = ReadingsVal($name,".be","");
   my $pressure = ReadingsVal($name,"pressure","");
@@ -2372,7 +2380,7 @@ sub HOMEMODE_ForecastTXT($;$)
   my ($hash,$day) = @_;
   $day = 2 if (!$day);
   my $name = $hash->{NAME};
-  my $weather = AttrVal($name,"HomeYahooWeatherDevice","");
+  my $weather = AttrVal($name,"HomeWeatherDevice","");
   my $cond = ReadingsVal($weather,"fc".$day."_condition","");
   my $low  = ReadingsVal($weather,"fc".$day."_low_c","");
   my $high = ReadingsVal($weather,"fc".$day."_high_c","");
@@ -2658,6 +2666,7 @@ sub HOMEMODE_Luminance($;$$)
     next unless ($val > 0);
     $lum += $val if (!$dev || $dev ne $_);
   }
+  return if (!scalar @sensorsa);
   my $lumval = defined $lum ? int ($lum / scalar @sensorsa) : undef;
   if (defined $lumval && $lumval >= 0)
   {
@@ -2677,6 +2686,7 @@ sub HOMEMODE_TriggerState($;$$$)
   my $contacts = $hash->{SENSORSCONTACT};
   my $motions = $hash->{SENSORSMOTION};
   my $tampered = ReadingsVal($name,"sensorsTampered","");
+  my $alarm = ReadingsVal($name,"alarmTriggered","");
   my @contactsOpen;
   my @sensorsTampered;
   my @doorsOOpen;
@@ -2790,7 +2800,7 @@ sub HOMEMODE_TriggerState($;$$$)
       }
     }
   }
-  HOMEMODE_alarmTriggered($hash,@alarmSensors);
+  HOMEMODE_alarmTriggered($hash,@alarmSensors) if (join(",",@alarmSensors) ne $alarm);
   my $open    = @contactsOpen ? join(",",@contactsOpen) : "";
   my $opendo  = @doorsOOpen ? join(",",@doorsOOpen) : "";
   my $opendm  = @doorsMOpen ? join(",",@doorsMOpen) : "";
@@ -2919,11 +2929,9 @@ sub HOMEMODE_ContactOpenCheck($$;$$)
         $divider = $divs[$count] if ($season eq $text);
         $count++;
       }
-      if ($divider)
-      {
-        $waittime = $waittime / $divider;
-        $waittime = sprintf("%.2f",$waittime) * 1;
-      }
+      return if ($divider == 0);
+      $waittime = $waittime / $divider;
+      $waittime = sprintf("%.2f",$waittime) * 1;
     }
     $waittime = $mintime if ($mintime && $waittime < $mintime);
     $retrigger++;
@@ -3183,7 +3191,7 @@ sub HOMEMODE_HomebridgeMapping($)
   $mapping .= "\nMotionDetected=motionsInside_ct,values=0:0;/.*/:1" if (HOMEMODE_ID($name,undef,"motionsInside_ct"));
   $mapping .= "\nStatusLowBattery=batteryLow_ct,values=0:0;/.*/:1" if (HOMEMODE_ID($name,undef,"batteryLow_ct"));
   $mapping .= "\nSmokeDetected=alarmSmoke_ct,values=0:0;/.*/:1" if (HOMEMODE_ID($name,undef,"alarmSmoke_ct"));
-  $mapping .= "\nE863F10F-079E-48FF-8F27-9C2605A29F52=pressure,name=AirPressure,format=UINT16" if (HOMEMODE_ID($name,undef,"wind"));
+  $mapping .= "\nAirPressure=pressure" if (HOMEMODE_ID($name,undef,"pressure"));
   addToDevAttrList($name,"genericDeviceType") if (!grep /^genericDeviceType/,split(" ",AttrVal("global","userattr","")));
   addToDevAttrList($name,"homebridgeMapping:textField-long") if (!grep /^homebridgeMapping/,split(" ",AttrVal("global","userattr","")));
   CommandAttr(undef,"$name genericDeviceType security");
@@ -3487,7 +3495,9 @@ sub HOMEMODE_Details($$$)
   $html .= "<style>.homehover{cursor:pointer}.homeinfo{display:none}.tar{text-align:right}.homeinfopanel{min-height:30px;max-width:480px;padding:3px 10px}</style>";
   $html .= "<div class=\"homeinfopanel\" informid=\"$name-$iid\">$info</div>";
   $html .= "<table class=\"wide\">";
-  if (AttrVal($name,"HomeYahooWeatherDevice",""))
+  if (AttrVal($name,"HomeWeatherDevice","") ||
+     (AttrVal($name,"HomeSensorAirpressure","") && AttrVal($name,"HomeSensorHumidityOutside","") && AttrVal($name,"HomeSensorTemperatureOutside","")) ||
+     (AttrVal($name,"HomeSensorAirpressure","") && AttrVal($name,"HomeSensorTemperatureOutside","") && HOMEMODE_ID(AttrVal($name,"HomeSensorTemperatureOutside",""),undef,"humidity")))
   {
     $html .= "<tr class=\"homehover\">";
     my $temp = $HOMEMODE_de ? "Temperatur" : "Temperature";
@@ -3524,8 +3534,7 @@ sub HOMEMODE_Details($$$)
     my $tamp = $HOMEMODE_de ? "Sabotiert" : "Tampered";
     $html .= "<td class=\"tar\">$tamp:</td>";
     $html .= "<td class=\"dval homehover\"><span informid=\"$name-sensorsTampered_ct\">".ReadingsVal($name,"sensorsTampered_ct","")."</span><span class=\"homeinfo\" informid=\"$name-sensorsTampered_hr\">".ReadingsVal($name,"sensorsTampered_hr","")."</span></td>";
-    my $alarms = $HOMEMODE_de ? "Alarme" : "Alarms";
-    $html .= "<td class=\"tar\">$alarms:</td>";
+    $html .= "<td class=\"tar\">Alarm:</td>";
     $html .= "<td class=\"dval homehover\"><span informid=\"$name-alarmTriggered_ct\">".ReadingsVal($name,"alarmTriggered_ct","")."</span><span class=\"homeinfo\" informid=\"$name-alarmTriggered_hr\">".ReadingsVal($name,"alarmTriggered_hr","")."</span></td>";
     $html .= "</tr>";
   }
@@ -4378,8 +4387,8 @@ sub HOMEMODE_Details($$$)
       default:
     </li>
     <li>
-      <b><i>HomeYahooWeatherDevice</i></b><br>
-      your local yahoo weather device<br>
+      <b><i>HomeWeatherDevice</i></b><br>
+      your local weather device<br>
       default:
     </li>
     <li>

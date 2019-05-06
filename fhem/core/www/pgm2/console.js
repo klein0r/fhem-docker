@@ -1,5 +1,5 @@
 "use strict";
-FW_version["console.js"] = "$Id: console.js 16348 2018-03-07 21:02:42Z rudolfkoenig $";
+FW_version["console.js"] = "$Id: console.js 18398 2019-01-24 12:56:44Z rudolfkoenig $";
 
 var consConn;
 
@@ -84,8 +84,12 @@ consFill()
 
   var loc = (""+location).replace(/\?.*/,"");
   if($("body").attr("longpoll") == "websocket") {
-    if(consConn)
+    if(consConn) {
+      consConn.onclose = 
+      consConn.onerror = 
+      consConn.onmessage = undefined;
       consConn.close();
+    }
     consConn = new WebSocket(loc.replace(/[&?].*/,'')
                                 .replace(/^http/i, "ws")+query);
     consConn.onclose = 
@@ -201,6 +205,7 @@ consAddRegexpPart()
                 createArg: "./log/modDev.log evtDev:event" },
     "watchdog":{createArg: "evtDev:event 00:15 SAME {}" },
     "sequence":{createArg: "evtDev:event 00:15 evtDev:event" },
+    "average":{createArg: "evtDev:event" },
     "DOIF":{createArg: "([evtDev:\"^event$\"]) ()" }
   };
 

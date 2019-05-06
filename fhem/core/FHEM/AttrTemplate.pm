@@ -1,5 +1,5 @@
 ##############################################
-# $Id: AttrTemplate.pm 17973 2018-12-14 18:19:05Z rudolfkoenig $
+# $Id: AttrTemplate.pm 19085 2019-04-01 17:00:24Z rudolfkoenig $
 package main;
 
 my %templates;
@@ -21,6 +21,7 @@ AttrTemplate_Initialize()
 
   %templates = ();
   %cachedUsage = ();
+  my %prereqFailed;
   for my $file (@files) {
     if(!open(fh,"$dir/$file")) {
       Log 1, "$me: cant open $dir/$file: $!";
@@ -43,15 +44,29 @@ AttrTemplate_Initialize()
         $templates{$name}{desc} = $lastComment if($lastComment);
         $lastComment = "";
 
-      } elsif($line =~ m/^filter:(.*)=(.*)/) {
-        $templates{$name}{filterName} = $1;
-        $templates{$name}{filterVal} = $2;
+      } elsif($line =~ m/^filter:(.*)/) {
+        $templates{$name}{filter} = $1;
+
+      } elsif($line =~ m/^prereq:(.*)/) {
+        my $prereq = $1;
+        if($prereq =~ m/^{.*}$/) {
+          $prereqFailed{$name} = 1
+                if(AnalyzePerlCommand(undef, $prereq) ne "1");
+
+        } else {
+          $prereqFailed{$name} = 1
+            if(!$defs{devspec2array($prereq)});
+
+        }
 
       } elsif($line =~ m/^par:(.*)/) {
         push(@{$templates{$name}{pars}}, $1);
 
       } elsif($line =~ m/^desc:(.*)/) {
         $templates{$name}{desc} = $1;
+
+      } elsif($line =~ m/^farewell:(.*)/) {
+        $templates{$name}{farewell} = $1;
 
       } else {
         push(@{$templates{$name}{cmds}}, $line);
@@ -60,6 +75,11 @@ AttrTemplate_Initialize()
     }
     close(fh);
   }
+
+  for my $name (keys %prereqFailed) {
+    delete($templates{$name});
+  }
+
   my $nr = (int keys %templates);
   $initialized = 1;
   Log 2, "AttrTemplates: got $nr entries" if($nr);
@@ -69,6 +89,10 @@ sub
 AttrTemplate_Set($$@)
 {
   my ($hash, $list, $name, $cmd, @a) = @_;
+  $list = "" if(!defined($list));
+
+  return "Unknown argument $cmd, choose one of $list"
+        if(AttrVal("global", "disableFeatures", "") =~ m/\battrTemplate\b/);
 
   AttrTemplate_Initialize() if(!$initialized);
 
@@ -78,7 +102,9 @@ AttrTemplate_Set($$@)
       my @list;
       for my $k (sort keys %templates) {
         my $h = $templates{$k};
-        if(!$h->{filterName} || $hash->{$h->{filterName}} eq $h->{filterVal}) {
+        my $matches;
+        $matches = devspec2array($h->{filter}, undef, [$name]) if($h->{filter});
+        if(!$h->{filter} || $matches) {
           push @list, $k;
           $haveDesc = 1 if($h->{desc});
         }
@@ -97,7 +123,9 @@ AttrTemplate_Set($$@)
     my @hlp;
     for my $k (sort keys %templates) {
       my $h = $templates{$k};
-      if(!$h->{filterName} || $hash->{$h->{filterName}} eq $h->{filterVal}) {
+      my $matches;
+      $matches = devspec2array($h->{filter}, undef, [$name]) if($h->{filter});
+      if(!$h->{filter} || $matches) {
         push @hlp, "$k: $h->{desc}" if($h->{desc});
       }
     }
@@ -125,7 +153,8 @@ AttrTemplate_Set($$@)
     }
 
     if($perl_code) {
-      $perl_code =~ s/DEVICE/$name/g;
+      $perl_code =~ s/(?<!\\)DEVICE/$name/g;
+      $perl_code =~ s/\\DEVICE/DEVICE/g;
       my $ret = eval $perl_code;
       return "Error checking template regexp: $@" if($@);
       if($ret) {
@@ -169,19 +198,51 @@ AttrTemplate_Set($$@)
 
   my $cmdlist = join("\n",@{$h->{cmds}});
   $repl{DEVICE} = $name;
-  map { $cmdlist =~ s/$_/$repl{$_}/g; } keys %repl;
+  map { $cmdlist =~ s/(?<!\\)$_/$repl{$_}/g; } keys %repl;
+  map { $cmdlist =~ s/\\$_/$_/g; } keys %repl;
+  my $cl = $hash->{CL};
   my $cmd = "";
   my @ret;
+  my $option = 1;
   map {
+
     if($_ =~ m/^(.*)\\$/) {
       $cmd .= "$1\n";
+
     } else {
-      my $r = AnalyzeCommand($hash->{CL}, $cmd.$_);
-      push(@ret, $r) if($r);
+      $cmd .= $_;
+      if($cmd =~ m/^option:(.*)$/s) {
+        my $optVal = $1;
+        if($optVal =~ m/^{.*}$/) {
+          $option = (AnalyzePerlCommand(undef, $optVal) eq "1");
+
+        } else {
+          $option = defined($defs{devspec2array($optVal)});
+
+        }
+
+      } elsif($option) {
+        my $r = AnalyzeCommand($cl, $cmd);
+        push(@ret, $r) if($r);
+
+      }
       $cmd = "";
     }
   } split("\n", $cmdlist);
-  return @ret ? join("\n", @ret) : undef;
+
+  return join("\n", @ret) if(@ret);
+
+  if($h->{farewell}) {
+    my $fw = $h->{farewell};
+    if(!$cl || $cl->{TYPE} ne "FHEMWEB") {
+      $fw =~ s/<br>/\n/gi;
+      $fw =~ s/<[^>]+>//g;      # remove html tags
+    }
+    return $fw if(!$cl);
+    InternalTimer(gettimeofday()+1, sub{asyncOutput($cl, $fw)}, undef, 0);
+  }
+  return undef;
+
 }
 
 1;

@@ -1,6 +1,6 @@
 =for comment
 
-# $Id: 98_fheminfo.pm 16909 2018-06-25 15:29:01Z betateilchen $
+# $Id: 98_fheminfo.pm 18323 2019-01-18 19:37:39Z betateilchen $
 
 This script free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -30,8 +30,8 @@ my $c_noModel = 'noModel';
 my %fhemInfo    = ();
 my @ignoreList  = qw(Global);
 my @noModelList = qw(readingsgroup lacrosse zwdongle wol weekdaytimer 
-   cul_rfr solarview lw12 tscul knx dummy at archetype weather pushover twilight 
-   notify cloneDummy structure FHEMWEB hminfo readingsgroup);
+   cul_rfr solarview lw12 tscul knx dummy at archetype pushover twilight 
+   notify cloneDummy structure FHEMWEB hminfo);
 
 sub fheminfo_Initialize($$) {
   my %hash = (

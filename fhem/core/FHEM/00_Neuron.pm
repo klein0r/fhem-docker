@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_Neuron.pm 17899 2018-12-05 23:08:13Z klausw $
+# $Id: 00_Neuron.pm 19081 2019-03-31 21:55:22Z klausw $
 #
 # bug?:  wenn man einen value setzt, dann wird im response der alte zurückgeschickt
 #
@@ -96,7 +96,7 @@ sub Neuron_Undef(@){
 sub Neuron_Set(@) {
 	my ($hash, $name, $cmd, @args) = @_;
 	my $sets = $hash->{HELPER}{SETS};
-	if (index($hash->{HELPER}{SETS}, $cmd) != -1) {			# dynamisch erzeugte outputs
+	if ($hash->{HELPER}{SETS} && index($hash->{HELPER}{SETS}, $cmd) != -1) {			# dynamisch erzeugte outputs
 		my ($dev, $circuit) = (split '_', $cmd, 2);
 		my $value = (looks_like_number($args[0]) ? $args[0] : $setsP{$args[0]});
 		if ($hash->{HELPER}{wsKey} && DevIo_IsOpen($hash)) {

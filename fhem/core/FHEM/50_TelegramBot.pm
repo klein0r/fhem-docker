@@ -27,7 +27,7 @@
 #
 # Discussed in FHEM Forum: https://forum.fhem.de/index.php/topic,38328.0.html
 #
-# $Id: 50_TelegramBot.pm 16382 2018-03-11 13:20:55Z viegener $
+# $Id: 50_TelegramBot.pm 18728 2019-02-25 08:25:16Z betateilchen $
 #
 ##############################################################################
 # 0.0 2015-09-16 Started
@@ -3526,7 +3526,7 @@ sub TelegramBot_BinaryFileWrite($$$) {
     <li><code>msgDelete &lt;msgid&gt; [ @&lt;peer1&gt; ] </code><br>Deletes the given message on the recipients clients. The msgid of the message to be changed must match a valid msgId and the peers need to match the original recipient, so only a single peer can be given or if peer is ommitted the defined default peer user is used. Restrictions apply for deleting messages in the Bot API as currently specified here (<a href=https://core.telegram.org/bots/api#deletemessage>deleteMessage</a>)
     </li>
 
-    <li><code>favoritesMenu [ @&lt;peer&gt; ] </code><br>send the favorites menu to the corresponding peer if defined</code>
+    <li><code>favoritesMenu [ @&lt;peer&gt; ] </code><br>send the favorites menu to the corresponding peer if defined
     </li>
 
     <li><code>cmdSend|cmdSendSilent [ @&lt;peer1&gt; ... @&lt;peerN&gt; ] &lt;fhem command&gt;</code><br>Executes the given fhem command and then sends the result to the given peers or the default peer (cmdSendSilent does the same as silent message).<br>

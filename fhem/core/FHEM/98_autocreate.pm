@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_autocreate.pm 18091 2018-12-30 09:57:04Z rudolfkoenig $
+# $Id: 98_autocreate.pm 19337 2019-05-05 19:44:00Z rudolfkoenig $
 package main;
 
 use strict;
@@ -500,15 +500,44 @@ my @usbtable = (
       response  => "^\x06.*",
       define    => "ZWDongle_PARAM ZWDongle DEVICE\@115200", },
 
-    { NAME      => "FRM",
+    { NAME      => "SIGNALDuino",
       matchList => ["cu.usbserial(.*)", "cu.usbmodem(.*)",
                     "ttyUSB(.*)", "ttyACM(.*)", "ttyAMA(.*)"],
       DeviceName=> "DEVICE\@57600",
-      init      => pack("H*", "F9"),   # Reset
-      timeout   => 5.0, # StandardFirmata blink takes time
-      request   => pack("H*", "F079F7"),   # Query firmware version and filename START_SYSEX (0xF0), queryFirmware (0x79), END_SYSEX (0xF7)
-      response  => "^\xF0\x79(.*)\xF7",    # Response Sysex xF0 x78 (2 Byte version) (n Byte filename) Endsysex xF7
-      define    => "FRM_PARAM FRM DEVICE\@57600", },
+      flush     => "\n",
+      request   => "V\n",                # request firmware version
+      response  => "^;S.*",
+      define    => "SIGNALDUINO_PARAM SIGNALduino DEVICE\@57600", },
+
+    { NAME      => "MYSENSORS",
+      matchList => ["cu.usbserial(.*)", "cu.usbmodem(.*)",
+                    "ttyUSB(.*)", "ttyACM(.*)", "ttyAMA(.*)"],
+      DeviceName=> "DEVICE\@115200",
+      flush     => "\n",
+      request   => "0;255;3;0;18\n",   # send heartbeat request
+      response  => "^0;255;3;0;22.*",  # heartbeat response
+      define    => "MYSENSORS_PARAM MYSENSORS DEVICE\@115200", },
+
+    { NAME      => "ArduCounter",
+      matchList => ["cu.usbserial(.*)", "cu.usbmodem(.*)",
+                    "ttyUSB(.*)", "ttyACM(.*)", "ttyAMA(.*)"],
+      DeviceName=> "DEVICE\@38400",
+      flush     => "\n",
+      request   => "h\n",   # send firmware version request
+      response  => "^ArduCounter V.*",  # response is two lines
+      define    => "ArduCounter_PARAM ArduCounter DEVICE\@38400", },
+
+# FRM causes too much lockups, removed until understood why (Forum #100054)
+#    { NAME      => "FRM",
+#      matchList => ["cu.usbserial(.*)", "cu.usbmodem(.*)",
+#                    "ttyUSB(.*)", "ttyACM(.*)", "ttyAMA(.*)"],
+#      DeviceName=> "DEVICE\@57600",
+#      init      => pack("H*", "F9"),   # Reset
+#      timeout   => 5.0, # StandardFirmata blink takes time
+#      request   => pack("H*", "F079F7"),   # Query firmware version and filename START_SYSEX (0xF0), queryFirmware (0x79), END_SYSEX (0xF7)
+#      response  => "^\xF0\x79(.*)\xF7",    # Response Sysex xF0 x78 (2 Byte version) (n Byte filename) Endsysex xF7
+#      define    => "FRM_PARAM FRM DEVICE\@57600", },
+
 );
 
 
@@ -563,8 +592,8 @@ CommandUsb($$)
           my $PARAM = $1;
           $PARAM =~ s/[^A-Za-z0-9]//g;
           my $name = $thash->{NAME};
-          $msg = "### $dev: checking if it is a $name";
-          Log3 undef, 4, $msg; $ret .= $msg . "\n";
+          $msg = "Probing $name device $dev";
+          $ret .= $msg . "\n";
 
           # Check if it already used
           foreach my $d (keys %defs) {
@@ -595,7 +624,8 @@ CommandUsb($$)
           # Send reset (optional)
           if(defined($thash->{init})) {
             DevIo_SimpleWrite($hash, $thash->{init}, 0);
-            DevIo_TimeoutRead($hash, $thash->{timeout} ? $thash->{timeout}:0.5);
+            DevIo_SimpleReadWithTimeout($hash,
+                                    $thash->{timeout} ? $thash->{timeout}:0.5);
           }
 
           # Clear the USB buffer
@@ -603,10 +633,16 @@ CommandUsb($$)
           DevIo_TimeoutRead($hash, 0.1);
           DevIo_SimpleWrite($hash, $thash->{request}, 0);
           my $answer = DevIo_TimeoutRead($hash, 0.1);
+          if(AttrVal("global", "verbose", 0) >= 5) {
+            my $aTxt = $answer;
+            $aTxt =~ s/([^ -~])/"(".ord($1).")"/ge;
+            $aTxt = (substr($aTxt,0,60)."...") if(length($aTxt) > 63);
+            Log3 undef, 5, "  answer: $aTxt";
+          }
           DevIo_CloseDev($hash);
 
           if($answer !~ m/$thash->{response}/) {
-            $msg = "got wrong answer for a $name";
+            $msg = "  wrong answer";
             Log3 undef, 4, $msg; $ret .= $msg . "\n";
             next;
           }
@@ -614,7 +650,7 @@ CommandUsb($$)
           my $define = $thash->{define};
           $define =~ s/PARAM/$PARAM/g;
           $define =~ s,DEVICE,$dir/$dev,g;
-          $msg = "create as a fhem device with: define $define";
+          $msg = "  matching answer, create it with: define $define";
           Log3 undef, 4, $msg; $ret .= $msg . "\n";
 
           if(!$scan) {

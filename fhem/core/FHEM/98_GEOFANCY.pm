@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: 98_GEOFANCY.pm 17593 2018-10-22 15:35:04Z loredo $
+# $Id: 98_GEOFANCY.pm 18995 2019-03-22 20:09:53Z loredo $
 package main;
 use strict;
 use warnings;
@@ -8,6 +8,7 @@ use Time::Local;
 use UConv;
 
 use HttpUtils;
+use FHEM::Meta;
 
 # initialize ##################################################################
 sub GEOFANCY_Initialize($) {
@@ -16,6 +17,8 @@ sub GEOFANCY_Initialize($) {
     $hash->{UndefFn}  = "GEOFANCY_Undefine";
     $hash->{SetFn}    = "GEOFANCY_Set";
     $hash->{AttrList} = "devAlias disable:0,1 " . $readingFnAttributes;
+
+    return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 # regular Fn ##################################################################
@@ -27,6 +30,9 @@ sub GEOFANCY_Define($$) {
       if ( int(@a) != 3 );
     my $name  = $a[0];
     my $infix = $a[2];
+
+    # Initialize the device
+    return $@ unless ( FHEM::Meta::SetInternals($hash) );
 
     $hash->{fhem}{infix} = $infix;
 
@@ -859,5 +865,28 @@ sub GEOFANCY_ISO8601UTCtoLocal ($) {
     </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 98_GEOFANCY.pm
+{
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ],
+  "keywords": [
+    "Geofencing",
+    "Geofency",
+    "Locative",
+    "EgiGeoZone",
+    "Location",
+    "Presence",
+    "Tracking"
+  ]
+}
+=end :application/json;q=META.json
 
 =cut

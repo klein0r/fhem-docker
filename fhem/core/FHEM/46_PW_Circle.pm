@@ -22,7 +22,7 @@
 # The GNU General Public License may also be found at http://www.gnu.org/licenses/gpl-2.0.html .
 ###################################
 #
-# # $Id: 46_PW_Circle.pm 17302 2018-09-09 07:43:23Z Icinger $
+# # $Id: 46_PW_Circle.pm 18210 2019-01-11 06:05:45Z Icinger $
 package main;
 
 use strict;
@@ -412,5 +412,6 @@ See <a href="#Plugwise">Plugwise</a>.
 </ul>
 
 =end html
+=end html_DE
 =cut
 

@@ -1,5 +1,5 @@
 
-FW_version["fhemweb_colorpicker.js"] = "$Id: fhemweb_colorpicker.js 15187 2017-10-03 16:29:38Z justme1968 $";
+FW_version["fhemweb_colorpicker.js"] = "$Id: fhemweb_colorpicker.js 18418 2019-01-25 19:44:21Z justme1968 $";
 
 //TODO: realtime picker
 //
@@ -191,13 +191,13 @@ FW_colorpickerCreate(elName, devName, vArr, currVal, set, params, cmd)
 
     var newEl = FW_createSlider(elName, devName, ["slider",vArr[2],vArr[3],vArr[4]], currVal, undefined, params, cmd);
 
-    old_set_fn = newEl.setValueFn;
+    newEl.old_set_fn = newEl.setValueFn;
     newEl.setValueFn = function(arg) {
       arg = arg.match(/[\d.\-]*/)[0];
       if( +arg < +vArr[2]
           || +arg > +vArr[4] )
         arg = Math.round(1000000/arg).toString();
-      old_set_fn(arg);
+      this.old_set_fn(arg);
     }
 
     if( vArr[4] < 1000 )

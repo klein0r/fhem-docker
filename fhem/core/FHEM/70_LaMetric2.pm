@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: 70_LaMetric2.pm 17988 2018-12-16 16:52:19Z loredo $
+# $Id: 70_LaMetric2.pm 18995 2019-03-22 20:09:53Z loredo $
 ###############################################################################
 #
 # A module to control LaMetric.
@@ -20,21 +20,23 @@
 #   0x00B3 -> "3" m3
 #   0x0025 -> "%"
 #   0x00B0 -> "°"
-#- notification attributes auf tatsächliche funktion prüfen
-#- sticky/cycle message prüfen
 #- msgSchema (überlappende Parameter wie priority)
 #-mehrere metric/chart/goal/msg frames des gleichen typs (derzeit gehen per msg nur 1x zusätzlich metric,chart,goal) -> reihenfolge?
 
 package main;
 
-use HttpUtils;
-use utf8;
 use Data::Dumper;
+use JSON qw(decode_json encode_json);
+use Time::HiRes qw(gettimeofday time);
+use Time::Local;
+use IO::Socket::SSL;
+
+use Encode;
 use HttpUtils;
 use SetExtensions;
-use Encode;
 use Unit;
-use JSON qw(decode_json encode_json);
+use utf8;
+use FHEM::Meta;
 
 my %LaMetric2_sounds = (
     notifications => [
@@ -246,6 +248,8 @@ sub LaMetric2_Initialize($$) {
 
     #$hash->{parseParams} = 1; # not possible due to legacy msg command schema
     $hash->{'.msgParams'} = { parseParams => 1, };
+
+    return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 #------------------------------------------------------------------------------
@@ -265,9 +269,11 @@ sub LaMetric2_Define($$) {
         return "$apikey does not seem to be a valid key"
           if ( $apikey !~ /^([a-f0-9]{64})$/ );
 
+        # Initialize the device
+        return $@ unless ( FHEM::Meta::SetInternals($hash) );
+
         $hash->{HOST}       = $host;
         $hash->{".API_KEY"} = $apikey;
-        $hash->{VERSION}    = "2.2.2";
         $hash->{INTERVAL} =
           $interval && looks_like_number($interval) ? $interval : 60;
         $hash->{PORT} = $port && looks_like_number($port) ? $port : 4343;
@@ -288,7 +294,7 @@ sub LaMetric2_Define($$) {
             # set those to make it easier for users to see the
             # default values. However, deleting those will
             # still use the same defaults in the code below.
-            $attr{$name}{defaultOnStatus}             = "always";
+            $attr{$name}{defaultOnStatus}             = "illumination";
             $attr{$name}{defaultScreensaverEndTime}   = "06:00";
             $attr{$name}{defaultScreensaverStartTime} = "00:00";
             $attr{$name}{defaultVolume}               = "50";
@@ -686,15 +692,6 @@ sub LaMetric2_ReceiveCommand($$$) {
                 # mode should not be time_based
                 return LaMetric2_SetScreensaver( $hash, $info->{caller} )
                   if ( defined( $info->{caller} ) );
-
-                #FIXME there is a bug in the current firmware that will set
-                # start_time to the same value as end_time when changing
-                # from mode time_based to when_dark. It will not happen when
-                # changing from time_based to off. I opened a ticket with the
-                # manufacturer on 2018-11-30.
-                # As a result, the original start_time value cannot be kept
-                # correctly when switching between the modes, especially when
-                # using the on/off setter.
             }
 
             # API version >= 2.1.0
@@ -762,7 +759,7 @@ sub LaMetric2_ReceiveCommand($$$) {
 
             # If we received a response to a write command,
             # make that data available
-            if ( $method ne "GET" ) {
+            if ( $method ne "GET" && $method ne "DELETE" ) {
                 my $endpoint = $response->{success}->{path};
                 $endpoint =~ s/^(.*[\\\/])//;
                 $response->{$endpoint} = $response->{success}{data};
@@ -791,122 +788,127 @@ sub LaMetric2_ReceiveCommand($$$) {
                 LaMetric2_SendCommand( $hash, "device/display", "GET", "" );
             }
 
-            if ( defined( $response->{audio} ) ) {
+            if ( ref($response) eq "HASH" ) {
 
-                # audio is muted
-                if ( $response->{audio}{volume} == 0 ) {
-                    readingsBulkUpdateIfChanged( $hash, "mute", "on" );
+                if ( defined( $response->{audio} ) ) {
 
-                    my $currVolume = ReadingsVal( $name, "volume", 50 );
-                    $hash->{helper}{lastVolume} = $currVolume
-                      if ( $currVolume > 0 );
+                    # audio is muted
+                    if ( $response->{audio}{volume} == 0 ) {
+                        readingsBulkUpdateIfChanged( $hash, "mute", "on" );
+
+                        my $currVolume = ReadingsVal( $name, "volume", 50 );
+                        $hash->{helper}{lastVolume} = $currVolume
+                          if ( $currVolume > 0 );
+                    }
+
+                    # audio is not muted
+                    else {
+                        readingsBulkUpdateIfChanged( $hash, "mute", "off" );
+                        delete $hash->{helper}{lastVolume}
+                          if ( defined( $hash->{helper}{lastVolume} ) );
+                    }
+
+                    readingsBulkUpdateIfChanged( $hash, "volume",
+                        $response->{audio}{volume} );
                 }
 
-                # audio is not muted
-                else {
-                    readingsBulkUpdateIfChanged( $hash, "mute", "off" );
-                    delete $hash->{helper}{lastVolume}
-                      if ( defined( $hash->{helper}{lastVolume} ) );
+                if ( defined( $response->{bluetooth} ) ) {
+                    if ( $response->{bluetooth}{active} == 1 ) {
+                        readingsBulkUpdateIfChanged( $hash, "bluetooth", "on" );
+                    }
+                    else {
+                        readingsBulkUpdateIfChanged( $hash, "bluetooth",
+                            "off" );
+                    }
+
+                    readingsBulkUpdateIfChanged( $hash, "bluetoothAvailable",
+                        $response->{bluetooth}{available} );
+                    readingsBulkUpdateIfChanged( $hash, "bluetoothName",
+                        $response->{bluetooth}{name} );
+                    readingsBulkUpdateIfChanged( $hash, "bluetoothDiscoverable",
+                        $response->{bluetooth}{discoverable} );
+                    readingsBulkUpdateIfChanged( $hash, "bluetoothPairable",
+                        $response->{bluetooth}{pairable} );
+                    readingsBulkUpdateIfChanged( $hash, "bluetoothAddress",
+                        $response->{bluetooth}{address} );
                 }
 
-                readingsBulkUpdateIfChanged( $hash, "volume",
-                    $response->{audio}{volume} );
-            }
+                if ( defined( $response->{display} ) ) {
+                    readingsBulkUpdateIfChanged( $hash, "brightness",
+                        $response->{display}{brightness} );
+                    readingsBulkUpdateIfChanged( $hash, "brightnessMode",
+                        $response->{display}{brightness_mode} );
 
-            if ( defined( $response->{bluetooth} ) ) {
-                if ( $response->{bluetooth}{active} == 1 ) {
-                    readingsBulkUpdateIfChanged( $hash, "bluetooth", "on" );
-                }
-                else {
-                    readingsBulkUpdateIfChanged( $hash, "bluetooth", "off" );
-                }
+                    $state = "on";
+                    $power = "on";
 
-                readingsBulkUpdateIfChanged( $hash, "bluetoothAvailable",
-                    $response->{bluetooth}{available} );
-                readingsBulkUpdateIfChanged( $hash, "bluetoothName",
-                    $response->{bluetooth}{name} );
-                readingsBulkUpdateIfChanged( $hash, "bluetoothDiscoverable",
-                    $response->{bluetooth}{discoverable} );
-                readingsBulkUpdateIfChanged( $hash, "bluetoothPairable",
-                    $response->{bluetooth}{pairable} );
-                readingsBulkUpdateIfChanged( $hash, "bluetoothAddress",
-                    $response->{bluetooth}{address} );
-            }
+                    # only API version >= 2.1.0
+                    if ( defined( $response->{display}{screensaver} ) ) {
+                        my $screensaver = "off";
 
-            if ( defined( $response->{display} ) ) {
-                readingsBulkUpdateIfChanged( $hash, "brightness",
-                    $response->{display}{brightness} );
-                readingsBulkUpdateIfChanged( $hash, "brightnessMode",
-                    $response->{display}{brightness_mode} );
-
-                $state = "on";
-                $power = "on";
-
-                # only API version >= 2.1.0
-                if ( defined( $response->{display}{screensaver} ) ) {
-                    my $screensaver = "off";
-
-                    if ( $response->{display}{screensaver}{enabled} == 1 ) {
-                        foreach (
-                            keys %{ $response->{display}{screensaver}{modes} } )
-                        {
-                            if ( $response->{display}{screensaver}{modes}
-                                {$_}{enabled} == 1 )
+                        if ( $response->{display}{screensaver}{enabled} == 1 ) {
+                            foreach (
+                                keys
+                                %{ $response->{display}{screensaver}{modes} } )
                             {
-                                $screensaver = $_;
-                                last;
+                                if ( $response->{display}{screensaver}{modes}
+                                    {$_}{enabled} == 1 )
+                                {
+                                    $screensaver = $_;
+                                    last;
+                                }
                             }
                         }
-                    }
-                    my $screensaverStartTime = LaMetric2_gmtime_str2local(
-                        $response->{display}{screensaver}{modes}{time_based}
-                          {start_time} );
-                    my $screensaverEndTime = LaMetric2_gmtime_str2local(
-                        $response->{display}{screensaver}{modes}{time_based}
-                          {end_time} );
+                        my $screensaverStartTime = LaMetric2_gmtime_str2local(
+                            $response->{display}{screensaver}{modes}{time_based}
+                              {start_time} );
+                        my $screensaverEndTime = LaMetric2_gmtime_str2local(
+                            $response->{display}{screensaver}{modes}{time_based}
+                              {end_time} );
 
-                    readingsBulkUpdateIfChanged( $hash, "screensaver",
-                        $screensaver );
-                    readingsBulkUpdateIfChanged( $hash, "screensaverStartTime",
-                        $screensaverStartTime );
-                    readingsBulkUpdateIfChanged( $hash, "screensaverEndTime",
-                        $screensaverEndTime );
+                        readingsBulkUpdateIfChanged( $hash, "screensaver",
+                            $screensaver );
+                        readingsBulkUpdateIfChanged( $hash,
+                            "screensaverStartTime", $screensaverStartTime );
+                        readingsBulkUpdateIfChanged( $hash,
+                            "screensaverEndTime", $screensaverEndTime );
 
-                    if (
-                        $screensaver eq "time_based"
-                        && LaMetric2_IsDuringTimeframe(
-                            $screensaverStartTime, $screensaverEndTime
-                        )
-                      )
-                    {
-                        $state = "off";
-                        $power = "off";
+                        if (
+                            $screensaver eq "time_based"
+                            && LaMetric2_IsDuringTimeframe(
+                                $screensaverStartTime, $screensaverEndTime
+                            )
+                          )
+                        {
+                            $state = "off";
+                            $power = "off";
+                        }
                     }
                 }
-            }
 
-            if ( defined( $response->{wifi} ) ) {
-                readingsBulkUpdateIfChanged( $hash, "wifiActive",
-                    $response->{wifi}{active} );
-                readingsBulkUpdateIfChanged( $hash, "wifiAddress",
-                    $response->{wifi}{address} );
-                readingsBulkUpdateIfChanged( $hash, "wifiAvailable",
-                    $response->{wifi}{available} );
-                readingsBulkUpdateIfChanged( $hash, "wifiEncryption",
-                    $response->{wifi}{encryption} );
-                readingsBulkUpdateIfChanged( $hash, "wifiEssid",
-                    $response->{wifi}{essid} );
-                readingsBulkUpdateIfChanged( $hash, "wifiIp",
-                    $response->{wifi}{ip} );
-                readingsBulkUpdateIfChanged( $hash, "wifiMode",
-                    $response->{wifi}{mode} );
-                readingsBulkUpdateIfChanged( $hash, "wifiNetmask",
-                    $response->{wifi}{netmask} );
+                if ( defined( $response->{wifi} ) ) {
+                    readingsBulkUpdateIfChanged( $hash, "wifiActive",
+                        $response->{wifi}{active} );
+                    readingsBulkUpdateIfChanged( $hash, "wifiAddress",
+                        $response->{wifi}{address} );
+                    readingsBulkUpdateIfChanged( $hash, "wifiAvailable",
+                        $response->{wifi}{available} );
+                    readingsBulkUpdateIfChanged( $hash, "wifiEncryption",
+                        $response->{wifi}{encryption} );
+                    readingsBulkUpdateIfChanged( $hash, "wifiEssid",
+                        $response->{wifi}{essid} );
+                    readingsBulkUpdateIfChanged( $hash, "wifiIp",
+                        $response->{wifi}{ip} );
+                    readingsBulkUpdateIfChanged( $hash, "wifiMode",
+                        $response->{wifi}{mode} );
+                    readingsBulkUpdateIfChanged( $hash, "wifiNetmask",
+                        $response->{wifi}{netmask} );
 
-                # Always trigger notification to allow
-                # plotting of this value
-                readingsBulkUpdate( $hash, "wifiStrength",
-                    $response->{wifi}{strength} );
+                    # Always trigger notification to allow
+                    # plotting of this value
+                    readingsBulkUpdate( $hash, "wifiStrength",
+                        $response->{wifi}{strength} );
+                }
             }
 
         }
@@ -1152,7 +1154,7 @@ sub LaMetric2_SetOnOff {
     }
     elsif ( $cmd eq "on" ) {
         my $screensaver = "when_dark";
-        my $onStatus = AttrVal( $name, "defaultOnStatus", "always" );
+        my $onStatus = AttrVal( $name, "defaultOnStatus", "illumination" );
         $screensaver = "off" if ( $onStatus eq "always" );
 
         my $ret = LaMetric2_SetScreensaver(
@@ -1192,25 +1194,17 @@ sub LaMetric2_SetVolume {
     my ($volume)   = @_;
     my $currVolume = ReadingsVal( $name, "volume", 0 );
 
-    #FIXME Due to a bug in the firmware, we need to increase
-    # the desired volume by one if it is between 1 and 99 ...
-    # Although the resulting volume will be +1 sometimes, but
-    # that happens less often than the other way around ...
-    # Opened a ticket with the manufacturer on 2018-11-30
     if ( looks_like_number($volume) ) {
-        $volume++ if ( $volume > 0 && $volume < 100 );    #FIXME
         $body{volume} = $volume;
     }
     elsif ( lc($cmd) eq "volumeup" ) {
-        $currVolume = $currVolume + 10;
-        $currVolume = 100 if ( $currVolume > 100 );
-        $currVolume++ if ( $currVolume > 0 && $currVolume < 100 );    #FIXME
+        $currVolume   = $currVolume + 10;
+        $currVolume   = 100 if ( $currVolume > 100 );
         $body{volume} = $currVolume;
     }
     elsif ( lc($cmd) eq "volumedown" ) {
-        $currVolume = $currVolume - 10;
-        $currVolume = 0 if ( $currVolume < 0 );
-        $currVolume++ if ( $currVolume > 0 && $currVolume < 100 );    #FIXME
+        $currVolume   = $currVolume - 10;
+        $currVolume   = 0 if ( $currVolume < 0 );
         $body{volume} = $currVolume;
     }
     else {
@@ -1241,7 +1235,6 @@ sub LaMetric2_SetMute {
             $hash->{helper}{lastVolume}
           ? $hash->{helper}{lastVolume}
           : AttrVal( $name, "defaultVolume", 50 );
-        $volume++ if ( $volume > 0 && $volume < 100 );    #FIXME
         $body{volume} = $volume;
     }
     else {
@@ -1561,11 +1554,11 @@ sub LaMetric2_SetNotification {
     $values{sound} = ""
       if ( $values{sound} eq "none" || $values{sound} eq "off" );
     $values{repeat} =
-      h->{repeat}
+        $h->{repeat}
       ? $h->{repeat}
       : 1;
     $values{cycles} =
-      h->{cycles}
+      defined( $h->{cycles} )
       ? $h->{cycles}
       : 1;
 
@@ -1884,6 +1877,16 @@ sub LaMetric2_SetNotification {
         || defined( $values{goal} )
         || defined( $values{metric} ) );
 
+    # If a cancelID was provided, send a "sticky" notification
+    if ( !looks_like_number( $values{cycles} ) || $values{cycles} == 0 ) {
+        $info->{cancelID} = $values{cycles};
+        $values{cycles} = 0;
+
+        # start Validation Timer
+        RemoveInternalTimer( $hash, "LaMetric2_CycleMessage" );
+        InternalTimer( gettimeofday() + 5, "LaMetric2_CycleMessage", $hash, 0 );
+    }
+
     # Building notification
     #
 
@@ -1902,16 +1905,6 @@ sub LaMetric2_SetNotification {
     readingsBulkUpdate( $hash, "lastNotificationPriority", $values{priority} );
     readingsBulkUpdate( $hash, "lastNotificationIconType", $values{icontype} );
     readingsBulkUpdate( $hash, "lastNotificationLifetime", $values{lifetime} );
-
-    # If a cancelID was provided, send a "sticky" notification
-    if ( !looks_like_number( $values{cycles} ) || $values{cycles} == 0 ) {
-        $info->{cancelID} = $values{cycles};
-        $values{cycles} = 0;
-
-        # start Validation Timer
-        RemoveInternalTimer( $hash, "LaMetric2_CycleMessage" );
-        InternalTimer( gettimeofday() + 5, "LaMetric2_CycleMessage", $hash, 0 );
-    }
 
     my $sound;
     if ( $values{sound} ne "" ) {
@@ -2038,8 +2031,10 @@ sub LaMetric2_SetNotification {
 
     # push frames to private/shared indicator app
     if ( defined( $h->{app} ) ) {
-        $notification{package} = $h->{app};
-        $notification{token} = $h->{token} if ( defined( $h->{token} ) );
+        $notification{package}  = $h->{app};
+        $notification{token}    = $h->{token} if ( defined( $h->{token} ) );
+        $notification{channels} = $h->{channels}
+          if ( defined( $h->{channels} ) );
         return LaMetric2_SetApp( $hash, "app", \%notification, $h->{app},
             "push" );
     }
@@ -2216,7 +2211,8 @@ sub LaMetric2_IsDuringTimeframe($$;$) {
       <code><b>priority</b>&nbsp;&nbsp;</code>- type: info,warning,critical - Priority of the message +++ [info] This priority means that notification will be displayed on the same “level” as all other notifications on the device that come from apps (for example facebook app). This notification will not be shown when screensaver is active. By default message is sent with “info” priority. This level of notification should be used for notifications like news, weather, temperature, etc. +++ [warning] Notifications with this priority will interrupt ones sent with lower priority (“info”). Should be used to notify the user about something important but not critical. For example, events like “someone is coming home” should use this priority when sending notifications from smart home. +++ [critical] The most important notifications. Interrupts notification with priority info or warning and is displayed even if screensaver is active. Use with care as these notifications can pop in the middle of the night. Must be used only for really important notifications like notifications from smoke detectors, water leak sensors, etc. Use it for events that require human interaction immediately.<br>
       <code><b>sound</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code>- type: text - Name of the sound to play. See attribute notificationSound for full list.<br>
       <code><b>repeat</b>&nbsp;&nbsp;&nbsp;&nbsp;</code>- type: integer - Defines the number of times sound must be played. If set to 0 sound will be played until notification is dismissed. Defaults to 1.<br>
-      <code><b>cycles</b>&nbsp;</code>- type: integer - The number of times message should be displayed. If cycles is set to 0, notification will stay on the screen until user dismisses it manually or a 'set msgCancel' command was sent. By default it is set to 1.<br>
+      <code><b>cycles</b>&nbsp;</code>- type: integer - The number of times message should be displayed. If cycles is set to 0, notification will stay on the screen until user dismisses it manually at the device.<br>
+If cycles is set to a text string, a sticky notification is created that may also be dismissed using 'set msgCancel' command (find its description below). By default it is set to 1.<br>
       <br>
       <code><b>chart</b>&nbsp;</code>- type: integer-array - Adds a frame to display a chart. Must contain a comma separated list of numbers.<br>
       <br>
@@ -2267,7 +2263,9 @@ sub LaMetric2_IsDuringTimeframe($$;$) {
       <br>
       <ul>
         <code>set LaMetric21 msgCancel 'cancelID'</code><br>
-      </ul>
+      </ul><br>
+      <br>
+      Note: Setter will only appear when a notification was sent using the cycles parameter like cycles=&lt;cancelID&gt; while candelID may be any custom string you would like to use for cancellation afterwards.
     </ul>
   </ul><br>
   <br>
@@ -2358,7 +2356,7 @@ sub LaMetric2_IsDuringTimeframe($$;$) {
         <code>set lametric app countdown reset</code><br>
       </ul><br>
       <br><br>
-      So send data to a private/shared app, use 'push' as action_id. It will require the access token as parameter so that the device will accept data for that particular app:<br>
+      To send data to a private/shared app, use 'push' as action_id. It will require the access token as parameter so that the device will accept data for that particular app:<br>
       <br>
       <code><b>token</b>&nbsp;</code>- type: text - Private access token to be used when pushing data to an app. Can be retrieved from <a href="https://developer.lametric.com/applications/list">developer.lametric.com/applications/app/&lt;app_number&gt;</a> of the corresponding app.<br>
       <br>
@@ -2368,6 +2366,11 @@ sub LaMetric2_IsDuringTimeframe($$;$) {
         <code>set lametric app MyPrivateFHEMapp push token=ASDFGHJKL23456789 icon=i334 Show this message to my app and use my icon.</code><br>
         <code>set lametric app MyPrivateFHEMapp push token=ASDFGHJKL23456789 Show this message to my app.\nThis is a second frame.</code><br>
         <code>set lametric app MyPrivateFHEMapp push token=ASDFGHJKL23456789 title="This is the head frame" This text goes to the 2nd frame.</code><br>
+      </ul><br>
+      <br>
+      If you have configured channels for your app and would like to address a specific one, you may add the parameter 'channels' accordingly:
+      <ul>
+        <code>set lametric app MyPrivateFHEMapp push token=ASDFGHJKL23456789 channels=ch1,ch3 Show this message in 2 of 3 channels in my app.</code><br>
       </ul>
     </ul>
   </ul><br>
@@ -2553,7 +2556,7 @@ sub LaMetric2_IsDuringTimeframe($$;$) {
 <ul>
   <li>
     <a name="LaMetric2AttrdefaultOnStatus" id="LaMetric2AttrdefaultOnStatus"></a><code>defaultOnStatus</code><br>
-    When the device is turned on, this will be the screensaver status to put it in to. Defaults to 'off'.
+    When the device is turned on, this will be the screensaver status to put it in to. Defaults to 'illumination'.
   </li>
   <li>
     <a name="LaMetric2AttrdefaultScreensaverStartTime" id="LaMetric2AttrdefaultScreensaverStartTime"></a><code>defaultScreensaverStartTime</code><br>
@@ -2689,4 +2692,27 @@ Leider keine deutsche Dokumentation vorhanden. Die englische Version gibt es hie
 </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 70_LaMetric2.pm
+{
+  "version": "v2.3.2",
+  "release_status": "stable",
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ],
+  "keywords": [
+    "Clock",
+    "Display",
+    "Time",
+    "Watch"
+  ]
+}
+=end :application/json;q=META.json
+
 =cut

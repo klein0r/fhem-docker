@@ -1,4 +1,4 @@
-# $Id: 12_HProtocolTank.pm 17508 2018-10-11 12:41:53Z eisler $
+# $Id: 12_HProtocolTank.pm 18596 2019-02-14 13:14:54Z eisler $
 ####################################################################################################
 #
 #	12_HProtocolTank.pm
@@ -34,7 +34,9 @@ sub HProtocolTank_Initialize($) {
   $hash->{AttrFn}         = "HProtocolGateway_Attr";
   $hash->{Match}          = "^[a-zA-Z0-9_]+ [a-zA-Z0-9_]+ [+-]*[0-9]+([.][0-9]+)?";
   $hash->{AttrList}       = "hID " .
+                            "sensorSystem:Hectronic,Unitronics,PMS-IB " .
                             "mode:FillLevel,Volume,Ullage " .
+                            "product:Diesel,FuelOil,Petrol " .
                             "type " .
                             $readingFnAttributes;
 }
@@ -105,6 +107,10 @@ sub HProtocolTank_Attr (@) {
       $attr{$name}{type} = $val;
     } elsif ($attr eq 'mode') {
       $attr{$name}{mode} = $val;
+    } elsif ($attr eq 'product') {
+      $attr{$name}{product} = $val;
+    } elsif ($attr eq 'sensorSystem') {
+      $attr{$name}{sensorSystem} = $val;
     }
 }
 
@@ -125,7 +131,11 @@ sub HProtocolTank_Attr (@) {
   <a name="HProtocolTank"></a>
   <b>Define</b>
   <ul>
-    <code>define tank01 HProtocolTank HProtocolGateway<br />
+
+    <code>define &lt;name&gt; HProtocolTank HProtocolGateway<br />
+    attr &lt;name&gt; hID 01<br />
+    attr &lt;name&gt; sensorSystem Hectronic<br />
+    attr &lt;name&gt; product FuelOil<br />
     </code>
     <br />
 
@@ -161,12 +171,32 @@ sub HProtocolTank_Attr (@) {
   <ul>
     <li>hID<br />
     01 - 32 Tank Number / Tank Address (99 for testing only)</li>
+    <li>sensorSystem<br />
+    Sensor System / Hectronic, Unitronics, PMS-IB</li>
     <li>mode<br />
-    FillLevel, Volume, Ullage</li>
+    Mode / FillLevel, Volume, Ullage</li>
     <li>type<br />
-    Strapping Table csv file / tank01.csv</li>
-  </ul><br />
+    Type / Strapping Table csv</li>
+    <li>product<br />
+    Product / Diesel, FuelOil, Petrol</li>
+  </ul><br /><br /> 
+    strapping table csv<br /><br /> 
 
+    <code>
+    level,volume<br />
+    10,16<br />
+    520,7781<br />
+    1330,29105<br />
+    1830,43403<br />
+    2070,49844<br />
+    2220,53580<br />
+    2370,57009<br />
+    2400,57650<br />
+    2430,58275<br />
+    2370,57009<br />
+    2400,57650<br />
+    2430,58275<br />
+    </code> 
 
 </ul><br />
 

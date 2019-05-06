@@ -3,6 +3,8 @@
 # fhem driver for MySensors serial or network gateway (see http://mysensors.org)
 #
 # Copyright (C) 2014 Norbert Truchsess
+# Copyright (C) 2019 Hauswart@forum.fhem.de
+# Copyright (C) 2019 Beta-User@forum.fhem.de
 #
 #     This file is part of fhem.
 #
@@ -19,7 +21,7 @@
 #     You should have received a copy of the GNU General Public License
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-# $Id: 00_MYSENSORS.pm 17290 2018-09-06 08:29:45Z Hauswart $
+# $Id: 00_MYSENSORS.pm 19314 2019-05-03 05:02:58Z Beta-User $
 #
 ##############################################
 
@@ -55,15 +57,18 @@ sub MYSENSORS_Initialize($) {
   $hash->{AttrFn}   = "MYSENSORS::Attr";
   $hash->{NotifyFn} = "MYSENSORS::Notify";
 
-  $hash->{AttrList} = 
-    "autocreate:1 ".
-    "requestAck:1 ".
-    "first-sensorid ".
-    "last-sensorid ".
-    "stateFormat ".
-    "OTA_firmwareConfig";
+   my @attrList = qw(
+    autocreate:1
+    requestAck:1
+    first-sensorid
+    last-sensorid
+    stateFormat
+    OTA_firmwareConfig
+  );
+  $hash->{AttrList} = $hash->{AttrList} = join(" ", @attrList)
 }
 
+  
 package MYSENSORS;
 
 use Exporter ('import');
@@ -236,17 +241,17 @@ sub Init($) {
 
 # GetConnectStatus
 sub GetConnectStatus($){
-	my ($hash) = @_;
-	my $name = $hash->{NAME};
-	Log3 $name, 4, "MySensors: GetConnectStatus called ...";
+    my ($hash) = @_;
+    my $name = $hash->{NAME};
+    Log3 $name, 4, "MySensors: GetConnectStatus called ...";
     
-	#query heartbeat from gateway 
+    #query heartbeat from gateway 
     sendMessage($hash, radioId => 0, childId => 0, cmd => C_INTERNAL, ack => 0, subType => I_HEARTBEAT_REQUEST, payload => '');
  
-	# neuen Timer starten in einem konfigurierten Interval.
-	InternalTimer(gettimeofday()+300, "MYSENSORS::GetConnectStatus", $hash);# Restart check in 5 mins again
-	InternalTimer(gettimeofday()+5, "MYSENSORS::Start", $hash);  #Start timer for reset if after 5 seconds RESPONSE is not received
-	
+    # neuen Timer starten in einem konfigurierten Interval.
+    InternalTimer(gettimeofday()+300, "MYSENSORS::GetConnectStatus", $hash);# Restart check in 5 mins again
+    InternalTimer(gettimeofday()+5, "MYSENSORS::Start", $hash);  #Start timer for reset if after 5 seconds RESPONSE is not received
+    
 }
 
 sub Timer($) {
@@ -288,8 +293,8 @@ sub Read {
         onAcknowledge($hash,$msg);
       }
       RemoveInternalTimer($hash,"MYSENSORS::GetConnectStatus");
-	  InternalTimer(gettimeofday()+300, "MYSENSORS::GetConnectStatus", $hash);# Restart check in 5 mins again
-	  
+      InternalTimer(gettimeofday()+300, "MYSENSORS::GetConnectStatus", $hash);# Restart check in 5 mins again
+      
       my $type = $msg->{cmd};
       MESSAGE_TYPE: {
         $type == C_PRESENTATION and do {
@@ -329,7 +334,10 @@ sub onPresentationMsg($$) {
   unless ($client) {
     if ($hash->{'inclusion-mode'}) {
       $clientname = "MYSENSOR_$msg->{radioId}";
+      $clientname = "$hash->{NAME}_DEVICE_0"if defined $main::defs{$clientname}; 
       CommandDefine(undef,"$clientname MYSENSORS_DEVICE $msg->{radioId}");
+      CommandAttr(undef,"$clientname IODev $hash->{NAME}");
+      CommandAttr(undef,"$clientname room MYSENSORS_DEVICE");
       $client = $main::defs{$clientname};
       return unless ($client);
     } else {
@@ -384,8 +392,9 @@ sub onInternalMsg($$) {
         last;
       };
       $type == I_HEARTBEAT_RESPONSE and do {
-    		RemoveInternalTimer($hash,"MYSENSORS::Start"); ## Reset reconnect because timeout was not reached
-      		readingsSingleUpdate($hash, "heartbeat", "last", 0);
+         RemoveInternalTimer($hash,"MYSENSORS::Start"); ## Reset reconnect because timeout was not reached
+         readingsSingleUpdate($hash, "heartbeat", "alive", 0);
+         if (my $client = matchClient($hash,$msg)){ MYSENSORS::DEVICE::onInternalMessage($client,$msg) };
       };
       $type == I_VERSION and do {
         $hash->{version} = $msg->{payload};
@@ -417,6 +426,9 @@ sub onInternalMsg($$) {
     }
   } elsif (my $client = matchClient($hash,$msg)) {
     MYSENSORS::DEVICE::onInternalMessage($client,$msg);
+  } elsif ($client = matchChan76GWClient($hash,$msg)) {
+    Log3($hash->{NAME}, 4, "$hash->{NAME}: received stream message for $client - Chan76-IODev");
+    MYSENSORS::DEVICE::onInternalMessage($client,$msg);
   } else {
     Log3($hash->{NAME},3,"MYSENSORS: ignoring internal-msg from unknown radioId $msg->{radioId}, childId $msg->{childId} for ".internalMessageTypeToStr($msg->{subType}));
   }
@@ -424,12 +436,17 @@ sub onInternalMsg($$) {
 
 sub onStreamMsg($$) {
   my ($hash,$msg) = @_;
-  if (my $client = matchClient($hash, $msg)) {
+  my $client;
+  if ($client = matchClient($hash, $msg)) {
+    Log3($hash->{NAME}, 4, "$hash->{NAME}: received stream message for $client - regular IODev");
     MYSENSORS::DEVICE::onStreamMessage($client, $msg);
+  } elsif ($client = matchChan76GWClient($hash,$msg)) {
+    Log3($hash->{NAME}, 4, "$hash->{NAME}: received stream message for $client - Chan76-IODev");
+    MYSENSORS::DEVICE::onStreamMessage($client,$msg);
   } else {
     Log3($hash->{NAME},3,"MYSENSORS: ignoring stream-msg from unknown radioId $msg->{radioId}, childId $msg->{childId} for ".datastreamTypeToStr($msg->{subType}));
   }
-};
+}
 
 sub onAcknowledge($$) {
   my ($hash,$msg) = @_;
@@ -560,6 +577,24 @@ sub matchClient($$) {
     }
   });
   return $found;
+}
+
+sub matchChan76GWClient($$) {
+  my ($hash,$msg) = @_;
+  my $radioId = $msg->{radioId};
+  my $found;
+  foreach my $d ( sort keys %main::defs ) {
+    if ( defined( $main::defs{$d} )
+      && defined( $main::defs{$d}{radioId} )
+      && $main::defs{$d}{radioId} == $radioId ) {
+        my $clientname = $main::defs{$d}->{NAME};
+        my $name = $hash->{NAME};
+        $found = $main::defs{$d} if AttrVal($clientname,"OTA_Chan76_IODev","") eq $name;
+    }
+  }
+  Log3($hash->{NAME}, 4, "$hash->{NAME}: matched firmware config request to hash $found, name: $found->{NAME}") if $found;
+  return $found if $found;
+  return undef;
 }
 
 1;

@@ -4,6 +4,7 @@
 #
 # Copyright (C) 2014 Norbert Truchsess
 # Copyright (C) 2019 Hauswart@forum.fhem.de
+# Copyright (C) 2019 Beta-User@forum.fhem.de
 #
 #     This file is part of fhem.
 #
@@ -20,12 +21,13 @@
 #     You should have received a copy of the GNU General Public License
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-# $Id: 10_MYSENSORS_DEVICE.pm 18131 2019-01-04 11:58:28Z Beta-User $
+# $Id: 10_MYSENSORS_DEVICE.pm 19314 2019-05-03 05:02:58Z Beta-User $
 #
 ##############################################
 
 use strict;
 use warnings;
+use SetExtensions;
 
 sub MYSENSORS_DEVICE_Initialize($) {
 
@@ -37,25 +39,28 @@ sub MYSENSORS_DEVICE_Initialize($) {
   $hash->{SetFn}    = "MYSENSORS::DEVICE::Set";
   $hash->{GetFn}    = "MYSENSORS::DEVICE::Get";
   $hash->{AttrFn}   = "MYSENSORS::DEVICE::Attr";
-
-  $hash->{AttrList} =
-    "config:M,I " .
-    "mode:node,repeater " .
-    "version:1.4 " .
-    "setCommands " .
-    "setReading_.+ " .
-    "mapReadingType_.+ " .
-    "mapReading_.+ " .
-    "requestAck:1 " .
-    "timeoutAck " .
-    "timeoutAlive " .
-    "IODev " .
-    "showtime:0,1 " .
-    "OTA_autoUpdate:0,1 " .
-    "OTA_BL_Type:Optiboot,MYSBootloader " .
-    "OTA_Chan76_IODev " .
-    $main::readingFnAttributes;
-
+  no warnings 'qw';
+  my @attrList = qw(
+    config:M,I 
+    mode:node,repeater
+#    version:1.4
+    setCommands
+    setExtensionsEvent:1,0
+    setReading_.+
+    mapReadingType_.+
+    mapReading_.+
+    requestAck:1
+    timeoutAck
+    timeoutAlive
+    IODev
+    showtime:0,1
+    OTA_autoUpdate:0,1
+    OTA_BL_Type:Optiboot,MYSBootloader
+    OTA_Chan76_IODev
+    model
+  );
+  use warnings 'qw';
+  $hash->{AttrList} = join(" ", @attrList)." ".$readingFnAttributes;
   main::LoadModule("MYSENSORS");
 }
 
@@ -63,14 +68,15 @@ package MYSENSORS::DEVICE;
 
 use strict;
 use warnings;
+use Time::Local 'timegm_nocheck';
 use GPUtils qw(:all);
 
 use Device::MySensors::Constants qw(:all);
 use Device::MySensors::Message qw(:all);
-use SetExtensions qw/ :all /;
 
 BEGIN {
-  MYSENSORS->import(qw(:all));
+    main::LoadModule("MYSENSORS");
+    MYSENSORS->import(qw(:all));
 
   GP_Import(qw(
     AttrVal
@@ -84,8 +90,10 @@ BEGIN {
     AssignIoPort
     Log3
     SetExtensions
+    SetExtensionsCancel
     ReadingsVal
     ReadingsNum
+    InternalVal
     FileRead
     InternalTimer
     RemoveInternalTimer
@@ -233,10 +241,7 @@ sub Define($$) {
 
 sub UnDefine($) {
     my ($hash) = @_;
-    my $name = $hash->{NAME};
-    RemoveInternalTimer("timeoutAck:$name");
-    RemoveInternalTimer("timeoutAlive:$name");
-    RemoveInternalTimer("timeoutAwake:$name");
+    RemoveInternalTimer($hash);
     return undef;
 }
 
@@ -244,15 +249,16 @@ sub Set($@) {
     my ($hash,$name,$command,@values) = @_;
     return "Need at least one parameters" unless defined $command;
     if(!defined($hash->{sets}->{$command})) {
-      $hash->{sets}->{fwType} = join(",", getFirmwareTypes($hash->{IODev}));
+      $hash->{sets}->{fwType} = join(",", MYSENSORS::getFirmwareTypes($hash->{IODev}));
       my $list = join(" ", map {$hash->{sets}->{$_} ne "" ? "$_:$hash->{sets}->{$_}" : $_} sort keys %{$hash->{sets}});
       $hash->{sets}->{fwType} = "";
-      return grep (/(^on$)|(^off$)/,keys %{$hash->{sets}}) == 2 ? SetExtensions($hash, $list, $name, $command, @values) : "Unknown argument $command, choose one of $list";
+      return SetExtensions($hash, $list, $name, $command, @values);
     }
     
     COMMAND_HANDLER: {
     $command eq "time" and do {
-        sendClientMessage($hash, childId => 255, cmd => C_INTERNAL, ack => 0, subType => I_TIME, payload => time);
+        my $t = timegm_nocheck(localtime(time));
+        sendClientMessage($hash, childId => 255, cmd => C_INTERNAL, ack => 0, subType => I_TIME, payload => $t);
         last;
     };
     $command eq "reboot" and do {
@@ -305,9 +311,19 @@ sub Set($@) {
               cmd => C_SET,
               subType => $type,
               payload => $mappedValue,
-        );
-        readingsSingleUpdate($hash,$setcommand->{var},$setcommand->{val},1) unless ($hash->{ack} or $hash->{IODev}->{ack});
-    };
+            );
+          unless ($hash->{ack} or $hash->{IODev}->{ack}) {
+            readingsSingleUpdate($hash,$setcommand->{var},$setcommand->{val},1) ; 
+            SetExtensionsCancel($hash) if ($command eq "on" || $command eq "off");
+            if ($hash->{SetExtensionsCommand} && AttrVal($name, "setExtensionsEvent", undef)) {
+               readingsSingleUpdate($hash,"state",$hash->{SetExtensionsCommand},1) ;  
+            } else {
+               readingsSingleUpdate($hash,"state","$command",1) ;
+            } 
+         } else {
+            readingsSingleUpdate($hash,"state","set $command",1) ;
+          }
+       };
         return "$command not defined: ".GP_Catch($@) if $@;
         last;
     };
@@ -414,6 +430,7 @@ sub onStreamMessage($$) {
           if (defined $hash->{OTA_Chan76_IODev}) {
             sendMessage($hash->{OTA_Chan76_IODev}, radioId => $hash->{radioId}, childId => 255, ack => 0, cmd => C_STREAM, subType => ST_FIRMWARE_RESPONSE, payload => $payload);
           } else {
+            $hash->{nowSleeping} = 0 if $hash->{nowSleeping};
             sendClientMessage($hash, childId => 255, cmd => C_STREAM, ack => 0, subType => ST_FIRMWARE_RESPONSE, payload => $payload);
           }
           readingsSingleUpdate($hash, "state", "updating", 1) unless ($hash->{STATE} eq "updating");
@@ -571,8 +588,8 @@ sub Attr($$$$) {
         $hash->{timeoutAlive} = $value;
         refreshInternalMySTimer($hash,"Alive");
     } else {
-    $hash->{timeoutAlive} = 0;
-        }
+       $hash->{timeoutAlive} = 0;
+       }
     last;
     };
     $attribute eq "OTA_autoUpdate" and do {
@@ -603,7 +620,6 @@ sub onPresentationMessage($$) {
         };
     };
     $hash->{version} = $msg->{payload};
-    #CommandAttr(undef, "$name version $msg->{payload}");
     };
 
     my $readingMappings = $hash->{readingMappings};
@@ -674,9 +690,16 @@ sub onSetMessage($$) {
       eval {
         my ($reading,$value) = rawToMappedReading($hash,$msg->{subType},$msg->{childId},$msg->{payload});
         readingsSingleUpdate($hash, $reading, $value, 1);
+        if ((defined ($hash->{setcommands}->{$value}) && $hash->{setcommands}->{$value}->{var} eq $reading)) { #$msg->{childId}
+           if ($hash->{SetExtensionsCommand} && AttrVal($name, "setExtensionsEvent", undef)) { 
+             readingsSingleUpdate($hash,"state",$hash->{SetExtensionsCommand},1) ;  
+           } else {
+             readingsSingleUpdate($hash,"state","$value",1);
+             SetExtensionsCancel($hash) unless $msg->{ack};
+           }
+         }
       };
       Log3 ($hash->{NAME}, 4, "MYSENSORS_DEVICE $hash->{NAME}: ignoring C_SET-message ".GP_Catch($@)) if $@;
-      #refreshInternalMySTimer($hash,"Alive") if $hash->{timeoutAlive}; #deactivate in case of wanted reduction of alive to internal (heartbeat/battery/smartsleep) messages
     } else {
       Log3 ($hash->{NAME}, 5, "MYSENSORS_DEVICE $hash->{NAME}: ignoring C_SET-message without payload");
     };
@@ -686,6 +709,7 @@ sub onRequestMessage($$) {
     my ($hash,$msg) = @_;
     eval {
       my ($readingname,$val) = rawToMappedReading($hash, $msg->{subType}, $msg->{childId}, $msg->{payload});
+      $hash->{nowSleeping} = 0 if $hash->{nowSleeping};
       sendClientMessage($hash,
         childId => $msg->{childId},
         cmd => C_SET,
@@ -693,7 +717,6 @@ sub onRequestMessage($$) {
         payload => ReadingsVal($hash->{NAME},$readingname,$val)
       );
     };
-    #refreshInternalMySTimer($hash,"Alive") if $hash->{timeoutAlive};
     Log3 ($hash->{NAME}, 4, "MYSENSORS_DEVICE $hash->{NAME}: ignoring C_REQ-message ".GP_Catch($@)) if $@;
 }
 
@@ -704,8 +727,6 @@ sub onInternalMessage($$) {
     my $typeStr = internalMessageTypeToStr($type);
     INTERNALMESSAGE: {
     $type == I_BATTERY_LEVEL and do {
-        # readingsSingleUpdate($hash, "batterylevel", $msg->{payload}, 1);
-        # Log3 ($name, 3, "MYSENSORS_DEVICE $name: batterylevel is deprecated and will be removed soon, use batteryPercent instead (Forum #87575)");
         readingsSingleUpdate($hash, "batteryPercent", $msg->{payload}, 1);
         refreshInternalMySTimer($hash,"Alive") if $hash->{timeoutAlive};
         Log3 ($name, 4, "MYSENSORS_DEVICE $name: batteryPercent $msg->{payload}");
@@ -715,7 +736,9 @@ sub onInternalMessage($$) {
         if ($msg->{ack}) {
           Log3 ($name, 4, "MYSENSORS_DEVICE $name: response to time-request acknowledged");
         } else {
-          sendClientMessage($hash,cmd => C_INTERNAL, childId => 255, subType => I_TIME, payload => time);
+          $hash->{nowSleeping} = 0 if $hash->{nowSleeping};
+          my $t = timegm_nocheck(localtime(time));
+          sendClientMessage($hash,cmd => C_INTERNAL, childId => 255, subType => I_TIME, payload => $t);
           Log3 ($name, 4, "MYSENSORS_DEVICE $name: update of time requested");
         }
         last;
@@ -741,6 +764,7 @@ sub onInternalMessage($$) {
           Log3 ($name, 4, "MYSENSORS_DEVICE $name: response to config-request acknowledged");
         } else {
           readingsSingleUpdate($hash, "parentId", $msg->{payload}, 1);
+          $hash->{nowSleeping} = 0 if $hash->{nowSleeping};
           sendClientMessage($hash,cmd => C_INTERNAL, ack => 0, childId => 255, subType => I_CONFIG, payload => AttrVal($name,"config","M"));
           Log3 ($name, 4, "MYSENSORS_DEVICE $name: respond to config-request, node parentId = " . $msg->{payload});
         }
@@ -764,11 +788,10 @@ sub onInternalMessage($$) {
         last;
     };
     $type == I_SKETCH_NAME and do {
-        #$hash->{$typeStr} = $msg->{payload};
         readingsSingleUpdate($hash, "state", "received presentation", 1) unless ($hash->{STATE} eq "received presentation");
         readingsSingleUpdate($hash, "SKETCH_NAME", $msg->{payload}, 1);
-        #undef $hash->{FW_DATA}; # enable this to free memory?
         delete $hash->{FW_DATA} if (defined $hash->{FW_DATA});
+        $hash->{nowSleeping} = 0 if $hash->{nowSleeping};
         if (defined $hash->{getCommentReadings}){
           if ($hash->{getCommentReadings} eq "1") {
             $hash->{getCommentReadings} = 2 ;
@@ -776,6 +799,7 @@ sub onInternalMessage($$) {
             delete $hash->{getCommentReadings};
           }
         }
+        Log3 $name, 5, "leaving Sketch Name update";
         last;
     };
     $type == I_SKETCH_VERSION and do {
@@ -821,8 +845,12 @@ sub onInternalMessage($$) {
         last;
     };
     $type == I_HEARTBEAT_RESPONSE and do {
-        readingsSingleUpdate($hash, "heartbeat", "last", 0);
+        readingsSingleUpdate($hash, "heartbeat", "alive",1);
         refreshInternalMySTimer($hash,"Alive") if $hash->{timeoutAlive};
+        if ($hash->{nowSleeping}) {
+          $hash->{nowSleeping} = 0 ;
+          sendRetainedMessages($hash);
+        }
         #$hash->{$typeStr} = $msg->{payload};
     last;
     };
@@ -895,17 +923,13 @@ sub onInternalMessage($$) {
         #$hash->{$typeStr} = $msg->{payload};
         refreshInternalMySTimer($hash,"Asleep");
         refreshInternalMySTimer($hash,"Alive") if $hash->{timeoutAlive};
-        #here we send out retained and outstanding messages
         MYSENSORS::Timer($hash);
-        my $retainedMsg;
-        while (ref ($retainedMsg = shift @{$hash->{retainedMessagesForRadioId}->{messages}}) eq 'HASH') {
-          sendClientMessage($hash,%$retainedMsg);
-        };
+        sendRetainedMessages($hash) ;
         last;
     };
     $type == I_POST_SLEEP_NOTIFICATION and do {
         #$hash->{$typeStr} = $msg->{payload};
-        readingsSingleUpdate($hash,"state","awake",1) unless ($hash->{STATE} eq "NACK");
+        readingsSingleUpdate($hash,"sleepState","awake",1);
         $hash->{nowSleeping} = 0;
         refreshInternalMySTimer($hash,"Alive") if $hash->{timeoutAlive};
         last;
@@ -923,24 +947,26 @@ sub sendClientMessage($%) {
       sendMessage($hash->{IODev},%msg);
       refreshInternalMySTimer($hash,"Ack") if (($msg{ack} or $hash->{IODev}->{ack}) and $hash->{timeoutAck});
       Log3 ($name,5,"$name is not sleeping, sending message!");
+      if ($hash->{nowSleeping}) {
+        $hash->{nowSleeping} = 0 ;
+        sendRetainedMessages($hash);
+      }
       $hash->{retainedMessages}=scalar(@$messages) if (defined $hash->{retainedMessages});
     } else {
-      Log3 ($name,5,"$name is sleeping, enqueueing message! ");
+      Log3 ($name,5,"$name is sleeping, enqueing message! ");
       #write to queue if node is asleep
       unless (defined $hash->{retainedMessages}) {
         $messages = {messages => [%msg]};
         $hash->{retainedMessages}=1;
         Log3 ($name,5,"$name: No array yet for enqueued messages, building it!");
       } else {
-        #my $referencetype = ref $messages;
-        #Log3 ($name,4,"$name: Reference type is $referencetype.");
-        @$messages = grep {
-            $_->{childId} != $msg{childId}
-            or $_->{cmd}     != $msg{cmd}
-            or $_->{subType} != $msg{subType}
-        } @$messages;
-        push @$messages,\%msg;
-        eval($hash->{retainedMessages}=scalar(@$messages));
+         @$messages = grep {
+           $_->{childId} != $msg{childId}
+           or $_->{cmd}     != $msg{cmd}
+           or $_->{subType} != $msg{subType}
+         } @$messages;
+         push @$messages,\%msg;
+         eval($hash->{retainedMessages}=scalar(@$messages));
       }
     }
 }
@@ -1069,59 +1095,69 @@ sub flashFirmware($$) {
     } else {
         return "Nothing todo - latest firmware already installed";
     }
-    }
+  }
 }
 
 sub refreshInternalMySTimer($$) {
     my ($hash,$calltype) = @_;
     my $name = $hash->{NAME};
+    my $heart = ReadingsVal($hash,"heartbeat","dead");
     Log3 $name, 5, "$name: refreshInternalMySTimer called ($calltype)";
     if ($calltype eq "Alive") {
-      RemoveInternalTimer("timeoutAlive:$name");
+     RemoveInternalTimer($hash,"MYSENSORS::DEVICE::timeoutAlive");
       my $nextTrigger = main::gettimeofday() + $hash->{timeoutAlive};
-      InternalTimer($nextTrigger, "MYSENSORS::DEVICE::timeoutMySTimer", "timeoutAlive:$name", 0);
-      if ($hash->{STATE} ne "NACK" or $hash->{STATE} eq "NACK" and @{$hash->{IODev}->{messagesForRadioId}->{$hash->{radioId}}->{messages}} == 0) {
-        my $do_trigger = $hash->{STATE} ne "alive" ? 1 : 0;
-        readingsSingleUpdate($hash,"state","alive",$do_trigger);
+      InternalTimer($nextTrigger, "MYSENSORS::DEVICE::timeoutAlive",$hash);
+      if ($heart ne "NACK" or $heart eq "NACK" and @{$hash->{IODev}->{messagesForRadioId}->{$hash->{radioId}}->{messages}} == 0) {
+          readingsSingleUpdate($hash,"heartbeat","alive",1);
       }
     } elsif ($calltype eq "Ack") {
-      RemoveInternalTimer("timeoutAck:$name");
+      RemoveInternalTimer($hash,"MYSENSORS::DEVICE::timeoutAck");
       my $nextTrigger = main::gettimeofday() + $hash->{timeoutAck};
-      InternalTimer($nextTrigger, "MYSENSORS::DEVICE::timeoutMySTimer", "timeoutAck:$name", 0);
-      Log3 $name, 4, "$name: Ack timeout timer set at $nextTrigger";
+      InternalTimer($nextTrigger, "MYSENSORS::DEVICE::timeoutAck",$hash);
+      Log3 $name, 5, "$name: Ack timeout timer set at $nextTrigger";
     } elsif ($calltype eq "Asleep") {
-      RemoveInternalTimer("timeoutAwake:$name");
-      #0.5 is default; could be dynamized by attribute if needed
-      my $nextTrigger = main::gettimeofday() + 0.3;
-      InternalTimer($nextTrigger, "MYSENSORS::DEVICE::timeoutMySTimer", "timeoutAwake:$name", 0);
+      RemoveInternalTimer($hash,"MYSENSORS::DEVICE::timeoutAwake");
+      my $nextTrigger = main::gettimeofday() + 0.3;  
+      InternalTimer($nextTrigger, "MYSENSORS::DEVICE::timeoutAwake",$hash);
       Log3 $name, 5, "$name: Awake timeout timer set at $nextTrigger";
     }
 }
 
-sub timeoutMySTimer($) {
-    my ($calltype, $name) = split(':', $_[0]);
-    my $hash = $main::defs{$name};
-    Log3 $name, 5, "$name: timeoutMySTimer called ($calltype)";
-    if ($calltype eq "timeoutAlive") {
-      readingsSingleUpdate($hash,"state","dead",1) unless ($hash->{STATE} eq "NACK");
-    } elsif ($calltype eq "timeoutAck") {
-      #readingsSingleUpdate($hash,"state","timeoutAck passed",1);# if ($hash->{STATE} eq "NACK");
-      if ($hash->{IODev}->{outstandingAck} == 0) {
-        Log3 $name, 4, "$name: timeoutMySTimer called ($calltype), no outstanding Acks at all";
-        readingsSingleUpdate($hash,"state","alive",1) if ($hash->{STATE} eq "NACK");
-      } elsif (@{$hash->{IODev}->{messagesForRadioId}->{$hash->{radioId}}->{messages}}) {
-        Log3 $name, 4, "$name: timeoutMySTimer called ($calltype), outstanding: $hash->{IODev}->{messagesForRadioId}->{$hash->{radioId}}->{messages}";
-        readingsSingleUpdate($hash,"state","NACK",1) ;
-      } else {
-        Log3 $name, 4, "$name: timeoutMySTimer called ($calltype), no outstanding Acks for Node";
-        readingsSingleUpdate($hash,"state","alive",1) if ($hash->{STATE} eq "NACK");
-      }
-    } elsif ($calltype eq "timeoutAwake") {
-      readingsSingleUpdate($hash,"state","asleep",1) unless ($hash->{STATE} eq "NACK");
-      $hash->{nowSleeping} = 1;
+sub timeoutAlive($) {
+    my $hash = shift;
+    Log3 $hash->{NAME}, 5, "$hash->{NAME}: timeoutAlive called";
+    readingsSingleUpdate($hash,"heartbeat","dead",1) unless (ReadingsVal($hash,"heartbeat","dead") eq "NACK");
+}
+
+sub timeoutAck($) {
+    my $hash = shift;
+    Log3 $hash->{NAME}, 5, "$hash->{NAME}: timeoutAck called";
+    if ($hash->{IODev}->{outstandingAck} == 0) {
+      Log3 $hash->{NAME}, 4, "$hash->{NAME}: timeoutAck called, no outstanding Acks at all";
+      readingsSingleUpdate($hash,"heartbeat","alive",1) if (ReadingsVal($hash,"heartbeat","dead") eq "NACK");
+    } elsif (@{$hash->{IODev}->{messagesForRadioId}->{$hash->{radioId}}->{messages}}) {
+       Log3 $hash->{NAME}, 4, "$hash->{NAME}: timeoutAck called, outstanding: @$hash->{IODev}->{messagesForRadioId}->{$hash->{radioId}}->{messages}";
+        readingsSingleUpdate($hash,"heartbeat","NACK",1) ;
+    } else {
+        Log3 $hash->{NAME}, 4, "$hash->{NAME}: timeoutAck called, no outstanding Acks for Node";
+        readingsSingleUpdate($hash,"heartbeat","alive",1) if (ReadingsVal($hash,"heartbeat","dead") eq "NACK");
     }
 }
 
+sub timeoutAwake($) {
+    my $hash = shift;
+    Log3 $hash->{NAME}, 5, "$hash->{NAME}: timeoutAwake called";
+    readingsSingleUpdate($hash,"sleepState","asleep",1);
+    $hash->{nowSleeping} = 1;
+}
+
+sub sendRetainedMessages($) {
+    my ($hash) = @_;
+    my $retainedMsg;
+    while (ref ($retainedMsg = shift @{$hash->{retainedMessagesForRadioId}->{messages}}) eq 'HASH') {
+       sendClientMessage($hash,%$retainedMsg);
+    };
+}
 1;
 
 =pod
@@ -1144,24 +1180,39 @@ sub timeoutMySTimer($) {
     <a name="MYSENSORS_DEVICEset"></a>
     <p><b>Set</b></p>
     <ul>
+      <b>AttrTemplate</b>
+      <li>Helps to easily configure your devices. Just get a list of all available attrTremplates by issuing
+      <ul>
+        <p><code>set &lt;name&gt; attrTemplate ?</code></p>
+      </ul>
+      Have a look at the descriptions and choose a suitable one. Then use the drop-down list and click "set" or issue a.<br>
+      <ul>
+        <p><code>set &lt;name&gt; attrTemplate A_02a_atmospheric_pressure</code></p>
+      </ul>
+      </li><br>
+      <b>clear</b>
       <li>
          <p><code>set &lt;name&gt; clear</code><br/>clears MySensors EEPROM area and reboot (i.e. "factory" reset) - requires MY_SPECIAL_DEBUG</p>
       </li>
+      <b>flash</b>
       <li>
          <p><code>set &lt;name&gt; flash</code><br/>
          Checks whether a newer firmware version is available. If a newer firmware version is
          available the flash procedure is started. The sensor node must support FOTA for
          this.</p>
       </li>
+      <b>fwType</b>
       <li>
          <p><code>set &lt;name&gt; fwType &lt;value&gt;</code><br/>
          assigns a firmware type to this node (must be a numeric value in the range 0 .. 65536).
          Should be contained in the <a href="#MYSENSORSattrOTA_firmwareConfig">FOTA configuration
          file</a>.</p>
       </li>
+      <b>time</b>
       <li>
         <p><code>set &lt;name&gt; time</code><br/>sets time for nodes (that support it)</p>
       </li>
+      <b>reboot</b>
       <li>
         <p><code>set &lt;name&gt; reboot</code><br/>reboots a node (requires a bootloader that supports it).<br/>Attention: Nodes that run the standard arduino-bootloader will enter a bootloop!<br/>Dis- and reconnect the nodes power to restart in this case.</p>
     </li>
@@ -1207,6 +1258,10 @@ sub timeoutMySTimer($) {
     </li>
     <li>
         <p><code>attr &lt;name&gt; setReading_&lt;reading&gt; [&lt;value&gt;]*</code><br/>configures a reading that can be modified by set-command<br/>e.g.: <code>attr &lt;name&gt; setReading_switch_1 on,off</code></p>
+    </li>
+    <li>
+        <p><code>attr &lt;name&gt; setExtensionsEvent</code><br/>If set, the event will contain the command implemented by SetExtensions
+      (e.g. on-for-timer 10), else the executed command (e.g. on).
     </li>
     <li>
         <p><code>attr &lt;name&gt; mapReading_&lt;reading&gt; &lt;childId&gt; &lt;readingtype&gt; [&lt;value&gt;:&lt;mappedvalue&gt;]*</code><br/>configures the reading-name for a given childId and sensortype<br/>e.g.: <code>attr xxx mapReading_aussentemperatur 123 temperature</code>

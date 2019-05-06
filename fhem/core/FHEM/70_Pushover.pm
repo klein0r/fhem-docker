@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: 70_Pushover.pm 17857 2018-11-27 20:09:10Z loredo $
+# $Id: 70_Pushover.pm 18995 2019-03-22 20:09:53Z loredo $
 # https://pushover.net/api
 #
 package main;
@@ -9,6 +9,7 @@ use utf8;
 use Data::Dumper;
 use HttpUtils;
 use Encode;
+use FHEM::Meta;
 
 # initialize ##################################################################
 sub Pushover_Initialize($$) {
@@ -18,11 +19,13 @@ sub Pushover_Initialize($$) {
     $hash->{SetFn}   = "Pushover_Set";
 
     $hash->{AttrList} =
-"disable:0,1 disabledForIntervals do_not_notify:0,1 timestamp:0,1 title sound:pushover,bike,bugle,cashregister,classical,cosmic,falling,gamelan,incoming,intermission,magic,mechanical,pianobar,siren,spacealarm,tugboat,alien,climb,persistent,echo,updown,none device priority:0,1,2,-1,-2 callbackUrl retry expire "
+"disable:0,1 disabledForIntervals do_not_notify:0,1 timestamp:0,1 title sound:pushover,bike,bugle,cashregister,classical,cosmic,falling,gamelan,incoming,intermission,magic,mechanical,pianobar,siren,spacealarm,tugboat,alien,climb,persistent,echo,updown,none device priority:0,1,2,-1,-2 callbackUrl retry expire storagePath "
       . $readingFnAttributes;
 
     #$hash->{parseParams} = 1; # not possible due to legacy msg command schema
     $hash->{'.msgParams'} = { parseParams => 1, };
+
+    return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 # regular Fn ##################################################################
@@ -44,6 +47,9 @@ sub Pushover_Define($$) {
 
     if ( defined($token) && defined($user) ) {
 
+        # Initialize the device
+        return $@ unless ( FHEM::Meta::SetInternals($hash) );
+
         $hash->{APP_TOKEN} = $token;
         $hash->{USER_KEY}  = $user;
 
@@ -52,6 +58,13 @@ sub Pushover_Define($$) {
 
             return "Could not register infix, seems to be existing"
               if ( !Pushover_addExtension( $name, "Pushover_CGI", $infix ) );
+        }
+
+        # set default settings on first define
+        if ( $init_done && !defined( $hash->{OLDDEF} ) ) {
+
+            # presets for FHEMWEB
+            $attr{$name}{icon} = 'pushover';
         }
 
         # start Validation Timer
@@ -1127,6 +1140,20 @@ sub Pushover_SetMessage2 ($$$$) {
             $values{text} = join ' ', @$a;
         }
 
+        if ( $values{text} =~ /^\s*html:\s*(.*)$/i ) {
+            Log3 $name, 4, "Pushover $name: Interpreting glance text as HTML";
+            $values{html} = 1;
+            $values{text} = $1;
+        }
+        if ( $values{text} =~
+            m/\<(\/|)[biu]\>|\<(\/|)font(.+)\>|\<(\/|)a(.*)\>|\<br\s?\/?\>/i )
+        {
+            $values{html} = 1;
+
+            # replace \n by <br /> but ignore \\n
+            $values{text} =~ s/(?<!\\)(\\n)/<br \/>/g;
+        }
+
         $values{subtext} = ( defined( $h->{subtext} ) ? $h->{subtext} : undef );
 
         $values{count} = ( defined( $h->{count} ) ? $h->{count} : undef );
@@ -1255,11 +1282,15 @@ sub Pushover_SetMessage2 ($$$$) {
 
     if ( defined( $values{attachment} ) ) {
         my $path =
-          "file://"
-          . AttrVal( $name, "storage", AttrVal( "global", "modpath", "." ) );
+          AttrVal( $name, "storagePath", AttrVal( "global", "modpath", "." ) );
         $path .= "/" unless ( $path =~ /\/$/ );
 
-        $values{attachment} = $path . $values{attachment};
+        $values{attachment} = "file://"
+          . (
+              $values{attachment} =~ /^\//
+            ? $values{attachment}
+            : $path . $values{attachment}
+          );
     }
 
     $body = Pushover_HttpForm( $body, $multipart, \%values );
@@ -1493,7 +1524,7 @@ sub Pushover_HttpUri ($$;$) {
     <code><b>cancel_id</b>&nbsp;</code> - type: text - Custom ID to immediate expire messages with priority &gt;=2 and disable reoccuring notification.<br>
     <code><b>timestamp</b>&nbsp;</code> - type: integer - A Unix timestamp of your message's date and time to display to the user, rather than the time your message is received by the Pushover servers. Takes precendence over attribute timestamp=1.<br>
     <code><b>sound</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code> - type: text -  The name of one of the <a href="https://pushover.net/api#sounds">sounds</a> supported by device clients to override the user's default sound choice.<br>
-    <code><b>attachment</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code> - type: text -  Path to an image file that should be attached to the message. The base path is relative to the FHEM directory and may be overwritten using the storage attribute.<br>
+    <code><b>attachment</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code> - type: text -  Path to an image file that should be attached to the message. The base path is relative to the FHEM directory and may be overwritten using the storagePath attribute.<br>
     <br>
     Examples:
     <ul>
@@ -1566,7 +1597,7 @@ sub Pushover_HttpUri ($$;$) {
     The following options may be used to adjust message content and delivery behavior:<br>
     <br>
     <code><b>title</b>&nbsp;&nbsp;&nbsp;</code> - type: text(100 characters) - A description of the data being shown, such as "Widgets Sold".<br>
-    <code><b>text</b>&nbsp;&nbsp;&nbsp;&nbsp;</code> - type: text(100 characters) - The main line of data, used on most screens. Using this option takes precedence; non-option text content will be discarded.<br>
+    <code><b>text</b>&nbsp;&nbsp;&nbsp;&nbsp;</code> - type: text(100 characters) - The main line of data, used on most screens. Using this option takes precedence; non-option text content will be discarded. If you want your text to be interpreted as HTML by the Pushover client app, add the prefix 'html:' before the actual text (unless you already use HTML tags in it where it is automatically detected).<br>
     <code><b>subtext</b>&nbsp;</code> - type: text(100 characters) - A second line of data.<br>
     <code><b>count</b>&nbsp;&nbsp;&nbsp;</code> - type: integer(may be negative) - Shown on smaller screens; useful for simple counts.<br>
     <code><b>percent</b>&nbsp;</code> - type: integer(0-100) - Shown on some screens as a progress bar/circle.<br>
@@ -1612,7 +1643,7 @@ sub Pushover_HttpUri ($$;$) {
     <li><a name="PushoverAttrsound"></a><code>sound</code><br>
         Will be used as the default sound if sound argument is missing. If left blank the adjusted sound of the app will be used. 
     </li>
-    <li><a name="PushoverAttrstorage"></a><code>storage</code><br>
+    <li><a name="PushoverAttrstoragePath"></a><code>storagePath</code><br>
         Will be used as the default path when sending attachments, otherwise global attribute modpath will be used.
     </li>
   </ul>
@@ -1681,7 +1712,7 @@ sub Pushover_HttpUri ($$;$) {
     <code><b>cancel_id</b>&nbsp;</code> - Typ: Text - Benutzerdefinierte ID, um Nachrichten mit einer Priorit&auml;t &gt;= 2 sofort ablaufen zu lassen und die wiederholte Benachrichtigung auszuschalten.<br>
     <code><b>timestamp</b>&nbsp;</code> - Typ: Integer - Ein Unix Zeitstempfel mit Datum und Uhrzeit deiner Nachricht, die dem Empf&auml;nger statt der Uhrzeit des Einganges auf den Pushover Servern angezeigt wird. Hat Vorrang bei gesetztem Attribut timestamp=1.<br>
     <code><b>sound</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code> - Typ: Text -  Der Name eines vom Empf&auml;ngerger&auml;t unterst&uuml;tzten <a href="https://pushover.net/api#sounds">Klangs</a>, um den vom Empf&auml;nger ausgew&auml;hlten Klang zu &uuml;berschreiben.<br>
-    <code><b>attachment</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code> - Typ: Text -  Pfad zu einer Bilddatei, welche an die Nachricht angeh&auml;ngt werden soll. Der Basispfad ist relativ zum FHEM Verzeichnis und kann &uuml;ber das storage Attribut &uuml;berschrieben werden.<br>
+    <code><b>attachment</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code> - Typ: Text -  Pfad zu einer Bilddatei, welche an die Nachricht angeh&auml;ngt werden soll. Der Basispfad ist relativ zum FHEM Verzeichnis und kann &uuml;ber das storagePath Attribut &uuml;berschrieben werden.<br>
     <br>
     Beispiele:
     <ul>
@@ -1799,7 +1830,7 @@ sub Pushover_HttpUri ($$;$) {
     <li><a name="PushoverAttrsound"></a><code>sound</code><br>
         Wird beim Senden als Titel verwendet, sofern dieser nicht als Aufrufargument angegeben wurde. Kann auch generell entfallen, dann wird der eingestellte Ton der App verwendet.
     </li>
-    <li><a name="PushoverAttrstorage"></a><code>storage</code><br>
+    <li><a name="PushoverAttrstoragePath"></a><code>storagePath</code><br>
         Wird als Standardpfad beim Versand von Anh&auml;ngen verwendet, ansonsten wird das globale Attribut modpath benutzt.
     </li>
   </ul>
@@ -1812,4 +1843,24 @@ sub Pushover_HttpUri ($$;$) {
 </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 70_Pushover.pm
+{
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ],
+  "keywords": [
+    "messaging",
+    "messenger",
+    "push"
+  ]
+}
+=end :application/json;q=META.json
+
 =cut

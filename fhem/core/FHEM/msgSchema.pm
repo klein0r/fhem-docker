@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: msgSchema.pm 17916 2018-12-07 18:46:40Z loredo $
+# $Id: msgSchema.pm 19016 2019-03-24 13:23:26Z loredo $
 package main;
 sub msgSchema_Initialize() { }
 
@@ -322,6 +322,12 @@ my $db = {
             },
         },
 
+        'LGTV_WEBOS' => {
+            'Normal' => 'set %DEVICE% screenMsg %MSG%',
+            'High'   => 'set %DEVICE% screenMsg %MSG%',
+            'Low'    => 'set %DEVICE% screenMsg %MSG%',
+        },
+
         'KODI' => {
             'Normal' =>
 '{ my $d=\'%DEVICE%\'; my $msg=\'%MSG%\'; my $title=\'%TITLE%\'; my $timeout=%TIMEOUT%*1000; fhem "set $d msg \'$title\' \'$msg\' $timeout %KODI_ICON%"; }',
@@ -443,3 +449,25 @@ sub get {
 }
 
 1;
+
+=pod
+=encoding utf8
+
+=for :application/json;q=META.json msgSchema.pm
+{
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ],
+  "keywords": [
+    "messaging"
+  ]
+}
+=end :application/json;q=META.json
+
+=cut

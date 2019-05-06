@@ -1,10 +1,11 @@
-# $Id: 98_WeekdayTimer.pm 16005 2018-01-27 06:05:51Z igami $
+# $Id: 98_WeekdayTimer.pm 19279 2019-04-28 17:10:32Z Beta-User $
 ##############################################################################
 #
 #     98_WeekdayTimer.pm
 #     written by Dietmar Ortmann
 #     modified by Tobias Faust
 #     Maintained by igami since 02-2018
+#     Thanks Dietmar for all you did for FHEM, RIP
 #
 #     This file is part of fhem.
 #
@@ -36,11 +37,6 @@ $Data::Dumper::Sortkeys = 1;
 sub WeekdayTimer_Initialize($){
   my ($hash) = @_;
 
-  if(!$modules{Twilight}{LOADED} && -f "$attr{global}{modpath}/FHEM/59_Twilight.pm") {
-    my $ret = CommandReload(undef, "59_Twilight");
-    Log3 undef, 1, $ret if($ret);
-  }
-
 # Consumer
   $hash->{SetFn}   = "WeekdayTimer_Set";
   $hash->{DefFn}   = "WeekdayTimer_Define";
@@ -50,6 +46,45 @@ sub WeekdayTimer_Initialize($){
   $hash->{UpdFn}   = "WeekdayTimer_Update";
   $hash->{AttrList}= "disable:0,1 delayedExecutionCond switchInThePast:0,1 commandTemplate ".
      $readingFnAttributes;
+}
+################################################################################
+sub WeekdayTimer_GetHashIndirekt ($$) {
+  my ($myHash, $function) = @_;
+
+  if (!defined($myHash->{HASH})) {
+    Log 3, "[$function] myHash not valid";
+    return undef;
+  };
+  return $myHash->{HASH};
+}
+################################################################################
+sub WeekdayTimer_InternalTimer($$$$$) {
+   my ($modifier, $tim, $callback, $hash, $waitIfInitNotDone) = @_;
+
+   my $timerName = "$hash->{NAME}_$modifier";
+   my $mHash = { HASH=>$hash, NAME=>"$hash->{NAME}_$modifier", MODIFIER=>$modifier};
+   if (defined($hash->{TIMER}{$timerName})) {
+      Log3 $hash, 1, "[$hash->{NAME}] possible overwriting of timer $timerName - please delete first";
+      stacktrace();
+   } else {
+      $hash->{TIMER}{$timerName} = $mHash;
+   }
+
+   Log3 $hash, 5, "[$hash->{NAME}] setting  Timer: $timerName " . FmtDateTime($tim);
+   InternalTimer($tim, $callback, $mHash, $waitIfInitNotDone);
+   return $mHash;
+}
+################################################################################
+sub WeekdayTimer_RemoveInternalTimer($$) {
+   my ($modifier, $hash) = @_;
+
+   my $timerName = "$hash->{NAME}_$modifier";
+   my $myHash = $hash->{TIMER}{$timerName};
+   if (defined($myHash)) {
+      delete $hash->{TIMER}{$timerName};
+      Log3 $hash, 5, "[$hash->{NAME}] removing Timer: $timerName";
+      RemoveInternalTimer($myHash);
+   }
 }
 ################################################################################
 sub WeekdayTimer_InitHelper($) {
@@ -103,9 +138,9 @@ sub WeekdayTimer_Undef($$) {
   my ($hash, $arg) = @_;
 
   foreach my $idx (keys %{$hash->{profil}}) {
-     myRemoveInternalTimer($idx, $hash);
+     WeekdayTimer_RemoveInternalTimer($idx, $hash);
   }
-  myRemoveInternalTimer("SetTimerOfDay", $hash);
+  WeekdayTimer_RemoveInternalTimer("SetTimerOfDay", $hash);
   delete $modules{$hash->{TYPE}}{defptr}{$hash->{NAME}};
   return undef;
 }
@@ -265,15 +300,24 @@ sub WeekdayTimer_getListeDerTage($$) {
      my $echteZeit = WeekdayTimer_zeitErmitteln ($now, $stunde, $minute, $sekunde, $relativeDay);
     #Log 3, "echteZeit---$i---->>>$relativeDay<<<----->".FmtDateTime($echteZeit);
      ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($echteZeit);
-     my $h2we = $attr{global}{holiday2we};
-     if($h2we) {
-        my $ergebnis = fhem("get $h2we ".sprintf("%02d-%02d",$mon+1,$mday),1);
-        if ($ergebnis ne "none") {
-          #Log 3, "ergebnis-------$i----->$ergebnis";
-          $hdays{$i} = undef   if ($d==7); #  $we Tag aufnehmen
-          delete $hdays{$i}    if ($d==8); # !$we Tag herausnehmen
+
+    foreach my $h2we (split(',', AttrVal('global', 'holiday2we', ''))) {
+      if($h2we) {
+        my $ergebnis = 'none';
+        if (InternalVal($h2we, 'TYPE', '') eq "holiday") {
+          $ergebnis = CommandGet(undef,$h2we . ' ' . sprintf("%02d-%02d",$mon+1,$mday));
+        } elsif ($wday==$nowWday ){
+          $ergebnis = "is_true" if IsWe();
+        }elsif ( $wday==$nowWday+1){
+          $ergebnis = "is_true" if IsWe("tomorrow");
         }
-     }
+        if ($ergebnis ne 'none') {
+          #Log 3, "ergebnis-------$i----->$ergebnis";
+          $hdays{$i} = undef if ($d==7); #  $we Tag aufnehmen
+          delete $hdays{$i} if ($d==8); # !$we Tag herausnehmen
+        }
+      }
+    }
   }
 
   #Log 3, "result------------>" . join (" ", sort keys %hdays);
@@ -510,7 +554,7 @@ sub WeekdayTimer_GlobalDaylistSpec {
 ################################################################################
 sub WeekdayTimer_SetTimerForMidnightUpdate($) {
     my ($myHash) = @_;
-    my $hash = myGetHashIndirekt($myHash, (caller(0))[3]);
+    my $hash = WeekdayTimer_GetHashIndirekt($myHash, (caller(0))[3]);
     return if (!defined($hash));
 
    my $now = time();
@@ -519,15 +563,15 @@ sub WeekdayTimer_SetTimerForMidnightUpdate($) {
   my $midnightPlus5Seconds = WeekdayTimer_zeitErmitteln  ($now, 0, 0, 5, 1);
   #Log3 $hash, 3, "midnightPlus5Seconds------------>".FmtDateTime($midnightPlus5Seconds);
 
-                   myRemoveInternalTimer("SetTimerOfDay", $hash);
-   my $newMyHash = myInternalTimer      ("SetTimerOfDay", $midnightPlus5Seconds, "$hash->{TYPE}_SetTimerOfDay", $hash, 0);
+                   WeekdayTimer_RemoveInternalTimer("SetTimerOfDay", $hash);
+   my $newMyHash = WeekdayTimer_InternalTimer      ("SetTimerOfDay", $midnightPlus5Seconds, "$hash->{TYPE}_SetTimerOfDay", $hash, 0);
       $newMyHash->{SETTIMERATMIDNIGHT} = 1;
 
 }
 ################################################################################
 sub WeekdayTimer_SetTimerOfDay($) {
     my ($myHash) = @_;
-    my $hash = myGetHashIndirekt($myHash, (caller(0))[3]);
+    my $hash = WeekdayTimer_GetHashIndirekt($myHash, (caller(0))[3]);
     return if (!defined($hash));
 
     my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time());
@@ -583,8 +627,8 @@ sub WeekdayTimer_SetTimer($) {
         } else {
            Log3 $hash, 4, "[$name] setTimer - timer seems to be NOT active today: ".join("",@$tage)."|$time|$para ". $hash->{CONDITION};
         }
-        myRemoveInternalTimer("$idx", $hash);
-        myInternalTimer ("$idx", $timToSwitch, "$hash->{TYPE}_Update", $hash, 0);
+        WeekdayTimer_RemoveInternalTimer("$idx", $hash);
+        WeekdayTimer_InternalTimer ("$idx", $timToSwitch, "$hash->{TYPE}_Update", $hash, 0);
      }
   }
 
@@ -625,15 +669,15 @@ sub WeekdayTimer_SetTimer($) {
      $tipHash    = $hash if (!defined $tipHash);
      $modules{WeekdayTimer}{timerInThePastHash} = $tipHash;
 
-     myRemoveInternalTimer("delayed", $tipHash);
-     myInternalTimer      ("delayed", time()+5, "WeekdayTimer_delayedTimerInPast", $tipHash, 0);
+     WeekdayTimer_RemoveInternalTimer("delayed", $tipHash);
+     WeekdayTimer_InternalTimer      ("delayed", time()+5, "WeekdayTimer_delayedTimerInPast", $tipHash, 0);
 
   }
 }
 ################################################################################
 sub WeekdayTimer_delayedTimerInPast($) {
   my ($myHash) = @_;
-  my $hash = myGetHashIndirekt($myHash, (caller(0))[3]);
+  my $hash = WeekdayTimer_GetHashIndirekt($myHash, (caller(0))[3]);
   return if (!defined($hash));
 
   my $tim = time();
@@ -644,8 +688,8 @@ sub WeekdayTimer_delayedTimerInPast($) {
         Log3 $hash, 4, "$device ".FmtDateTime($time)." ".($tim-$time)."s ";
 
         foreach my $para ( @{$tipIpHash->{$device}{$time}} ) {
-           myRemoveInternalTimer(@$para[0], @$para[3]);
-           my $mHash =myInternalTimer (@$para[0],@$para[1],@$para[2],@$para[3],@$para[4]);
+           WeekdayTimer_RemoveInternalTimer(@$para[0], @$para[3]);
+           my $mHash =WeekdayTimer_InternalTimer (@$para[0],@$para[1],@$para[2],@$para[3],@$para[4]);
            $mHash->{immerSchalten} = 1;
         }
      }
@@ -701,12 +745,12 @@ sub WeekdayTimer_searchAktNext($$) {
 ################################################################################
 sub WeekdayTimer_DeleteTimer($) {
   my $hash = shift;
-  map {myRemoveInternalTimer ($_, $hash)}      keys %{$hash->{profil}};
+  map {WeekdayTimer_RemoveInternalTimer ($_, $hash)}      keys %{$hash->{profil}};
 }
 ################################################################################
 sub WeekdayTimer_Update($) {
   my ($myHash) = @_;
-  my $hash = myGetHashIndirekt($myHash, (caller(0))[3]);
+  my $hash = WeekdayTimer_GetHashIndirekt($myHash, (caller(0))[3]);
   return if (!defined($hash));
 
   my $name     = $hash->{NAME};
@@ -852,11 +896,11 @@ sub WeekdayTimer_FensterOffen ($$$) {
      }
      if (defined($hash->{VERZOEGRUNG_IDX}) && $hash->{VERZOEGRUNG_IDX}!=$time) {
         Log3 $hash, 3, "[$name] timer at $hash->{profil}{$hash->{VERZOEGRUNG_IDX}}{TIME} skiped by new timer at $hash->{profil}{$time}{TIME}";
-        myRemoveInternalTimer($hash->{VERZOEGRUNG_IDX},$hash);
+        WeekdayTimer_RemoveInternalTimer($hash->{VERZOEGRUNG_IDX},$hash);
      }
      $hash->{VERZOEGRUNG_IDX} = $time;
-     myRemoveInternalTimer("$time",  $hash);
-     myInternalTimer      ("$time",  $nextRetry, "$hash->{TYPE}_Update", $hash, 0);
+     WeekdayTimer_RemoveInternalTimer("$time",  $hash);
+     WeekdayTimer_InternalTimer      ("$time",  $nextRetry, "$hash->{TYPE}_Update", $hash, 0);
      $hash->{VERZOEGRUNG} = 1;
      return 1;
   }
@@ -909,11 +953,11 @@ sub WeekdayTimer_FensterOffen ($$$) {
                     }
                     if (defined($hash->{VERZOEGRUNG_IDX}) && $hash->{VERZOEGRUNG_IDX}!=$time) {
                        Log3 $hash, 3, "[$name] timer at $hash->{profil}{$hash->{VERZOEGRUNG_IDX}}{TIME} skiped by new timer at $hash->{profil}{$time}{TIME}";
-                       myRemoveInternalTimer($hash->{VERZOEGRUNG_IDX},$hash);
+                       WeekdayTimer_RemoveInternalTimer($hash->{VERZOEGRUNG_IDX},$hash);
                     }
                     $hash->{VERZOEGRUNG_IDX} = $time;
-                    myRemoveInternalTimer("$time", $hash);
-                    myInternalTimer      ("$time",  $nextRetry, "$hash->{TYPE}_Update", $hash, 0);
+                    WeekdayTimer_RemoveInternalTimer("$time", $hash);
+                    WeekdayTimer_InternalTimer      ("$time",  $nextRetry, "$hash->{TYPE}_Update", $hash, 0);
                     $hash->{VERZOEGRUNG} = 1;
                     return 1
                  }
@@ -1086,9 +1130,10 @@ sub WeekdayTimer_SetAllParms() {            # {WeekdayTimer_SetAllParms()}
 1;
 
 =pod
+=encoding utf8
 =item device
 =item summary    sends parameter to devices at defined times
-=item summary_DE sendet Parameter an devices zu einer Liste mit festen Zeiten
+=item summary_DE sendet Parameter an Devices zu einer Liste mit festen Zeiten
 =begin html
 
 <a name="WeekdayTimer"></a>
@@ -1147,6 +1192,7 @@ sub WeekdayTimer_SetAllParms() {            # {WeekdayTimer_SetAllParms()}
          It is possible to define $we or !$we in daylist to easily allow weekend an holiday. $we !$we are coded as 7 8, when using a numeric daylist.<br><br>
       <u>time:</u>define the time to switch, format: HH:MM:[SS](HH in 24 hour format) or a Perlfunction like {sunrise_abs()}. Within the {} you can use the variable $date(epoch) to get the exact switchingtimes of the week. Example: {sunrise_abs_dat($date)}<br><br>
       <u>parameter:</u>the parameter to be set, using any text value like <b>on</b>, <b>off</b>, <b>dim30%</b>, <b>eco</b> or <b>comfort</b> - whatever your device understands.<br>
+      NOTE: Use ":" to replace blanks in parameter and escape ":" in case you need it. So e.g. <code>on-till:06\:00</code> will be a valid parameter.
     </ul>
     <p>
     <ul><b>command</b><br>
@@ -1269,5 +1315,31 @@ sub WeekdayTimer_SetAllParms() {            # {WeekdayTimer_SetAllParms()}
   </ul><br>
 
 =end html
+
+=for :application/json;q=META.json 98_WeekdayTimer.pm
+{
+   "abstract" : "sends parameter to devices at defined times",
+   "x_lang" : {
+      "de" : {
+         "abstract" : "sendet Parameter an Devices zu einer Liste mit festen Zeiten"
+      }
+   },
+   "keywords" : [
+      "heating",
+      "Heizung"
+   ],
+   "prereqs" : {
+      "runtime" : {
+         "requires" : {
+            "Data::Dumper" : "0",
+            "POSIX" : "0",
+            "Time::Local" : "0",
+            "strict" : "0",
+            "warnings" : "0"
+         }
+      }
+   }
+}
+=end :application/json;q=META.json
 
 =cut

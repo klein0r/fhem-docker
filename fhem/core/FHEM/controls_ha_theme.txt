@@ -1,34 +1,18 @@
-DEL ./www/images/hausautomatisierung_com/weather.svg
+MOV ./www/hausautomatisierung-com/custom.js unused
 UPD 2017-08-17_20:17:57 6623 www/images/hausautomatisierung_com/weather.svg
-DEL ./www/images/hausautomatisierung_com/favicon.ico
 UPD 2017-10-14_09:47:39 15086 www/images/hausautomatisierung_com/favicon.ico
-DEL ./www/images/hausautomatisierung_com/smartphone.svg
 UPD 2017-08-17_20:17:57 2329 www/images/hausautomatisierung_com/smartphone.svg
-DEL ./www/images/hausautomatisierung_com/power.svg
 UPD 2017-08-17_20:17:57 1802 www/images/hausautomatisierung_com/power.svg
-DEL ./www/images/hausautomatisierung_com/off.svg
 UPD 2017-08-17_20:17:57 3199 www/images/hausautomatisierung_com/off.svg
-DEL ./www/images/hausautomatisierung_com/tv.svg
 UPD 2017-08-17_20:17:57 2274 www/images/hausautomatisierung_com/tv.svg
-DEL ./www/images/hausautomatisierung_com/heater.svg
 UPD 2017-08-17_20:17:57 4911 www/images/hausautomatisierung_com/heater.svg
-DEL ./www/images/hausautomatisierung_com/plug.svg
 UPD 2017-08-17_20:17:57 2727 www/images/hausautomatisierung_com/plug.svg
-DEL ./www/images/hausautomatisierung_com/on.svg
 UPD 2017-08-17_20:17:57 3199 www/images/hausautomatisierung_com/on.svg
-DEL ./www/images/hausautomatisierung_com/router.svg
 UPD 2017-08-17_20:17:57 6250 www/images/hausautomatisierung_com/router.svg
-DEL ./www/images/hausautomatisierung_com/doorhandle.svg
 UPD 2017-08-17_20:17:57 2398 www/images/hausautomatisierung_com/doorhandle.svg
-DEL ./www/pgm2/hausautomatisierung_comstyle.css
-UPD 2018-09-15_13:48:01 26959 www/pgm2/hausautomatisierung_comstyle.css
-DEL ./www/pgm2/hausautomatisierung_comfloorplanstyle.css
-UPD 2018-09-15_13:48:01 4942 www/pgm2/hausautomatisierung_comfloorplanstyle.css
-DEL ./www/pgm2/hausautomatisierung_comsvg_style.css
+UPD 2019-04-09_09:49:59 32455 www/pgm2/hausautomatisierung_comstyle.css
+UPD 2019-04-09_09:49:59 4943 www/pgm2/hausautomatisierung_comfloorplanstyle.css
+UPD 2019-04-09_09:49:59 6439 www/pgm2/hausautomatisierung_com.js
 UPD 2018-01-30_20:22:38 5011 www/pgm2/hausautomatisierung_comsvg_style.css
-DEL ./www/hausautomatisierung-com/images/haus_automatisierung.png
 UPD 2017-07-04_22:17:20 20144 www/hausautomatisierung-com/images/haus_automatisierung.png
-DEL ./www/hausautomatisierung-com/images/bg_wrapper.jpg
 UPD 2017-07-04_22:17:20 81828 www/hausautomatisierung-com/images/bg_wrapper.jpg
-DEL ./www/hausautomatisierung-com/custom.js
-UPD 2018-09-15_13:48:01 5043 www/hausautomatisierung-com/custom.js

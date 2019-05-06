@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: 70_PHTV.pm 17856 2018-11-27 20:08:51Z loredo $
+# $Id: 70_PHTV.pm 18995 2019-03-22 20:09:53Z loredo $
 package main;
 
 use strict;
@@ -9,6 +9,7 @@ use Time::HiRes qw(gettimeofday);
 use HttpUtils;
 use Color;
 use Encode;
+use FHEM::Meta;
 
 # initialize ##################################################################
 sub PHTV_Initialize($) {
@@ -49,6 +50,7 @@ sub PHTV_Initialize($) {
     };
 
     FHEM_colorpickerInit();
+    return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 # regular Fn ##################################################################
@@ -72,6 +74,9 @@ sub PHTV_Define($$) {
         Log3 $name, 4, $msg;
         return $msg;
     }
+
+    # Initialize the module and the device
+    return $@ unless ( FHEM::Meta::SetInternals($hash) );
 
     $hash->{NOTIFYDEV} = "global";
 
@@ -3741,5 +3746,23 @@ Die englische Version ist hier zu finden:
 </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 70_PHTV.pm
+{
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ],
+  "keywords": [
+    "Philips",
+    "TV"
+  ]
+}
+=end :application/json;q=META.json
 
 =cut

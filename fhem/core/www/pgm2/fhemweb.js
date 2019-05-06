@@ -1,6 +1,6 @@
 "use strict";
 var FW_version={};
-FW_version["fhemweb.js"] = "$Id: fhemweb.js 17826 2018-11-23 10:40:33Z rudolfkoenig $";
+FW_version["fhemweb.js"] = "$Id: fhemweb.js 19285 2019-04-28 20:18:39Z rudolfkoenig $";
 
 var FW_serverGenerated;
 var FW_serverFirstMsg = (new Date()).getTime()/1000;
@@ -160,8 +160,14 @@ FW_jqueryReadyFn()
                       "="+encodeURIComponent($(this).val());
     });
     FW_cmd(FW_root+"?"+cmd+"&XHR=1&addLinks=1", function(data) {
-      if(!data.match(/^[\r\n]*$/)) // ignore empty answers
-        FW_okDialog('<pre>'+data+'</pre>', el);
+      if(!data.match(/^[\r\n]*$/)) {// ignore empty answers
+        var ma = /^<html>([\s\S]*)<\/html>/.exec(data);
+        if(ma) {
+          FW_okDialog(ma[1], el);
+        } else {
+          FW_okDialog('<pre>'+data+'</pre>', el);
+        }
+      }
     });
   });
   
@@ -201,7 +207,7 @@ FW_jqueryReadyFn()
         // make get use xhr instead of reload
         //return true;
         FW_cmd(FW_root+"?cmd="+encodeURIComponent(val)+"&XHR=1", function(data){
-          if( !data.match( /^<html>.*<\/html>/ ) ) {
+          if( !data.match( /^<html>[\s\S]*<\/html>/ ) ) {
             data = data.replace( '<', '&lt;' );
             data = '<pre>'+data+'</pre>';
           }
@@ -289,7 +295,8 @@ FW_jqueryReadyFn()
 
   $("select[id^=sel_attr],select[id^=sel_set],select[id^=sel_get]")
   .change(function(){ // online help
-    var val =$(this).val().replace(/[.\/(){}\[\]]/g,function(a){return "\\"+a});
+    var val = $(this).val().replace(/[.\/(){}\[\]%*]/g,
+                            function(a){ return "\\"+a });
     var m = $(this).attr("name").match(/arg.(set|get|attr)(.*)/);
     if(!m)
       return;
@@ -332,6 +339,7 @@ FW_jqueryReadyFn()
       });
     });
   }
+
 }
 
 var FW_helpData;
@@ -693,6 +701,7 @@ FW_replaceLink(el)
   $(el).removeAttr("href");
   $(el).removeAttr("onclick");
   $(el).click(function() { 
+    attr = attr.replace(/&.*$/,''); // remove unnecessary params, forum: #97351
     FW_cmd(attr+"&XHR=1", function(txt){
       if(!txt)
         return;
@@ -763,8 +772,12 @@ FW_inlineModify()       // Do not generate a new HTML page upon pressing modify
       cmd = $(this).attr("name")+"="+cmd+" "+devName+" "+arg+" "+newDef;
     }
     FW_cmd(FW_root+"?"+encodeURIComponent(cmd)+"&XHR=1", function(resp){
-      if(!resp && reloadIfOk)
-        location.reload();
+      if(!resp && reloadIfOk) {
+        var hr = location.href+"";
+        location.href = hr+     // retain fw_id
+              (hr.match(/fw_id=\d+/) ? "" : '&fw_id='+$("body").attr('fw_id'));
+
+      }
       if(resp) {
         if(!resp.match(/^<html>[\s\S]*<\/html>/ ) ) {
           resp = FW_htmlQuote(resp);
@@ -854,38 +867,43 @@ FW_rawDef()
       $("#rawDef input").click(function(){fillData(this.checked ?"-R":"-r")});
 
       $("#rawDef button").click(function(){
-        var data = $("#rawDef textarea").val();
-        var arr = data.split("\n"), str="", i1=-1;
-        function
-        doNext()
-        {
-          if(++i1 >= arr.length) {
-            return FW_okDialog("Executed everything, no errors found.");
-          }
-          str += arr[i1];
-          if(arr[i1].charAt(arr[i1].length-1) === "\\") {
-            str += "\n";
-            return doNext();
-          }
-          if(str != "") {
-            str = str.replace(/\\\n/g, "\n")
-                     .replace(/;;/g, ";");
-            FW_cmd(FW_root+"?cmd."+dev+"="+encodeURIComponent(str)+"&XHR=1",
-            function(r){
-              if(r)
-                return FW_okDialog('<pre>'+r+'</pre>');
-              str = "";
-              doNext();
-            });
-          } else {
-            doNext();
-          }
-        }
-        doNext();
+        FW_execRawDef($("#rawDef textarea").val());
       });
     });
 
   });
+}
+
+function
+FW_execRawDef(data)
+{
+  var arr = data.split("\n"), str="", i1=-1;
+  function
+  doNext()
+  {
+    if(++i1 >= arr.length) {
+      return FW_okDialog("Executed everything, no errors found.");
+    }
+    str += arr[i1];
+    if(arr[i1].charAt(arr[i1].length-1) === "\\") {
+      str += "\n";
+      return doNext();
+    }
+    if(str != "") {
+      str = str.replace(/\\\n/g, "\n")
+               .replace(/;;/g, ";");
+      FW_cmd(FW_root+"?cmd.x="+encodeURIComponent(str)+"&XHR=1",
+      function(r){
+        if(r)
+          return FW_okDialog('<pre>'+r+'</pre>');
+        str = "";
+        doNext();
+      });
+    } else {
+      doNext();
+    }
+  }
+  doNext();
 }
 
 var FW_arrowDown="", FW_arrowRight="";
@@ -1005,7 +1023,7 @@ FW_doUpdate(evt)
         if(d[2].match(/\n/) && !d[2].match(/<.*>/)) // format multiline
           d[2] = '<html><pre>'+d[2]+'</pre></html>';
 
-        var ma = /^<html>([\s\S]*)<\/html>$/.exec(d[2]);
+        var ma = /^<html>([\s\S]*)<\/html>/.exec(d[2]);
         if(!d[0].match("-")) // not a reading
           $(this).html(d[2]);
         else if(ma)
@@ -1165,6 +1183,11 @@ FW_longpoll()
         filter="room="+room;
     }
   }
+
+  // use devspec directly if room is dynamic (#devspec=<devspec>)
+  filter = filter.replace( 'room=#devspec=', '' );
+  filter = filter.replace( 'room=%23devspec%3d', '' );
+
   var iP = $("body").attr("iconPath");
   if(iP != null)
     filter = filter +";iconPath="+iP;

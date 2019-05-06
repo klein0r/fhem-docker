@@ -1,5 +1,5 @@
 
-# $Id: 37_plex.pm 14601 2017-06-30 07:33:29Z justme1968 $
+# $Id: 37_plex.pm 18622 2019-02-17 17:09:38Z justme1968 $
 
 #http://10.0.1.21:32400/music/:/transcode/generic.mp3?offset=0&format=mp3&audioCodec=libmp3lame&audioBitrate=320&audioSamples=44100&url=http%3A%2F%2F127.0.0.1%3A32400%2Flibrary%2Fparts%2F71116%2Ffile.mp3
 
@@ -2560,7 +2560,8 @@ plex_parseTimeline($$$)
     }
     CommandAttr(undef, "$cname room plex");
     if( my $entry = plex_entryOfID($hash, 'client', $id ) ) {
-      CommandAttr(undef, "$cname alias ".$entry->{product});
+      CommandAttr(undef, "$cname alias ".$entry->{name});
+      #CommandAttr(undef, "$cname alias ".$entry->{product});
     }
 
     $chash = $modules{plex}{defptr}{$id};
@@ -4051,7 +4052,7 @@ Log 1, "!!!!!!!!!!";
           $len = unpack( 'n', substr($hash->{buf},$i,2) );
           $i += 2;
         } elsif( $len == 127 ) {
-          $len = unpack( 'q', substr($hash->{buf},$i,8) );
+          $len = unpack( 'N', substr($hash->{buf},$i+4,8) );
           $i += 8;
         }
         if( $mask ) {

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_dummy.pm 16965 2018-07-09 07:59:58Z rudolfkoenig $
+# $Id: 98_dummy.pm 19197 2019-04-16 05:38:59Z rudolfkoenig $
 package main;
 
 use strict;
@@ -13,9 +13,17 @@ dummy_Initialize($)
 
   $hash->{SetFn}     = "dummy_Set";
   $hash->{DefFn}     = "dummy_Define";
-  $hash->{AttrList}  = "readingList setList useSetExtensions " .
-                       "disable disabledForIntervals ".
-                       $readingFnAttributes;
+  no warnings 'qw';
+  my @attrList = qw(
+    disable
+    disabledForIntervals
+    readingList
+    setExtensionsEvent:1,0
+    setList
+    useSetExtensions
+  );
+  use warnings 'qw';
+  $hash->{AttrList} = join(" ", @attrList)." $readingFnAttributes";
 }
 
 ###################################
@@ -48,7 +56,7 @@ dummy_Set($@)
   my @rl = split(" ", AttrVal($name, "readingList", ""));
   my $doRet;
   eval {
-    if(@rl && grep /\b$a[0]\b/, @rl) {
+    if(@rl && grep /^$a[0]$/, @rl) {
       my $v = shift @a;
       readingsSingleUpdate($hash, $v, join(" ",@a), 1);
       $doRet = 1;
@@ -60,6 +68,9 @@ dummy_Set($@)
   my $v = join(" ", @a);
   Log3 $name, 4, "dummy set $name $v";
 
+  $v = $hash->{SetExtensionsCommand}
+        if($hash->{SetExtensionsCommand} &&
+           AttrVal($name, "setExtensionsEvent", undef));
   readingsSingleUpdate($hash,"state",$v,1);
   return undef;
 }
@@ -135,6 +146,10 @@ dummy_Define($$)
       In this case no arbitrary set commands are accepted, only the setList and
       the set exensions commands.</li>
 
+    <li><a name="setExtensionsEvent">setExtensionsEvent</a><br>
+      If set, the event will contain the command implemented by SetExtensions
+      (e.g. on-for-timer 10), else the executed command (e.g. on).</li>
+
     <li><a href="#readingFnAttributes">readingFnAttributes</a></li>
   </ul>
   <br>
@@ -197,6 +212,11 @@ dummy_Define($$)
       href="#setExtensions">set extensions</a> Befehle sind auch aktiv.  In
       diesem Fall werden nur die Befehle aus setList und die set exensions
       akzeptiert.</li>
+
+    <li><a name="setExtensionsEvent">setExtensionsEvent</a><br>
+      Falls gesetzt, enth&auml;lt das Event den im SetExtensions
+      implementierten Befehl (z.Bsp. on-for-timer 10), sonst den
+      Ausgef&uuml;rten (z.Bsp. on).</li>
 
     <li><a href="#readingFnAttributes">readingFnAttributes</a></li>
   </ul>

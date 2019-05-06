@@ -1,4 +1,4 @@
-# $Id: 52_I2C_BME280.pm 17863 2018-11-27 23:28:39Z klausw $
+# $Id: 52_I2C_BME280.pm 18271 2019-01-15 19:39:40Z klausw $
 =head1
 	52_I2C_BME280.pm
 
@@ -556,7 +556,8 @@ sub I2C_BME280_DbLog_splitFn($) {  			# Einheiten
 			Default: 1, valid values: 0, 1, 2<br><br>
 		</li>
 		<li>altitude<br>
-			if set, this altitude is used for calculating the pressure related to sea level (nautic null) NN<br><br>
+			if set, this altitude is used for calculating the pressure related to sea level
+			(metres above mean sea level) <abbr>MAMSL</abbr><br><br>
 			Note: this is a global attributes, e.g<br> 
 			<code>attr global altitude 220</code>
 		</li>
@@ -621,8 +622,8 @@ sub I2C_BME280_DbLog_splitFn($) {  			# Einheiten
 			Standard: 1, g&uuml;ltige Werte: 0, 1, 2<br><br>
 		</li>
 		<li>altitude<br>
-			Wenn dieser Wert definiert ist, wird diese Angabe zus&auml; f&uuml;r die Berechnung des 
-			Luftdrucks bezogen auf Meeresh&ouml;he (Normalnull) NN herangezogen.<br>
+			Wenn dieser Wert definiert ist, wird diese Angabe zus&auml;tzlich f&uuml;r die Berechnung des
+			Luftdrucks bezogen auf Meeresh&ouml;he (Normalhöhennull) <abbr>NHN</abbr> herangezogen.<br>
 			Bemerkung: Dies ist ein globales Attribut.<br><br>
 			<code>attr global altitude 220</code>
 		</li>

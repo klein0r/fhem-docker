@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: 74_THINKINGCLEANER.pm 14167 2017-05-02 14:12:13Z loredo $
+# $Id: 74_THINKINGCLEANER.pm 18995 2019-03-22 20:09:53Z loredo $
 package main;
 
 use strict;
@@ -8,6 +8,7 @@ use vars qw(%data);
 use HttpUtils;
 use Encode;
 use Data::Dumper;
+use FHEM::Meta;
 
 # initialize ##################################################################
 sub THINKINGCLEANER_Initialize($) {
@@ -56,6 +57,8 @@ sub THINKINGCLEANER_Initialize($) {
             },
         },
     };
+
+    return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 # regular Fn ##################################################################
@@ -82,6 +85,9 @@ sub THINKINGCLEANER_Define($$$) {
     }
 
     $hash->{TYPE} = "THINKINGCLEANER";
+
+    # Initialize the device
+    return $@ unless ( FHEM::Meta::SetInternals($hash) );
 
     my $address = @$a[2];
     $hash->{DeviceName} = $address;
@@ -1852,5 +1858,26 @@ sub THINKINGCLEANER_sec2time($) {
 </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 74_THINKINGCLEANER.pm
+{
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ],
+  "keywords": [
+    "hoover",
+    "iRobot",
+    "Robot",
+    "Roomba",
+    "vacuum"
+  ]
+}
+=end :application/json;q=META.json
 
 =cut

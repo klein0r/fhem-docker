@@ -2,7 +2,7 @@
 #
 # Developed with Kate
 #
-#  (c) 2017-2018 Copyright: Marko Oldenburg (leongaultier at gmail dot com)
+#  (c) 2017-2019 Copyright: Marko Oldenburg (leongaultier at gmail dot com)
 #  All rights reserved
 #
 #   Special thanks goes to:
@@ -26,7 +26,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 42_AptToDate.pm 18012 2018-12-20 10:53:59Z CoolTux $
+# $Id: 42_AptToDate.pm 19035 2019-03-26 09:21:20Z CoolTux $
 #
 ###############################################################################
 
@@ -34,19 +34,20 @@ package main;
 
 use strict;
 use warnings;
+use FHEM::Meta;
 
-my $version = "1.4.2";
+my $version = "1.4.4";
 
 sub AptToDate_Initialize($) {
 
     my ($hash) = @_;
 
-    $hash->{SetFn}    = "AptToDate::Set";
-    $hash->{GetFn}    = "AptToDate::Get";
-    $hash->{DefFn}    = "AptToDate::Define";
-    $hash->{NotifyFn} = "AptToDate::Notify";
-    $hash->{UndefFn}  = "AptToDate::Undef";
-    $hash->{AttrFn}   = "AptToDate::Attr";
+    $hash->{SetFn}    = "FHEM::AptToDate::Set";
+    $hash->{GetFn}    = "FHEM::AptToDate::Get";
+    $hash->{DefFn}    = "FHEM::AptToDate::Define";
+    $hash->{NotifyFn} = "FHEM::AptToDate::Notify";
+    $hash->{UndefFn}  = "FHEM::AptToDate::Undef";
+    $hash->{AttrFn}   = "FHEM::AptToDate::Attr";
     $hash->{AttrList} =
         "disable:1 "
       . "disabledForIntervals "
@@ -58,14 +59,17 @@ sub AptToDate_Initialize($) {
         my $hash = $modules{AptToDate}{defptr}{$d};
         $hash->{VERSION} = $version;
     }
+    
+    return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 ## unserer packagename
-package AptToDate;
+package FHEM::AptToDate;
 
 use strict;
 use warnings;
 use POSIX;
+use FHEM::Meta;
 
 use GPUtils qw(GP_Import)
   ;    # wird für den Import der FHEM Funktionen aus der fhem.pl benötigt
@@ -117,6 +121,7 @@ sub Define($$) {
     my ( $hash, $def ) = @_;
     my @a = split( "[ \t][ \t]*", $def );
 
+    return $@ unless ( FHEM::Meta::SetInternals($hash) );
     return "too few parameters: define <name> AptToDate <HOST>" if ( @a != 3 );
     return
       "Cannot define AptToDate device. Perl modul ${missingModul}is missing."
@@ -401,7 +406,7 @@ sub ProcessUpdateTimer($) {
     RemoveInternalTimer($hash);
     InternalTimer(
         gettimeofday() + 14400,
-        "AptToDate::ProcessUpdateTimer",
+        "FHEM::AptToDate::ProcessUpdateTimer",
         $hash, 0
     );
     Log3 $name, 4, "AptToDate ($name) - stateRequestTimer: Call Request Timer";
@@ -490,7 +495,7 @@ sub AsynchronousExecuteAptGetCommand($) {
     $hash->{".fhem"}{subprocess} = $subprocess;
 
     InternalTimer( gettimeofday() + POLLINTERVAL,
-        "AptToDate::PollChild", $hash, 0 );
+        "FHEM::AptToDate::PollChild", $hash, 0 );
     Log3 $hash, 4, "AptToDate ($name) - control passed back to main loop.";
 }
 
@@ -499,24 +504,27 @@ sub PollChild($) {
     my $hash = shift;
 
     my $name       = $hash->{NAME};
-    my $subprocess = $hash->{".fhem"}{subprocess};
-    my $json       = $subprocess->readFromChild();
+    
+    if ( defined($hash->{".fhem"}{subprocess}) ) {
+        my $subprocess = $hash->{".fhem"}{subprocess};
+        my $json       = $subprocess->readFromChild();
 
-    if ( !defined($json) ) {
-        Log3 $name, 5, "AptToDate ($name) - still waiting ("
-          . $subprocess->{lasterror} . ").";
-        InternalTimer( gettimeofday() + POLLINTERVAL,
-            "AptToDate::PollChild", $hash, 0 );
-        return;
-    }
-    else {
-        Log3 $name, 4,
-          "AptToDate ($name) - got result from asynchronous parsing.";
-        $subprocess->wait();
-        Log3 $name, 4, "AptToDate ($name) - asynchronous finished.";
+        if ( !defined($json) ) {
+            Log3 $name, 5, "AptToDate ($name) - still waiting ("
+            . $subprocess->{lasterror} . ").";
+            InternalTimer( gettimeofday() + POLLINTERVAL,
+                "FHEM::AptToDate::PollChild", $hash, 0 );
+            return;
+        }
+        else {
+            Log3 $name, 4,
+            "AptToDate ($name) - got result from asynchronous parsing.";
+            $subprocess->wait();
+            Log3 $name, 4, "AptToDate ($name) - asynchronous finished.";
 
-        CleanSubprocess($hash);
-        PreProcessing( $hash, $json );
+            CleanSubprocess($hash);
+            PreProcessing( $hash, $json );
+        }
     }
 }
 
@@ -843,9 +851,16 @@ sub WriteReadings($$) {
     readingsBulkUpdateIfChanged( $hash, 'updatesAvailable',
         scalar keys %{ $decode_json->{packages} } )
       if ( $hash->{".fhem"}{aptget}{cmd} eq 'getUpdateList' );
-    readingsBulkUpdateIfChanged( $hash, 'upgradeListAsJSON',
-        eval { encode_json( $hash->{".fhem"}{aptget}{packages} ) } )
-      if ( AttrVal( $name, 'upgradeListReading', 'none' ) ne 'none' );
+      
+    if ( scalar keys%{ $hash->{".fhem"}{aptget}{packages} } > 0 ) {
+        readingsBulkUpdateIfChanged( $hash, 'upgradeListAsJSON',
+            eval { encode_json( $hash->{".fhem"}{aptget}{packages} ) } )
+        if ( AttrVal( $name, 'upgradeListReading', 'none' ) ne 'none' );
+    }
+    else { readingsBulkUpdateIfChanged( $hash, 'upgradeListAsJSON', '' )
+        if ( AttrVal( $name, 'upgradeListReading', 'none' ) ne 'none' );
+    }
+    
     readingsBulkUpdate( $hash, 'toUpgrade', 'successful' )
       if (  $hash->{".fhem"}{aptget}{cmd} eq 'toUpgrade'
         and not defined( $hash->{".fhem"}{aptget}{'errors'} )
@@ -1157,5 +1172,51 @@ sub ToDay() {
 </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 42_AptToDate.pm
+{
+  "abstract": "Modul to retrieves apt information about Debian update state",
+  "x_lang": {
+    "de": {
+      "abstract": "Modul um apt Updateinformationen von Debian Systemen zu bekommen"
+    }
+  },
+  "keywords": [
+    "fhem-mod-device",
+    "fhem-core",
+    "Debian",
+    "apt",
+    "apt-get",
+    "dpkg",
+    "Package"
+  ],
+  "release_status": "stable",
+  "license": "GPL_2",
+  "author": [
+    "Marko Oldenburg <leongaultier@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "CoolTux"
+  ],
+  "x_fhem_maintainer_github": [
+    "LeonGaultier"
+  ],
+  "prereqs": {
+    "runtime": {
+      "requires": {
+        "FHEM": 5.00918799,
+        "perl": 5.016, 
+        "Meta": 0,
+        "SubProcess": 0,
+        "JSON": 0
+      },
+      "recommends": {
+      },
+      "suggests": {
+      }
+    }
+  }
+}
+=end :application/json;q=META.json
 
 =cut

@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: HOMESTATEtk.pm 14339 2017-05-21 15:31:50Z loredo $
+# $Id: HOMESTATEtk.pm 19016 2019-03-24 13:23:26Z loredo $
 package main;
 use strict;
 use warnings;
@@ -1312,3 +1312,25 @@ sub HOMESTATEtk_UpdateReadings (@) {
 
 1;
 
+
+=pod
+=encoding utf8
+
+=for :application/json;q=META.json HOMESTATEtk.pm
+{
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ],
+  "keywords": [
+    "RESIDENTS"
+  ]
+}
+=end :application/json;q=META.json
+
+=cut

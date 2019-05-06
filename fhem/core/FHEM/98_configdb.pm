@@ -1,4 +1,4 @@
-# $Id: 98_configdb.pm 16477 2018-03-24 17:58:10Z betateilchen $
+# $Id: 98_configdb.pm 18754 2019-02-27 21:26:16Z betateilchen $
 #
 
 package main;
@@ -65,6 +65,10 @@ sub CommandConfigdb($$) {
 
 		when ('diff') {
 			return "\n Syntax: configdb diff <device> <version>" if @a != 3;
+#			return "Invalid paramaeter '$param1' for diff. Must be a number."
+#				unless looks_like_number($param1);
+			return "Invalid paramaeter '$param2' for diff. Must be a number."
+				unless (looks_like_number($param2) || $param2 eq 'current');
 			Log3('configdb', 4, "configdb: diff requested for device: $param1 in version $param2.");
 			$ret = _cfgDB_Diff($param1, $param2);
 		}
@@ -161,12 +165,12 @@ sub CommandConfigdb($$) {
 
 		when ('info') {
 			Log3('configdb', 4, "info requested.");
-			$ret = _cfgDB_Info('$Id: 98_configdb.pm 16477 2018-03-24 17:58:10Z betateilchen $');
+			$ret = _cfgDB_Info('$Id: 98_configdb.pm 18754 2019-02-27 21:26:16Z betateilchen $');
 		}
 
 		when ('list') {
 			$param1 = $param1 ? $param1 : '%';
-			$param2 = $param2 ? $param2 : 0;
+			$param2 = looks_like_number($param2) ? $param2 : 0;
 			$ret = "list not allowed for configDB itself.";
 			break if($param1 =~ m/configdb/i);
 			Log3('configdb', 4, "configdb: list requested for device: $param1 in version $param2.");
@@ -181,23 +185,26 @@ sub CommandConfigdb($$) {
 
 		when ('recover') {
 			return "\n Syntax: configdb recover <version>" if @a != 2;
+			return "Invalid paramaeter '$param1' for recover. Must be a number."
+				unless looks_like_number($param1);
 			Log3('configdb', 4, "configdb: recover for version $param1 requested.");
 			$ret = _cfgDB_Recover($param1);
 		}
 
 		when ('reorg') {
-#			$param1 = $param1 ? $param1 : 3;
-			$param1 //= 3;
+			$param1 = 3 unless $param1;
+			return "Invalid paramaeter '$param1' for reorg. Must be a number."
+				unless looks_like_number($param1);
 			Log3('configdb', 4, "configdb: reorg requested with keep: $param1.");
-			$ret = _cfgDB_Reorg($a[1]);
+			$ret = _cfgDB_Reorg($param1);
 		}
 
 		when ('search') {
 			return "\n Syntax: configdb search <searchTerm> [searchVersion]" if @a < 2;
 			$param1 = $param1 ? $param1 : '%';
-			$param2 = $param2 ? $param2 : 0;
+			$param2 = looks_like_number($param2) ? $param2 : 0;
 			Log3('configdb', 4, "configdb: list requested for device: $param1 in version $param2.");
-			$ret = _cfgDB_Search($param1,$param2);
+			$ret = _cfgDB_Search($param1,$param2,0);
 		}
 
 		when ('uuid') {

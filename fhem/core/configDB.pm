@@ -1,4 +1,4 @@
-# $Id: configDB.pm 17297 2018-09-08 11:01:04Z betateilchen $
+# $Id: configDB.pm 19056 2019-03-28 16:34:59Z betateilchen $
 
 =for comment
 
@@ -142,6 +142,11 @@
 #
 # 2018-09-08 - change    remove base64 migration functions
 #
+# 2019-01-17 - added     support for device specific uuid (setuuid)
+# 2019-01-18 - changed   use GetDefAndAttr()
+#
+# 2019-02-16 - changed   default field length for table creation
+#
 ##############################################################################
 =cut
 
@@ -156,6 +161,7 @@ use MIME::Base64;
 # Forward declarations for functions in fhem.pl
 #
 sub AnalyzeCommandChain($$;$);
+sub GetDefAndAttr($;$);
 sub Log($$);
 sub Log3($$$);
 sub createUniqueId();
@@ -202,19 +208,27 @@ sub _cfgDB_dump($);
 # Read configuration file for DB connection
 #
 
-if(!open(CONFIG, 'configDB.conf')) {
-	Log3('configDB', 1, 'Cannot open database configuration file configDB.conf');
-	return 0;
-}
+
+my ($err,@c) = FileRead({FileName  => 'configDB.conf', 
+                           ForceType => "file"}); 
+return 0 if ($err);
 
 my @config;
-while (<CONFIG>){
-   my $line = $_;
+
+foreach my $line (@c) {
    $line =~ s/^\s+|\s+$//g; # remove whitespaces etc.
    $line =~ s/;$/;;/;       # duplicate ; at end-of-line
    push (@config,$line) if($line !~ m/^#/ && length($line) > 0);
 }
-close CONFIG;
+
+
+#while (<CONFIG>){
+#   my $line = $_;
+#   $line =~ s/^\s+|\s+$//g; # remove whitespaces etc.
+#   $line =~ s/;$/;;/;       # duplicate ; at end-of-line
+#   push (@config,$line) if($line !~ m/^#/ && length($line) > 0);
+#}
+#close CONFIG;
 
 use vars qw(%configDB);
 
@@ -251,10 +265,12 @@ if($cfgDB_dbconn =~ m/pg:/i) {
    } elsif ($cfgDB_dbconn =~ m/sqlite:/i) {
       $cfgDB_dbtype = "SQLITE";
       (undef,$cfgDB_filename) = split(/=/,$cfgDB_dbconn);
+      $configDB{filename} = $cfgDB_filename;
    } else {
       $cfgDB_dbtype = "unknown";
 }
 
+$configDB{type}              = $cfgDB_dbtype;
 $configDB{attr}{nostate}     = defined($dbconfig{nostate})     ? $dbconfig{nostate}     : 0;
 $configDB{attr}{rescue}      = defined($dbconfig{rescue})      ? $dbconfig{rescue}      : 0;
 $configDB{attr}{loadversion} = defined($dbconfig{loadversion}) ? $dbconfig{loadversion} : 0;
@@ -281,7 +297,7 @@ sub cfgDB_Init() {
 	$fhem_dbh->do("CREATE TABLE IF NOT EXISTS fhemversions(VERSION INT, VERSIONUUID CHAR(50))");
 
 #	create TABLE fhemconfig if nonexistent
-	$fhem_dbh->do("CREATE TABLE IF NOT EXISTS fhemconfig(COMMAND VARCHAR(32), DEVICE VARCHAR(64), P1 VARCHAR(50), P2 TEXT, VERSION INT, VERSIONUUID CHAR(50))");
+	$fhem_dbh->do("CREATE TABLE IF NOT EXISTS fhemconfig(COMMAND VARCHAR(32), DEVICE VARCHAR(64), P1 VARCHAR(64), P2 TEXT, VERSION INT, VERSIONUUID CHAR(50))");
 	
 #	create INDEX on fhemconfig if nonexistent (only if SQLITE)
 	$fhem_dbh->do("CREATE INDEX IF NOT EXISTS config_idx on 'fhemconfig' (versionuuid,version)") 
@@ -303,7 +319,7 @@ sub cfgDB_Init() {
 		_cfgDB_InsertLine($fhem_dbh, $uuid, 'define telnetPort telnet 7072 global',6);
 		_cfgDB_InsertLine($fhem_dbh, $uuid, 'define web FHEMWEB 8083 global',7);
 		_cfgDB_InsertLine($fhem_dbh, $uuid, 'attr web allowfrom .*',8);
-		_cfgDB_InsertLine($fhem_dbh, $uuid, 'define Logfile FileLog %L/fhem-%Y-%m-%d.log fakelog',9);
+		_cfgDB_InsertLine($fhem_dbh, $uuid, 'define Logfile FileLog %L/fhem-%Y-%m-%d.log FakeLog',9);
 	}
 
 #	create TABLE fhemstate if nonexistent
@@ -452,27 +468,7 @@ sub cfgDB_SaveCfg(;$) {
 			next;
 		}
 
-		if($d ne "global") {
-			my $def = $defs{$d}{DEF};
-			if(defined($def)) {
-				$def =~ s/;/;;/g;
-				$def =~ s/\n/\\\n/g;
-			} else {
-				$def = "";
-			}
-			push @rowList, "define $d $defs{$d}{TYPE} $def";
-		}
-
-		foreach my $a (sort {
-			return -1 if($a eq "userattr"); # userattr must be first
-			return  1 if($b eq "userattr");
-			return $a cmp $b;
-			} keys %{$attr{$d}}) {
-			next if (grep { $_ eq "$d:$a" } @dontSave);
-			my $val = $attr{$d}{$a};
-			$val =~ s/;/;;/g;
-			push @rowList, "attr $d $a $val";
-		}
+		push (@rowList, GetDefAndAttr($d,1));
 
 	}
 
@@ -651,7 +647,7 @@ sub cfgDB_MigrationImport() {
 
 # return SVN Id, called by fhem's CommandVersion
 sub cfgDB_svnId() { 
-	return "# ".'$Id: configDB.pm 17297 2018-09-08 11:01:04Z betateilchen $' 
+	return "# ".'$Id: configDB.pm 19056 2019-03-28 16:34:59Z betateilchen $' 
 }
 
 # return filelist depending on directory and regexp
@@ -1024,12 +1020,13 @@ sub _cfgDB_Search($$;$) {
 	$sth = $fhem_dbh->prepare( $sql);
 	Log 5,"configDB: $sql";
 	$sth->execute();
-	$text = " device" if($dsearch);
+	$text = $dsearch ? " device" : "";
 	push @result, "search result for$text: $search in version: $searchversion";
 	push @result, "--------------------------------------------------------------------------------";
 	while (@line = $sth->fetchrow_array()) {
 		$row = "$line[0] $line[1] $line[2] $line[3]";
-		push @result, "$row";
+		Log 5,"configDB: $row";
+		push @result, "$row" unless ($line[0] eq 'setuuid');
 	}
 	$fhem_dbh->disconnect();
 	$ret = join("\n", @result);

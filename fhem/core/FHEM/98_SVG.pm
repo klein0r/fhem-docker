@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_SVG.pm 17779 2018-11-18 17:49:14Z rudolfkoenig $
+# $Id: 98_SVG.pm 18777 2019-03-03 13:16:05Z rudolfkoenig $
 package main;
 
 use strict;
@@ -149,7 +149,7 @@ SVG_AttrFn(@)
 {
   my ($cmd,$name,$aName,$aVal) = @_;
 
-  if($aName eq "captionLeft" && $cmd eq "set") {
+  if($aName && $aName eq "captionLeft" && $cmd eq "set") {
     my $dir = (!defined($aVal) || $aVal) ? "left" : "right";
     AnalyzeCommand(undef, "attr $name captionPos $dir");
     return "attr $name captionLeft converted to attr $name captionPos $dir";
@@ -179,8 +179,9 @@ sub
 SVG_getplotsize($)
 {
   my ($d) = @_;
-  return $FW_webArgs{plotsize} ? 
-                $FW_webArgs{plotsize} : AttrVal($d,"plotsize",$FW_plotsize);
+  return $FW_webArgs{plotsize} ?
+                $FW_webArgs{plotsize} :
+                AttrVal($d,"plotsize", $FW_plotsize ? $FW_plotsize : "800,400");
 }
 
 sub
@@ -1070,6 +1071,7 @@ SVG_doShowLog($$$$;$)
 {
   my ($wl, $d, $type, $file, $noHeader) = @_;
   my $pm = AttrVal($wl,"plotmode",$FW_plotmode);
+  $pm = "SVG" if(!defined($pm)); # if called from plotAsPng before FHEMWEB
   my $gplot_pgm = "$FW_gplotdir/$type.gplot";
 
   my ($err, $cfg, $plot, $srcDesc) = SVG_readgplotfile($wl, $gplot_pgm, $pm);
@@ -2692,7 +2694,7 @@ plotAsPng(@)
     <ul>
       <li>Normalerweise m&uuml;ssen SVG-Ger&auml;te nicht manuell erzeugt
         werden, da FHEMWEB es f&uuml;r den Nutzer einfach macht: man muss in
-        der Detailansicht eines FileLogs wechseln und auf "Create SVG instance"
+        die Detailansicht eines FileLogs wechseln und auf "Create SVG instance"
         klicken.</li>
 
       <li>CURRENT als &lt;logfile&gt; wird immer das aktuelle Logfile
@@ -2718,8 +2720,8 @@ plotAsPng(@)
       den Namen der SVG Instanz tr&auml;gt; bereits bestehende Dateien mit
       gleichem Namen werden &uuml;berschrieben. Diese Vorgehensweise ist
       notwendig, wenn man den Ploteditor benutzt. Erzeugt man aus der
-      Detailansicht des FileLogs die SVG Instanz, wird eine eindeutige
-      .gplot-Datei erzeugt. In diesem Fall ist dieses Befehl nicht
+      Detailansicht eines FileLogs die SVG Instanz, wird eine eindeutige
+      .gplot-Datei erzeugt. In diesem Fall ist dieser Befehl nicht
       erforderlich.</li>
 
   </ul><br>

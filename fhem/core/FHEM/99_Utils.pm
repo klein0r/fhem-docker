@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 99_Utils.pm 15713 2017-12-28 11:01:02Z rudolfkoenig $
+# $Id: 99_Utils.pm 18920 2019-03-16 09:58:52Z rudolfkoenig $
 package main;
 
 use strict;
@@ -244,6 +244,27 @@ round($$)
   return sprintf("%.${n}f",$v);
 }
 
+sub
+sortTopicNum(@)
+{
+  my ($sseq,@nums) = @_;
+
+  my @sorted = map {$_->[0]}
+               sort {$a->[1] cmp $b->[1]}
+               map {[$_, pack "C*", split /\./]} @nums;
+
+  @sorted = map {join ".", unpack "C*", $_}
+            sort
+            map {pack "C*", split /\./} @nums;
+
+  if($sseq eq "desc") {
+      @sorted = reverse @sorted;
+  }
+
+  return @sorted;
+}
+
+
 1;
 
 =pod
@@ -330,6 +351,11 @@ round($$)
       return ($error, $value), stored previously by setKeyValue.
       $error is set if there was an error.  Both are undef, if there is no
       value yet for this key.
+      </li></br>
+
+    <li><b>sortTopicNum("asc"|"desc",&lt;list of numbers&gt;)</b><br>
+      sort an array of numbers like x.x.x<br>
+      (Forum #98578)
       </li></br>
 
   </ul>

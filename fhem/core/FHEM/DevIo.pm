@@ -1,5 +1,5 @@
 ##############################################
-# $Id: DevIo.pm 17994 2018-12-17 14:32:10Z rudolfkoenig $
+# $Id: DevIo.pm 18985 2019-03-21 19:00:25Z rudolfkoenig $
 package main;
 
 sub DevIo_CloseDev($@);
@@ -264,7 +264,7 @@ DevIo_OpenDev($$$;$)
       }
     }
 
-    DoTrigger($name, "CONNECTED") if($reopen && !$ret);
+    DoTrigger($name, "CONNECTED") if(!$ret);
     return undef;
   };
   
@@ -283,7 +283,8 @@ DevIo_OpenDev($$$;$)
 
   $hash->{PARTIAL} = "";
   Log3 $name, 3, ($hash->{DevioText} ? $hash->{DevioText} : "Opening").
-       " $name device $dev" if(!$reopen);
+       " $name device ". (AttrVal($name,"privacy",0) ? "(private)" : $dev)
+       if(!$reopen);
 
   if($dev =~ m/^UNIX:(SEQPACKET|STREAM):(.*)$/) { # FBAHA
     my ($type, $fname) = ($1, $2);
@@ -352,6 +353,7 @@ DevIo_OpenDev($$$;$)
         Log3 $name, 1, "$name: Can't connect to $dev: $!" if(!$reopen && $!);
         $readyfnlist{"$name.$dev"} = $hash;
         DevIo_setStates($hash, "disconnected");
+        DoTrigger($name, "DISCONNECTED") if(!$reopen);
         $hash->{NEXT_OPEN} = time() + $nextOpenDelay;
         return 0;
       }

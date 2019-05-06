@@ -27,7 +27,7 @@
 #
 #  Homepage:  http://fhem.de
 #
-# $Id: fhem.pl 18111 2019-01-01 14:41:21Z rudolfkoenig $
+# $Id: fhem.pl 19328 2019-05-04 19:13:22Z rudolfkoenig $
 
 
 use strict;
@@ -65,6 +65,7 @@ sub FileRead($);
 sub FileWrite($@);
 sub FmtDateTime($);
 sub FmtTime($);
+sub GetDefAndAttr($;$);
 sub GetLogLevel(@);
 sub GetTimeSpec($);
 sub GetType($;$);
@@ -80,6 +81,7 @@ sub IsDisabled($);
 sub IsDummy($);
 sub IsIgnored($);
 sub IsIoDummy($);
+sub IsWe(;$$);
 sub LoadModule($;$);
 sub Log($$);
 sub Log3($$$);
@@ -109,6 +111,7 @@ sub WriteStatefile();
 sub XmlEscape($);
 sub addEvent($$);
 sub addToDevAttrList($$);
+sub applyGlobalAttrFromEnv();
 sub delFromDevAttrList($$);
 sub addToAttrList($);
 sub delFromAttrList($);
@@ -119,7 +122,7 @@ sub concatc($$$);
 sub configDBUsed();
 sub createNtfyHash();
 sub createUniqueId();
-sub devspec2array($;$);
+sub devspec2array($;$$);
 sub doGlobalDef($);
 sub escapeLogLine($);
 sub evalStateFormat($);
@@ -180,7 +183,8 @@ sub CommandSave($$);
 sub CommandSet($$);
 sub CommandSetReading($$);
 sub CommandSetstate($$);
-sub CommandShutdown($$);
+sub CommandSetuuid($$);
+sub CommandShutdown($$;$$);
 sub CommandSleep($$);
 sub CommandTrigger($$);
 
@@ -209,9 +213,10 @@ sub cfgDB_WriteFile($@);
 # ParseFn  - Interpret a raw message
 # ReadFn   - Reading from a Device (see FHZ/WS300)
 # ReadyFn  - check for available data, if no FD
-# RenameFn - inform the device about its renameing
+# RenameFn - inform the device about its renaming
 # SetFn    - set/activate this device
-# ShutdownFn-called before shutdown
+# DelayedShutdownFn - used to delay shutdown for some seconds
+# ShutdownFn-called before shutdown, if DelayedShutdownFn is "over"
 # StateFn  - set local info for this device, do not activate anything
 # UndefFn  - clean up (delete timer, close fd), called by delete and rereadcfg
 
@@ -227,21 +232,25 @@ sub cfgDB_WriteFile($@);
 # VOLATILE- Set if the definition should be saved to the "statefile"
 # NOTIFYDEV - if set, the notifyFn will only be called for this device
 
+use vars qw($addTimerStacktrace);# set to 1 by fhemdebug
 use vars qw($auth_refresh);
 use vars qw($cmdFromAnalyze);   # used by the warnings-sub
-use vars qw($lastWarningMsg);   # set by the warnings-sub
 use vars qw($cvsid);            # used in 98_version.pm
 use vars qw($devcount);         # Maximum device number, used for storing
 use vars qw($featurelevel); 
+use vars qw($fhemForked);       # 1 in a fhemFork()'ed process, else undef
 use vars qw($fhem_started);     # used for uptime calculation
+use vars qw($haveInet6);        # Using INET6
 use vars qw($init_done);        #
 use vars qw($internal_data);    # FileLog/DbLog -> SVG data transport
 use vars qw($lastDefChange);    # number of last def/attr change
+use vars qw($lastWarningMsg);   # set by the warnings-sub
 use vars qw($nextat);           # Time when next timer will be triggered.
 use vars qw($readytimeout);     # Polling interval. UNIX: device search only
 use vars qw($reread_active);
 use vars qw($selectTimestamp);  # used to check last select exit timestamp
 use vars qw($winService);       # the Windows Service object
+
 use vars qw(%attr);             # Attributes
 use vars qw(%cmds);             # Global command name hash.
 use vars qw(%data);             # Hash for user data
@@ -249,24 +258,28 @@ use vars qw(%defaultattr);      # Default attributes, used by FHEM2FHEM
 use vars qw(%defs);             # FHEM device/button definitions
 use vars qw(%inform);           # Used by telnet_ActivateInform
 use vars qw(%intAt);            # Internal timer hash, used by apptime
-use vars qw(@intAtA);           # Internal timer array
 use vars qw(%logInform);        # Used by FHEMWEB/Event-Monitor
 use vars qw(%modules);          # List of loaded modules (device/log/etc)
 use vars qw(%ntfyHash);         # hash of devices needed to be notified.
 use vars qw(%oldvalue);         # Old values, see commandref.html
+use vars qw(%prioQueues);       #
 use vars qw(%readyfnlist);      # devices which want a "readyfn"
 use vars qw(%selectlist);       # devices which want a "select"
 use vars qw(%value);            # Current values, see commandref.html
+
 use vars qw(@authenticate);     # List of authentication devices
 use vars qw(@authorize);        # List of authorization devices
+use vars qw(@intAtA);           # Internal timer array
 use vars qw(@structChangeHist); # Contains the last 10 structural changes
-use vars qw($haveInet6);        # Using INET6
-use vars qw(%prioQueues);       #
-use vars qw($fhemForked);       # 1 in a fhemFork()'ed process, else undef
-use vars qw($addTimerStacktrace);# set to 1 by fhemdebug
+
+use constant {
+  DAYSECONDS    => 86400,
+  HOURSECONDS   =>  3600,
+  MINUTESECONDS =>    60
+};
 
 $selectTimestamp = gettimeofday();
-$cvsid = '$Id: fhem.pl 18111 2019-01-01 14:41:21Z rudolfkoenig $';
+$cvsid = '$Id: fhem.pl 19328 2019-05-04 19:13:22Z rudolfkoenig $';
 
 my $AttrList = "alias comment:textField-long eventMap:textField-long ".
                "group room suppressReading userReadings:textField-long ".
@@ -287,6 +300,8 @@ my %comments;                   # Comments from the include files
 my %duplicate;                  # Pool of received msg for multi-fhz/cul setups
 my @cmdList;                    # Remaining commands in a chain. Used by sleep
 my %sleepers;                   # list of sleepers
+my %delayedShutdowns;           # definitions needing delayed shutdown
+my %fuuidHash;                  # for duplicate checking
 
 $init_done = 0;
 $lastDefChange = 0;
@@ -313,11 +328,12 @@ my @globalAttrList = qw(
   blockingCallMax
   commandref:modular,full
   configfile
+  disableFeatures:multiple,attrTemplate
   dnsHostsFile
   dnsServer
   dupTimeout
   exclude_from_update
-  featurelevel:5.5,5.6,5.7,5.8,5.9,99.99
+  featurelevel:5.9,5.8,5.7,5.6,5.5,99.99
   genericDisplayType:switch,outlet,light,blind,speaker,thermostat
   holiday2we
   httpcompress:0,1
@@ -328,6 +344,8 @@ my @globalAttrList = qw(
   logdir
   logfile
   longitude
+  maxChangeLog
+  maxShutdownDelay
   modpath
   motd
   mseclog:1,0
@@ -432,6 +450,7 @@ my %ra = (
             Hlp=>"<devspec> <reading> <value>,set reading for <devspec>" },
   "setstate"=> { Fn=>"CommandSetstate",
             Hlp=>"<devspec> <state>,set the state shown in the command list" },
+  "setuuid" => { Fn=>"CommandSetuuid", Hlp=>"" },
   "setdefaultattr" => { Fn=>"CommandDefaultAttr",
             Hlp=>"<attrname> <attrvalue>,set attr for following definitions" },
   "shutdown"=> { Fn=>"CommandShutdown",
@@ -544,7 +563,9 @@ if(configDBUsed()) {
 # As newer Linux versions reset serial parameters after fork, we parse the
 # config file after the fork. But we need some global attr parameters before, so we
 # read them here.
+my (undef, $globalAttrFromEnv) = parseParams($ENV{FHEM_GLOBALATTR});
 setGlobalAttrBeforeFork($attr{global}{configfile});
+applyGlobalAttrFromEnv();
 
 Log 1, $_ for eval{@{$winService->{ServiceLog}};};
 
@@ -591,6 +612,7 @@ if(configDBUsed()) {
     }
   }
 }
+applyGlobalAttrFromEnv();
 
 my $pfn = $attr{global}{pidfilename};
 if($pfn) {
@@ -1089,17 +1111,10 @@ AnalyzePerlCommand($$;$)
   }
   my ($sec,$min,$hour,$mday,$month,$year,$wday,$yday,$isdst) = 
         localtime(gettimeofday());
-  my $hms = sprintf("%02d:%02d:%02d", $hour, $min, $sec);
-  my $we = (($wday==0 || $wday==6) ? 1 : 0);
-  if(!$we) {
-    foreach my $h2we (split(",", AttrVal("global", "holiday2we", ""))) {
-      my ($a, $b) = ReplaceEventMap($h2we, [$h2we, Value($h2we)], 0);
-      $we = 1 if($b && $b ne "none");
-    }
-  }
-  $month++;
-  $year+=1900;
+  $month++; $year+=1900;
   my $today = sprintf('%04d-%02d-%02d', $year,$month,$mday);
+  my $hms = sprintf("%02d:%02d:%02d", $hour, $min, $sec);
+  my $we = IsWe(undef, $wday);
 
   if($evalSpecials) {
     $cmd = join("", map { my $n = substr($_,1); # ignore the %
@@ -1222,9 +1237,9 @@ AnalyzeCommand($$;$)
 }
 
 sub
-devspec2array($;$)
+devspec2array($;$$)
 {
-  my ($name, $cl) = @_;
+  my ($name, $cl, $initialList) = @_;
 
   return "" if(!defined($name));
   if(defined($defs{$name})) {
@@ -1246,7 +1261,7 @@ devspec2array($;$)
       next;
     }
 
-    my @names = sort keys %defs;
+    my @names = $initialList ? @{$initialList} : sort keys %defs;
     my @res;
     foreach my $dName (split(":FILTER=", $l)) {
       my ($n,$op,$re) = ("NAME","=",$dName);
@@ -1451,6 +1466,9 @@ CommandRereadCfg($$)
   %readyfnlist = ();
   my $informMe = $inform{$name};
   %inform = ();
+  %fuuidHash = ();
+  %intAt = ();
+  @intAtA = ();
 
   doGlobalDef($cfgfile);
   my $ret;
@@ -1467,6 +1485,7 @@ CommandRereadCfg($$)
       $ret = (defined($ret) ? "$ret\n$ret2" : $ret2) if(defined($ret2));
     }
   }
+  applyGlobalAttrFromEnv();
 
   $defs{$name} = $selectlist{$name} = $cl if($name && $name ne "__anonymous__");
   $inform{$name} = $informMe if($informMe);
@@ -1577,9 +1596,23 @@ WriteStatefile()
 }
 
 sub
-GetDefAndAttr($)
+CommandSetuuid($$)
 {
-  my ($d) = @_;
+  my ($cl, $param) = @_;
+  return "setuuid cannot be used after FHEM is initialized" if($init_done);
+  my @a = split(" ", $param);
+  return "Please define $param first" if(!defined($defs{$a[0]}));
+  return "setuuid $a[0]: duplicate value, ignoring it" if($fuuidHash{$a[1]});
+  $fuuidHash{$a[1]} = $a[1];
+  $defs{$a[0]}{FUUID} = $a[1];
+  return undef;
+}
+
+
+sub
+GetDefAndAttr($;$)
+{
+  my ($d, $dumpFUUID) = @_;
   my @ret;
 
   if($d ne "global") {
@@ -1593,13 +1626,18 @@ GetDefAndAttr($)
     }
   }
 
+  push @ret, "setuuid $d $defs{$d}{FUUID}"
+        if($dumpFUUID && defined($defs{$d}{FUUID}) && $defs{$d}{FUUID});
+
+# exclude attributes, format <deviceName>:<attrName>, space separated list
+  my @dontSave = qw(configdb:rescue configdb:nostate configdb:loadversion 
+                    global:configfile global:version);
   foreach my $a (sort {
                    return -1 if($a eq "userattr"); # userattr must be first
                    return  1 if($b eq "userattr");
                    return $a cmp $b;
                  } keys %{$attr{$d}}) {
-    next if($d eq "global" &&
-            ($a eq "configfile" || $a eq "version"));
+    next if (grep { $_ eq "$d:$a" } @dontSave);
     my $val = $attr{$d}{$a};
     $val =~ s/;/;;/g;
     $val =~ s/\n/\\\n/g;
@@ -1616,7 +1654,8 @@ CommandSave($$)
 
   if($param && $param eq "?") {
     return "No structural changes." if(!@structChangeHist);
-    return "Last 10 structural changes:\n  ".join("\n  ", @structChangeHist);
+    return "Last unsaved structural changes:\n  ".
+                join("\n  ", @structChangeHist);
   }
 
   if(!$cl && !AttrVal("global", "autosave", 1)) { # Forum #78769
@@ -1685,7 +1724,7 @@ CommandSave($$)
       next;
     }
 
-    my @arr = GetDefAndAttr($d);
+    my @arr = GetDefAndAttr($d, 1);
     print $fh join("\n", @arr)."\n" if(@arr);
 
   }
@@ -1703,9 +1742,45 @@ CommandSave($$)
 
 #####################################
 sub
-CommandShutdown($$)
+CancelDelayedShutdown($)
+{
+  my ($d) = @_;
+  delete($delayedShutdowns{$d});
+}
+
+sub
+DelayedShutdown($$)
 {
   my ($cl, $param) = @_;
+
+  return 1 if(keys %delayedShutdowns);
+  foreach my $d (sort keys %defs) {
+    $delayedShutdowns{$d} = 1 if(CallFn($d, "DelayedShutdownFn", $defs{$d}));
+  }
+  return 0 if(!keys %delayedShutdowns);
+  
+  my $waitingFor = 0;
+  my $maxShutdownDelay = AttrVal("global", "maxShutdownDelay", 10);
+  my $checkList;
+
+  Log 1, "Server shutdown delayed due to ".join(",", keys %delayedShutdowns).
+                " for max $maxShutdownDelay sec";
+  DoTrigger("global", "DELAYEDSHUTDOWN", 1);
+
+  $checkList = sub()
+  {
+     return CommandShutdown($cl, $param, undef, 1)
+             if(!keys %delayedShutdowns || $waitingFor++ >= $maxShutdownDelay);
+     InternalTimer(gettimeofday()+1, $checkList, undef, 0);
+  };
+  $checkList->();
+  return 1;
+}
+
+sub
+CommandShutdown($$;$$)
+{
+  my ($cl, $param, $cmdName, $final) = @_;
   my $exitValue = 0;
   if($param && $param =~ m/^(\d+)$/) {
     $exitValue = $1;
@@ -1713,6 +1788,7 @@ CommandShutdown($$)
   }
   return "Usage: shutdown [restart|exitvalue]"
         if($param && $param ne "restart");
+  return if(!$final && DelayedShutdown($cl, $param));
 
   DoTrigger("global", "SHUTDOWN", 1);
   Log 0, "Server shutdown";
@@ -1974,6 +2050,7 @@ CommandDefine($$)
   my %hash;
 
   $hash{NAME}  = $name;
+  $hash{FUUID} = genUUID();
   $hash{TYPE}  = $m;
   $hash{STATE} = "???";
   $hash{DEF}   = $a[2] if(int(@a) > 2);
@@ -2136,16 +2213,20 @@ CommandDelete($$)
       next;
     }
 
+    $defs{$sdev}->{CL} = $cl;
     my $ret = CallFn($sdev, "UndefFn", $defs{$sdev}, $sdev);
     if($ret) {
       push @rets, $ret;
+      delete $defs{$sdev}->{CL};
       next;
     }
     $ret = CallFn($sdev, "DeleteFn", $defs{$sdev}, $sdev);
     if($ret) {
       push @rets, $ret;
+      delete $defs{$sdev}->{CL};
       next;
     }
+    delete $defs{$sdev}->{CL};
 
 
     # Delete releated hashes
@@ -2262,8 +2343,14 @@ CommandDeleteReading($$)
 {
   my ($cl, $def) = @_;
 
+  my $quiet = undef;
+  if($def =~ m/^\s*-q\s(.*)$/) {
+    $quiet = 1;
+    $def = $1;
+  }
+
   my @a = split(" ", $def, 2);
-  return "Usage: deletereading <name> <reading>\n$namedef" if(@a != 2);
+  return "Usage: deletereading [-q] <name> <reading>\n$namedef" if(@a != 2);
 
   eval { "" =~ m/$a[1]/ };
   return "Bad regexp $a[1]: $@" if($@);
@@ -2287,6 +2374,7 @@ CommandDeleteReading($$)
     }
     
   }
+  return undef if($quiet);
   return join("\n", @rets);
 }
 
@@ -2313,9 +2401,10 @@ CommandSetReading($$)
       ($err, @b) = ReplaceSetMagic($hash, 3, @a);
       delete $hash->{CL};
     }
-    return "WARNING: unsupported character in reading $b[1] ".
-           "(not A-Za-z/\\d_\\.-)" if(!goodReadingName($b[1]));
-    readingsSingleUpdate($defs{$sdev}, $b[1], $b[2], 1);
+    my $b1 = $b[1];
+    return "bad reading name $b1 (contains not A-Za-z/\\d_\\.- or is too long)"
+      if(!goodReadingName($b1));
+    readingsSingleUpdate($defs{$sdev}, $b1, $b[2], 1);
   }
   return join("\n", @rets);
 }
@@ -2577,7 +2666,7 @@ CommandRename($$)
     my $aw = ReadingsVal($d, "associatedWith", "");
     next if($aw !~ m/\b$old\b/);
     $aw =~ s/\b$old\b/$new/;
-    setReadingsVal($defs{$d}, "associatedWith", $aw, TimeNow());
+    setReadingsVal($defs{$d}, "associatedWith", $aw, TimeNow()) if($defs{$d});
   }
 
   addStructChange("rename", $new, $param);
@@ -2598,8 +2687,16 @@ getAllAttr($;$)
   } elsif($modules{$defs{$d}{TYPE}}{AttrList}) {
     $list .= " " . $modules{$defs{$d}{TYPE}}{AttrList};
   }
-  $list .= " " . $attr{global}{userattr} if($attr{global}{userattr});
-  $list .= " " . $attr{$d}{userattr}     if($attr{$d} && $attr{$d}{userattr});
+
+  my $nl2space = sub($)
+  {
+    my $v = $_[0];
+    return if(!defined($v));
+    $v =~ s/\n/ /g;
+    $list .= " $v";
+  };
+  $nl2space->($attr{global}{userattr});
+  $nl2space->($attr{$d}{userattr}) if($attr{$d});
   $list .= " userattr";
   return $list;
 }
@@ -2650,7 +2747,10 @@ GlobalAttr($$$$)
     return undef;
   }
 
-  return undef if($type ne "set");
+  my $ev = $globalAttrFromEnv->{$name};
+  return "$name is readonly, it is set in the FHEM_GLOBALATTR environment"
+    if(defined($ev) && defined($val) && $ev ne $val);
+
   ################
   if($name eq "logfile") {
     my @t = localtime(gettimeofday());
@@ -2677,10 +2777,13 @@ GlobalAttr($$$$)
     my $modpath = "$val/FHEM";
 
     opendir(DH, $modpath) || return "Can't read $modpath: $!";
-    push @INC, $modpath if(!grep(/\Q$modpath\E/, @INC));
+    push @INC, $modpath if(!grep(/^\Q$modpath\E$/, @INC));
+    push @INC, $val if(!grep(/^\Q$val\E$/, @INC));
     $cvsid =~ m/(fhem.pl) (\d+) (\d+-\d+-\d+)/;
     $attr{global}{version} = "$1:$2/$3";
     my $counter = 0;
+    my $oldVal = $attr{global}{modpath};
+    $attr{global}{modpath} = $val;
 
     if(configDBUsed()) {
       my $list = cfgDB_Read99(); # retrieve filelist from configDB
@@ -2703,6 +2806,7 @@ GlobalAttr($$$$)
     closedir(DH);
 
     if(!$counter) {
+      $attr{global}{modpath} = $oldVal;
       return "No modules found, set modpath to a directory in which a " .
              "subdirectory called \"FHEM\" exists wich in turn contains " .
              "the fhem module files <*>.pm";
@@ -2751,12 +2855,15 @@ CommandAttr($$)
 
   return "Usage: attr [-a|-r] <name> <attrname> [<attrvalue>]\n$namedef"
            if(@a && @a < 2);
+  my $a1 = $a[1];
+  return "bad attribute name $a1 (contains not A-Za-z/\\d_\\.- or is too long)"
+           if($featurelevel > 5.9 && !goodReadingName($a1));
 
   my @rets;
-  foreach my $sdev (devspec2array($a[0], $a[1] && $a[1] eq "?" ? undef : $cl)) {
+  foreach my $sdev (devspec2array($a[0], $a1 && $a1 eq "?" ? undef : $cl)) {
 
     my $hash = $defs{$sdev};
-    my $attrName = $a[1];
+    my $attrName = $a1;
     my $attrVal = (defined($a[2]) ? $a[2] : 1);
     if(!defined($hash)) {
       push @rets, "Please define $sdev first" if($init_done);#define -ignoreErr
@@ -2794,7 +2901,7 @@ CommandAttr($$)
     }
     if($remove && $attr{$sdev} && $attr{$sdev}{$attrName}) {
       my $v = $attr{$sdev}{$attrName};
-      $v =~ s/\s*$attrVal\s*//;
+      $v =~ s/\b$attrVal\b//;
       $attrVal = $v;
     }
 
@@ -2966,8 +3073,8 @@ CommandSetstate($$)
         next;
       }
 
-      Log3 $d, 3, "WARNING: unsupported character in reading $sname ".
-             "(not A-Za-z/\\d_\\.-), notify the $d->{TYPE} module maintainer."
+      Log3 $d, 3,
+         "bad reading name $sname (contains not A-Za-z/\\d_\\.- or is too long)"
         if(!goodReadingName($sname));
 
       if(!defined($d->{READINGS}{$sname}) ||
@@ -3803,10 +3910,18 @@ Dispatch($$;$$)
     }
 
     no strict "refs"; $readingsUpdateDelayTrigger = 1;
-    @found = &{$modules{$m}{ParseFn}}($hash,$dmsg);
+    my @tfound = &{$modules{$m}{ParseFn}}($hash,$dmsg);
     use strict "refs"; $readingsUpdateDelayTrigger = 0;
     $parserMod = $m;
-    last if(int(@found));
+    if(int(@tfound) && defined($tfound[0])) {
+      if($tfound[0] && $tfound[0] eq "[NEXT]") { # not a goodDeviceName, #95446
+        shift(@tfound);
+        push @found, @tfound;                   # continue feeding other modules
+      } else {
+        push @found, @tfound;
+        last;
+      }
+    }
   }
 
   if((!int(@found) || !defined($found[0])) && !$nounknown) {
@@ -3886,6 +4001,10 @@ Dispatch($$;$$)
         }
         delete($defs{$found}{".noDispatchVars"});
         DoTrigger($found, undef);
+
+      } elsif(defined($found) && ($found eq "" || $found eq "[NEXT]")) {
+        return undef;
+
       } else {
         Log 1, "ERROR: >$found< returned by the $parserMod ParseFn is invalid,".
                " notify the module maintainer";
@@ -4179,6 +4298,7 @@ ReplaceEventMap2($$$)
   return @{$str};
 }
 
+# Needed for logfile/pid/nofork
 sub
 setGlobalAttrBeforeFork($)
 {
@@ -4195,15 +4315,7 @@ setGlobalAttrBeforeFork($)
   foreach my $l (@rows) {
     $l =~ s/[\r\n]//g;
     next if($l !~ m/^attr\s+global\s+([^\s]+)\s+(.*)$/);
-    my ($n,$v) = ($1,$2);
-    $v =~ s/#.*//;
-    $v =~ s/ .*$//;
-    if($fhemdebug) {
-      $v = "-" if($n eq "logfile");
-      $v = 5   if($n eq "verbose");
-    }
-    $attr{global}{$n} = $v;
-    GlobalAttr("set", "global", $n, $v);
+    AnalyzeCommand(undef, $l);
   }
 }
 
@@ -5272,7 +5384,10 @@ sub
 getUniqueId()
 {
   my ($err, $uniqueID) = getKeyValue("uniqueID");
-  return $uniqueID if(defined($uniqueID));
+  if(defined($uniqueID)) {
+    $uniqueID =~ s/[^0-9a-f]//g;
+    return $uniqueID if($uniqueID && length($uniqueID) == 32);
+  }
   $uniqueID = createUniqueId();
   setKeyValue("uniqueID", $uniqueID);
   return $uniqueID;
@@ -5346,7 +5461,8 @@ addStructChange($$$)
   $lastDefChange++;
   return if($defs{$dev}{VOLATILE});
 
-  shift @structChangeHist if(@structChangeHist > 9);
+  shift @structChangeHist
+          if(@structChangeHist > AttrVal('global', 'maxChangeLog', 10) - 1);
   $param = substr($param, 0, 40)."..." if(length($param) > 40);
   push @structChangeHist, "$cmd $param";
 }
@@ -5500,6 +5616,7 @@ parseParams($;$$$)
   $joiner = $separator if(!$joiner); # needed if separator is a regexp
   $keyvalueseparator = '=' if(!$keyvalueseparator);
   my(@a, %h);
+  return(\@a, \%h) if(!defined($cmd));
 
   my @params;
   if( ref($cmd) eq 'ARRAY' ) {
@@ -5582,7 +5699,7 @@ getPawList($)
     }
   }
   my $aw = ReadingsVal($d, "associatedWith", ""); # Explicit link
-  push(@dob, split("[ ,]",$aw)) if($aw);
+  push(@dob, grep { $defs{$_} } split("[ ,]",$aw)) if($aw);
   return @dob;
 }
 
@@ -5606,7 +5723,9 @@ sub
 goodReadingName($)
 {
   my ($name) = @_;
-  return ($name && ($name =~ m/^[a-z0-9._\-\/]+$/i || $name =~ m/^\./));
+  return undef if(!$name);
+  return undef if($featurelevel > 5.9 && length($name) > 64);
+  return ($name =~ m/^[a-z0-9._\-\/]+$/i || $name =~ m/^\./);
 }
 
 sub
@@ -5616,6 +5735,7 @@ makeReadingName($) # Convert non-valid characters to _
   $name = "UNDEFINED" if(!defined($name));
   return $name if($name =~ m/^\./);
   $name =~ s/[^a-z0-9._\-\/]/_/gi;
+  $name = substr($name, 0, 64) if($featurelevel > 5.9 && length($name) > 64);
   return $name;
 }
 
@@ -5780,6 +5900,46 @@ SecurityCheck()
     $attr{global}{motd} = join("\n", @fnd);
   } elsif(AttrVal('global','motd','') =~ m/^SecurityCheck/) {
     delete $attr{global}{motd};
+  }
+}
+
+# 
+sub genUUID()
+{
+  srand(gettimeofday()) if(!$srandUsed);
+  $srandUsed = 1;
+  my $uuid = sprintf("%08x-f33f-%s-%s-%s", time(), substr(getUniqueId(),-4), 
+    join("",map { unpack "H*", chr(rand(256)) } 1..2),
+    join("",map { unpack "H*", chr(rand(256)) } 1..8));
+  $fuuidHash{$uuid} = 1;
+  return $uuid;
+}
+
+sub
+IsWe(;$$)
+{
+  my ($when, $wday) = @_;
+  $wday = (localtime(gettimeofday()))[6] if(!defined($wday));
+  $when = "state" if(!$when || $when !~ m/^(yesterday|tomorrow)$/);
+  
+  my $we = ($when eq "yesterday" ? ($wday==0 || $wday==1) :
+           ($when eq "state"     ? ($wday==6 || $wday==0) :
+                                   ($wday==5 || $wday==6))); # tomorrow
+  if(!$we) {
+    foreach my $h2we (split(",", AttrVal("global", "holiday2we", ""))) {
+      my $b = ReadingsVal($h2we, $when, 0);
+      $we = 1 if($b && $b ne "none");
+    }
+  }
+  return $we ? 1 : 0;
+}
+
+sub
+applyGlobalAttrFromEnv()
+{
+  while(my ($k,$v)= each %{$globalAttrFromEnv}) {
+    Log 3, "From the FHEM_GLOBALATTR environment: attr global $k $v";
+    CommandAttr(undef, "global $k $v");
   }
 }
 

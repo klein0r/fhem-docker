@@ -68,6 +68,8 @@
       <a href="#setdefaultattr">setdefaultattr</a> &nbsp; <!-- definiert ein "default" Attribut -->
       <a href="#setreading">setreading</a> &nbsp; <!-- setzt ein Reading f&uuml;r ein FHEM Ger&auml;t -->
       <a href="#setstate">setstate</a> &nbsp; <!-- setzt den Status eines  FHEM Ger&aumles -->
+      <a href="#setuuid">setuuid</a> &nbsp; <!-- setzt den internen FUUID Wert -->
+      <a href="#show">show</a> &nbsp;       <!-- zeigt tempor&aunl;ren Raum. nur in FHEMWB -->
       <a href="#shutdown">shutdown</a> &nbsp; <!-- beendet FHEM -->
       <a href="#sleep">sleep</a> &nbsp;     <!-- verz&ouml;gerte Ausf&uuml;hrung -->
       <a href="#trigger">trigger</a> &nbsp; <!-- generiert ein FHEM Event -->
@@ -156,7 +158,17 @@ Die Kommunikation mit FHEM kann entweder in einer "session" (&uuml;ber telnet) o
 </ul>
 <br>
 Falls FHEM als root gestartet wurde, und ein OS-Benutzer fhem existiert, dann
-wechselt FHEM nach dem start zu diesem Benutzer (via setuid). <br>
+wechselt FHEM nach dem start zu diesem Benutzer (via setuid).
+<br><br>
+
+Falls FHEM mit der -d Koommandozeilenoption gestartet wurde (perl fhem.pl -d
+fhem.cfg), dann wird verbose auf 5 gesetzt und die Logs werden auf STDOUT
+geschrieben.
+<br><br>
+
+Die Umgebungsvariable FHEM_GLOBALATTR wird ausgewertet: sie enth&auml;lt
+Leerzeichengetrennte Name=Wert Paare, wobei Name ein global Attribut ist. So
+gesetzte Werte &uuml;berschreiben die Werte aus der Konfigurationsdatei.
 </ul>
 <br>
 <!-- intro end - diese Zeile nicht entfernen! -->
@@ -1380,6 +1392,33 @@ Die folgenden lokalen Attribute werden von mehreren Ger&auml;ten verwendet:
 <!-- setstate end -->
 
 
+<a name="setuuid"></a>
+<h3>setuuid</h3>
+<ul>
+  <code>setuuid &lt;device&gt; &lt;uuid&gt;</code>
+  <br><br>
+  Systembefehl, um den FUUID internen Wert zu setzen.
+  Ist nicht vom Benutzer zu verwenden.
+</ul>
+<!-- setstate end -->
+
+<a name="show"></a>
+<h3>show</h3>
+<ul>
+  <code>show &lt;devspec&gt;</code>
+  <br><br>
+  Zeigt einen tempor&auml;ren Raum mit Ger&auml;ten aus &lt;devspec&gt;,
+  verf&uuml;gbar nur &uuml;ber FHEMWEB.<br> Siehe den Abschnitt &uuml;ber <a
+  href="#devspec">Ger&auml;te-Spezifikation</a> f&uuml;r Details der
+  &lt;devspec&gt;.<br>
+  <br><br>
+  Example:
+  <ul>
+    <code>show TYPE=CUL_HM</code><br>
+  </ul>
+</ul>
+<!-- show end -->
+
 <a name="shutdown"></a>
 <h3>shutdown</h3>
 <ul>
@@ -1474,6 +1513,11 @@ Die folgenden lokalen Attribute werden von mehreren Ger&auml;ten verwendet:
 
   <b>Attributes</b>
   <ul>
+    <a name="altitude"></a>
+    <li>altitude<br>
+       H&ouml;he in Metern &uuml;ber dem Meeresspiegel, Voreinstellung ist 0.
+    </li><br>
+
     <li><a href="#archivedir">archivedir</a></li>
     <li><a href="#archivecmd">archivecmd</a></li>
     <li><a href="#nrarchive">nrarchive</a></li>
@@ -1620,6 +1664,18 @@ Die folgenden lokalen Attribute werden von mehreren Ger&auml;ten verwendet:
         dessen Wert an FHEM/FhemUtils/ angeh&auml;ngt wird.
     </li><br>
 
+    <a name="latitude"></a>
+    <li>latitude<br>
+        Geographische Breite in Dezimalgrad, Voreinstellung ist 50.112,
+        Frankfurt am Main.
+    </li><br>
+
+    <a name="longitude"></a>
+    <li>longitude<br>
+        Geographische L&auml;nge in Dezimalgrad, Voreinstellung ist 8.686,
+        Frankfurt am Main.
+    </li><br>
+
     <a name="logdir"></a>
     <li>logdir<br>
         Falls gesetzt, wird %L in dem logfile Attribut (oder in der Dateinamen 
@@ -1640,6 +1696,21 @@ Die folgenden lokalen Attribute werden von mehreren Ger&auml;ten verwendet:
         <code>global</code> Ger&auml;t hinzu wie Sie es auch bei einem FileLog
         device tun k&ouml;nnten.<br> Sie k&ouml;nnen den Namen der Logdatei
         mit&nbsp; <code>{ $currlogfile }festlegen</code>.
+    </li><br>
+
+    <a name="maxChangeLog"></a>
+    <li>maxChangeLog<br>
+        FHEM speichert Struktur&auml;nderungen, diese Daten kann man mit
+        "save ?" oder mittels Klick auf das rote Fragezeichen in FHEMWEB
+        anzeigen. Per Voreinstellung ist diese Liste auf 10 Eintr&auml;ge
+        begrenzt, mit diesem Attribut kann man diesen Wert &auml;ndern.
+    </li><br>
+ 
+    <a name="maxShutdownDelay"></a>
+    <li>maxShutdownDelay<br>
+        Einige Module ben&ouml;tigen Zeit zum Aufr&auml;umen beim shutdown,
+        aber FHEM begrenzt diese Zeit auf 10 Sekunden. Mit diesem Attribut
+        kann man sie anpassen.
     </li><br>
 
     <a name="modpath"></a>
@@ -1889,19 +1960,20 @@ Die folgenden lokalen Attribute werden von mehreren Ger&auml;ten verwendet:
     aktuellen Datum in YYYY-MM-DD Format.
     <br>
 
-    Die Variabe <var>$we</var> hat den Wert 1 wenn der abgefragte Tag auf ein Wochenende
-    f&auml;llt (Z.B. <var>$wday</var> == 0 [Sonntag] oder <var>$wday</var> == 6 [Samstag]), und 0
-    f&uuml;r die anderen Wochentage. Wenn man das global <a
-    href="#holiday2we">holiday2we</a> Attribut setzt, dann ist <var>$we</var> ebenfalls 1
-    bei Urlaubstagen.<br>
-
+    Die Variabe <var>$we</var> hat den Wert 1 wenn der abgefragte Tag auf ein
+    Wochenende f&auml;llt (Z.B. <var>$wday</var> == 0 [Sonntag] oder
+    <var>$wday</var> == 6 [Samstag]), und 0 f&uuml;r die anderen Wochentage.
+    Wenn man das global <a href="#holiday2we">holiday2we</a> Attribut setzt,
+    dann ist <var>$we</var> ebenfalls 1 bei Urlaubstagen.<br>
     <ul>
       define n2 notify piri:on { if($hour &gt; 18 || $hour &lt; 5) {
         fhem "set light on" } }<br>
       define roll_en *07:45:00 { fhem "trigger SwitchAllRoll on" if(!$we) }<br>
       define roll_en *08:30:00 { fhem "trigger SwitchAllRoll on" if($we) }<br>
-
     </ul>
+    $we wird mit IsWe() gesetzt, diese Funktion nimmt optional die Argumente
+    "today", "yesterday" und "tomorrow". Achtung: alles andere wird als "today"
+    interpretiert, ohne eine Fehlermeldung zu generieren.<br>
     <br>
 
   </li><li>

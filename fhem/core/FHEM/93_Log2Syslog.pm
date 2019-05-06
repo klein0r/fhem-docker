@@ -1,9 +1,9 @@
 ##########################################################################################################################
-# $Id: 93_Log2Syslog.pm 17636 2018-10-28 16:49:17Z DS_Starter $
+# $Id: 93_Log2Syslog.pm 19029 2019-03-25 20:01:23Z DS_Starter $
 ##########################################################################################################################
 #       93_Log2Syslog.pm
 #
-#       (c) 2017-2018 by Heiko Maaz
+#       (c) 2017-2019 by Heiko Maaz
 #       e-mail: Heiko dot Maaz at t-online dot de
 #
 #       This script is part of fhem.
@@ -37,9 +37,15 @@ use Scalar::Util qw(looks_like_number);
 use Encode qw(encode_utf8);
 eval "use IO::Socket::INET;1" or my $MissModulSocket = "IO::Socket::INET";
 eval "use Net::Domain qw(hostname hostfqdn hostdomain domainname);1"  or my $MissModulNDom = "Net::Domain";
+eval "use FHEM::Meta;1" or my $modMetaAbsent = 1;
 
 # Versions History intern:
 our %Log2Syslog_vNotesIntern = (
+  "5.6.1"  => "24.03.2019  prevent module from deactivation in case of unavailable Meta.pm ",
+  "5.6.0"  => "23.03.2019  attribute exclErrCond to exclude events from rating as \"error\" ",
+  "5.5.0"  => "18.03.2019  prepare for Meta.pm ",
+  "5.4.0"  => "17.03.2019  new feature parseProfile = Automatic ",
+  "5.3.2"  => "08.02.2019  fix version numbering ",
   "5.3.1"  => "21.10.2018  get of FQDN changed ",
   "5.3.0"  => "16.10.2018  attribute sslCertPrefix added (Forum:#92030), module hints & release info order switched ",
   "5.2.1"  => "08.10.2018  setpayload of BSD-format changed, commandref revised ",
@@ -92,12 +98,16 @@ our %Log2Syslog_vNotesIntern = (
 
 # Versions History extern:
 our %Log2Syslog_vNotesExtern = (
+  "5.6.0"  => "23.03.2019 New attribute \"exclErrCond\" to exclude events from rating as \"Error\" even though the ".
+                          "event contains the text \"Error\". ",
+  "5.4.0"  => "17.03.2019 New feature parseProfile = Automatic. The module may detect the message format BSD or IETF automatically in server mode ",
+  "5.3.2"  => "08.02.2019 fix version numbering ",
   "5.3.0"  => "16.10.2018 attribute sslCertPrefix added to support multiple SSL-keys (Forum:#92030)",
   "5.2.1"  => "08.10.2018 Send format of BSD changed. The TAG-field was changed to \"IDENT[PID]: \" ",
   "5.2.0"  => "02.10.2018 direct help for attributes added",
   "5.1.0"  => "29.09.2018 new get &lt;name&gt; versionNotes command ",
   "5.0.1"  => "27.09.2018 automatic reconnect to syslog-server in case of write error ",
-  "5.0.0"  => "26.09.2018 <li>TCP Server mode is possible now for Collector devices<\li><li>the used parse-profile is shown as Internal<\li><li>Parse_Err_No counts faulty persings since start<\li><li>new octetCount attribute switches the syslog framing method (see also RFC6587 <a href=\"https://tools.ietf.org/html/rfc6587\">Transmission of Syslog Messages over TCP</a>)<\li><li>TCP SSL-support<\li><li>new set 'reopen' command to reconnect a broken connection<\li><li>some code fixes ",
+  "5.0.0"  => "26.09.2018 Some changes:<br><li>TCP Server mode is possible now for Collector devices<\li><li>the used parse-profile is shown as Internal<\li><li>Parse_Err_No counts faulty persings since start<\li><li>new octetCount attribute switches the syslog framing method (see also RFC6587 <a href=\"https://tools.ietf.org/html/rfc6587\">Transmission of Syslog Messages over TCP</a>)<\li><li>TCP SSL-support<\li><li>new set 'reopen' command to reconnect a broken connection<\li><li>some code fixes ",
   "4.8.5"  => "20.08.2018 BSD/parseFn parse changed, BSD setpayload changed, new variable \$IGNORE in parseFn ",
   "4.8.4"  => "15.08.2018 BSD parse changed again ",
   "4.8.3"  => "14.08.2018 BSD setpayload changed, BSD parse changed, new Internal MYFQDN ", 
@@ -130,13 +140,6 @@ our %Log2Syslog_vNotesExtern = (
   "2.0.0"  => "16.08.2017 create syslog without perl module SYS::SYSLOG ",
   "1.1.0"  => "26.07.2017 add regex search to sub Log2Syslog_fhemlog ",
   "1.0.0"  => "25.07.2017 initial version "
-);
-
-# Hint Hash
-our %Log2Syslog_vHintsExt = (
-  "3" => "The <a href=\"https://tools.ietf.org/pdf/rfc5425.pdf\">RFC5425</a> TLS Transport Protocol",
-  "2" => "The basics of <a href=\"https://tools.ietf.org/html/rfc3164\">RFC3164 (BSD)</a> protocol",
-  "1" => "Informations about <a href=\"https://tools.ietf.org/html/rfc5424\">RFC5424 (IETF)</a> syslog protocol"
 );
 
 # Mappinghash BSD-Formatierung Monat
@@ -232,6 +235,8 @@ my %RFC5425len = ("DL"  => 8192,          # max. Lange Message insgesamt mit TLS
 # Forward declarations
 #
 sub Log2Syslog_Log3slog($$$);
+use vars qw(%Log2Syslog_vHintsExt_en);
+use vars qw(%Log2Syslog_vHintsExt_de);
 
 ###############################################################################
 sub Log2Syslog_Initialize($) {
@@ -250,10 +255,11 @@ sub Log2Syslog_Initialize($) {
                       "disable:1,0,maintenance ".
                       "addTimestamp:0,1 ".
                       "contDelimiter ".
+                      "exclErrCond:textField-long ".
 					  "logFormat:BSD,IETF ".
                       "makeEvent:no,intern,reading ".
                       "outputFields:sortable-strict,PRIVAL,FAC,SEV,TS,HOST,DATE,TIME,ID,PID,MID,SDFIELD,CONT ".
-                      "parseProfile:BSD,IETF,TPLink-Switch,raw,ParseFn ".
+                      "parseProfile:Automatic,BSD,IETF,TPLink-Switch,raw,ParseFn ".
                       "parseFn:textField-long ".
                       "respectSeverity:multiple-strict,Emergency,Alert,Critical,Error,Warning,Notice,Informational,Debug ".
                       "octetCount:1,0 ".
@@ -266,7 +272,10 @@ sub Log2Syslog_Initialize($) {
 					  "rateCalcRerun ".
                       $readingFnAttributes
                       ;
-return undef;   
+                      
+  eval { FHEM::Meta::InitMod( __FILE__, $hash ) };    # für Meta.pm (https://forum.fhem.de/index.php/topic,97589.0.html)
+
+return;   
 }
 
 ###############################################################################
@@ -291,10 +300,10 @@ sub Log2Syslog_Define($@) {
   
   if(int(@a)-3 < 0){
       # Einrichtung Servermode (Collector)
-      Log2Syslog_Log3slog ($hash, 3, "Log2Syslog $name - entering Syslog servermode ..."); 
-      $hash->{MODEL}        = "Collector";
-      $hash->{PROFILE}      = "IETF";                          
+      $hash->{MODEL}   = "Collector";
+      $hash->{PROFILE} = "Automatic";                          
       readingsSingleUpdate ($hash, 'Parse_Err_No', 0, 1);  # Fehlerzähler für Parse-Errors auf 0
+      Log2Syslog_Log3slog ($hash, 3, "Log2Syslog $name - entering Syslog servermode ..."); 
       Log2Syslog_initServer("$name,global");
   } else {
       # Sendermode
@@ -314,17 +323,21 @@ sub Log2Syslog_Define($@) {
       # nur Events dieser Devices an NotifyFn weiterleiten, NOTIFYDEV wird gesetzt wenn möglich
       notifyRegexpChanged($hash, $hash->{HELPER}{EVNTLOG}) if($hash->{HELPER}{EVNTLOG});
 		
-      $hash->{PEERHOST} = $a[2];                            # Destination Host (Syslog Server)
+      $hash->{PEERHOST} = $a[2];                              # Destination Host (Syslog Server)
   }
 
-  $hash->{SEQNO}            = 1;                            # PROCID in IETF, wird kontinuierlich hochgezählt
-  $hash->{VERSION}          = (reverse sort(keys %Log2Syslog_vNotesIntern))[0];
-  $logInform{$hash->{NAME}} = "Log2Syslog_fhemlog";         # Funktion die in hash %loginform für $name eingetragen wird
-  $hash->{HELPER}{SSLVER}   = "n.a.";                       # Initialisierung
-  $hash->{HELPER}{SSLALGO}  = "n.a.";                       # Initialisierung
-  $hash->{HELPER}{LTIME}    = time();                       # Init Timestmp f. Ratenbestimmung
-  $hash->{HELPER}{OLDSEQNO} = $hash->{SEQNO};               # Init Sequenznummer f. Ratenbestimmung
-  $hash->{HELPER}{OLDSTATE} = "initialized";
+  $hash->{SEQNO}                 = 1;                         # PROCID in IETF, wird kontinuierlich hochgezählt
+  
+  $logInform{$hash->{NAME}}      = "Log2Syslog_fhemlog";      # Funktion die in hash %loginform für $name eingetragen wird
+  $hash->{HELPER}{SSLVER}        = "n.a.";                    # Initialisierung
+  $hash->{HELPER}{SSLALGO}       = "n.a.";                    # Initialisierung
+  $hash->{HELPER}{LTIME}         = time();                    # Init Timestmp f. Ratenbestimmung
+  $hash->{HELPER}{OLDSEQNO}      = $hash->{SEQNO};            # Init Sequenznummer f. Ratenbestimmung
+  $hash->{HELPER}{OLDSTATE}      = "initialized";
+  $hash->{HELPER}{MODMETAABSENT} = 1 if($modMetaAbsent);      # Modul Meta.pm nicht vorhanden
+  
+  # Versionsinformationen setzen
+  Log2Syslog_setVersionInfo($hash);
   
   readingsBeginUpdate($hash);
   readingsBulkUpdate($hash, "SSL_Version", "n.a.");
@@ -333,7 +346,7 @@ sub Log2Syslog_Define($@) {
   readingsBulkUpdate($hash, "state", "initialized") if($hash->{MODEL}=~/Sender/);
   readingsEndUpdate($hash,1);
   
-  Log2Syslog_trate($hash);                                 # regelm. Berechnung Transfer Rate starten 
+  Log2Syslog_trate($hash);                                    # regelm. Berechnung Transfer Rate starten 
       
 return undef;
 }
@@ -427,21 +440,21 @@ sub Log2Syslog_Read($@) {
   
   my $name     = $hash->{NAME};
   return if(IsDisabled($name) || Log2Syslog_IsMemLock($hash));
-  my $pp       = AttrVal($name, "parseProfile", "IETF");
+  my $pp       = $hash->{PROFILE};
   my $mevt     = AttrVal($name, "makeEvent", "intern");          # wie soll Reading/Event erstellt werden
   my $sevevt   = AttrVal($name, "respectSeverity", "");          # welcher Schweregrad soll berücksichtigt werden (default: alle)
     
   if($pp =~ /BSD/) {
       # BSD-Format
-          $len = $RFC3164len{DL};
+      $len = $RFC3164len{DL};
   
   } elsif ($pp =~ /IETF/) {
       # IETF-Format   
-          $len = $RFC5425len{DL};     
+      $len = $RFC5425len{DL};     
       
   } else {
       # raw oder User eigenes Format
-          $len = 8192;        
+      $len = 8192;        
   } 
   
   if($socket) {
@@ -627,7 +640,7 @@ return ($st,$data,$hash);
 sub Log2Syslog_parsePayload($$) { 
   my ($hash,$data) = @_;
   my $name         = $hash->{NAME};
-  my $pp           = AttrVal($name, "parseProfile", "IETF");
+  my $pp           = AttrVal($name, "parseProfile", $hash->{PROFILE});
   my $severity     = "";
   my $facility     = "";  
   my @evf          = split(",",AttrVal($name, "outputFields", "FAC,SEV,ID,CONT"));   # auszugebene Felder im Event/Reading
@@ -661,8 +674,28 @@ sub Log2Syslog_parsePayload($$) {
   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);       # Istzeit Ableitung
   $year = $year+1900;
   
-  if ($pp =~ /raw/) {
-      Log2Syslog_Log3slog($name, 4, "$name - $data");
+  if($pp =~ /^Automatic/) {
+      $pp = "unknown";
+      Log2Syslog_Log3slog($name, 4, "Log2Syslog $name - Analyze message format automatically ...");
+      $data =~ /^<(?<prival>\d{1,3})>(?<tail>\w{3}).*$/;
+      $tail = $+{tail};
+      # Test auf BSD-Format
+	  if($tail && " Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec " =~ /\s$tail\s/) {
+	      $pp = "BSD";
+	  } else {
+          # Test auf IETF-Format
+	      $data   =~ /^<(?<prival>\d{1,3})>(?<ietf>\d{0,2})\s?(?<date>\d{4}-\d{2}-\d{2})T(?<time>\d{2}:\d{2}:\d{2}).*$/;
+          $prival = $+{prival};      # must
+          $date   = $+{date};        # must
+          $time   = $+{time};        # must             
+          $pp     = "IETF" if($prival && $date && $time);
+	  }
+	  $hash->{PROFILE} = "Automatic - detected format: $pp";
+	  Log2Syslog_Log3slog($name, 4, "Log2Syslog $name - Message format \"$pp\" detected. Try Parsing ... ") if($pp ne "unknown");
+  }
+  
+  if($pp =~ /raw/) {
+      Log2Syslog_Log3slog($name, 4, "Log2Syslog $name - $data");
       $ts = TimeNow();
       $pl = $data;
   
@@ -716,7 +749,7 @@ sub Log2Syslog_parsePayload($$) {
           }
           
 		  no warnings 'uninitialized'; 
-          Log2Syslog_Log3slog($name, 4, "$name - parsed message -> FAC: $fac, SEV: $sev, MM: $Mmm, Day: $dd, TIME: $time, TS: $ts, HOST: $host, ID: $id, CONT: $cont");
+          Log2Syslog_Log3slog($name, 4, "Log2Syslog $name - parsed message -> FAC: $fac, SEV: $sev, MM: $Mmm, Day: $dd, TIME: $time, TS: $ts, HOST: $host, ID: $id, CONT: $cont");
           $host = "" if($host eq "-");
 		  use warnings;
 		  $phost = $host?$host:$phost;
@@ -799,7 +832,7 @@ sub Log2Syslog_parsePayload($$) {
           $host   = substr($host,0, ($RFC5425len{HST}-1));
       
 	      no warnings 'uninitialized'; 
-          Log2Syslog_Log3slog($name, 4, "$name - parsed message -> FAC: $fac, SEV: $sev, TS: $ts, HOST: $host, ID: $id, PID: $pid, MID: $mid, SDFIELD: $sdfield, CONT: $cont");
+          Log2Syslog_Log3slog($name, 4, "Log2Syslog $name - parsed message -> FAC: $fac, SEV: $sev, TS: $ts, HOST: $host, ID: $id, PID: $pid, MID: $mid, SDFIELD: $sdfield, CONT: $cont");
           $host = "" if($host eq "-");
 		  use warnings;
 	      $phost = $host?$host:$phost;
@@ -918,7 +951,7 @@ sub Log2Syslog_parsePayload($$) {
               Log2Syslog_Log3slog ($hash, 2, "Log2Syslog $name - error parse msg -> $data");          
           }
 
-          Log2Syslog_Log3slog($name, 4, "$name - parsed message -> FAC: $fac, SEV: $sev, TS: $ts, HOST: $host, ID: $id, PID: $pid, MID: $mid, CONT: $cont");
+          Log2Syslog_Log3slog($name, 4, "Log2Syslog $name - parsed message -> FAC: $fac, SEV: $sev, TS: $ts, HOST: $host, ID: $id, PID: $pid, MID: $mid, CONT: $cont");
 		  $phost = $host?$host:$phost;
           
           # auszugebene Felder im Event/Reading
@@ -940,7 +973,11 @@ sub Log2Syslog_parsePayload($$) {
           $err = 1;
           Log2Syslog_Log3slog ($hash, 1, "Log2Syslog $name - no parseFn defined."); 
       }
-  }	
+  
+  }	elsif ($pp eq "unknown") { 
+      $err = 1;
+      Log2Syslog_Log3slog ($hash, 1, "Log2Syslog $name - Message format could not be detected automatically. PLease check and set attribute \"parseProfile\" manually.");   
+  }
 
 return ($err,$ignore,$sev,$phost,$ts,$pl);
 }
@@ -1096,7 +1133,7 @@ sub Log2Syslog_Get($@) {
   my $st;
   my $getlist = "Unknown argument $opt, choose one of ".
                 (($hash->{MODEL} !~ /Collector/)?"certInfo:noArg ":"").
-                "versionNotes:noArg "				
+                "versionNotes "				
                 ;
   
   return if(AttrVal($name, "disable", "") eq "1");
@@ -1114,62 +1151,85 @@ sub Log2Syslog_Get($@) {
 	  return "no SSL session has been created";
 	  
   } elsif ($opt =~ /versionNotes/) {
-	  my $header  = "<b>Module release information table</b><br>";
+      my $header  = "<b>Module release information</b><br>";
       my $header1 = "<b>Helpful hints</b><br>";
-      my $i;
-	  
-	  # Ausgabetabelle erstellen
-	  my ($ret,$val0,$val1);
-	  $ret  = "<html>";
-      
-	  $ret .= sprintf("<div class=\"makeTable wide\"; style=\"text-align:left\">$header1 <br>");
-	  $ret .= "<table class=\"block wide internals\">";
-	  $ret .= "<tbody>";
-	  $ret .= "<tr class=\"even\">";          
-	  $i = 0;
-	  foreach my $key (reverse sort(keys %Log2Syslog_vHintsExt)) {
-		  $val0 = $Log2Syslog_vHintsExt{$key};
-		  $ret .= sprintf("<td style=\"vertical-align:top\"><b>$key</b>  </td><td style=\"vertical-align:top\">$val0</td>" );
-		  $ret .= "</tr>";
-          $i++;
-          if ($i & 1) {
-              # $i ist ungerade
-		      $ret .= "<tr class=\"odd\">";
+      my %hs;
+  
+      # Ausgabetabelle erstellen
+      my ($ret,$val0,$val1);
+      my $i = 0;
+  
+      $ret  = "<html>";
+  
+      # Hints
+      if(!$prop || $prop =~ /hints/i || $prop =~ /[\d]+/) {
+          $ret .= sprintf("<div class=\"makeTable wide\"; style=\"text-align:left\">$header1 <br>");
+          $ret .= "<table class=\"block wide internals\">";
+          $ret .= "<tbody>";
+          $ret .= "<tr class=\"even\">";  
+          if($prop && $prop =~ /[\d]+/) {
+              my @hints = split(",",$prop);
+              foreach (@hints) {
+                  if(AttrVal("global","language","EN") eq "DE") {
+                      $hs{$_} = $Log2Syslog_vHintsExt_de{$_};
+                  } else {
+                      $hs{$_} = $Log2Syslog_vHintsExt_en{$_};
+                  }
+              }                      
           } else {
-              $ret .= "<tr class=\"even\">";
+              if(AttrVal("global","language","EN") eq "DE") {
+                  %hs = %Log2Syslog_vHintsExt_de;
+              } else {
+                  %hs = %Log2Syslog_vHintsExt_en; 
+              }
+          }          
+          $i = 0;
+          foreach my $key (Log2Syslog_sortVersion("desc",keys %hs)) {
+              $val0 = $hs{$key};
+              $ret .= sprintf("<td style=\"vertical-align:top\"><b>$key</b>  </td><td style=\"vertical-align:top\">$val0</td>" );
+              $ret .= "</tr>";
+              $i++;
+              if ($i & 1) {
+                  # $i ist ungerade
+                  $ret .= "<tr class=\"odd\">";
+              } else {
+                  $ret .= "<tr class=\"even\">";
+              }
           }
-	  }
-
-	  $ret .= "</tr>";
-	  $ret .= "</tbody>";
-	  $ret .= "</table>";
-	  $ret .= "</div>";
-
-	  $ret .= sprintf("<div class=\"makeTable wide\"; style=\"text-align:left\">$header <br>");
-	  $ret .= "<table class=\"block wide internals\">";
-	  $ret .= "<tbody>";
-	  $ret .= "<tr class=\"even\">";
-	  $i = 0;
-	  foreach my $key (reverse sort(keys %Log2Syslog_vNotesExtern)) {
-		  ($val0,$val1) = split(/\s/,$Log2Syslog_vNotesExtern{$key},2);
-		  $ret .= sprintf("<td style=\"vertical-align:top\"><b>$key</b>  </td><td style=\"vertical-align:top\">$val0  </td><td>$val1</td>" );
-		  $ret .= "</tr>";
-          $i++;
-          if ($i & 1) {
-              # $i ist ungerade
-		      $ret .= "<tr class=\"odd\">";
-          } else {
-              $ret .= "<tr class=\"even\">";
+          $ret .= "</tr>";
+          $ret .= "</tbody>";
+          $ret .= "</table>";
+          $ret .= "</div>";
+      }
+  
+      # Notes
+      if(!$prop || $prop =~ /rel/i) {
+          $ret .= sprintf("<div class=\"makeTable wide\"; style=\"text-align:left\">$header <br>");
+          $ret .= "<table class=\"block wide internals\">";
+          $ret .= "<tbody>";
+          $ret .= "<tr class=\"even\">";
+          $i = 0;
+          foreach my $key (Log2Syslog_sortVersion("desc",keys %Log2Syslog_vNotesExtern)) {
+              ($val0,$val1) = split(/\s/,$Log2Syslog_vNotesExtern{$key},2);
+              $ret .= sprintf("<td style=\"vertical-align:top\"><b>$key</b>  </td><td style=\"vertical-align:top\">$val0  </td><td>$val1</td>" );
+              $ret .= "</tr>";
+              $i++;
+              if ($i & 1) {
+                  # $i ist ungerade
+                  $ret .= "<tr class=\"odd\">";
+              } else {
+                  $ret .= "<tr class=\"even\">";
+              }
           }
-	  }
-	  $ret .= "</tr>";
-	  $ret .= "</tbody>";
-	  $ret .= "</table>";
-	  $ret .= "</div>";
-          	  
+          $ret .= "</tr>";
+          $ret .= "</tbody>";
+          $ret .= "</table>";
+          $ret .= "</div>";
+      }
+  
       $ret .= "</html>";
-					
-	return $ret;
+                
+      return $ret;
   
   } else {
       return "$getlist";
@@ -1192,7 +1252,7 @@ sub Log2Syslog_Attr ($$$$) {
          return "\"$aName\" is only valid for model \"Collector\"";
 	}
     
-	if ($cmd eq "set" && $hash->{MODEL} =~ /Collector/ && $aName =~ /addTimestamp|contDelimiter|addStateEvent|logFormat|octetCount|ssldebug|timeout/) {
+	if ($cmd eq "set" && $hash->{MODEL} =~ /Collector/ && $aName =~ /addTimestamp|contDelimiter|addStateEvent|logFormat|octetCount|ssldebug|timeout|exclErrCond/) {
         return "\"$aName\" is only valid for model \"Sender\"";
 	}
     
@@ -1311,7 +1371,7 @@ sub Log2Syslog_Attr ($$$$) {
           if ($cmd eq "set") {
               $hash->{PROFILE} = $aVal;
           } else {
-              $hash->{PROFILE} = "IETF";
+              $hash->{PROFILE} = "Automatic";
           }
           readingsSingleUpdate ($hash, 'Parse_Err_No', 0, 1);  # Fehlerzähler für Parse-Errors auf 0
     }
@@ -1369,14 +1429,13 @@ sub Log2Syslog_eventlog($$) {
           my $txt = $events->[$i];
           $txt = "" if(!defined($txt));
           $txt = Log2Syslog_charfilter($hash,$txt);
-	  
 	      my $tim          = (($ct && $ct->[$i]) ? $ct->[$i] : $tn);
           my ($date,$time) = split(" ",$tim);
 	  
 	      if($n =~ m/^$rex$/ || "$n:$txt" =~ m/^$rex$/ || "$tim:$n:$txt" =~ m/^$rex$/) {				  
               my $otp             = "$n $txt";
               $otp                = "$tim $otp" if AttrVal($name,'addTimestamp',0);
-	          ($prival,$sevAstxt) = Log2Syslog_setprival($txt);
+	          ($prival,$sevAstxt) = Log2Syslog_setprival($hash,$txt);
               if($sendsev && $sendsev !~ m/$sevAstxt/) {
                   # nicht senden wenn Severity nicht in "respectSeverity" enthalten
                   Log2Syslog_Log3slog($name, 5, "Log2Syslog $name - Warning - Payload NOT sent due to Message Severity not in attribute \"respectSeverity\"\n");
@@ -1439,7 +1498,7 @@ sub Log2Syslog_fhemlog($$) {
   if($txt =~ m/^$rex$/ || "$vbose: $txt" =~ m/^$rex$/) {  	
       my $otp             = "$vbose: $txt";
       $otp                = "$tim $otp" if AttrVal($name,'addTimestamp',0);
-	  ($prival,$sevAstxt) = Log2Syslog_setprival($txt,$vbose);
+	  ($prival,$sevAstxt) = Log2Syslog_setprival($hash,$txt,$vbose);
       if($sendsev && $sendsev !~ m/$sevAstxt/) {
           # nicht senden wenn Severity nicht in "respectSeverity" enthalten
           Log2Syslog_Log3slog($name, 5, "Log2Syslog $name - Warning - Payload NOT sent due to Message Severity not in attribute \"respectSeverity\"\n");
@@ -1695,8 +1754,10 @@ return;
 ###############################################################################
 #               set PRIVAL (severity & facility)
 ###############################################################################
-sub Log2Syslog_setprival ($;$$) { 
-  my ($txt,$vbose) = @_;
+sub Log2Syslog_setprival ($$;$) { 
+  my ($hash,$txt,$vbose) = @_;
+  my $name = $hash->{NAME};
+  my $do   = 0;
   my ($prival,$sevAstxt);
   
   # Priority = (facility * 8) + severity 
@@ -1725,8 +1786,27 @@ sub Log2Syslog_setprival ($;$$) {
 	  $sv = 6 if ($vbose == 4);
       $sv = 7 if ($vbose == 5);
   }
-                                         
-  $sv = 3 if (lc($txt) =~ m/error/);              # error condition
+  
+  if (lc($txt) =~ m/error/) {
+      # error condition
+      $do = 1;
+      my $ees = AttrVal($name, "exclErrCond", "");
+      if($ees) {
+          $ees =~ m/^\s*(.*)\s*$/s;
+          $ees = $1;
+          $ees =~ s/[\n]//g;
+          $ees =~ s/,,/_ESC_/g;
+          my @excl = split(",",$ees);
+          foreach my $e (@excl) {
+              # Negativliste abarbeiten
+              $e =~ s/_ESC_/,/g;
+              Log2Syslog_trim($e);
+              $do = 0 if($txt =~ m/^$e$/);        
+          }
+      }
+      $sv = 3 if($do); 
+  }  
+               
   $sv = 4 if (lc($txt) =~ m/warning/);            # warning conditions
   
   $prival   = ($fac*8)+$sv;
@@ -1773,7 +1853,7 @@ sub Log2Syslog_setpayload ($$$$$$) {
       my $IETFver = 1;                                      # Version von syslog Protokoll Spec RFC5424
 	  my $mid     = "FHEM";                                 # message ID, identify protocol of message, e.g. for firewall filter
 	  my $tim     = $date."T".$time; 
-      my $sdfield = "[version\@Log2Syslog version=\"$hash->{VERSION}\"]";
+      my $sdfield = "[version\@Log2Syslog version=\"$hash->{HELPER}{VERSION}\"]";
       $otp        = Encode::encode_utf8($otp);
       
       # Längenbegrenzung nach RFC5424
@@ -1934,11 +2014,96 @@ sub Log2Syslog_deleteMemLock($) {
 return; 
 }
 
+################################################################
+# sortiert eine Liste von Versionsnummern x.x.x
+# Schwartzian Transform and the GRT transform
+# Übergabe: "asc | desc",<Liste von Versionsnummern>
+################################################################
+sub Log2Syslog_sortVersion (@){
+  my ($sseq,@versions) = @_;
+
+  my @sorted = map {$_->[0]}
+			   sort {$a->[1] cmp $b->[1]}
+			   map {[$_, pack "C*", split /\./]} @versions;
+			 
+  @sorted = map {join ".", unpack "C*", $_}
+            sort
+            map {pack "C*", split /\./} @versions;
+  
+  if($sseq eq "desc") {
+      @sorted = reverse @sorted;
+  }
+  
+return @sorted;
+}
+
+################################################################
+#               Versionierungen des Moduls setzen
+#  Die Verwendung von Meta.pm und Packages wird berücksichtigt
+################################################################
+sub Log2Syslog_setVersionInfo($) {
+  my ($hash) = @_;
+  my $name   = $hash->{NAME};
+
+  my $v                    = (sortTopicNum("desc",keys %Log2Syslog_vNotesIntern))[0];
+  my $type                 = $hash->{TYPE};
+  $hash->{HELPER}{PACKAGE} = __PACKAGE__;
+  $hash->{HELPER}{VERSION} = $v;
+  
+  if($modules{$type}{META}{x_prereqs_src} && !$hash->{HELPER}{MODMETAABSENT}) {
+	  # META-Daten sind vorhanden
+	  $modules{$type}{META}{version} = "v".$v;              # Version aus META.json überschreiben, Anzeige mit {Dumper $modules{SMAPortal}{META}}
+	  if($modules{$type}{META}{x_version}) {                                                                             # {x_version} ( nur gesetzt wenn $Id: 93_Log2Syslog.pm 19029 2019-03-25 20:01:23Z DS_Starter $ im Kopf komplett! vorhanden )
+		  $modules{$type}{META}{x_version} =~ s/1.1.1/$v/g;
+	  } else {
+		  $modules{$type}{META}{x_version} = $v; 
+	  }
+	  return $@ unless (FHEM::Meta::SetInternals($hash));                                                                # FVERSION wird gesetzt ( nur gesetzt wenn $Id: 93_Log2Syslog.pm 19029 2019-03-25 20:01:23Z DS_Starter $ im Kopf komplett! vorhanden )
+	  if(__PACKAGE__ eq "FHEM::$type" || __PACKAGE__ eq $type) {
+	      # es wird mit Packages gearbeitet -> Perl übliche Modulversion setzen
+		  # mit {<Modul>->VERSION()} im FHEMWEB kann Modulversion abgefragt werden
+	      use version 0.77; our $VERSION = FHEM::Meta::Get( $hash, 'version' );                                          
+      }
+  } else {
+	  # herkömmliche Modulstruktur
+	  $hash->{VERSION} = $v;
+  }
+  
+return;
+}
+
+################################################################
+#   Leerzeichen am Anfang / Ende eines strings entfernen           
+################################################################
+sub Log2Syslog_trim ($) {
+ my $str = shift;
+ $str =~ s/^\s+|\s+$//g;
+return ($str);
+}
+
+#############################################################################################
+#                                       Hint Hash EN           
+#############################################################################################
+our %Log2Syslog_vHintsExt_en = (
+  "3" => "The <a href=\"https://tools.ietf.org/pdf/rfc5425.pdf\">RFC5425</a> TLS Transport Protocol",
+  "2" => "The basics of <a href=\"https://tools.ietf.org/html/rfc3164\">RFC3164 (BSD)</a> protocol",
+  "1" => "Informations about <a href=\"https://tools.ietf.org/html/rfc5424\">RFC5424 (IETF)</a> syslog protocol"
+);
+
+#############################################################################################
+#                                       Hint Hash DE         
+#############################################################################################
+our %Log2Syslog_vHintsExt_de = (
+  "3" => "Die Beschreibung des <a href=\"https://tools.ietf.org/pdf/rfc5425.pdf\">RFC5425</a> TLS Transport Protokoll",
+  "2" => "Die Grundlagen des <a href=\"https://tools.ietf.org/html/rfc3164\">RFC3164 (BSD)</a> Protokolls",
+  "1" => "Informationen über das <a href=\"https://tools.ietf.org/html/rfc5424\">RFC5424 (IETF)</a> Syslog Protokoll"
+);
+
 1;
 
 =pod
 =item helper
-=item summary    forward FHEM system logs/events to a syslog server/act as an syslog server
+=item summary    forward FHEM system logs/events to a syslog server/act as a syslog server
 =item summary_DE sendet FHEM Logs/Events an Syslog-Server / agiert als Syslog-Server
 
 =begin html
@@ -1946,8 +2111,8 @@ return;
 <a name="Log2Syslog"></a>
 <h3>Log2Syslog</h3>
 <ul>
-  The module sends FHEM systemlog entries and/or FHEM events to an external syslog server or act itself as an Syslog-Server 
-  to receive Syslog-messages of other Devices which are able to send Syslog. <br>
+  The module sends FHEM systemlog entries and/or FHEM events to an external syslog server or act as an Syslog-Server itself 
+  to receive Syslog-messages of other devices which are able to send Syslog. <br>
   The syslog protocol has been implemented according the specifications of <a href="https://tools.ietf.org/html/rfc5424"> RFC5424 (IETF)</a>,
   <a href="https://tools.ietf.org/html/rfc3164"> RFC3164 (BSD)</a> and the TLS transport protocol according to 
   <a href="https://tools.ietf.org/pdf/rfc5425.pdf"> RFC5425</a>. <br>	
@@ -1989,10 +2154,13 @@ return;
     </ul>
     
     The Definition don't need any further parameter.
-    In basic setup the Syslog-Server is initialized with Port=1514/UDP and the Parsingprofil "IETF".
-    By the <a href="#Log2Syslogattr">attribute</a> "parseProfile" another formats (e.g. BSD) can be selected.
-    The Syslog-Server is immediately ready for use, is parsing the Syslog-data accordingly the rules of RFC5424 and 
-    generates FHEM-Events from received Syslog-messages (pls. see Eventmonitor for parsed data). <br><br>
+    In basic setup the Syslog-Server is initialized with Port=1514/UDP and the parsing profil "Automatic".
+    With <a href="#Log2Syslogattr">attribute</a> "parseProfile" another formats (e.g. BSD or IETF) can be selected.
+    The Syslog-Server is immediately ready for use, detect the received messages, try parsing the 
+	data according the rules of RFC5424 or RFC3164 and generates FHEM-Events from received 
+	Syslog-messages (pls. see Eventmonitor for the parsed data). <br>
+	If the device cannot detect a valid message format, please use attribute "parseProfile" to select the valid 
+	profile. <br><br>
 	
     <br>
     <b>Example of a Collector: </b><br>
@@ -2082,8 +2250,8 @@ return;
     <br><br>
 	    
 	After definition the new device sends all new appearing fhem systemlog entries and events to the destination host, 
-	port=514/UDP format:IETF, immediately without further settings if the regex for fhem or event is set. <br>
-	Without setting a regex, no fhem system log or event log will be forwarded. <br><br>
+	port=514/UDP format:IETF, immediately without further settings if the regex for "fhem" or "event" is set. <br>
+	Without setting a regex, no fhem system log entries or events are forwarded. <br><br>
 
 	The verbose level of FHEM system logs are converted into equivalent syslog severity level. <br>
 	Thurthermore the message text will be scanned for signal terms "warning" and "error" (with case insensitivity). 
@@ -2209,9 +2377,11 @@ Aug 18 21:08:27 fhemtest.myds.me 1 2017-08-18T21:08:27.095 fhemtest.myds.me Test
     <br>
     
     <ul>
-    <li><b>versionNotes </b><br>
+    <li><b>versionNotes [hints | rel | &lt;key&gt;] </b><br>
         <br>
-        Shows release informations and hints about the module. Contains only main informations for module users.
+       Shows realease informations and/or hints about the module. It contains only main release informations for module users. <br>
+       If no options are specified, both release informations and hints will be shown. "rel" shows only release informations and
+       "hints" shows only hints. By the &lt;key&gt;-specification only the hint with the specified number is shown.
     </li>
     </ul>
     <br>
@@ -2278,6 +2448,29 @@ Aug 18 21:26:54 fhemtest.myds.me 1 2017-08-18T21:26:54 fhemtest.myds.me Test_eve
     </li>
     </ul>
     <br>
+    <br>
+    
+    <ul>
+	<a name="exclErrCond"></a>
+    <li><b>exclErrCond &lt;Pattern1,Pattern2,Pattern3,...&gt; </b><br>
+        <br>
+        This attribute is only usable for device type "Sender". <br>
+        If within an event the text "Error" is identified, this message obtain the severity "Error" automatically.
+        The attribute exclErrCond can contain a list of events separated by comma, whose severity nevertheless has not  
+        to be valued as "Error". Commas within the &lt;Pattern&gt; must be escaped by ,, (double comma).
+        The attribute may contain line breaks.  <br><br>
+        
+        <b>Example</b>
+        <pre>
+attr &lt;name&gt; exclErrCond Error: none, 
+                        Errorcode: none,
+                        Dum.Energy PV: 2853.0,, Error: none,
+                        .*Seek_Error_Rate_.*,
+                        .*Raw_Read_Error_Rate_.*,
+                        .*sabotageError:.*,
+        </pre>
+    </li>
+    </ul>
     <br>
 	
     <ul>
@@ -2397,7 +2590,7 @@ $CONT = (split(">",$CONT))[1] if($CONT =~ /^<.*>.*$/);
     
     <ul>
 	<a name="parseProfile"></a>
-    <li><b>parseProfile [ BSD | IETF | ... | ParseFn | raw ] </b><br>
+    <li><b>parseProfile [ Automatic | BSD | IETF | ... | ParseFn | raw ] </b><br>
         <br>
         Selection of a parse profile. The attribute is only usable for device type "Collector".
         <br><br>
@@ -2405,11 +2598,12 @@ $CONT = (split(">",$CONT))[1] if($CONT =~ /^<.*>.*$/);
         <ul>  
         <table>  
         <colgroup> <col width=20%> <col width=80%> </colgroup>
-	    <tr><td> <b>BSD</b>     </td><td> Parsing of messages in BSD-format according to RFC3164 </td></tr>
-        <tr><td> <b>IETF</b>    </td><td> Parsing of messages in IETF-format according to RFC5424 (default) </td></tr>
-		<tr><td> <b>...</b>     </td><td> further specific parse profiles for selective device are provided </td></tr>
-        <tr><td> <b>ParseFn</b> </td><td> Usage of an own specific parse function provided by attribute "parseFn" </td></tr>
-        <tr><td> <b>raw</b>     </td><td> no parsing, events are created from the messages as received without conversion </td></tr>
+		<tr><td> <b>Automatic</b> </td><td> try to recognize the BSD or IETF message format and use it for parsing (default)  </td></tr>
+	    <tr><td> <b>BSD</b>       </td><td> Parsing of messages in BSD-format according to RFC3164 </td></tr>
+        <tr><td> <b>IETF</b>      </td><td> Parsing of messages in IETF-format according to RFC5424 (default) </td></tr>
+		<tr><td> <b>...</b>       </td><td> further specific parse profiles for selective device are provided </td></tr>
+        <tr><td> <b>ParseFn</b>   </td><td> Usage of an own specific parse function provided by attribute "parseFn" </td></tr>
+        <tr><td> <b>raw</b>       </td><td> no parsing, events are created from the messages as received without conversion </td></tr>
         </table>
         </ul>
 	    <br>
@@ -2457,7 +2651,14 @@ $CONT = (split(">",$CONT))[1] if($CONT =~ /^<.*>.*$/);
         </table>
         </ul>
 	    <br>   
-              
+         
+        <b>Note for manual setting:</b> <br>   
+        The typical record layout of the format "BSD" or "IETF" starts with: <br><br>
+        <table>  
+        <colgroup> <col width=25%> <col width=75%> </colgroup>
+	    <tr><td> <45>Mar 17 20:23:46 ...       </td><td>-> record start of the BSD message format  </td></tr>
+        <tr><td> <45>1 2019-03-17T19:13:48 ... </td><td>-> record start of the IETF message format  </td></tr>
+        </table>          
     </li>
     </ul>
     <br>
@@ -2667,10 +2868,13 @@ $CONT = (split(">",$CONT))[1] if($CONT =~ /^<.*>.*$/);
     </ul>
     
     Die Definition benötigt keine weiteren Parameter.
-    In der Grundeinstellung wird der Syslog-Server mit dem Port=1514/UDP und dem Parsingprofil "IETF" initialisiert.
-    Mit dem <a href="#Log2Syslogattr">Attribut</a> "parseProfile" können alternativ andere Formate (z.B. BSD) ausgewählt werden.
-    Der Syslog-Server ist sofort betriebsbereit, parst die Syslog-Daten entsprechend der Richtlinien nach RFC5424 und generiert 
-    aus den eingehenden Syslog-Meldungen FHEM-Events (Daten sind im Eventmonitor sichtbar). <br><br>
+    In der Grundeinstellung wird der Syslog-Server mit dem Port=1514/UDP und dem Parsingprofil "Automatic" initialisiert.
+    Mit dem <a href="#Log2Syslogattr">Attribut</a> "parseProfile" können alternativ andere Formate (z.B. BSD oder IETF) ausgewählt werden.
+    Der Syslog-Server ist sofort betriebsbereit, versucht das Format der empfangenen Messages zu erkennen und parst die Syslog-Daten 
+	entsprechend der Richtlinien nach RFC5424 oder RFC3164 und generiert aus den eingehenden Syslog-Meldungen FHEM-Events 
+	(Daten sind im Eventmonitor sichtbar). <br>
+	Wird das Format nicht selbständig erkannt, kann es mit dem Attribut "parseProfile" manuell festgelegt werden.
+	<br><br>
 	
     <br>
     <b>Beispiel für einen Collector: </b><br>
@@ -2727,7 +2931,7 @@ $CONT = (split(">",$CONT))[1] if($CONT =~ /^<.*>.*$/);
     "parseProfile = ParseFn" eingestellt und im <a href="#Log2Syslogattr">Attribut</a> "parseFn" eine spezifische 
     Parse-Funktion hinterlegt. <br>
     Die im Event verwendeten Felder und deren Reihenfolge können aus einem Wertevorrat mit dem 
-    <a href="#Log2Syslogattr">Attribut</a> "outputFields" bestimmt werden. Je nach verwendeten Parse-Funktion können alle oder
+    <a href="#Log2Syslogattr">Attribut</a> "outputFields" bestimmt werden. Je nach verwendeter Parse-Funktion können alle oder
     nur eine Untermenge der verfügbaren Felder verwendet werden. Näheres dazu in der Beschreibung des Attributes "parseProfile". <br>
     <br>
     Das Verhalten der Eventgenerierung kann mit dem <a href="#Log2Syslogattr">Attribut</a> "makeEvent" angepasst werden. <br>
@@ -2759,8 +2963,8 @@ $CONT = (split(">",$CONT))[1] if($CONT =~ /^<.*>.*$/);
     <br><br>
 	
 	Direkt nach der Definition sendet das neue Device alle neu auftretenden FHEM Systemlog Einträge und Events ohne weitere 
-	Einstellungen an den Zielhost, Port=514/UDP Format=IETF, wenn reguläre Ausdrücke für Events/FHEM angegeben wurden. <br>
-	Wurde kein Regex gesetzt, erfolgt keine Weiterleitung von Events oder FHEM Systemlogs. <br><br>
+	Einstellungen an den Zielhost, Port=514/UDP Format=IETF, wenn reguläre Ausdrücke für "event" und/oder "fhem" angegeben wurden. <br>
+	Wurde kein Regex gesetzt, erfolgt keine Weiterleitung von Events oder FHEM-Systemlogs. <br><br>
 	
 	Die Verbose-Level der FHEM Systemlogs werden in entsprechende Schweregrade der Syslog-Messages umgewandelt. <br>
 	Weiterhin wird der Meldungstext der FHEM Systemlogs und Events nach den Signalwörtern "warning" und "error" durchsucht 
@@ -2885,10 +3089,14 @@ Aug 18 21:08:27 fhemtest.myds.me 1 2017-08-18T21:08:27.095 fhemtest.myds.me Test
     <br>
     
     <ul>
-    <li><b>versionNotes </b><br>
+    <li><b>versionNotes [hints | rel | &lt;key&gt;]</b> <br>
         <br>
-        Zeigt Release Informationen und Hinweise zum Modul an. Es sind nur Informationen mit Bedeutung für den Modulnutzer 
-        enthalten.
+        Zeigt Release Informationen und/oder Hinweise zum Modul an. Es sind nur Release Informationen mit Bedeutung für den 
+        Modulnutzer enthalten. <br>
+        Sind keine Optionen angegben, werden sowohl Release Informationen als auch Hinweise angezeigt. "rel" zeigt nur Release
+        Informationen und "hints" nur Hinweise an. Mit der &lt;key&gt;-Angabe wird der Hinweis mit der angegebenen Nummer 
+        angezeigt.
+        Ist das Attribut "language = DE" im global Device gesetzt, erfolgt die Ausgabe der Hinweise in deutscher Sprache.
     </li>
     </ul>
     <br>
@@ -2957,6 +3165,30 @@ Aug 18 21:26:54 fhemtest.myds.me 1 2017-08-18T21:26:54 fhemtest.myds.me Test_eve
     <br>
     <br>
 	
+    <ul>
+	<a name="exclErrCond"></a>
+    <li><b>exclErrCond &lt;Pattern1,Pattern2,Pattern3,...&gt; </b><br>
+        <br>
+        Das Attribut ist nur für "Sender" verwendbar. <br>
+        Wird in einem Event der Text "Error" erkannt, bekommt diese Message automatisch den Schweregrad "Error" zugewiesen.
+        Im Attribut exclErrCond kann eine durch Komma getrennte Liste von Events angegeben werden, deren Schweregrad 
+        trotzdem nicht als "Error" gewertet werden soll. Kommas innerhalb von &lt;Pattern&gt; müssen mit ,, (doppeltes 
+        Komma) escaped werden.
+        Das Attribut kann Zeilenumbrüche enthalten.  <br><br>
+        
+        <b>Beispiel</b>
+        <pre>
+attr &lt;name&gt; exclErrCond Error: none, 
+                        Errorcode: none,
+                        Dum.Energy PV: 2853.0,, Error: none,
+                        .*Seek_Error_Rate_.*,
+                        .*Raw_Read_Error_Rate_.*,
+                        .*sabotageError:.*,
+        </pre>
+    </li>
+    </ul>
+    <br>
+    
     <ul>
 	<a name="logFormat"></a>
     <li><b>logFormat [ BSD | IETF ]</b><br>
@@ -3071,28 +3303,30 @@ $CONT = (split(">",$CONT))[1] if($CONT =~ /^<.*>.*$/);
     
     <ul>
 	<a name="parseProfile"></a>
-    <li><b>parseProfile [ BSD | IETF | ... | ParseFn | raw ] </b><br>
+    <li><b>parseProfile [ Automatic | BSD | IETF | ... | ParseFn | raw ] </b><br>
         <br>
         Auswahl eines Parsing-Profiles. Das Attribut ist nur für Device-Model "Collector" verwendbar.
         <br><br>
     
         <ul>  
         <table>  
-        <colgroup> <col width=20%> <col width=80%> </colgroup>
-	    <tr><td> <b>BSD</b>     </td><td> Parsing der Meldungen im BSD-Format nach RFC3164 </td></tr>
-        <tr><td> <b>IETF</b>    </td><td> Parsing der Meldungen im IETF-Format nach RFC5424 (default) </td></tr>
-		<tr><td> <b>...</b>     </td><td> Es werden weitere angepasste Parsingprofile für ausgewählte Geräte angeboten </td></tr>
-        <tr><td> <b>ParseFn</b> </td><td> Verwendung einer eigenen spezifischen Parsingfunktion im Attribut "parseFn". </td></tr>
-        <tr><td> <b>raw</b>     </td><td> kein Parsing, die Meldungen werden wie empfangen in ein Event umgesetzt </td></tr>
+        <colgroup> <col width=10%> <col width=90%> </colgroup>
+		<tr><td> <b>Automatic</b> </td><td> Es wird versucht das Datenformat zu erkennen und das BSD-Format RFC3164 oder IETF-Format RFC5424 anzuwenden (default) </td></tr>
+	    <tr><td> <b>BSD</b>       </td><td> Parsing der Meldungen im BSD-Format nach RFC3164 </td></tr>
+        <tr><td> <b>IETF</b>      </td><td> Parsing der Meldungen im IETF-Format nach RFC5424 (default) </td></tr>
+		<tr><td> <b>...</b>       </td><td> Es werden weitere angepasste Parsingprofile für ausgewählte Geräte angeboten </td></tr>
+        <tr><td> <b>ParseFn</b>   </td><td> Verwendung einer eigenen spezifischen Parsingfunktion im Attribut "parseFn". </td></tr>
+        <tr><td> <b>raw</b>       </td><td> kein Parsing, die Meldungen werden wie empfangen in einen Event umgesetzt </td></tr>
         </table>
         </ul>
 	    <br>
 
         Die geparsten Informationen werden in Feldern zur Verfügung gestellt. Die im Event erscheinenden Felder und deren 
         Reihenfolge können mit dem Attribut <b>"outputFields"</b> bestimmt werden. <br>
-        Abhängig vom verwendeten "parseProfile" werden die folgenden Felder mit Werten gefüllt und es ist dementsprechend auch 
-        nur sinnvoll die benannten Felder in Attribut "outputFields" zu verwenden. Im raw-Profil werden die empfangenen Daten
-        ohne Parsing in ein Event umgewandelt.
+        Abhängig vom verwendeten "parseProfile" oder erkannten Message-Format (Internal PROFILE) werden die folgenden 
+        Felder mit Werten gefüllt und es ist dementsprechend auch nur sinnvoll die benannten Felder 
+        im Attribut "outputFields" zu verwenden. Im raw-Profil werden die empfangenen Daten ohne Parsing in einen 
+        Event umgewandelt.
         <br><br>
         
         Die sinnvoll im Attribut "outputFields" verwendbaren Felder des jeweilgen Profils sind: 
@@ -3130,8 +3364,15 @@ $CONT = (split(">",$CONT))[1] if($CONT =~ /^<.*>.*$/);
         <tr><td> DATA    </td><td> empfangene Rohdaten </td></tr>
         </table>
         </ul>
-	    <br>   
-              
+	    <br>
+
+        <b>Hinweis für die manuelle Entscheidung:</b> <br>   
+        Der typische Satzaufbau der Formate "BSD" bzw. "IETF" beginnt mit: <br><br>
+        <table>  
+        <colgroup> <col width=25%> <col width=75%> </colgroup>
+	    <tr><td> <45>Mar 17 20:23:46 ...       </td><td>-> Satzstart des BSD-Formats  </td></tr>
+        <tr><td> <45>1 2019-03-17T19:13:48 ... </td><td>-> Satzstart des IETF-Formats  </td></tr>
+        </table>                     
     </li>
     </ul>
     <br>
@@ -3289,4 +3530,52 @@ $CONT = (split(">",$CONT))[1] if($CONT =~ /^<.*>.*$/);
   
 </ul>
 =end html_DE
+
+=for :application/json;q=META.json 93_Log2Syslog.pm
+{
+  "abstract": "forward FHEM system logs/events to a syslog server or act as a syslog server itself",
+  "x_lang": {
+    "de": {
+      "abstract": "sendet FHEM Logs/Events an einen Syslog-Server (Sender) oder agiert selbst als Syslog-Server (Collector)"
+    }
+  },
+  "keywords": [
+    "syslog",
+    "syslog-server",
+    "syslog-client",
+    "logging"
+  ],
+  "version": "v1.1.1",
+  "release_status": "stable",
+  "author": [
+    "Heiko Maaz <heiko.maaz@t-online.de>"
+  ],
+  "x_fhem_maintainer": [
+    "DS_Starter"
+  ],
+  "x_fhem_maintainer_github": [
+    "nasseeder1"
+  ],
+  "prereqs": {
+    "runtime": {
+      "requires": {
+        "FHEM": 5.00918799,
+        "perl": 5.014,
+        "TcpServerUtils": 0,
+        "Scalar::Util": 0,
+        "Encode": 0,   
+        "IO::Socket::INET": 0, 
+        "Net::Domain": 0         
+      },
+      "recommends": {
+        "IO::Socket::SSL": 0,
+        "FHEM::Meta": 0        
+      },
+      "suggests": {
+      }
+    }
+  }
+}
+=end :application/json;q=META.json
+
 =cut

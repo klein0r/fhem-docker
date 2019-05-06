@@ -59,7 +59,7 @@
 #
 # in charge of code: Matscher 
 #
-# $Id: 09_CUL_FHTTK.pm 17083 2018-08-03 09:11:15Z Matscher $
+# $Id: 09_CUL_FHTTK.pm 18391 2019-01-23 19:05:58Z Matscher $
 ##############################################
 package main;
 
@@ -72,10 +72,10 @@ my %fhttfk_codes = (
     "01" => "Window:Open",
     "81" => "Window:Open",
     "0c" => "Sync:Syncing",
-    "91" => "Window:Open, Low Batt",
-    "11" => "Window:Open, Low Batt",
-    "92" => "Window:Closed, Low Batt",
-    "12" => "Window:Closed, Low Batt",
+    "91" => "Window:Open", # Low Batt
+    "11" => "Window:Open", # Low Batt
+    "92" => "Window:Closed", # Low Batt
+    "12" => "Window:Closed", # Low Batt
     "0f" => "Test:Success");
 
 # -wusel, 2009-11-09: Map retransmission codes to major (8x) ones (0x)
@@ -342,7 +342,7 @@ CUL_FHTTK_Parse($$)
   my $batteryReading = "batteryState";
   my $batteryState = "ok";
   
-  if($state eq "11" || $state eq "12") {
+  if($state eq "11" || $state eq "12" || $state eq "91" || $state eq "92") {
     $batteryState = "low";
   }
   

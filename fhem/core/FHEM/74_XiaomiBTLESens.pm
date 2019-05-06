@@ -21,7 +21,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 74_XiaomiBTLESens.pm 17828 2018-11-23 21:51:15Z CoolTux $
+# $Id: 74_XiaomiBTLESens.pm 18600 2019-02-15 08:44:06Z CoolTux $
 #
 ###############################################################################
 
@@ -35,7 +35,7 @@ package main;
 use strict;
 use warnings;
 
-my $version = "2.4.6";
+my $version = "2.4.7";
 
 sub XiaomiBTLESens_Initialize($) {
 
@@ -111,7 +111,8 @@ BEGIN {
           DoTrigger
           BlockingKill
           BlockingCall
-          FmtDateTime)
+          FmtDateTime
+          makeDeviceName)
     );
 }
 

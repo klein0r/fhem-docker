@@ -3,7 +3,7 @@
 
 /* iOS 6 Theme for FHEM */
 /* by Sandra Ohmayer */
-/* http://www.animeschatten.net */
+/* http://www.foodcat.de */
 body {
 	width:100%
 }
@@ -73,6 +73,10 @@ body {
 	width:320px
 }
 
+.SVGplot {
+    width: 265px;
+    overflow: scroll;
+}
 #content,#right {
 	padding:0 10px!important
 }
@@ -97,6 +101,10 @@ body {
 	width:320px
 }
 
+.SVGplot {
+    width: 265px;
+    overflow: scroll;
+}
 #content,#right {
 	padding:0 10px!important
 }
@@ -120,6 +128,10 @@ body {
 	width:375px
 }
 
+.SVGplot {
+    width: 320px;
+    overflow: scroll;
+}
 #content,#right {
 	padding:0 10px!important
 }
@@ -141,6 +153,10 @@ and (orientation : portrait) {
 body {
 	width:414px
 }
+.SVGplot {
+    width: 359px;
+    overflow: scroll;
+}
 }
 
 /* iPhone 6+(landscape) ----------- */
@@ -153,20 +169,11 @@ body {
 }
 
 /*iPad Skalierung*/
-/* iPads (landscape) ----------- */
-@media only screen
-and (min-device-width : 768px)
-and (max-device-width : 1024px)
-and (orientation : landscape) {
-body {
-	width:1024px
-}
-}
 
 /* iPads (portrait) ----------- */
 @media only screen
 and (min-device-width : 768px)
-and (max-device-width : 1024px)
+and (max-device-width : 768px)
 and (orientation : portrait) {
 body {
 	width:768px
@@ -177,7 +184,7 @@ body {
 @media only screen
 and (orientation : portrait) {
 .isAndroidPhone {
-	width:360px
+	width:360px;
 }
 .isAndroidTablet {
 }
@@ -255,11 +262,6 @@ textarea,select,input {
 	box-shadow:0 1px #f7f7f7,inset 0 1px 1px #b6b8bd,inset 0 -2px 2px #fff
 }
 
-textarea,input[type="text"] {
-	background-color:#fff;
-	-webkit-appearance:none;
-	/*width:90%*/
-}
 
 input[type="checkbox"] {
 	border-radius:2px
@@ -273,7 +275,8 @@ select,input[type="submit"],input[type="reset"],input[type="button"] {
 }
 
 input[type="text"] {
-	height:25px
+    height: 23px;
+    margin: 9px;
 }
 
 tr.column td {
@@ -492,7 +495,7 @@ table.room tr.sel a svg {
 }
 
 #content table {
-	width:100%!important
+	width:100%;
 }
 
 #content > form > .CodeMirror {
@@ -587,7 +590,8 @@ table.block td {
 
 table.block td {
 	border-top:1px solid #fdfdfd;
-	border-bottom:1px solid #cbcbcb
+	border-bottom:1px solid #cbcbcb;
+	padding-right: 9px;
 }
 
 table.block tr:first-child td {
@@ -600,7 +604,7 @@ table.block tr:last-child td {
 
 .block td:first-child {
 	padding-left:10px;
-	font-weight:700
+	font-weight:700;
 }
 
 .block > tbody > tr > td:last-child {
@@ -722,15 +726,19 @@ table.room tr.sel a:hover svg {
 	box-shadow:0 1px #fefefe,inset 0 1px #d7d7d7;
 	background:#f7f7f7
 }
+.colorpicker {
+	display: inline-block;
+}
 
 .slider {
-	margin-top:10px;
+	margin-top: 4px;
+    margin-bottom: 4px;
 	display:inline-block;
 	-webkit-box-sizing:border-box;
 	-moz-box-sizing:padding-box;
 	box-sizing:padding-box;
-	height:9px;
-	width:120px;
+	height:28px;
+	width:250px;
 	padding:1px;
 	-webkit-border-radius:4px;
 	-moz-border-radius:4px;
@@ -753,10 +761,10 @@ table.room tr.sel a:hover svg {
 	box-shadow:inset 0 1px #e8e8e8;
 	border:1px solid #9d9d9d;
 	color:#666;
-	height:15px;
-	width:18px;
+	height:26px;
+	width:20px;
 	left:0;
-	top:-6px;
+	top:-2px;
 	-webkit-border-radius:10px;
 	-moz-border-radius:10px;
 	border-radius:10px;
@@ -791,15 +799,18 @@ table.room tr.sel a:hover svg {
 /* next lines are for remotecontrol */
 .rc_body {
 	border-style:solid;
-	border-color:gray;
+	border-radius: 7px;
+	border-color:#7b7b7b;
 	border-width:2px;
 	padding:5px;
-	background:#C8C8B0;
-	font-size:6px
+	background:#FFF;
+	font-size:6px;
+	width: auto!important;
+	margin-top: 8px;
 }
 
 .rc_button {
-	padding:5px 7px
+	padding:6px 8px
 }
 
 .rc_button img {
@@ -810,6 +821,10 @@ table.room tr.sel a:hover svg {
 
 .rc_button img:active {
 	border-color:gray
+}
+
+.rc_BLANK_svg {
+    height: 10px;
 }
 
 .colorpicker {

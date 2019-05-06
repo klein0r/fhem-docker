@@ -1,4 +1,4 @@
-# $Id: 34_ESPEasy.pm 18168 2019-01-07 08:57:55Z dev0 $
+# $Id: 34_ESPEasy.pm 18608 2019-02-16 09:03:52Z dev0 $
 ################################################################################
 #
 #  34_ESPEasy.pm is a FHEM Perl module to control ESP82xx/ESP32 /w ESPEasy
@@ -37,7 +37,7 @@ use HttpUtils;
 use Color;
 use SetExtensions;
 
-my $module_version      = "2.15";     # Version of this module
+my $module_version      = "2.18";     # Version of this module
 
 # ------------------------------------------------------------------------------
 # modul version and required ESP Easy firmware / JSON lib version
@@ -257,7 +257,7 @@ sub ESPEasy_initDevSets($)
       serialsend       => { args => 1, url => $d_urlPlg, widget => "",      usage => "<string>" },  #_P020_Ser2Net.ino
       buzzer           => { args => 0, url => $d_urlPlg, widget => "",      usage => "" },
       inputswitchstate => { args => 0, url => $d_urlPlg, widget => "",      usage => "" },
-      nfx              => { args => 1, url => $d_urlPlg, widget => "",      usage => "<off|on|dim|line|one|all|rgb|fade|colorfade|rainbow|kitt|comet|theatre|scan|dualscan|twinkle|twinklefade|sparkle|wipe|fire|stop> <parameter>" },
+      nfx              => { args => 1, url => $d_urlPlg, widget => "",      usage => "<off|on|dim|line|one|all|rgb|fade|colorfade|rainbow|kitt|comet|theatre|scan|dualscan|twinkle|twinklefade|sparkle|wipe|dualwipe|fire|fireflicker|stop> <parameter>" },
       event            => { args => 1, url => $d_urlPlg, widget => "",      usage => "<string>" },  #changed url to sys-url;
       # rules related commands
       deepsleep        => { args => 1, url => $d_urlSys, widget => "",      usage => "<duration in s>" },
@@ -325,6 +325,7 @@ sub ESPEasy_initDevSets($)
       dualscan         => { args => 1, url => $d_urlPlg, widget => $cp_rgb, usage => "<rrggbb> [rrggbb background] [speed 0-50]" },
       fade             => { args => 1, url => $d_urlPlg, widget => $cp_rgb, usage => "<rrggbb> [fadetime ms] [delay +/-ms]" },
       fire             => { args => 0, url => $d_urlPlg, widget => "",      usage => "[fps] [brightness 0-255] [cooling 20-100] [sparking 50-200]" },
+      fireflicker      => { args => 0, url => $d_urlPlg, widget => "",      usage => "[intensity 0-255] [speed 0-50]" },
       kitt             => { args => 1, url => $d_urlPlg, widget => "",      usage => "<rrggbb> [speed 0-50]" },
       line             => { args => 3, url => $d_urlPlg, widget => "",      usage => "<startpixel> <endpixel> <rrggbb>" },
       one              => { args => 2, url => $d_urlPlg, widget => "",      usage => "<pixel> <rrggbb>" },
@@ -335,6 +336,7 @@ sub ESPEasy_initDevSets($)
       twinkle          => { args => 1, url => $d_urlPlg, widget => $cp_rgb, usage => "<rrggbb> [rrggbb background] [speed 0-50]" },
       twinklefade      => { args => 1, url => $d_urlPlg, widget => $cp_rgb, usage => "<rrggbb> [number of pixels] [speed 0-50]" },
       wipe             => { args => 1, url => $d_urlPlg, widget => $cp_rgb, usage => "<rrggbb> [rrggbb dot] [speed +/- 0-50]" },
+      dualwipe         => { args => 1, url => $d_urlPlg, widget => $cp_rgb, usage => "<rrggbb> [rrggbb dot] [speed +/- 0-50]" },
       faketv           => { args => 0, url => $d_urlPlg, widget => "",      usage => "[startpixel] [endpixel]" },
       simpleclock      => { args => 0, url => $d_urlPlg, widget => "",      usage => "[bigtickcolor] [smalltickcolor] [hourcolor] [minutecolor] [secondcolor]" },
       count            => { args => 1, url => $d_urlPlg, widget => "slider,1,1,50",        usage => "<value>" },
@@ -1380,7 +1382,7 @@ sub ESPEasy_Attr(@)
   }
 
   elsif ($aName =~ m/^(autosave|autocreate|authentication|disable|deepsleep)$/
-      || $aName =~ m/^(presenceCheck|displayTextEncode|resendFailedCmd)$/) {
+      || $aName =~ m/^(presenceCheck|displayTextEncode)$/) {
   $ret = "0,1" if ($cmd eq "set" && not $aVal =~ m/^(0|1)$/)}
 
   elsif ($aName eq "combineDevices") {
@@ -1909,7 +1911,9 @@ sub ESPEasy_httpReq(@)
   else {
     my $plist = join(",",@cmdArgs);    # join cmd params into a string to be used in http url
     $plist = ",".$plist if @cmdArgs;   # add leading comma if defined
-    $url = "http://".$host.":".$port.$path.$cmd.$plist; # build full url
+    $url = "http://".$host.":".$port.$path; # build base url
+    $url .= $cmd if($data{ESPEasy}{$dname}{sets}{$cmd}{args} ne "-1"); #Forum 97301
+    $url .= $plist;
   }
 
   my $httpParams = {
@@ -1952,12 +1956,14 @@ sub ESPEasy_httpReqParse($$$)
   $hash->{helper}{sessions}{$host}--;
 
   if ($err ne "") {
-    push(@values, "e||_lastError||$err||0"); # dispatch $err to logical device
+    push(@values, "e||_lastError||$err||0") # dispatch $err to logical device
+      if $cmd ne "deepsleep";               # but not if cmd == deepsleep or logical loglevel below 4.
     $hash->{"WARNING_$host"} = $err;        # keep in helper for support reason
 
     #Log3 $name, 2, "$type $name: httpReq failed: $host $ident '$cmd $plist' ";
     #Log3 $name, 2, "$type $name: set $dname $cmd". ($plist ne "" ?" $plist": "")." failed: $err" ;
-    Log3 $name, 2, "$type $name: $err [set $dname $cmd". ($plist ne ""?" $plist":"") ."]";
+    my $ll = $cmd eq "deepsleep" ? 4 : 2;
+    Log3 $name, $ll, "$type $name: $err [set $dname $cmd". ($plist ne ""?" $plist":"") ."]";
 
     # unshift command back to queue (resend) if retry not reached
     my $maxRetry = AttrVal($name,"resendFailedCmd",$d_resendFailedCmd);
@@ -4022,11 +4028,13 @@ sub ESPEasy_dumpSingleLine($)
           <tr><td>count</td>       <td>&lt;value&gt;</td></tr>
           <tr><td>dim</td>         <td>&lt;value 0-255&gt;</td></tr>
           <tr><td>dualscan</td>    <td>&lt;rrggbb&gt; [rrggbb background] [speed 0-50]</td></tr>
+          <tr><td>dualwipe</td>    <td>&lt;rrggbb&gt; [rrggbb dot] [speed +/- 0-50]</td></tr>
           <tr><td>fade</td>        <td>&lt;rrggbb&gt; [fadetime ms] [delay +/-ms]</td></tr>
           <tr><td>fadedelay</td>   <td>&lt;value in +/-ms&gt;</td></tr>
           <tr><td>fadetime</td>    <td>&lt;value in ms&gt;</td></tr>
           <tr><td>faketv</td>      <td>[startpixel] [endpixel]</td></tr>
           <tr><td>fire</td>        <td>[fps] [brightness 0-255] [cooling 20-100] [sparking 50-200]</td></tr>
+          <tr><td>fireflicker</td> <td>[intensity 0-255] [speed 0-50]</td></tr>
           <tr><td>kitt</td>        <td>&lt;rrggbb&gt; [speed 0-50]</td></tr>
           <tr><td>line</td>        <td>&lt;startpixel&gt; &lt;endpixel&gt; &lt;rrggbb&gt;</td></tr>
           <tr><td>off</td>         <td>[fadetime] [delay +/-ms]</td></tr>
@@ -4537,7 +4545,12 @@ sub ESPEasy_dumpSingleLine($)
       Argument must be a <a href="https://perldoc.perl.org/perldsc.html#Declaration-of-a-HASH-OF-HASHES">perl hash</a>.
       The following hash keys can be used. An omitted key will be replaced with the appropriate default value.<br>
       <ul>
-        <li><code>args:</code> minimum number of required arguments. Default: 0</li>
+        <li><code>args:</code> minimum number of required arguments for set cmd.
+          Default: 0, no additional arguments required.<br>
+          [Special case: if set to -1 then &lt;FHEM cmd&gt; will not be added to
+          &lt;ESP Easy cmd&gt;. Useful if &lt;FHEM cmd&gt; differs from
+          &lt;ESP Easy cmd&gt;. &lt;ESP Easy cmd&gt; must then be part of url hash key. See
+          <a href="https://forum.fhem.de/index.php?topic=97301">Forum</a> or example myCmd4 below.]</li>
         <li><code>url:</code> ESPEasy URL to be called. Default: "/control?cmd="</li>
         <li><code>widget:</code> <a href="#widgetOverride">FHEM widget</a> to be
           used for this set command. Default: none
@@ -4568,6 +4581,7 @@ sub ESPEasy_dumpSingleLine($)
           <li><code>( myCmd1 =&gt; {}, myCmd2 =&gt; {} )</code></li>
           <li><code>( myCmd3 =&gt; {args =&gt; 2, url =&gt; "/?cmd=", widget=&gt; "",
                     usage =&gt; "&lt;param1&gt; &lt;param2&gt;"} )</code></li>
+          <li><code>( myCmd4 =&gt; {url =&gt;"/control?cmd=event,myevent", args =&gt; -1} )</code></li>
        </ul>
       <br>
 

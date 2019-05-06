@@ -1,7 +1,7 @@
 ################################################################
 # 98_apptime:application timing
-# $Id: 98_apptime.pm 16460 2018-03-21 18:08:15Z martinp876 $
-# based on $Id: 98_apptime.pm 16460 2018-03-21 18:08:15Z martinp876 $
+# $Id: 98_apptime.pm 18729 2019-02-25 08:27:59Z betateilchen $
+# based on $Id: 98_apptime.pm 18729 2019-02-25 08:27:59Z betateilchen $
 ################################################################
 
 # for use with fhem.pl 16214+ due to change in timers
@@ -319,7 +319,7 @@ sub apptime_CommandDispTiming($$@) {
 
 <a name="apptime"></a>
 <h3>apptime</h3>
-<div style="padding-left: 2ex;">
+
   <h4><code>apptime</code></h4>
     <p>
         apptime provides information about application procedure execution time.
@@ -409,7 +409,7 @@ sub apptime_CommandDispTiming($$@) {
             <p>
                 Number of calls for this procedure.
             </p>
-        </dt>
+        </dd>
         <dt><strong>total</strong></dt>
         <dd>
             <p>
@@ -436,7 +436,6 @@ sub apptime_CommandDispTiming($$@) {
             </p>
         </dd>
     </dl>
-</div>
 
 =end html
 =cut

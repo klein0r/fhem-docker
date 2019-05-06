@@ -2,7 +2,7 @@
 #
 # Developed with Kate
 #
-#  (c) 2017-2018 Copyright: Marko Oldenburg (leongaultier at gmail dot com)
+#  (c) 2017-2019 Copyright: Marko Oldenburg (leongaultier at gmail dot com)
 #  All rights reserved
 #
 #   Special thanks goes to comitters:
@@ -28,7 +28,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 74_GardenaSmartDevice.pm 17555 2018-10-17 20:06:58Z CoolTux $
+# $Id: 74_GardenaSmartDevice.pm 19245 2019-04-23 10:46:50Z CoolTux $
 #
 ###############################################################################
 ##
@@ -57,8 +57,9 @@ package main;
 
 use strict;
 use warnings;
+use FHEM::Meta;
 
-my $version = "1.4.0";
+my $version = "1.6.1";
 
 sub GardenaSmartDevice_Initialize($) {
 
@@ -66,15 +67,15 @@ sub GardenaSmartDevice_Initialize($) {
 
     $hash->{Match} = '^{"id":".*';
 
-    $hash->{SetFn}   = "GardenaSmartDevice::Set";
-    $hash->{DefFn}   = "GardenaSmartDevice::Define";
-    $hash->{UndefFn} = "GardenaSmartDevice::Undef";
-    $hash->{ParseFn} = "GardenaSmartDevice::Parse";
+    $hash->{SetFn}   = "FHEM::GardenaSmartDevice::Set";
+    $hash->{DefFn}   = "FHEM::GardenaSmartDevice::Define";
+    $hash->{UndefFn} = "FHEM::GardenaSmartDevice::Undef";
+    $hash->{ParseFn} = "FHEM::GardenaSmartDevice::Parse";
 
-    $hash->{AttrFn} = "GardenaSmartDevice::Attr";
+    $hash->{AttrFn} = "FHEM::GardenaSmartDevice::Attr";
     $hash->{AttrList} =
         "readingValueLanguage:de,en "
-      . "model:watering_computer,sensor,mower,ic24 "
+      . "model:watering_computer,sensor,mower,ic24,power "
       . "IODev "
       . $readingFnAttributes;
 
@@ -83,12 +84,14 @@ sub GardenaSmartDevice_Initialize($) {
         my $hash = $modules{GardenaSmartDevice}{defptr}{$d};
         $hash->{VERSION} = $version;
     }
+    
+    return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 ## unserer packagename
-package GardenaSmartDevice;
+package FHEM::GardenaSmartDevice;
 
-use GPUtils qw(:all)
+use GPUtils qw(GP_Import)
   ;    # wird für den Import der FHEM Funktionen aus der fhem.pl benötigt
 
 my $missingModul = "";
@@ -96,6 +99,7 @@ my $missingModul = "";
 use strict;
 use warnings;
 use POSIX;
+use FHEM::Meta;
 
 use Time::Local;
 
@@ -126,6 +130,7 @@ sub Define($$) {
     my ( $hash, $def ) = @_;
     my @a = split( "[ \t]+", $def );
 
+    return $@ unless ( FHEM::Meta::SetInternals($hash) );
     return
       "too few parameters: define <NAME> GardenaSmartDevice <device_Id> <model>"
       if ( @a < 3 );
@@ -238,7 +243,7 @@ sub Set($@) {
           SetPredefinedStartPoints( $hash, @args );
         return $err if ( defined($err) );
 
-        ### watering_computer
+    ### watering_computer
     }
     elsif ( lc $cmd eq 'manualoverride' ) {
 
@@ -251,8 +256,15 @@ sub Set($@) {
 
         $payload = '"name":"cancel_override"';
 
-        ### Watering ic24
+        
     }
+    elsif ( lc $cmd eq 'on' or lc $cmd eq 'off' or lc $cmd eq 'on-for-timer' ) {
+    
+        my $val = ( defined($args[0]) ? join(" ", @args)*60 : lc $cmd );
+        $payload =
+            '"properties":{"value":"' . $val . '"}';
+    }
+    ### Watering ic24
     elsif ( $cmd =~ /manualDurationValve/ ) {
 
         my $valve_id;
@@ -304,6 +316,8 @@ sub Set($@) {
           if ( AttrVal( $name, 'model', 'unknown' ) eq 'ic24' );
         $list .= 'refresh:temperature,light,humidity'
           if ( AttrVal( $name, 'model', 'unknown' ) eq 'sensor' );
+        $list .= 'on:noArg off:noArg on-for-timer:slider,0,1,60'
+          if ( AttrVal( $name, 'model', 'unknown' ) eq 'power' );
 
         return "Unknown argument $cmd, choose one of $list";
     }
@@ -315,6 +329,8 @@ sub Set($@) {
       if ( AttrVal( $name, 'model', 'unknown' ) eq 'watering_computer' );
     $abilities = 'watering'
       if ( AttrVal( $name, 'model', 'unknown' ) eq 'ic24' );
+    $abilities = 'power'
+      if ( AttrVal( $name, 'model', 'unknown' ) eq 'power' );
 
     $hash->{helper}{deviceAction} = $payload;
     readingsSingleUpdate( $hash, "state", "send command to gardena cloud", 1 );
@@ -542,10 +558,18 @@ sub WriteReadings($$) {
           . (
             ReadingsVal(
                 $name, 'scheduling-scheduled_watering_next_start',
-                'readingsValError'
+                'no timer'
             )
           )
     ) if ( AttrVal( $name, 'model', 'unknown' ) eq 'ic24' );
+    
+    readingsBulkUpdate(
+        $hash, 'state',
+        ReadingsVal(
+                $name, 'power-power_timer',
+                'no info from power-timer'
+            )
+    ) if ( AttrVal( $name, 'model', 'unknown' ) eq 'power' );
 
     readingsEndUpdate( $hash, 1 );
 
@@ -717,7 +741,7 @@ sub Zulu2LocalString($) {
         );
     }
     elsif ( $lyear < 2000 ) {
-        return "illegal year";
+        return 'temporarily unavailable';
     }
     else {
         return (
@@ -1090,4 +1114,49 @@ sub SetPredefinedStartPoints($@) {
 </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 74_GardenaSmartDevice.pm
+{
+  "abstract": "Modul to control GardenaSmart Devices",
+  "x_lang": {
+    "de": {
+      "abstract": "Modul zur Steuerung von Gardena Smart Ger&aumlten"
+    }
+  },
+  "keywords": [
+    "fhem-mod-device",
+    "fhem-core",
+    "Garden",
+    "Gardena",
+    "Smart"
+  ],
+  "release_status": "stable",
+  "license": "GPL_2",
+  "author": [
+    "Marko Oldenburg <leongaultier@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "CoolTux"
+  ],
+  "x_fhem_maintainer_github": [
+    "LeonGaultier"
+  ],
+  "prereqs": {
+    "runtime": {
+      "requires": {
+        "FHEM": 5.00918799,
+        "perl": 5.016, 
+        "Meta": 0,
+        "JSON": 0,
+        "Time::Local": 0
+      },
+      "recommends": {
+      },
+      "suggests": {
+      }
+    }
+  }
+}
+=end :application/json;q=META.json
+
 =cut

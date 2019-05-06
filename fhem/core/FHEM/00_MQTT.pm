@@ -21,7 +21,7 @@
 #     You should have received a copy of the GNU General Public License
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-# $Id: 00_MQTT.pm 17362 2018-09-17 12:57:29Z hexenmeister $
+# $Id: 00_MQTT.pm 18719 2019-02-24 20:20:51Z hexenmeister $
 #
 ##############################################
 
@@ -61,7 +61,7 @@ sub MQTT_Initialize($) {
   $hash->{NotifyFn}   = "MQTT::Notify";
   $hash->{AttrFn}     = "MQTT::Attr";
 
-  $hash->{AttrList} = "keep-alive "."last-will client-id "."on-connect on-disconnect on-timeout ".$main::readingFnAttributes;
+  $hash->{AttrList} = "keep-alive "."last-will client-id "."on-connect on-disconnect on-timeout privacy:1,0 ".$main::readingFnAttributes;
 }
 
 package MQTT;

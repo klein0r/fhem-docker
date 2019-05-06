@@ -25,7 +25,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 82_LGTV_WebOS.pm 17055 2018-07-30 18:19:15Z CoolTux $
+# $Id: 82_LGTV_WebOS.pm 18305 2019-01-17 20:44:42Z CoolTux $
 #
 ###############################################################################
 
@@ -69,7 +69,7 @@ eval "use Blocking;1" or $missingModul .= "Blocking ";
 
 
 
-my $version = "2.0.8";
+my $version = "2.0.9";
 
 
 
@@ -170,36 +170,11 @@ my %openApps = (
             'Arte'                      => 'com.3827031.168353',
             'WetterMeteo'               => 'meteonews',
             'Notificationcenter'        => 'com.webos.app.notificationcenter',
-            'Plex'                      => 'cdp-30'
+            'Plex'                      => 'cdp-30',
+            'SkyOnline'                 => 'de.sky.skyonline'
 );
 
-my %openAppsPackageName = (
-
-            'maxdome'                           => 'Maxdome',
-            'lovefilm.de'                       => 'AmazonLovefilm',
-            'amazon'                            => 'AmazonVideo',
-            'youtube.leanback.v4'               => 'YouTube',
-            'netflix'                           => 'Netflix',
-            'com.webos.app.livetv'              => 'TV',
-            'googleplaymovieswebos'             => 'GooglePlay',
-            'com.webos.app.browser'             => 'Browser',
-            'Chilieu'                           => 'Chili.tv',
-            'de.2kit.castbrowsing'              => 'TVCast',
-            'com.webos.app.smartshare'          => 'Smartshare',
-            'com.webos.app.scheduler'           => 'Scheduler',
-            'com.webos.app.miracast'            => 'Miracast',
-            'com.webos.app.tvguide'             => 'TVGuide',
-            'com.webos.app.timemachine'         => 'Timemachine',
-            'ard.mediathek'                     => 'ARDMediathek',
-            'com.3827031.168353'                => 'Arte',
-            'meteonews'                         => 'WetterMeteo',
-            'com.webos.app.notificationcenter'  => 'Notificationcenter',
-            'cdp-30'                            => 'Plex'
-);
-
-
-
-
+my %openAppsPackageName = reverse %openApps;
 
 sub LGTV_WebOS_Initialize($) {
 
@@ -237,7 +212,7 @@ sub LGTV_WebOS_Define($$) {
     
 
     return "too few parameters: define <name> LGTV_WebOS <HOST>" if( @a != 3 );
-    return "Cannot define LGTV_WebOS device. Perl modul ${missingModul}is missing." if ( $missingModul );
+    return "Cannot define LGTV_WebOS device. Perl modul ${missingModul} is missing." if ( $missingModul );
     
 
 
@@ -564,7 +539,7 @@ sub LGTV_WebOS_Set($@) {
 
     } else {
         my  $list = ""; 
-        $list .= "connect:noArg pairing:noArg screenMsg mute:on,off volume:slider,0,1,100 volumeUp:noArg volumeDown:noArg channelDown:noArg channelUp:noArg getServiceList:noArg on:noArg off:noArg launchApp:Maxdome,AmazonLovefilm,AmazonVideo,YouTube,Netflix,TV,GooglePlay,Browser,Chilieu,TVCast,Smartshare,Scheduler,Miracast,TVGuide,Timemachine,ARDMediathek,Arte,WetterMeteo,Notificationcenter,Plex 3D:on,off stop:noArg play:noArg pause:noArg rewind:noArg fastForward:noArg clearInputList:noArg input:$inputs channel";
+        $list .= "connect:noArg pairing:noArg screenMsg mute:on,off volume:slider,0,1,100 volumeUp:noArg volumeDown:noArg channelDown:noArg channelUp:noArg getServiceList:noArg on:noArg off:noArg launchApp:Maxdome,AmazonLovefilm,AmazonVideo,YouTube,Netflix,TV,GooglePlay,Browser,Chilieu,TVCast,Smartshare,Scheduler,Miracast,TVGuide,Timemachine,ARDMediathek,Arte,WetterMeteo,Notificationcenter,Plex,SkyOnline 3D:on,off stop:noArg play:noArg pause:noArg rewind:noArg fastForward:noArg clearInputList:noArg input:$inputs channel";
         return "Unknown argument $cmd, choose one of $list";
     }
 

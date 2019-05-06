@@ -1,9 +1,10 @@
 ###############################################################################
-# $Id: 75_msgConfig.pm 15167 2017-10-01 18:46:23Z loredo $
+# $Id: 75_msgConfig.pm 18995 2019-03-22 20:09:53Z loredo $
 package main;
 use strict;
 use warnings;
 use Data::Dumper;
+use FHEM::Meta;
 
 # initialize ##################################################################
 sub msgConfig_Initialize($) {
@@ -144,6 +145,8 @@ sub msgConfig_Initialize($) {
     {
         addToAttrList($_);
     }
+
+    return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 # regular Fn ##################################################################
@@ -159,7 +162,12 @@ sub msgConfig_Define($$) {
 
     return "Global configuration device already defined: "
       . $modules{$TYPE}{defptr}{NAME}
-      if ( defined( $modules{$TYPE}{defptr} ) );
+      if ( defined( $modules{$TYPE}{defptr} )
+        && $init_done
+        && !defined( $hash->{OLDDEF} ) );
+
+    # Initialize the device
+    return $@ unless ( FHEM::Meta::SetInternals($hash) );
 
     # create global unique device definition
     $modules{$TYPE}{defptr} = $hash;
@@ -880,5 +888,24 @@ This next step is basically to set attribute msgResidentsDevice to refer to this
     </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 75_msgConfig.pm
+{
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ],
+  "keywords": [
+    "configure",
+    "messaging",
+    "messenger"
+  ]
+}
+=end :application/json;q=META.json
 
 =cut

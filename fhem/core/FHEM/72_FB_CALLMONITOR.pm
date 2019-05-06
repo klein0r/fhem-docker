@@ -1,4 +1,4 @@
-# $Id: 72_FB_CALLMONITOR.pm 18194 2019-01-09 16:32:22Z markusbloch $
+# $Id: 72_FB_CALLMONITOR.pm 18449 2019-01-29 19:21:50Z markusbloch $
 ##############################################################################
 #
 #     72_FB_CALLMONITOR.pm
@@ -817,7 +817,7 @@ FB_CALLMONITOR_reverseSearch($$)
                     else
                     {
                         #Debug($result);
-                        if($result =~ m,<h1 [^>]*itemprop="name"[^>]*>([^<]+)</h1>,)
+                        if($result =~ m,<li\s+[^>]*class="search-result-list-item"\s+[^>]*data-name="([^"]+)",s or $result =~ m,<h\d [^>]*itemprop="name"[^>]*>([^<]+)</h\d>,)
                         {
                             $invert_match = $1;
                             $invert_match = FB_CALLMONITOR_html2txt($invert_match);

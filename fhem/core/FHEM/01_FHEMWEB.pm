@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 01_FHEMWEB.pm 18111 2019-01-01 14:41:21Z rudolfkoenig $
+# $Id: 01_FHEMWEB.pm 19335 2019-05-05 18:05:33Z rudolfkoenig $
 package main;
 
 use strict;
@@ -15,6 +15,7 @@ sub FW_IconURL($);
 sub FW_addContent(;$);
 sub FW_addToWritebuffer($$@);
 sub FW_answerCall($);
+sub FW_confFiles($);
 sub FW_dev2image($;$);
 sub FW_devState($$@);
 sub FW_digestCgi($);
@@ -56,6 +57,7 @@ use vars qw($FW_dir);     # base directory for web server
 use vars qw($FW_icondir); # icon base directory
 use vars qw($FW_cssdir);  # css directory
 use vars qw($FW_gplotdir);# gplot directory
+use vars qw($FW_confdir); # conf dir
 use vars qw($MW_dir);     # moddir (./FHEM), needed by edit Files in new
                           # structure
 
@@ -106,6 +108,7 @@ my %FW_icons;      # List of icons
 my @FW_iconDirs;   # Directory search order for icons
 my $FW_RETTYPE;    # image/png or the like
 my %FW_rooms;      # hash of all rooms
+my %FW_extraRooms; # hash of extra rooms
 my @FW_roomsArr;   # ordered list of rooms
 my %FW_groups;     # hash of all groups
 my %FW_types;      # device types, for sorting
@@ -165,6 +168,7 @@ FHEMWEB_Initialize($)
     editFileList:textField-long
     endPlotNow:1,0
     endPlotToday:1,0
+    extraRooms:textField-long
     forbiddenroom
     fwcompress:0,1
     hiddengroup
@@ -219,8 +223,7 @@ FHEMWEB_Initialize($)
     "widgetOverride"
   );
 
-  InternalTimer(time()+60, "FW_closeInactiveClients", 0, 0);
-
+  $FW_confdir  = "$attr{global}{modpath}/conf";
   $FW_dir      = "$attr{global}{modpath}/www";
   $FW_icondir  = "$FW_dir/images";
   $FW_cssdir   = "$FW_dir/pgm2";
@@ -256,6 +259,12 @@ FHEMWEB_Initialize($)
       $FW_use{$mod} = 1;
     }
   }
+
+  $cmds{show} = { 
+    Fn=>"FW_show", ClientFilter=>"FHEMWEB",
+    Hlp=>"<devspec>, show temporary room with devices from <devspec>"
+  };
+
 }
 
 #####################################
@@ -268,6 +277,10 @@ FW_Define($$)
         if($port !~ m/^(IPV6:)?\d+$/);
 
   FW_Undef($hash, undef) if($hash->{OLDDEF}); # modify
+
+  RemoveInternalTimer(0, "FW_closeInactiveClients");
+  InternalTimer(time()+60, "FW_closeInactiveClients", 0, 0);
+
 
   foreach my $pe ("fhemSVG", "openautomation", "default") {
     FW_readIcons($pe);
@@ -362,6 +375,11 @@ FW_Read($$)
     my $mask = (ord(substr($hash->{BUF},1,1)) & 0x80)?1:0;
     my $len  = (ord(substr($hash->{BUF},1,1)) & 0x7F);
     my $i = 2;
+
+    if($op == 8) {
+      TcpServer_Close($hash, 1);
+      return;
+    }
 
     if( $len == 126 ) {
       $len = unpack( 'n', substr($hash->{BUF},$i,2) );
@@ -499,6 +517,7 @@ FW_Read($$)
        "Upgrade: websocket\r\n" .
        "Connection: Upgrade\r\n" .
        "Sec-WebSocket-Accept:$shastr=\r\n".
+      $FW_headerlines.
        "\r\n" );
     $FW_chash->{websocket} = 1;
 
@@ -718,7 +737,8 @@ sub
 FW_closeConn($)
 {
   my ($hash) = @_;
-  if(!$hash->{inform} && !$hash->{BUF}) { # Forum #41125
+  # Forum #41125, 88470
+  if(!$hash->{inform} && !$hash->{BUF} && !defined($hash->{".WRITEBUFFER"})) {
     my $cc = AttrVal($hash->{SNAME}, "closeConn",
                      $FW_userAgent =~ m/(iPhone|iPad|iPod)/);
     if(!$FW_httpheader{Connection} || $cc) {
@@ -1236,6 +1256,19 @@ FW_updateHashes()
     $FW_types{$d} = $t;
   }
 
+  %FW_extraRooms = ();
+  if(my $extra = AttrVal($FW_wname, "extraRooms", undef)) {
+    foreach my $room (split(/ |\n/, $extra)) {
+      next if(!$room || $room =~ /^#/);
+      $room =~ m/name=([^:]+):devspec=([^\s]+)/;
+      my $r = $1;
+      my $d = "#devspec=$2";
+      $FW_rooms{$r}{$d} = 1;
+      $FW_extraRooms{$r} = $d;
+    }
+  }
+
+
   $FW_room = AttrVal($FW_detail, "room", "Unsorted") if($FW_detail);
 
   if(AttrVal($FW_wname, "sortRooms", "")) { # Slow!
@@ -1588,8 +1621,16 @@ FW_roomOverview($)
     next if($r eq "hidden" || $FW_hiddenroom{$r});
     $FW_room = AttrVal($FW_wname, "defaultRoom", $r)
         if(!$FW_room && $FW_ss);
-    push @list1, FW_htmlEscape($r);
-    push @list2, "$FW_ME?room=".urlEncode($r);
+    if(my $devspec = $FW_extraRooms{$r}) {
+      my $r = $r;
+      $r =~ s/&nbsp;/ /g;
+      push @list1, FW_htmlEscape($r);
+      push @list2, "$FW_ME?room=".urlEncode($devspec);
+    } else {
+      push @list1, FW_htmlEscape($r);
+      push @list2, "$FW_ME?room=".urlEncode($r);
+    }
+
   }
   my $sfx = AttrVal("global", "language", "EN");
   $sfx = ($sfx eq "EN" ? "" : "_$sfx");
@@ -1639,6 +1680,9 @@ FW_roomOverview($)
 
     my $tblnr = 1;
     my $roomEscaped = FW_htmlEscape($FW_room);
+    my $current;
+    $current = "$FW_ME?room=".urlEncode($FW_room) if($FW_room);
+    $current = "$FW_ME?cmd=".urlEncode($cmd) if($cmd);
     foreach(my $idx = 0; $idx < @list1; $idx++) {
       my ($l1, $l2) = ($list1[$idx], $list2[$idx]);
       if(!$l1) {
@@ -1649,7 +1693,7 @@ FW_roomOverview($)
         }
 
       } else {
-        FW_pF "<tr%s>", $l1 eq $roomEscaped ? " class=\"sel\"" : "";
+        FW_pF "<tr%s>", ($current && $current eq $l2) ? " class=\"sel\"" : "";
 
         my $class = "menu_$l1";
         $class =~ s/[^A-Z0-9]/_/gi;
@@ -1851,8 +1895,16 @@ FW_showRoom()
 
   # array of all device names in the room (exception weblinks without group
   # attribute)
-  my @devs= grep { (($FW_rooms{$FW_room} && $FW_rooms{$FW_room}{$_}) ||
-                    $FW_room eq "all") && !IsIgnored($_) } keys %defs;
+  my @devs;
+  if( $FW_room =~ m/^#devspec=(.*)$/ ) {
+    @devs = devspec2array($1) if( $1 );
+    @devs = () if( int(@devs) == 1 && !defined($defs{$devs[0]}) );
+
+  } else {
+    @devs= grep { (($FW_rooms{$FW_room} && $FW_rooms{$FW_room}{$_}) ||
+                   $FW_room eq "all") && !IsIgnored($_) } keys %defs;
+  }
+
   my (%group, @atEnds, %usuallyAtEnd, %sortIndex);
   my $nDevsInRoom = 0;
   foreach my $dev (@devs) {
@@ -2208,6 +2260,7 @@ sub
 FW_displayFileList($@)
 {
   my ($heading,@files)= @_;
+  return if(!@files);
   my $hid = lc($heading);
   $hid =~ s/[^A-Za-z]/_/g;
   FW_pO "<div class=\"fileList $hid\">$heading</div>";
@@ -2232,6 +2285,9 @@ FW_fileNameToPath($)
 {
   my $name = shift;
 
+  my @f = FW_confFiles(2);
+  return "$FW_confdir/$name" if ( map { $name =~ $_ } @f );
+
   $attr{global}{configfile} =~ m,([^/]*)$,;
   my $cfgFileName = $1;
   if($name eq $cfgFileName) {
@@ -2251,8 +2307,16 @@ FW_fileNameToPath($)
   }
 }
 
+sub FW_confFiles($) {
+   my ($param) = @_;
+   # create and return regexp for editFileList
+   return "(".join ( "|" , sort keys %{$data{confFiles}} ).")" if $param == 1;
+   # create and return array with filenames
+   return sort keys %{$data{confFiles}} if $param == 2;
+}
+
 ##################
-# List/Edit/Save css and gnuplot files
+# List/Edit/Save files
 sub
 FW_style($$)
 {
@@ -2276,6 +2340,7 @@ FW_style($$)
     my $efl = AttrVal($FW_wname, 'editFileList',
       "Own modules and helper files:\$MW_dir:^(.*sh|[0-9][0-9].*Util.*pm|".
                         ".*cfg|.*\.holiday|myUtilsTemplate.pm|.*layout)\$\n".
+      "Config files for external programs:\$FW_confdir:^".FW_confFiles(1)."\$\n".
       "Gplot files:\$FW_gplotdir:^.*gplot\$\n".
       "Style files:\$FW_cssdir:^.*(css|svg)\$");
     foreach my $l (split(/[\r\n]/, $efl)) {
@@ -2612,7 +2677,7 @@ FW_Attr(@)
   my $sP = "stylesheetPrefix";
   my $retMsg;
 
-  if($type eq "set" && $attrName eq "HTTPS") {
+  if($type eq "set" && $attrName eq "HTTPS" && $param[0]) {
     TcpServer_SetSSL($hash);
   }
 
@@ -2678,6 +2743,14 @@ FW_Attr(@)
     } else {
       $hash->{CSRFTOKEN} = $csrf;
       $FW_csrfTokenCache{$devName} = $hash->{CSRFTOKEN};
+    }
+  }
+
+  if($attrName eq "extraRooms") {
+    foreach my $room (split(/ |\n/, $param[0])) {
+      next if(!$room || $room =~ /^#/);
+      return "Bad extraRooms entry $room, not name=<name>:devspec=<devspec>"
+        if($room !~ m/name=([^:]+):devspec=([^\s]+)/);
     }
   }
 
@@ -3073,12 +3146,14 @@ FW_directNotify($@) # Notify without the event overhead (Forum #31293)
 
 ###################
 # Compute the state (==second) column
+# return ($allSets, $cmdList, $txt);
 sub
 FW_devState($$@)
 {
   my ($d, $rf, $extPage) = @_;
 
   my ($hasOnOff, $link);
+  return ("","","") if(!$FW_wname);
 
   my $cmdList = AttrVal($d, "webCmd", "");
   my $allSets = FW_widgetOverride($d, getAllSets($d, $FW_chash));
@@ -3105,65 +3180,70 @@ FW_devState($$@)
     $cmdList = "desiredTemperature" if(!$cmdList);
 
   } else {
-    my ($icon, $isHtml);
-    ($icon, $link, $isHtml) = FW_dev2image($d);
-    $txt = ($isHtml ? $icon : FW_makeImage($icon, $state)) if($icon);
+    my $html;
+    foreach my $state (split("\n", $state)) {
+      $txt = $state;
+      my ($icon, $isHtml);
+      ($icon, $link, $isHtml) = FW_dev2image($d,$state);
+      $txt = ($isHtml ? $icon : FW_makeImage($icon, $state)) if($icon);
 
-    my $cmdlist = (defined($link) ? $link : "");
-    my $h = "";
-    foreach my $cmd (split(":", $cmdlist)) {
-      my $htmlTxt;
-      my @c = split(' ', $cmd);   # @c==0 if $cmd==" ";
-      if(int(@c) && $allSets && $allSets =~ m/\b$c[0]:([^ ]*)/) {
-        my $values = $1;
-        foreach my $fn (sort keys %{$data{webCmdFn}}) {
-          no strict "refs";
-          $htmlTxt = &{$data{webCmdFn}{$fn}}($FW_wname,
-                                           $d, $FW_room, $cmd, $values);
-          use strict "refs";
-          last if(defined($htmlTxt));
+      my $cmdlist = (defined($link) ? $link : "");
+      my $h = "";
+      foreach my $cmd (split(":", $cmdlist)) {
+        my $htmlTxt;
+        my @c = split(' ', $cmd);   # @c==0 if $cmd==" ";
+        if(int(@c) && $allSets && $allSets =~ m/\b$c[0]:([^ ]*)/) {
+          my $values = $1;
+          foreach my $fn (sort keys %{$data{webCmdFn}}) {
+            no strict "refs";
+            $htmlTxt = &{$data{webCmdFn}{$fn}}($FW_wname,
+                                             $d, $FW_room, $cmd, $values);
+            use strict "refs";
+            last if(defined($htmlTxt));
+          }
+        }
+
+        if( $htmlTxt ) {
+          $h .= "<p>$htmlTxt</p>";
         }
       }
 
-      if( $htmlTxt ) {
-        $h .= "<p>$htmlTxt</p>";
-      }
-    }
-
-    if( $h ) {
-      $link = undef;
-      $h =~ s/'/\\"/g;
-      $txt = "<a onClick='FW_okDialog(\"$h\",this)'\>$txt</a>";
-    } else {
-      $link = "cmd.$d=set $d $link" if(defined($link));
-    }
-
-  }
-
-
-  if($hasOnOff) {
-    my $isUpperCase = ($allSets =~ m/(^| )ON(:[^ ]*)?( |$)/ &&
-                       $allSets =~ m/(^| )OFF(:[^ ]*)?( |$)/);
-    # Have to cover: "on:An off:Aus", "A0:Aus AI:An Aus:off An:on"
-    my $on  = ReplaceEventMap($d, $isUpperCase ? "ON" :"on" , 1);
-    my $off = ReplaceEventMap($d, $isUpperCase ? "OFF":"off", 1);
-    $link = "cmd.$d=set $d " . ($state eq $on ? $off : $on) if(!defined($link));
-    $cmdList = "$on:$off" if(!$cmdList);
-
-  }
-
-  if(defined($link)) { # Have command to execute
-    my $room = AttrVal($d, "room", undef);
-    if($room) {
-      if($FW_room && $room =~ m/\b$FW_room\b/) {
-        $room = $FW_room;
+      if( $h ) {
+        $link = undef;
+        $h =~ s/'/\\"/g;
+        $txt = "<a onClick='FW_okDialog(\"$h\",this)'\>$txt</a>";
       } else {
-        $room =~ s/,.*//;
+        $link = "cmd.$d=set $d $link" if(defined($link));
       }
-      $link .= "&room=".urlEncode($room);
+
+      if($hasOnOff) {
+        my $isUpperCase = ($allSets =~ m/(^| )ON(:[^ ]*)?( |$)/ &&
+                           $allSets =~ m/(^| )OFF(:[^ ]*)?( |$)/);
+        # Have to cover: "on:An off:Aus", "A0:Aus AI:An Aus:off An:on"
+        my $on  = ReplaceEventMap($d, $isUpperCase ? "ON" :"on" , 1);
+        my $off = ReplaceEventMap($d, $isUpperCase ? "OFF":"off", 1);
+        $link = "cmd.$d=set $d " . ($state eq $on ? $off : $on)
+                if(!defined($link));
+        $cmdList = "$on:$off" if(!$cmdList);
+      }
+
+      if(defined($link)) { # Have command to execute
+        my $room = AttrVal($d, "room", undef);
+        if($room) {
+          if($FW_room && $room =~ m/\b$FW_room\b/) {
+            $room = $FW_room;
+          } else {
+            $room =~ s/,.*//;
+          }
+          $link .= "&room=".urlEncode($room);
+        }
+        $txt = "<a href=\"$FW_ME$FW_subdir?$link$rf$FW_CSRF\">$txt</a>"
+           if($link !~ m/ noFhemwebLink\b/);
+      }
+      $html .= ' ' if( $html );
+      $html .= $txt;
     }
-    $txt = "<a href=\"$FW_ME$FW_subdir?$link$rf$FW_CSRF\">$txt</a>"
-       if($link !~ m/ noFhemwebLink\b/);
+    $txt = $html;
   }
 
   my $style = AttrVal($d, "devStateStyle", "");
@@ -3357,6 +3437,15 @@ FW_widgetOverride($$)
   return $str;
 }
 
+sub
+FW_show($$)
+{
+  my ($hash, $param) = @_;
+  return "usage: show <devspec>" if( !$param);
+
+  $FW_room = "#devspec=$param";
+  return undef;
+}
 
 1;
 
@@ -3589,6 +3678,8 @@ FW_widgetOverride($$)
          style="width:32px;height:32px;background-color:green"&gt;&lt;/div&gt;'}
         </ul>
         </li>
+        Note: The above is valid for each line of STATE. If STATE (through stateFormat)
+        is multilined, multiple icons (one per line) will be created.<br>
         <br>
 
     <a name="devStateStyle"></a>
@@ -3652,6 +3743,17 @@ FW_widgetOverride($$)
     <a name="fwcompress"></a>
     <li>fwcompress<br>
         Enable compressing the HTML data (default is 1, i.e. yes, use 0 to switch it off).
+        </li>
+        <br>
+
+    <a name="extraRooms"></a>
+    <li>extraRooms<br>
+        Space or newline separated list of dynamic rooms to add to the room
+        list.<br>
+        Example:<br>
+          attr WEB extraRooms
+                    name=open:devspec=contact=open.*
+                    name=closed:devspec=contact=closed.*
         </li>
         <br>
 
@@ -4076,6 +4178,7 @@ FW_widgetOverride($$)
         <br>
     </ul>
   </ul>
+
 =end html
 
 =begin html_DE
@@ -4314,6 +4417,8 @@ FW_widgetOverride($$)
 
         {'&lt;div style="width:32px;height:32px;background-color:green"&gt;&lt;/div&gt;'}
         </ul>
+        Anmerkung: Obiges gilt pro STATE Zeile. Wenn STATE (durch stateFormat) mehrzeilig
+        ist, wird pro Zeile ein Icon erzeugt.<br>
         </li><br>
 
     <a name="devStateStyle"></a>
@@ -4373,6 +4478,17 @@ FW_widgetOverride($$)
         Wird dieses FHEMWEB Attribut gesetzt, so enden Wochen- bzw. Monatsplots
         am aktuellen Tag, sonst wird die aktuelle Woche/Monat angezeigt.
         </li><br>
+
+    <a name="extraRooms"></a>
+    <li>extraRooms<br>
+        Durch Leerzeichen oder Zeilenumbruch getrennte Liste von dynamischen
+        R&auml;umen, die zus&auml;tzlich angezeigt werden sollen.
+        Beispiel:<br>
+          attr WEB extraRooms
+                        name=Offen:devspec=contact=open.*
+                        name=Geschlossen:devspec=contact=closed.*
+        </li><br>
+
 
     <a name="forbiddenroom"></a>
     <li>forbiddenroom<br>

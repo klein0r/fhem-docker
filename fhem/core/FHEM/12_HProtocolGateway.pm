@@ -1,4 +1,4 @@
-# $Id: 12_HProtocolGateway.pm 17840 2018-11-25 12:48:42Z eisler $
+# $Id: 12_HProtocolGateway.pm 18963 2019-03-18 20:42:00Z eisler $
 ####################################################################################################
 #
 #	12_HProtocolGateway.pm
@@ -49,8 +49,7 @@ sub HProtocolGateway_Initialize($) {
                       "parityBit:N,E,O " .
                       "databitsLength:5,6,7,8 " .
                       "stopBit:0,1 " .
-                      "pollIntervalMins " .
-                      "path";
+                      "pollInterval";
 }
 
 sub HProtocolGateway_Define($$) {
@@ -68,7 +67,7 @@ sub HProtocolGateway_Define($$) {
 
   HProtocolGateway_DeviceConfig($hash);
   
-  HProtocolGateway_Poll($hash) if defined(AttrVal($hash->{NAME}, 'pollIntervalMins', undef));  # if pollIntervalMins defind -> start timer
+  HProtocolGateway_Poll($hash); # s
 
   return undef;
 }
@@ -114,6 +113,12 @@ sub HProtocolGateway_GetUpdate($) {
     } elsif ($mode eq "Ullage") {
       $command = "\$C";
     }
+    
+    my $sensorSystem = AttrVal($tankHash->{NAME}, 'sensorSystem', ""); 
+    if ( $sensorSystem eq "PMS-IB") {
+      $command = "H";
+    }
+
     my $hID = AttrVal($tankHash->{NAME},"hID","");
     my $msg = $command . $hID . "\r\n";
     DevIo_SimpleWrite($hash, $msg , 2);
@@ -122,8 +127,8 @@ sub HProtocolGateway_GetUpdate($) {
     Log3 $name, 5, "data:". $data;
   }
   
-    my $pollInterval = AttrVal($hash->{NAME}, 'pollIntervalMins', 0);  #restore pollIntervalMins Timer
-    InternalTimer(gettimeofday() + ($pollInterval * 60), 'HProtocolGateway_Poll', $hash, 0) if ($pollInterval > 0);
+    my $pollInterval = AttrVal($hash->{NAME}, 'pollInterval', 0);  #restore pollInterval Timer
+    InternalTimer(gettimeofday() + $pollInterval, 'HProtocolGateway_Poll', $hash, 0) if ($pollInterval > 0);
 }
 
 sub HProtocolGateway_ReadAnswer($$) {
@@ -180,24 +185,49 @@ sub HProtocolGateway_Read($@) {
 sub HProtocolGateway_ParseMessage($$) {
     my ($hash, $data, $tankHash) = @_;
     my $name = $hash->{NAME};
-    
-    $data =~ s/^.//; # remove # 
-    
-    my ($tankdata,$water,$temperature,$probe_offset,$version,$error,$checksum)=split(/@/,$data);
-    my $test = "#".$tankdata.$water.$temperature.$probe_offset.$version.$error; 
 
-    # calculate XOR CRC
-    my $check = 0;
-    $check ^= $_ for unpack 'C*', $test;
-    # convert to HEX
-    $check = sprintf '%02X', $check;
+    my $sensorSystem = AttrVal($tankHash->{NAME}, 'sensorSystem', ""); 
     
-    # Unitronics
-    if ($version == 0 && $error == 0 && $checksum == 0) {
-      $check = 0;
-    }
+    my ($tanknumber,$error,$temperature,$tankdata,$water,$checksum,$version,$probe_offset,$test);
 
-    return if($check ne $checksum);
+    # PMS-IB
+    if ( $sensorSystem eq "PMS-IB") {
+      $data =~ s/^\s+//;
+      ($tanknumber,$error,$temperature,$tankdata,$water,$checksum)=split(/=/,$data);
+      $test = substr($data, 0, length($data)-3);
+     
+      # checksum
+      my @ascii = unpack("C*", $test);
+      my $sum = 0;
+      foreach my $val (@ascii) {
+        $sum = $sum + $val;
+      }
+      while ($sum > 255) {
+        $sum = $sum - 255;
+      }
+      $checksum = int($checksum);
+      return if($sum ne $checksum);
+
+    } else {
+    
+      $data =~ s/^.//; # remove # 
+    
+      ($tankdata,$water,$temperature,$probe_offset,$version,$error,$checksum)=split(/@/,$data);
+      $test = "#".$tankdata.$water.$temperature.$probe_offset.$version.$error; 
+
+      # calculate XOR CRC
+      my $check = 0;
+      $check ^= $_ for unpack 'C*', $test;
+      # convert to HEX
+      $check = sprintf '%02X', $check;
+    
+      # Unitronics
+      if ($version == 0 && $error == 0 && $checksum == 0) {
+        $check = 0;
+      }
+
+      return if($check ne $checksum);
+    } 
 
     my ($filllevel,$volume,$ullage) = (0,0,0); 
     my $mode = AttrVal($tankHash->{NAME},"mode","");
@@ -220,19 +250,26 @@ sub HProtocolGateway_ParseMessage($$) {
     $probe_offset  =~ s/^.//; 
     if ($sign eq "-") { $probe_offset = int($probe_offset) * -1 };
   
-    my $volume_15C = $volume * (1 + 0.00084 * ( 15 - $temperature ));
+    my $product = AttrVal($tankHash->{NAME},"product","");
+    my $fac = 0.00084;
+    if ($product eq "Petrol" ) {
+      $fac = 0.00106;
+    }
+
+    my $volume_15C = $volume * (1 + $fac * ( 15 - $temperature ));
     $volume_15C = sprintf("%.2f", $volume_15C);
     
     # Update all received readings
-    HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "ullage", $ullage);
-    HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "filllevel", $filllevel);
-    HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "volume", $volume);
-    HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "volume_15C", $volume_15C);
-    HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "temperature", $temperature);
-    HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "waterlevel", $water);
-    HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "probe_offset", $probe_offset);
-    HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "version", $version);
-    HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "error", $error);
+    if (defined $ullage) { HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "ullage", $ullage); }
+    if (defined $filllevel) { HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "filllevel", $filllevel); }
+    if (defined $volume) { HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "volume", $volume); }
+    if (defined $volume_15C) { HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "volume_15C", $volume_15C); }
+    if (defined $temperature) { HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "temperature", $temperature); }
+    if (defined $water) { HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "waterlevel", $water); }
+    if (defined $probe_offset) { HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "probe_offset", $probe_offset); }
+    if (defined $version) { HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "version", $version); }
+    if (defined $error) { HProtocolGateway_UpdateTankDevice($hash, $tankHash->{NAME}, "error", $error); }
+
 }
 
 sub HProtocolGateway_UpdateTankDevice($$$$) {
@@ -299,15 +336,13 @@ sub HProtocolGateway_Attr (@) {
         if (defined($val)) {
             if ($val =~ m/^(0*[1-9][0-9]*)$/) {
                 RemoveInternalTimer($hash);
-                HProtocolGateway_Poll($hash) if ($main::init_done);
+                HProtocolGateway_Poll($hash);
 	        } else {
-	            $msg = 'Wrong poll intervall defined. pollIntervalMins must be a number > 0';
+	            $msg = 'Wrong poll intervall defined. pollInterval must be a number > 0';
 	        }
 	    } else {
 	       RemoveInternalTimer($hash);
         }
-    } elsif ($attr eq 'path') {
-      $attr{$name}{path} = $val; 
     } elsif ($attr eq 'baudrate') {
       $attr{$name}{baudrate} = $val;
       HProtocolGateway_DeviceConfig($hash);
@@ -341,28 +376,28 @@ sub HProtocolGateway_Poll($) {
     
     HProtocolGateway_Set($hash, ($name, 'readValues'));
     
-    my $pollInterval = AttrVal($hash->{NAME}, 'pollIntervalMins', 0);
+    my $pollInterval = AttrVal($hash->{NAME}, 'pollInterval', 0);
     if ($pollInterval > 0) {
-        InternalTimer(gettimeofday() + ($pollInterval * 60), 'HProtocolGateway_Poll', $hash, 0);
+        InternalTimer(gettimeofday() + $pollInterval, 'HProtocolGateway_Poll', $hash, 0);
     }
 }
 
 sub HProtocolGateway_Tank($$$) {
   my ($hash,$tankHash,$filllevel) = @_;
   my $name = $hash->{NAME};
-  my $path = AttrVal($name,"path","");
-  my $type = AttrVal($tankHash->{NAME},"type","");
+  my $type = AttrVal($tankHash->{NAME}, 'type','');
 
   my %TankChartHash;
-  open my $fh, '<', $path.$type or die "Cannot open: $!";
-  while (my $line = <$fh>) {
+  
+  my @array = split(" ", $type);
+
+  foreach my $line (@array) {
     $line =~ s/\s*\z//;
     my @array = split /,/, $line;
     my $key = shift @array;
     $TankChartHash{$key} = $array[0];
   }
-  close $fh;
-
+  
   my $volume = 0;
   my $volume1 = 0;
   my $level1 = 0;
@@ -382,13 +417,13 @@ sub HProtocolGateway_Tank($$$) {
 
 
 =pod
-=item summary    support for the HLS 6010 Probes
+=item summary    support for HProtocol
 =begin html
 
 <a name="HProtocolGateway"></a>
 <h3>HProtocolGateway</h3>
 <ul>
-    The HProtocolGateway is a fhem module for the RS232 standard interface for HLS 6010 Probes connected to a Hectronic OPTILEVEL Supply.
+    The HProtocolGateway is a fhem module for the RS232 standard interface for example for HLS 6010 Probes connected to a Hectronic OPTILEVEL Supply.
 
   <br /><br /><br />
 
@@ -396,8 +431,7 @@ sub HProtocolGateway_Tank($$$) {
   <b>Define</b>
   <ul>
     <code>define &lt;name&gt; HProtocolGateway /dev/tty???<br />
-    attr &lt;name&gt; pollIntervalMins 2<br />
-    attr &lt;name&gt; path /opt/fhem/<br />
+    attr &lt;name&gt; pollInterval 120<br />
     attr &lt;name&gt; baudrate 1200<br />
     attr &lt;name&gt; databitsLength 8<br />
     attr &lt;name&gt; parityBit N<br />
@@ -405,34 +439,14 @@ sub HProtocolGateway_Tank($$$) {
     <br />
     <br />
     Defines an HProtocolGateway connected to RS232 serial standard interface.<br /><br /> 
-    path is the path for tank&lt;01&gt;.csv strapping table files.<br /><br /> 
 
-    <code>
-    level,volume<br />
-    10,16<br />
-    520,7781<br />
-    1330,29105<br />
-    1830,43403<br />
-    2070,49844<br />
-    2220,53580<br />
-    2370,57009<br />
-    2400,57650<br />
-    2430,58275<br />
-    2370,57009<br />
-    2400,57650<br />
-    2430,58275<br />
-    </code> 
-
-  
-    <br /><br /> 
+  </ul><br />
 
   <a name="HProtocolGateway"></a>
   <b>Attributes</b>
   <ul>
-    <li>pollIntervalMins<br />
-    poll Interval in Mins</li>
-    <li>path<br />
-    Strapping Table csv file path</li>
+    <li>pollInterval<br />
+    poll Interval in seconds</li>
     <li>baudrate<br />
     Baudrate / 300, 600, 1200, 2400, 4800, 9600</li>
     <li>databitsLength<br />
@@ -441,8 +455,6 @@ sub HProtocolGateway_Tank($$$) {
     Parity Bit / N, E, O</li>
     <li>stopBit<br />
     Stop Bit / 0, 1</li>
-  </ul><br />
-
   </ul><br />
 
 </ul><br />

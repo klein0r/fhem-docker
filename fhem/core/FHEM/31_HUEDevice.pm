@@ -1,5 +1,5 @@
 
-# $Id: 31_HUEDevice.pm 18025 2018-12-21 19:19:55Z justme1968 $
+# $Id: 31_HUEDevice.pm 19201 2019-04-16 19:16:57Z justme1968 $
 
 # "Hue Personal Wireless Lighting" is a trademark owned by Koninklijke Philips Electronics N.V.,
 # see www.meethue.com for more information.
@@ -10,11 +10,14 @@ package main;
 use strict;
 use warnings;
 
+use FHEM::Meta;
+
 use Color;
 
 use POSIX;
 use JSON;
 use SetExtensions;
+use Time::Local;
 
 #require "30_HUEBridge.pm";
 #require "$attr{global}{modpath}/FHEM/30_HUEBridge.pm";
@@ -115,8 +118,8 @@ my %hueModels = (
  'Classic B40 TW'   => {name => 'LIGHTIFY Classic B40 tunable white'   ,type => 'Color temperature light' ,subType => 'ctdimmer', },
  'PAR16 50 TW'      => {name => 'LIGHTIFY PAR16 50 tunable white'      ,type => 'Color temperature light' ,subType => 'ctdimmer', },
  'Classic A60'      => {name => 'LIGHTIFY Classic A60 dimmable light'  ,type => 'Dimmable Light'          ,subType => 'dimmer', },
- 'Plug - LIGHTIFY'  => {name => 'LIGHTIFY Plug'                        ,type => 'On/Off plug-in unit '    ,subType => 'switch', },
- 'Plug 01'          => {name => 'LIGHTIFY Plug'                        ,type => 'On/Off plug-in unit '    ,subType => 'switch', },
+ 'Plug - LIGHTIFY'  => {name => 'LIGHTIFY Plug'                        ,type => 'On/Off plug-in unit'     ,subType => 'switch', },
+ 'Plug 01'          => {name => 'LIGHTIFY Plug'                        ,type => 'On/Off plug-in unit'     ,subType => 'switch', },
 
  'RM01' => {name => 'Busch-Jaeger ZigBee Light Link Relais', type => 'On/Off light'   ,subType => 'switch', },
  'DM01' => {name => 'Busch-Jaeger ZigBee Light Link Dimmer', type => 'Dimmable light' ,subType => 'dimmer', },
@@ -184,6 +187,8 @@ sub HUEDevice_Initialize($)
 
   eval "use Data::Dumper";
   $HUEDevice_hasDataDumper = 0 if($@);
+
+  return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 sub
@@ -232,6 +237,7 @@ HUEDevice_devStateIcon($)
 
   return ".*:$s:toggle" if( AttrVal($name, "model", "") eq "LWL001" );
   return ".*:$s:toggle" if( AttrVal($name, "subType", "") eq "dimmer" );
+  return ".*:$s:toggle" if( AttrVal($name, "subType", "") eq "switch" );
 
   #return ".*:$s:toggle" if( AttrVal($name, "model", "") eq "LWB001" );
   #return ".*:$s:toggle" if( AttrVal($name, "model", "") eq "LWB003" );
@@ -257,6 +263,9 @@ HUEDevice_summaryFn($$$$)
 sub HUEDevice_Define($$)
 {
   my ($hash, $def) = @_;
+
+  return $@ unless ( FHEM::Meta::SetInternals($hash) );
+
 
   my @args = split("[ \t]+", $def);
 
@@ -633,7 +642,7 @@ HUEDevice_Set($@)
       return undef;
 
     } elsif( $cmd eq 'savescene' ) {
-      if( $defs{$name}->{IODev}->{helper}{apiversion} && $defs{$name}->{IODev}->{helper}{apiversion} >= (1<<16) + (11<<8) ) {
+      if( $hash->{IODev} && $hash->{IODev}{helper}{apiversion} && $hash->{IODev}{helper}{apiversion} >= (1<<16) + (11<<8) ) {
         return "usage: savescene <name>" if( @args < 1 );
 
         return fhem( "set $hash->{IODev}{NAME} savescene ". join( ' ', @aa[1..@aa-1]). " $hash->{NAME}" );
@@ -677,7 +686,7 @@ HUEDevice_Set($@)
     }
 
   } elsif( $hash->{helper}->{devtype} eq 'S' ) {
-    my $shash = $defs{$name}->{IODev};
+    my $shash = $hash->{IODev};
 
     my $id = $hash->{ID};
     $id = $1 if( $id =~ m/^S(\d.*)/ );
@@ -823,9 +832,9 @@ HUEDevice_Set($@)
   $list .= " pct:colorpicker,BRI,0,1,100 bri:colorpicker,BRI,0,1,254" if( $subtype =~ m/dimmer/ );
   $list .= " rgb:colorpicker,RGB" if( $subtype =~ m/color/ );
   $list .= " color:colorpicker,CT,2000,1,6500 ct:colorpicker,CT,154,1,500" if( $subtype =~ m/ct|ext/ );
-  $list .= " hue:colorpicker,HUE,0,1,65535 sat:slider,0,1,254 xy effect:none,colorloop" if( $subtype =~ m/color/ );
+  $list .= " hue:colorpicker,HUE,0,1,65535 sat:slider,0,1,254 xy" if( $subtype =~ m/color/ );
 
-  if( $defs{$name}->{IODev}->{helper}{apiversion} && $defs{$name}->{IODev}->{helper}{apiversion} >= (1<<16) + (7<<8) ) {
+  if( $hash->{IODev} && $hash->{IODev}{helper}{apiversion} && $hash->{IODev}{helper}{apiversion} >= (1<<16) + (7<<8) ) {
     $list .= " dimUp:noArg dimDown:noArg" if( $subtype =~ m/dimmer/ );
     $list .= " ctUp:noArg ctDown:noArg" if( $subtype =~ m/ct|ext/ );
     $list .= " hueUp:noArg hueDown:noArg satUp:noArg satDown:noArg" if( $subtype =~ m/color/ );
@@ -833,13 +842,19 @@ HUEDevice_Set($@)
     $list .= " dimUp:noArg dimDown:noArg";
   }
 
-  $list .= " alert:none,select,lselect";
-
   #$list .= " dim06% dim12% dim18% dim25% dim31% dim37% dim43% dim50% dim56% dim62% dim68% dim75% dim81% dim87% dim93% dim100%" if( $subtype =~ m/dimmer/ );
 
-  $list .= " lights" if( $hash->{helper}->{devtype} eq 'G' );
-  $list .= " savescene deletescene scene" if( $hash->{helper}->{devtype} eq 'G' );
-  $list .= " rename";
+  if( $hash->{IODev} && $hash->{IODev}{TYPE} eq 'HUEBridge' ) {
+    $list .= " alert:none,select,lselect";
+    $list .= " effect:none,colorloop" if( $subtype =~ m/color/ );
+
+    $list .= " lights" if( $hash->{helper}->{devtype} eq 'G' );
+
+    $list .= " rename";
+
+    $list .= " savescene deletescene" if( $hash->{helper}->{devtype} eq 'G' );
+  }
+  $list .= " scene" if( $hash->{helper}->{devtype} eq 'G' );
 
   return SetExtensions($hash, $list, $name, @aa);
 }
@@ -1002,7 +1017,7 @@ HUEDevice_Get($@)
   }
 
   my $list = "rgb:noArg RGB:noArg devStateIcon:noArg";
-  if( $defs{$name}->{IODev}->{helper}{apiversion} && $defs{$name}->{IODev}->{helper}{apiversion} >= (1<<16) + (26<<8) ) {
+  if( $hash->{IODev} && $hash->{IODev}{helper}{apiversion} && $hash->{IODev}{helper}{apiversion} >= (1<<16) + (26<<8) ) {
     $list .= " startup:noArg";
   }
   return "Unknown argument $cmd, choose one of $list";
@@ -1231,9 +1246,14 @@ HUEDevice_Parse($$)
 
       $readings{battery} = $config->{battery} if( defined($config->{battery}) );
       $readings{reachable} = $config->{reachable} if( defined($config->{reachable}) );
+      $readings{temperature} = $config->{temperature} * 0.01 if( defined($config->{temperature}) );
+
+      #Xiaomi Aqara Vibrationsensor (lumi.vibration.aq1)
+      $hash->{sensitivitymax} = $config->{sensitivitymax} if( defined ($config->{sensitivitymax}) );
     }
 
     my $lastupdated;
+    my $lastupdated_local;
     if( my $state = $result->{state} ) {
       $lastupdated = $state->{lastupdated};
 
@@ -1247,21 +1267,34 @@ HUEDevice_Parse($$)
         substr( $lastupdated, 10, 1, '_' );
         my $sec = SVG_time_to_sec($lastupdated);
 
-        if( my $offset = $iohash->{helper}{offsetUTC} ) {
-          $sec += $offset;
-          Log3 $name, 4, "$name: offsetUTC: $offset";
+        $lastupdated = FmtDateTime($sec);
+
+        if( my $offset_bridge = $iohash->{helper}{offsetUTC} ) {
+          $offset = $offset_bridge;
+          Log3 $name, 4, "$name: use offsetUTC $offset from bridge";
+        }else{
+          #we do not have received the offsetUTC from the bridge, use the system offsetUTC until we received it
+          my @t = localtime(time);
+          $offset = timegm(@t) - timelocal(@t);
+          Log3 $name, 4, "$name: use offsetUTC $offset from system";
         }
 
-        $lastupdated = FmtDateTime($sec);
+        #add offset to UTC for displaying in fhem
+        $sec += $offset;
+        $lastupdated_local = FmtDateTime($sec);
+      }else{
+        $lastupdated_local = $lastupdated;
       }
 
       $hash->{lastupdated} = ReadingsVal( $name, '.lastupdated', undef ) if( !$hash->{lastupdated} );
+      $hash->{lastupdated_local} = ReadingsVal( $name, '.lastupdated_local', undef ) if( !$hash->{lastupdated_local} );
       return undef if( $hash->{lastupdated} && $hash->{lastupdated} eq $lastupdated );
 
-      Log3 $name, 4, "$name: lastupdated: $lastupdated, hash->{lastupdated}:  $hash->{lastupdated}";
+      Log3 $name, 4, "$name: lastupdated: $lastupdated, hash->{lastupdated}:  $hash->{lastupdated}, lastupdated_local: $lastupdated_local, offsetUTC: $offset";
       Log3 $name, 5, "$name: ". Dumper $result if($HUEDevice_hasDataDumper);
 
       $hash->{lastupdated} = $lastupdated;
+      $hash->{lastupdated_local} = $lastupdated_local;
 
       $readings{state} = $state->{status} if( defined($state->{status}) );
       $readings{state} = $state->{flag}?'1':'0' if( defined($state->{flag}) );
@@ -1269,6 +1302,7 @@ HUEDevice_Parse($$)
       $readings{state} = $state->{lightlevel} if( defined($state->{lightlevel}) && !defined($state->{lux}) );
       $readings{state} = $state->{buttonevent} if( defined($state->{buttonevent}) );
       $readings{state} = $state->{presence}?'motion':'nomotion' if( defined($state->{presence}) );
+      $readings{state} = $state->{fire}?'fire':'nofire' if( defined($state->{fire}) );
 
       $readings{dark} = $state->{dark}?'1':'0' if( defined($state->{dark}) );
       $readings{humidity} = $state->{humidity} * 0.01 if( defined($state->{humidity}) );
@@ -1282,6 +1316,15 @@ HUEDevice_Parse($$)
       $readings{current} = $state->{current} if( defined($state->{current}) );
       $readings{consumption} = $state->{consumption} if( defined($state->{consumption}) );
       $readings{water} = $state->{water} if( defined($state->{water}) );
+      $readings{fire} = $state->{fire} if( defined($state->{fire}) );
+      $readings{tampered} = $state->{tampered} if( defined($state->{tampered}) );
+      $readings{batteryState} = $state->{lowbattery}?'low':'ok' if( defined($state->{lowbattery}) );
+
+      #Xiaomi Aqara Vibrationsensor (lumi.vibration.aq1)
+      $readings{tiltangle} = $state->{tiltangle} if( defined ($state->{tiltangle}) );
+      $readings{vibration} = $state->{vibration} if( defined ($state->{vibration}) );
+      $readings{orientation} = join(',', @{$state->{orientation}}) if( defined($state->{orientation}) && ref($state->{orientation}) eq 'ARRAY' );
+      $readings{vibrationstrength} = $state->{vibrationstrength} if( defined ($state->{vibrationstrength}) );
     }
 
     if( scalar keys %readings ) {
@@ -1290,9 +1333,9 @@ HUEDevice_Parse($$)
        my $i = 0;
        foreach my $key ( keys %readings ) {
          if( defined($readings{$key}) ) {
-           if( $lastupdated ) {
-             $hash->{'.updateTimestamp'} = $lastupdated;
-             $hash->{CHANGETIME}[$i] = $lastupdated;
+           if( $lastupdated_local) {
+             $hash->{'.updateTimestamp'} = $lastupdated_local;
+             $hash->{CHANGETIME}[$i] = $lastupdated_local;
            }
 
            readingsBulkUpdate($hash, $key, $readings{$key}, 1);
@@ -1301,9 +1344,13 @@ HUEDevice_Parse($$)
          }
        }
 
+       if( $lastupdated_local ) {
+         $hash->{'.updateTimestamp'} = $lastupdated_local;
+         $hash->{CHANGETIME}[$i] = $lastupdated_local;
+         readingsBulkUpdate($hash, '.lastupdated_local', $lastupdated_local, 0);
+       }
+
        if( $lastupdated ) {
-         $hash->{'.updateTimestamp'} = $lastupdated;
-         $hash->{CHANGETIME}[$i] = $lastupdated;
          readingsBulkUpdate($hash, '.lastupdated', $lastupdated, 0);
        }
 
@@ -1400,6 +1447,10 @@ HUEDevice_Parse($$)
   my $alert = $state->{alert};
   my $effect = $state->{effect};
 
+  my $rgb       = undef;
+     $rgb       = $state->{rgb} if( defined($state->{rgb}) );
+
+
   if( defined($colormode) && $colormode ne $hash->{helper}{colormode} ) {readingsBulkUpdate($hash,"colormode",$colormode);}
   if( defined($bri) && $bri != $hash->{helper}{bri} ) {readingsBulkUpdate($hash,"bri",$bri);}
   if( defined($ct) && $ct != $hash->{helper}{ct} ) {
@@ -1416,6 +1467,8 @@ HUEDevice_Parse($$)
   if( !defined($hash->{helper}{reachable}) || $reachable != $hash->{helper}{reachable} ) {readingsBulkUpdate($hash,"reachable",$reachable?1:0);}
   if( defined($alert) && $alert ne $hash->{helper}{alert} ) {readingsBulkUpdate($hash,"alert",$alert);}
   if( defined($effect) && $effect ne $hash->{helper}{effect} ) {readingsBulkUpdate($hash,"effect",$effect);}
+
+  if( defined($rgb) && $rgb ne $hash->{helper}{rgb} ) {readingsBulkUpdate($hash,"rgb",$rgb);}
 
   my $s = '';
   my $pct = -1;
@@ -1461,6 +1514,8 @@ HUEDevice_Parse($$)
   $hash->{helper}{alert} = $alert if( defined($alert) );
   $hash->{helper}{effect} = $effect if( defined($effect) );
 
+  $hash->{helper}{rgb} = $rgb if( defined($rgb) );
+
   $hash->{helper}{pct} = $pct;
 
   my $changed = $hash->{CHANGED}?1:0;
@@ -1469,7 +1524,7 @@ HUEDevice_Parse($$)
 
   readingsEndUpdate($hash,1);
 
-  if( defined($colormode) ) {
+  if( defined($colormode) && !defined($rgb) ) {
     my $rgb = CommandGet("","$name rgb");
     if( $rgb ne $hash->{helper}{rgb} ) { readingsSingleUpdate($hash,"rgb", $rgb,1); };
     $hash->{helper}{rgb} = $rgb;
@@ -1513,8 +1568,8 @@ HUEDevice_Attr($$$;$)
 =pod
 =item cloudfree
 =item openapi
-=item summary    devices connected to a phillips hue bridge or a osram lightify gateway
-=item summary_DE Geräte an einer Philips HUE Bridge oder einem Osram LIGHTIFY Gateway
+=item summary    Devices connected to a Phillips HUE bridge, an LIGHTIFY or TRADFRI gateway
+=item summary_DE Ger&auml;te an einer Philips HUE Bridge, einem LIGHTIFY oder Tradfri Gateway
 =begin html
 
 <a name="HUEDevice"></a>
@@ -1686,4 +1741,54 @@ absent:{&lt;json&gt;}</code></li>
 </ul><br>
 
 =end html
+
+=encoding utf8
+=for :application/json;q=META.json 31_HUEDevice.pm
+{
+  "abstract": "devices connected to a Phillips HUE bridge, an Osram LIGHTIFY gateway or a IKEA TRADFRI gateway",
+  "x_lang": {
+    "de": {
+      "abstract": "Geräte an einer Philips HUE Bridge, einem Osram LIGHTIFY Gateway oder einem IKEA Tradfri Gateway"
+    }
+  },
+  "resources": {
+    "x_wiki": {
+      "web": "https://wiki.fhem.de/wiki/Hue"
+    }
+  },
+  "keywords": [
+    "fhem-mod",
+    "fhem-mod-device",
+    "HUE",
+    "zigbee"
+  ],
+  "release_status": "stable",
+  "x_fhem_maintainer": [
+    "justme1968"
+  ],
+  "x_fhem_maintainer_github": [
+    "justme-1968"
+  ],
+  "prereqs": {
+    "runtime": {
+      "requires": {
+        "FHEM": 5.00918799,
+        "perl": 5.014,
+        "Meta": 0,
+        "Color": 0,
+        "SetExtensions": 0,
+        "JSON": 0,
+        "Time::Local": 0
+      },
+      "recommends": {
+      },
+      "suggests": {
+        "HUEBridge": 0,
+        "tradfri": 0,
+        "LIGHTIFY": 0
+      }
+    }
+  }
+}
+=end :application/json;q=META.json
 =cut

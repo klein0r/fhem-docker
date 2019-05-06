@@ -1,4 +1,4 @@
-# $Id: 98_freezemon.pm 18200 2019-01-09 22:45:18Z KernSani $
+# $Id: 98_freezemon.pm 18762 2019-02-28 22:29:15Z KernSani $
 ##############################################################################
 #
 #     98_FreezeMon.pm
@@ -22,6 +22,18 @@
 #
 ##############################################################################
 # 	  Changelog:
+#		0.0.28:	Fixed minor bug in regex for statistics
+#				Added Commandref for getFreezes
+#		0.0.27:	Slightly improved device detection
+#				added set Command getFreezes to enable usage of webCmd
+#				fixed some commandref typos
+#		0.0.26:	Get command for Statistics
+#				remove trailing/leading whitespace for ignored devices
+#		0.0.25:	Further improved statistics function and clear statistics
+#		0.0.24:	Optimized statistics function
+#				Added clear statistics command
+#		0.0.23:	Fixed few minor bugs
+#				Added experimental statistics function
 #		0.0.22: Fixed a weird bug when CatchFnCalls was enabled
 #		0.0.21: Added direct help for set, get and attr commands
 #		0.0.20: Internal changes
@@ -89,15 +101,17 @@ package main;
 
 use strict;
 use warnings;
+
 #use Data::Dumper;
+
 use POSIX;
 use Time::HiRes qw(gettimeofday);
 use Time::HiRes qw(tv_interval);
 use B qw(svref_2object);
 use Blocking;
-use vars qw($FW_CSRF);    
+use vars qw($FW_CSRF);
 
-my $version = "0.0.22";
+my $version = "0.0.28";
 
 my @logqueue = ();
 my @fmCmd    = ();
@@ -114,7 +128,7 @@ sub freezemon_Initialize($) {
     # Module specific attributes
     my @freezemon_attr =
       (
-"fm_forceApptime:0,1 fm_freezeThreshold disable:0,1 fm_log fm_ignoreDev fm_ignoreMode:off,single,all fm_extDetail:0,1 fm_logExtraSeconds fm_logFile fm_logKeep fm_whitelistSub fm_CatchFnCalls:0,1,2,3,4,5 fm_CatchCmds:0,1,2,3,4,5"
+"fm_forceApptime:0,1 fm_freezeThreshold disable:0,1 fm_log fm_ignoreDev fm_ignoreMode:off,single,all fm_extDetail:0,1 fm_logExtraSeconds fm_logFile fm_logKeep fm_whitelistSub fm_CatchFnCalls:0,1,2,3,4,5 fm_CatchCmds:0,1,2,3,4,5 fm_statistics:0,1 fm_statistics_low"
       );
 
     $hash->{GetFn}             = "freezemon_Get";
@@ -161,10 +175,9 @@ sub freezemon_Define($$) {
         freezemon_start($hash);
     }
     elsif ( IsDisabled($name) ) {
-        $hash->{STATE} = "inactive";
+        readingsSingleUpdate( $hash, "state", "inactive", 1 );
         $hash->{helper}{DISABLED} = 1;
     }
-    
 
     return undef;
 }
@@ -264,10 +277,15 @@ sub freezemon_ProcessTimer($) {
         my $found     = 0;
         my $start     = strftime( "%H:%M:%S", localtime( $hash->{helper}{TIMER} ) );
         my $end       = strftime( "%H:%M:%S", localtime($now) );
+        my @rlist;
+
         $freeze = int( $freeze * 1000 ) / 1000;
 
         #Build a hash of devices to ignore
         my @idevs = split( ",", AttrVal( $name, "fm_ignoreDev", "" ) );
+        @idevs = grep( s/\s*$//g, @idevs )
+          ;    #remove leading/trailing whitespace https://forum.fhem.de/index.php/topic,83909.msg898431.html#msg898431
+
         my %id = map { $_ => 1 } @idevs;
 
         my %blacklist = map { $_ => 1 } split( ",", AttrVal( $name, "fm_whitelistSub", "" ) );
@@ -285,6 +303,7 @@ sub freezemon_ProcessTimer($) {
                 next;
             }
             $dev .= "cmd-" . @$entry[0] . "(" . @$entry[1] . ") ";
+            push @rlist, @$entry[1];
         }
 
         #Functions
@@ -300,6 +319,7 @@ sub freezemon_ProcessTimer($) {
                 next;
             }
             $dev .= "fn-" . @$entry[0] . "(" . @$entry[1] . ") ";
+            push @rlist, @$entry[1];
         }
 
         #get the timers that were executed in last cycle
@@ -319,12 +339,13 @@ sub freezemon_ProcessTimer($) {
                     next;
                 }
                 $dev .= "tmr-" . $d->{FN} . "(" . $devname . ") ";
+                push @rlist, $devname;
 
             }
         }
 
         # prioQueues are not unique, so we are using the old way...
-        if ( exists ($hash->{helper}{apptime}) && $hash->{helper}{apptime} ne "" ) {
+        if ( exists( $hash->{helper}{apptime} ) && $hash->{helper}{apptime} ne "" ) {
             my @olddev = split( " ", $hash->{helper}{apptime} );
             my @newdev = split( " ", freezemon_apptime($hash) );
 
@@ -344,6 +365,7 @@ sub freezemon_ProcessTimer($) {
                         next;
                     }
                     $dev .= "prio-" . $a[0] . "(" . $a[1] . ") ";
+                    push @rlist, $a[1];
                 }
             }
         }
@@ -422,7 +444,7 @@ sub freezemon_ProcessTimer($) {
 
             # Build hash with 20 last freezes
             my @freezes = ();
-			my $dev2 = $dev =~ s/,/#&%/rg;
+            my $dev2    = $dev =~ s/,/#&%/rg;
             push @freezes, split( ",", ReadingsVal( $name, ".fm_freezes", "" ) );
             push @freezes,
                 strftime( "%Y-%m-%d", localtime )
@@ -445,6 +467,28 @@ sub freezemon_ProcessTimer($) {
             readingsBulkUpdate( $hash, "fcDay",       $fcDay );
             readingsBulkUpdate( $hash, "ftDay",       $ftDay );
             readingsBulkUpdate( $hash, "freezeDevice", $dev );
+
+            #update statistics
+            if ( AttrVal( $name, "fm_statistics", 0 ) == 1 ) {
+
+                #some substitution
+                s/(_\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}.*)// for @rlist;
+
+                #make unique
+                my %hash = map { $_, 1 } @rlist;
+                my @unique = keys %hash;
+                foreach my $r (@unique) {
+                    next if $r eq "";
+
+                    my $rname  = makeReadingName( "fs_" . $r . "_c" );
+                    my $rtname = makeReadingName( "fs_" . $r . "_t" );
+                    my $rval   = ReadingsNum( $name, $rname, 0 ) + 1;
+                    readingsBulkUpdate( $hash, $rname, $rval );
+                    my $rtime = ReadingsNum( $name, $rtname, 0 ) + $freeze;
+                    readingsBulkUpdate( $hash, $rtname, $rtime );
+                }
+
+            }
             readingsEndUpdate( $hash, 1 );
         }
         else {
@@ -543,10 +587,11 @@ sub freezemon_ProcessTimer($) {
 ###################################
 sub freezemon_Set($@) {
     my ( $hash, $name, $cmd, @args ) = @_;
-    my $usage = "Unknown argument $cmd, choose one of active:noArg inactive:noArg clear:noArg";
+    my $usage =
+"Unknown argument $cmd, choose one of getFreezes:noArg active:noArg inactive:noArg clear:statistics_all,statistics_low,all";
 
     return "\"set $name\" needs at least one argument" unless ( defined($cmd) );
-	Log3 $name,5, "$name Coming with command $cmd";
+
     if ( $cmd eq "inactive" ) {
         RemoveInternalTimer($hash);
         readingsSingleUpdate( $hash, "state", "inactive", 1 );
@@ -554,7 +599,7 @@ sub freezemon_Set($@) {
         freezemon_unwrap_all($hash);
     }
     elsif ( $cmd eq "active" ) {
-        if ( IsDisabled($name) ) { #&& !AttrVal( $name, "disable", undef ) ) {
+        if ( IsDisabled($name) ) {    #&& !AttrVal( $name, "disable", undef ) ) {
             freezemon_start($hash);
         }
         else {
@@ -562,22 +607,71 @@ sub freezemon_Set($@) {
         }
     }
     elsif ( $cmd eq "clear" ) {
-        readingsBeginUpdate($hash);
-        readingsBulkUpdate( $hash, "fcDayLast",   0,  1 );
-        readingsBulkUpdate( $hash, "ftDayLast",   0,  1 );
-        readingsBulkUpdate( $hash, "fcDay",       0,  1 );
-        readingsBulkUpdate( $hash, "ftDay",       0,  1 );
-        readingsBulkUpdate( $hash, ".lastDay",    "", 1 );
-        readingsBulkUpdate( $hash, ".fm_freezes", "", 1 );
-        if ( !IsDisabled($name) ) {
-            readingsBulkUpdate( $hash, "state", "initialized", 1 );
+        if ( $args[0] eq "all" ) {
+            readingsBeginUpdate($hash);
+            readingsBulkUpdate( $hash, "fcDayLast",   0,  1 );
+            readingsBulkUpdate( $hash, "ftDayLast",   0,  1 );
+            readingsBulkUpdate( $hash, "fcDay",       0,  1 );
+            readingsBulkUpdate( $hash, "ftDay",       0,  1 );
+            readingsBulkUpdate( $hash, ".lastDay",    "", 1 );
+            readingsBulkUpdate( $hash, ".fm_freezes", "", 1 );
+            if ( !IsDisabled($name) ) {
+                readingsBulkUpdate( $hash, "state", "initialized", 1 );
+            }
+            readingsBulkUpdate( $hash, "freezeTime",   0,  1 );
+            readingsBulkUpdate( $hash, "freezeDevice", "", 1 );
+            readingsEndUpdate( $hash, 1 );
         }
-        readingsBulkUpdate( $hash, "freezeTime",   0,  1 );
-        readingsBulkUpdate( $hash, "freezeDevice", "", 1 );
-        readingsEndUpdate( $hash, 1 );
+        elsif ( $args[0] eq "statistics_all" ) {
+            CommandDeleteReading( undef, "$name fs_.*" );
+        }
+        elsif ( $args[0] eq "statistics_low" ) {
+            my ( $lowc, $lowt ) = split( ":", AttrVal( $name, "fm_statistics_low", "0:0" ) );
+            foreach my $r ( keys %{ $hash->{READINGS} } ) {
+                next unless ( $r =~ /fs_.*_c/ );
+                my $rc = ReadingsNum( $name, $r, 0 );
+                my $t  = $r =~ s/_c/_t/r;
+                my $rt = ReadingsNum( $name, $t, 0 );
+                if ( $rc <= $lowc && $rt <= $lowt ) {
+                    Log3 $name, 4, "[Freezemon] $name: Deleting readings $r, $t: $rc < $lowc && $rt < $lowt";
+                    CommandDeleteReading( undef, "$name " . $r );
+                    CommandDeleteReading( undef, "$name " . $t );
+                }
+            }
+        }
+        else {
+            return "unknown argument $args[0]";
+        }
     }
+    elsif ( $cmd eq "getFreezes" ) {
+        my $ret     = "";
+        my @colors  = ( "red", "yellow", "green", "white", "gray" );
+        my @freezes = split( ",", ReadingsVal( $name, ".fm_freezes", "" ) );
+        foreach (@freezes) {
+            my $loglevel = 1;
+            my $freeze   = $_;
+            if ( $freeze =~ /f:(.*)d:/ ) {
+                $freeze = $1;
+            }
+            my %params = map { split /\:/, $_ } ( split /\ /, AttrVal( $name, "fm_log", "" ) );
+            foreach my $param ( reverse sort { $a <=> $b } keys %params ) {
+                if ( $freeze > $param ) {
+                    $loglevel = $params{$param};
+                    last;
+                }
+            }
+            $_ =~ s/(?<=.{240}).{1,}$/.../;
+            $_ =~ s/&%%CSRF%%/$FW_CSRF/;
+            $_ =~ s/#&%/,/g;
+            $ret .= "<font color='$colors[$loglevel-1]'><b>" . $loglevel . "</b></font> - " . $_ . "<br>";
+
+        }
+
+        return "<html>" . $ret . "</html>";
+
+    }
+
     else {
-		Log3 $name,5, "$name leaving with $usage";
         return $usage;
     }
     return undef;
@@ -589,10 +683,10 @@ sub freezemon_Get($@) {
     my $name  = $hash->{NAME};
     my $state = $hash->{STATE};
     my $ret   = "";
-    my $usage = 'Unknown argument $a[1], choose one of freeze:noArg log:';
-		
+    my $usage = 'Unknown argument $a[1], choose one of statistic:noArg freeze:noArg log:';
+
     return "\"get $name\" needs at least one argument" unless ( defined( $a[1] ) );
-	Log3 $name,5, "$name GET Coming with command $a[1]";
+
     #get the logfiles
     my @fl = freezemon_getLogFiles($name);
 
@@ -619,12 +713,39 @@ sub freezemon_Get($@) {
             }
             $_ =~ s/(?<=.{240}).{1,}$/.../;
             $_ =~ s/&%%CSRF%%/$FW_CSRF/;
-			$_ =~ s/#&%/,/g;
+            $_ =~ s/#&%/,/g;
             $ret .= "<font color='$colors[$loglevel-1]'><b>" . $loglevel . "</b></font> - " . $_ . "<br>";
 
         }
 
         return "<html>" . $ret . "</html>";
+    }
+    elsif ( $a[1] eq "statistic" ) {
+        my %stats;
+        foreach my $r ( keys %{ $hash->{READINGS} } ) {
+            next unless ( $r =~ /^fs_(.*)_c$/ );
+            my $dev = $1;
+            my $rc  = ReadingsNum( $name, $r, 0 );
+            my $t   = $r =~ s/_c/_t/r;
+            my $rt  = ReadingsNum( $name, $t, 0 );
+
+            $stats{"$dev"}{cnt}  = $rc;
+            $stats{"$dev"}{time} = $rt;
+        }
+
+        my @positioned =
+          sort { $stats{$b}{cnt} <=> $stats{$a}{cnt} or $stats{$b}{time} <=> $stats{$a}{time} } keys %stats;
+        my $ret = "<html>";
+        $ret .= "<table><tr><th>Device</th><th>Count</th><th>Time</th></tr>";
+        my $i;
+        foreach my $p (@positioned) {
+            last if $i > 20;
+            $i++;
+            $ret .= "<tr><td>$p</td><td>" . $stats{"$p"}{cnt} . "</td><td>" . $stats{"$p"}{time} . "</td></tr>";
+        }
+        $ret .= "</table></html>";
+        return $ret;
+
     }
     elsif ( $a[1] eq "log" ) {
         return "No Filename given" if ( !defined( $a[2] ) );
@@ -655,7 +776,7 @@ sub freezemon_Get($@) {
 
     # return usage hint
     else {
-		Log3 $name,5, "GET $name leaving with $usage";
+
         return $usage;
     }
     return undef;
@@ -690,6 +811,7 @@ sub freezemon_Attr($) {
 
         }
         elsif ( $aName eq "fm_logFile" ) {
+
             if ( $aVal ne "" ) {
                 $aVal =~ m,^(.*)/([^/]*)$,;
                 my $path = $1;
@@ -707,40 +829,42 @@ sub freezemon_Attr($) {
             }
         }
         elsif ( $aName eq "fm_CatchFnCalls" ) {
+
             if ( $aVal ne 0 ) {
                 freezemon_install_callFn_wrapper($hash);
-				$fmFnLog = $aVal;
-				$fmName = $name;
-				$fmFnLog = AttrVal( $name, "fm_CatchFnCalls", 0 );
+                $fmFnLog = $aVal;
+                $fmName  = $name;
 
             }
-            elsif ( defined ($hash->{helper}{mycallFn} ) ) {
+            elsif ( defined( $hash->{helper}{mycallFn} ) ) {
                 Log3( "", 0, "[Freezemon] $name: Unwrapping CallFn" );
                 {
                     no warnings;
                     *main::CallFn = $hash->{helper}{mycallFn};
-                }
-            }
-			else {
-				Log3( "", 0, "[Freezemon] $name: Unwrapping CallFn - nothing to do" );
-			}
-        }
-        elsif ( $aName eq "fm_CatchCmds" ) {
-            if ( $aVal ne 0 ) {
-                freezemon_install_analyzeCommand_wrapper($hash);
-				$fmCmdLog = $aVal;
-				$fmName = $name;
-				$fmCmdLog = AttrVal( $name, "fm_CatchCmds",    0 );
-	        }
-            elsif ( defined ( $hash->{helper}{analyzeCommand} ) ) {
-                Log3( "", 0, "[Freezemon] $name: Unwrapping analyzeCommand" );
-                {
-                    #no warnings;
-                    *main::AnalyzeCommand = $hash->{helper}{analyzeCommand};
+                    $hash->{helper}{mycallFn} = undef;
                 }
             }
             else {
-                Log3( "", 0, "[Freezemon] $name: Unwrapping analyzeCommand - nothing to do" );
+                Log3( "", 0, "[Freezemon] $name: Unwrapping CallFn - nothing to do" );
+            }
+        }
+        elsif ( $aName eq "fm_CatchCmds" ) {
+
+            if ( $aVal ne 0 ) {
+                freezemon_install_AnalyzeCommand_wrapper($hash);
+                $fmCmdLog = $aVal;
+                $fmName   = $name;
+            }
+            elsif ( defined( $hash->{helper}{AnalyzeCommand} ) ) {
+                Log3( "", 0, "[Freezemon] $name: Unwrapping AnalyzeCommand" );
+                {
+                    no warnings;
+                    *main::AnalyzeCommand = $hash->{helper}{AnalyzeCommand};
+                    $hash->{helper}{AnalyzeCommand} = undef;
+                }
+            }
+            else {
+                Log3( "", 0, "[Freezemon] $name: Unwrapping AnalyzeCommand - nothing to do" );
             }
         }
 
@@ -754,6 +878,20 @@ sub freezemon_Attr($) {
             elsif ( $aVal == 0 ) {
                 freezemon_start($hash);
             }
+            elsif ( $aName eq "fm_statistics" ) {
+                if ( $aVal == 1 ) {
+                    $hash->{helper}{statistics} = 1;
+                }
+                elsif ( $aVal == 0 ) {
+                    $hash->{helper}{statistics} = 0;
+                }
+            }
+
+        }
+        elsif ( $aName eq "fm_statistics_low" ) {
+            if ( !( $aVal =~ /\d+\:\d+/ ) ) {
+                return "Attribute " . $aName . " has to be in the format 1:2 (meaning count 1:seconds 2)";
+            }
 
         }
     }
@@ -765,20 +903,26 @@ sub freezemon_Attr($) {
             my $status = Log3( "", 100, "" );
             Log3( "", 0, "[Freezemon] $name: Unwrapping Log3" );
             *main::Log3 = $hash->{helper}{Log3};
+            $hash->{helper}{Log3} = undef;
         }
         elsif ( $aName eq "fm_CatchFnCalls" ) {
             Log3( "", 0, "[Freezemon] $name: Unwrapping CallFn" );
             {
                 no warnings;
                 *main::CallFn = $hash->{helper}{mycallFn};
+                $hash->{helper}{mycallFn} = undef;
             }
         }
         elsif ( $aName eq "fm_CatchCmds" ) {
             Log3( "", 0, "[Freezemon] $name: Unwrapping AnalyzeCommand" );
             {
                 no warnings;
-                *main::AnalyzeCommand = $hash->{helper}{analyzeCommand};
+                *main::AnalyzeCommand = $hash->{helper}{AnalyzeCommand};
+                $hash->{helper}{AnalyzeCommand} = undef;
             }
+        }
+        elsif ( $aName eq "fm_statistics" ) {
+            $hash->{helper}{statistics} = 0;
         }
 
     }
@@ -802,12 +946,12 @@ sub freezemon_start($) {
         readingsSingleUpdate( $hash, "state", "initialized", 0 );
         freezemon_install_log_wrapper($hash)            if AttrVal( $name, "fm_logFile",      "" ) ne "";
         freezemon_install_callFn_wrapper($hash)         if AttrVal( $name, "fm_CatchFnCalls", 0 ) > 0;
-        freezemon_install_analyzeCommand_wrapper($hash) if AttrVal( $name, "fm_CatchCmds",    0 ) > 0;
-		
+        freezemon_install_AnalyzeCommand_wrapper($hash) if AttrVal( $name, "fm_CatchCmds",    0 ) > 0;
+
     }
-	$fmName = $name;
-	$fmCmdLog = AttrVal( $name, "fm_CatchCmds",    0 );
-	$fmFnLog = AttrVal( $name, "fm_CatchFnCalls", 0 );
+    $fmName   = $name;
+    $fmCmdLog = AttrVal( $name, "fm_CatchCmds", 0 );
+    $fmFnLog  = AttrVal( $name, "fm_CatchFnCalls", 0 );
 
     $hash->{helper}{DISABLED} = 0;
     my $next = int( gettimeofday() ) + 1;
@@ -840,22 +984,27 @@ sub freezemon_apptime($) {
                 $fnname = $cv->GV->NAME;
                 $ret .= $fnname;
 
-                $shortarg = ( defined( $entry->{arg} ) ? $entry->{arg} : "" );
-
-                #Log3 $name, 5, "Freezemon: found a prioQueue arg ".ref($shortarg);
-                if ( ref($shortarg) eq "HASH" ) {
-                    if ( !defined( $shortarg->{NAME} ) ) {
-                        $shortarg = "N/A";
-                    }
-                    else {
-                        $shortarg = $shortarg->{NAME};
-                    }
-                }
-                elsif ( ref($shortarg) eq "ARRAY" ) {
+                #$shortarg = ( defined( $entry->{arg} ) ? $entry->{arg} : "" );
+                if ( defined( $entry->{arg} ) ) {
                     $shortarg = $entry->{arg};
+
+                    #Log3 $name, 5, "Freezemon: found a prioQueue arg ".ref($shortarg);
+                    if ( ref($shortarg) eq "HASH" ) {
+                        if ( !defined( $shortarg->{NAME} ) ) {
+                            $shortarg = "N/A";
+                        }
+                        else {
+                            $shortarg = $shortarg->{NAME};
+                        }
+                    }
+                    elsif ( ref($shortarg) eq "ARRAY" ) {
+                        $shortarg = $entry->{arg};
+                    }
+
+                    ( $shortarg, undef ) = split( /:|;/, $shortarg, 2 );
                 }
 
-                ( $shortarg, undef ) = split( /:|;/, $shortarg, 2 );
+                $shortarg = "N/A" unless defined($shortarg);
                 $ret .= ":" . $shortarg . " ";
 
                 #Log3 $name, 5, "Freezemon: found a prioQueue, returning $ret";
@@ -919,14 +1068,25 @@ sub freezemon_getDevice($$) {
             #Log3 $name, 5, "[Freezemon] $name  found a REF $fn " . Dumper( ${$arg} );
         }
     }
+    elsif ( ref($shortarg) eq "" ) {
+        Log3 $name, 5,
+          "[Freezemon] $name found something that's not a REF $fn " . ref($shortarg) . " " . Dumper($shortarg);
+
+        ( undef, $shortarg ) = split( /:|;/, $shortarg, 2 );
+    }
+
     else {
-        #Log3 $name, 3, "[Freezemon] $name found something that's not a HASH $fn ".ref($shortarg)." ".Dumper($shortarg);
+        Log3 $name, 5,
+            "[Freezemon] $name found something that's a REF but not a HASH $fn "
+          . ref($shortarg) . " "
+          . Dumper($shortarg);
+
         $shortarg = "N/A";
     }
     if ( !defined($shortarg) ) {
 
-        #Log3 $name, 5, "Freezemon: something went wrong $fn " . Dumper($arg);
-        $shortarg = "";
+        Log3 $name, 5, "Freezemon: something went wrong $fn " . Dumper($arg);
+        $shortarg = "N/A";
     }
     else {
         ( $shortarg, undef ) = split( /:|;/, $shortarg, 2 );
@@ -941,17 +1101,20 @@ sub freezemon_unwrap_all($) {
     {
         no warnings;
         *main::CallFn = $hash->{helper}{mycallFn} if defined( $hash->{helper}{mycallFn} );
+        $hash->{helper}{mycallFn} = undef;
     }
-    Log3( "", 0, "[Freezemon] $name: Unwrapping analyzeCommand" );
+    Log3( "", 0, "[Freezemon] $name: Unwrapping AnalyzeCommand" );
     {
         no warnings;
-        *main::AnalyzeCommand = $hash->{helper}{analyzeCommand} if defined( $hash->{helper}{analyzeCommand} );
+        *main::AnalyzeCommand = $hash->{helper}{AnalyzeCommand} if defined( $hash->{helper}{AnalyzeCommand} );
+        $hash->{helper}{AnalyzeCommand} = undef;
     }
     my $status = Log3( "", 100, "" );
     Log3( "", 0, "[Freezemon] $name: Unwrapping Log3" );
     {
         no warnings;
         *main::Log3 = $hash->{helper}{Log3} if defined( $hash->{helper}{Log3} );
+        $hash->{helper}{Log3} = undef;
     }
 }
 
@@ -960,11 +1123,11 @@ sub freezemon_callFn($@) {
     my ( $lfn, @args ) = @_;
 
     # take current time, then immediately call the original  function
-    my $t0     = [gettimeofday];
-    my ($result,$p) = $lfn->(@args);
-    my $ms     = tv_interval($t0);
-    my $d      = $args[0];
-    my $n      = $args[1];
+    my $t0 = [gettimeofday];
+    my ( $result, $p ) = $lfn->(@args);
+    my $ms = tv_interval($t0);
+    my $d  = $args[0];
+    my $n  = $args[1];
 
     if ( $ms >= 0.5 ) {
         push @fmFn, [ $n, $d ];
@@ -972,11 +1135,11 @@ sub freezemon_callFn($@) {
         #$fm_fn .= "$n:$d ";
         Log3 $fmName, $fmFnLog, "[Freezemon] $fmName: Long function call detected $n:$d - $ms seconds";
     }
-	return ($result,$p) if ($p) ;
-	return $result;
+    return ( $result, $p ) if ($p);
+    return $result;
 }
 ###################################
-sub freezemon_analyzeCommand($$$;$) {
+sub freezemon_AnalyzeCommand($$$;$) {
     my ( $lfn, $cl, $cmd, $cfc ) = @_;
 
     # take current time, then immediately call the original  function
@@ -989,7 +1152,7 @@ sub freezemon_analyzeCommand($$$;$) {
         $d = $cl->{SNAME};
     }
     else {
-        $d = "Command";
+        $d = "N/A";
     }
 
     if ( $ms >= 0.5 ) {
@@ -998,6 +1161,8 @@ sub freezemon_analyzeCommand($$$;$) {
         #$fm_fn .= "$n:$d ";
         Log3 $fmName, $fmCmdLog, "[Freezemon] $fmName: Long running Command detected $n:$d - $ms seconds";
     }
+
+    #return ($result,$p) if ($p) ;
     return $result;
 }
 
@@ -1032,12 +1197,12 @@ sub freezemon_wrap_callFn($) {
 }
 
 ###################################
-sub freezemon_wrap_analyzeCommand($) {
+sub freezemon_wrap_AnalyzeCommand($) {
     my ($fn) = @_;
     return sub($$;$) {
         my ( $cl, $cmd, $cfc ) = @_;
         return "already wrapped" if ( defined($cl) && $cl eq "freezemon" );
-        return freezemon_analyzeCommand( $fn, $cl, $cmd, $cfc );
+        return freezemon_AnalyzeCommand( $fn, $cl, $cmd, $cfc );
       }
 }
 
@@ -1053,7 +1218,7 @@ sub freezemon_wrap_Log3($) {
 }
 ###################################
 #AnalyzeCommand($$;$)
-sub freezemon_install_analyzeCommand_wrapper($;$) {
+sub freezemon_install_AnalyzeCommand_wrapper($;$) {
     my ( $hash, $nolog ) = @_;
     my $name = $hash->{NAME};
     $name = "FreezeMon" unless defined($name);
@@ -1063,11 +1228,11 @@ sub freezemon_install_analyzeCommand_wrapper($;$) {
         Log3( "", 3, "[Freezemon] $name: Wrapping AnalyzeCommand" );
         {
             no warnings;
-            *main::AnalyzeCommand = freezemon_wrap_analyzeCommand( \&AnalyzeCommand );
+            *main::AnalyzeCommand = freezemon_wrap_AnalyzeCommand( \&AnalyzeCommand );
         }
     }
     elsif ( !defined($nolog) ) {
-        Log3 $name, 5, "[Freezemon] $name: AnalyzeCommand already wrapped";
+        Log3 $name, 3, "[Freezemon] $name: AnalyzeCommand already wrapped";
     }
 }
 
@@ -1086,7 +1251,7 @@ sub freezemon_install_callFn_wrapper($;$) {
         }
     }
     elsif ( !defined($nolog) ) {
-        Log3 $name, 5, "[Freezemon] $name: CallFn already wrapped";
+        Log3 $name, 3, "[Freezemon] $name: CallFn already wrapped";
     }
 }
 
@@ -1223,7 +1388,15 @@ sub freezemon_dump_log($$$) {
 sub freezemon_logLink($$) {
     my ( $name, $link ) = @_;
     return "" if !$link;
-    my $ret = "<a href='$FW_ME?cmd=" . urlEncode("get $name log $link") . "&%%CSRF%%'> [Log]</a>";
+    my $me;
+    if ( defined($FW_ME) ) {
+        $me = $FW_ME;
+    }
+    else {
+        $me = "fhem";
+    }
+
+    my $ret = "<a href='$me?cmd=" . urlEncode("get $name log $link") . "&%%CSRF%%'> [Log]</a>";
     return $ret;
 }
 ###################################
@@ -1296,7 +1469,12 @@ sub freezemon_getLogPath($) {
 	<ul>
 		<li><a name="inactive">inactive</a>: disables the device (similar to attribute "disable", however without the need to save</li>
 		<li><a name="active">active</a>: reactivates the device after it was set inactive</li>
-		<li><a name="clear">clear</a>: clears all readings (including the list of the last 20 freezes.)</li>
+		<li><a name="clear">clear</a>: 
+			<ul><li>statistics_all: clears the statistics (i.e. deletes all the readings created for statistics)</li>
+			<li>statistics_low: clears the statistics with low significance (see attribute fm_statistics_low)</li>
+			<li>all: clears all readings (including the list of the last 20 freezes.)</li>
+			<li><a name="getFreezes">getFreezes</a>: similar to "get freeze", however as a set command it can be used e.g. in webCmd Attribute</li>
+			</ul></li>
 	</ul>
   </ul>	
 <a name="freezemonGet"></a>
@@ -1305,6 +1483,7 @@ sub freezemon_getLogPath($) {
 	<ul>
 		<li><a name="freeze">freeze</a>: returns the last 20 freezes (in compact view, like in state) - This is for a quick overview. For detailed analysis the data should be logged.</li>
 		<li><a name="log">log</a>: provides direct access to the logfiles written when fm_logFile is active</li>
+		<li><a name="statistic">statistic</a>: Provides a nicer formatted overview of the top 20 devices from freeze statistics</li>
 	</ul>
   </ul>
   
@@ -1316,9 +1495,12 @@ sub freezemon_getLogPath($) {
 				<li>freezeDevice: List of functions(Devices) that possibly caused the freeze</li>
 				<li>fcDay: cumulated no. of freezes per day</li>
 				<li>ftDay: cumulated duration of freezes per day</li>
-				<li>fcDayLast: stores cumulated no. of freezes of the last day (for daily plots)</li>
-				<li>fcDayLast: stores cumulated duration of freezes of the last day (for daily plots)</li>
+				<li>fcDayLast: stores cumulated no. of freezes of the last day (for daily plots). Due to technical reasons, freezes that occur shortly after midnight might still be taken into account  for previous day.</li>
+				<li>ftDayLast: stores cumulated duration of freezes of the last day (for daily plots). Due to technical reasons, freezes that occur shortly after midnight might still be taken into account  for previous day.</li>
+				<li>fs_.*_c: freeze statistics - count of freezes where the device was probably involved</li>
+				<li>fs_.*_t: freeze statistics - cumulated time of freezes where the device was probably involved</li>
 				<li>state: s:&lt;startTime&gt; e:&lt;endTime&gt; f:&lt;Duration&gt; d:&lt;Devices&gt;</li>;
+				
 			</ul>
 		</ul>
 
@@ -1343,7 +1525,11 @@ sub freezemon_getLogPath($) {
 				<li><a name="fm_logFile">fm_logFile</a>: takes a valid file name (like e.g. ./log/freeze-%Y%m%d-%H%M%S.log). If set, logs messages of loglevel 5 (even if global loglevel is < 5) before a freeze in separate file.</li>
 				<li><a name="fm_logExtraSeconds">fm_logExtraSeconds</a>: obsolete attribute, not used anymore and should be deleted.</li>
 				<li><a name="fm_logKeep">fm_logKeep</a>: A number that defines how many logFiles should be kept. If set all logfiles except the latest n freezemon logfiles will be deleted regularly.</li>
+				<li><a name="fm_statistics">fm_statistics</a>: EXPERIMENTAL! Creates a reading for each device probably causing a freeze and counts how often it probably caused a freeze. </li>
 				<li><a name="fm_whitelistSub">fm_whitelistSub</a>: Comma-separated list of subroutines that you're sure that don't cause a freeze. Whitelisted Subs do not appear in the  "possibly caused by" list. Typically you would list subroutines here that frequently appear in the "possibly caused by" list, but you're really sure they are NOT the issue. Note: The subroutine is the initial part (before the devicename in brackets) in freezemon log messages.  </li>
+				<li><a name="fm_statistics">fm_statistics</a>: activate/deactivate freeze statistics. Creates readings for each device that possibly caused a freeze and sums up occurences and duration of those freezes</li>
+				<li><a name="fm_statistics_low">fm_statistics_low</a>: Parametrization of clear statistics_low set command, format is c:t. With clear statistics_low all statistics-readings will be deleted where count is less or equal "c" AND cumulated duration is less or equal "t"</li>
+
 				<li><a name="disable">disable</a>: activate/deactivate freeze detection</li>
 			</ul>
 		</ul>
@@ -1361,14 +1547,14 @@ sub freezemon_getLogPath($) {
 	<h3>freezemon</h3>
 	<div>
 	<ul>
-		FREEZEMON Überwacht - Ähnlich wie PERFMON mögliche Freezes, allerdings ist FREEZEMON ein echtes Modul und hat daher:<br>
+		FREEZEMON &uuml;berwacht - &auml;hnlich wie PERFMON m&ouml;gliche Freezes, allerdings ist FREEZEMON ein echtes Modul und hat daher:<br>
 		<ul>
-		<li>Readings - die geloggt werden können und damit viel einfacher ausgewertet werden können</li>
+		<li>Readings - die geloggt werden k&ouml;nnen und damit viel einfacher ausgewertet werden k&ouml;nnen</li>
 		<li>Attribute - mit denen das Verhalten von freezemon beeinflusst werden kann</li>
-		<li>zusÃ¤tzliche Funktionalität - die versucht das den Freeze verursachende Device zu identifizieren</li>
+		<li>zusÃ¤tzliche Funktionalit&auml;t - die versucht das den Freeze verursachende Device zu identifizieren</li>
 		</ul>
-		Ich würde empfehlen, PERFMON zu deaktivieren, wenn FREEZEMON aktiv ist, da beide auf die selbe Art Freezes erkennen und dann nur alles doppelt kommt.
-		<b>Bitte beachten!</b> FREEZEMON versucht nur intelligent zu erraten, welches Device einen freeze verursacht haben könnte (basierend auf den Timern die laufen sollten). Es gibt eine Menge anderer Faktoren (intern oder extern) die einen Freeze verursachen können. FREEZEMON ersetzt keine detaillierte Analyse. Das Modul versucht nur Hinweise zu geben, was optimiert werden könnte.<br><br>
+		Ich w&uuml;rde empfehlen, PERFMON zu deaktivieren, wenn FREEZEMON aktiv ist, da beide auf die selbe Art Freezes erkennen und dann nur alles doppelt kommt.
+		<b>Bitte beachten!</b> FREEZEMON versucht nur intelligent zu erraten, welches Device einen freeze verursacht haben k&ouml;nnte (basierend auf den Timern die laufen sollten). Es gibt eine Menge anderer Faktoren (intern oder extern) die einen Freeze verursachen k&ouml;nnen. FREEZEMON ersetzt keine detaillierte Analyse. Das Modul versucht nur Hinweise zu geben, was optimiert werden k&ouml;nnte.<br><br>
 		<br>
 		<br>
 	<a name="freezemonDefine"></a>
@@ -1383,9 +1569,15 @@ sub freezemon_getLogPath($) {
   <b>Set</b>
 	<ul>
 		<ul>
-		<li><a name="inactive">inactive</a>: deaktiviert das Device (identisch zum Attribut "disable", aber ohne die Notwendigkeit su "saven".</li>
+		<li><a name="inactive">inactive</a>: deaktiviert das Device (identisch zum Attribut "disable", aber ohne die Notwendigkeit zu "saven".</li>
 		<li><a name="active">active</a>: reaktiviert das Device nachdem es auf inactive gesetzt wurde</li>
-		<li><a name="clear">clear</a>: Löscht alle readings (inklusive der Liste der letzten 20 Freezes).</li>
+		<li><a name="clear">clear</a>: 
+					<ul><li>statistics_all: l&ouml;scht die Statistik (d.h. l&ouml;scht alle readings die f&uuml;r die statistics erzeugt wurden)</li>
+					<li>statistics_low: l&ouml;scht Statistiken mit geringer Bedeutung (siehe Attribut fm_statistics_low)</li>
+					<li>all: L&ouml;scht alle readings (inklusive der Liste der letzten 20 Freezes).</li>
+		<li><a name="getFreezes">getFreezes</a>: identisch zum "get freeze" Befehl, kann als set-Befehl aber als z.B. im webCmd Attribut genutzt werden</li>
+		</ul></li>
+		
 	</ul>
 
   </ul>	
@@ -1393,8 +1585,9 @@ sub freezemon_getLogPath($) {
   <b>Get</b>
   <ul>
 	<ul>
-		<li><a name="freeze">freeze</a>: gibt die letzten 20 freezes zurück (in Kompakter Darstellung, wie im state) - Dies dient einem schnellen Überblick, für detailliertere Auswertungen empfehle ich die Daten zu loggen.</li>
+		<li><a name="freeze">freeze</a>: gibt die letzten 20 freezes zur&uuml;ck (in Kompakter Darstellung, wie im state) - Dies dient einem schnellen &uuml;berblick, f&uuml;r detailliertere Auswertungen empfehle ich die Daten zu loggen.</li>
 		<li><a name="log">log</a>: gibt Zugriff auf die Logfiles die geschrieben werden, wenn fm_logFile aktiv ist</li>
+		<li><a name="statistic">statistic</a>: Stellt eine sch&ouml;ner formatierte &uuml;bersicht der top 20 Freeze Devices aus der Freeze Statistik zur Verf&uuml;gung</li>
 	</ul>
   </ul>
   
@@ -1403,11 +1596,14 @@ sub freezemon_getLogPath($) {
   <ul>
 		<ul>
 			<li>freezeTime: Dauer des Freezes</li>
-			<li>freezeDevice: Liste von möglicherweise den Freeze auslösenden Funktionen(Devices)</li>
+			<li>freezeDevice: Liste von m&ouml;glicherweise den Freeze ausl&ouml;senden Funktionen(Devices)</li>
 			<li>fcDay: kumulierte Anzahl der Freezes pro Tag</li>
 			<li>ftDay: kumulierte Dauer der Freezes pro Tag </li>
-			<li>fcDayLast: speichert die kumulierte Anzahl der Freezes des vergangenen Tages (um tageweise plots zu erstellen)</li>
-			<li>fcDayLast: speichert die kumulierte Dauer der Freezes des vergangenen Tages (um tageweise plots zu erstellen)</li>
+			<li>fcDayLast: speichert die kumulierte Anzahl der Freezes des vergangenen Tages (um tageweise plots zu erstellen). Aus technischen gr&uuml;nden werden Freezes, die sehr kurz nach Mitternacht auftreten m&ouml;glicherweise noch zum Vortag gez&auml;hlt.</li>
+			<li>ftDayLast: speichert die kumulierte Dauer der Freezes des vergangenen Tages (um tageweise plots zu erstellen). Aus technischen gr&uuml;nden werden Freezes, die sehr kurz nach Mitternacht auftreten m&ouml;glicherweise noch zum Vortag gez&auml;hlt.</li>
+			<li>fs_.*_c: freeze Statistik - Anzahl der freezes bei denen das Device m&ouml;glicherweise beteiligt war</li>
+			<li>fs_.*_t: freeze Statistik - kumulierte Dauer der freezes bei denen das Device m&ouml;glicherweise beteiligt war</li>
+
 			<li>state: s:&lt;StartZeit&gt; e:&lt;EndeZeit&gt; f:&lt;Dauer&gt; d:&lt;Devices&gt;</li>
 		</ul>
   </ul>
@@ -1416,22 +1612,25 @@ sub freezemon_getLogPath($) {
   <b>Attribute</b>
   <ul>
 		<ul>
-			<li><a name="fm_CatchFnCalls">fm_CatchFnCalls</a>fm_CatchFnCalls: wenn aktiviert, werden zusätzlich FHEM-interne Funktionsaufrufe überwacht, in einigen Fällen kann das zusätzliche Hinweise auf den Freeze-Verursacher geben, 0 bedeuted disabled, Zahlen >= 1 geben den Loglevel für des logging lang laufender Funktionsaufrufe an.</li>
-			<li><a name="fm_CatchCmds">fm_CatchCmds</a>: wenn aktiviert, werden zusätzlich FHEM-Kommandos überwacht, in einigen Fällen kann das zusätzliche Hinweise auf den Freeze-Verursacher geben,  0 bedeuted disabled, Zahlen >= 1 geben den Loglevel für des logging lang laufender Kommandos an.</li>
-			<li><a name="fm_extDetail">fm_extDetail</a>: stellt in einigen Fällen zusätzliche Details bei erkannten Freezes zur Verfügung. In wenigen Fällen wurde berichtet, dass FHEM crasht, also vorsichtig verwenden.</li>
-			<li><a name="fm_freezeThreshold">fm_freezeThreshold</a>: Wert in Sekunden (Default: 1) - Nur Freezes länger als fm_freezeThreshold werden als Freeze betrachtet </li>
+			<li><a name="fm_CatchFnCalls">fm_CatchFnCalls</a>fm_CatchFnCalls: wenn aktiviert, werden zus&auml;tzlich FHEM-interne Funktionsaufrufe &uuml;berwacht, in einigen F&auml;llen kann das zus&auml;tzliche Hinweise auf den Freeze-Verursacher geben, 0 bedeuted disabled, Zahlen >= 1 geben den Loglevel f&uuml;r des logging lang laufender Funktionsaufrufe an.</li>
+			<li><a name="fm_CatchCmds">fm_CatchCmds</a>: wenn aktiviert, werden zus&auml;tzlich FHEM-Kommandos &uuml;berwacht, in einigen F&auml;llen kann das zus&auml;tzliche Hinweise auf den Freeze-Verursacher geben,  0 bedeuted disabled, Zahlen >= 1 geben den Loglevel f&uuml;r des logging lang laufender Kommandos an.</li>
+			<li><a name="fm_extDetail">fm_extDetail</a>: stellt in einigen F&auml;llen zus&auml;tzliche Details bei erkannten Freezes zur Verf&uuml;gung. In wenigen F&auml;llen wurde berichtet, dass FHEM crasht, also vorsichtig verwenden.</li>
+			<li><a name="fm_freezeThreshold">fm_freezeThreshold</a>: Wert in Sekunden (Default: 1) - Nur Freezes l&auml;nger als fm_freezeThreshold werden als Freeze betrachtet </li>
 			<li><a name="fm_forceApptime">fm_forceApptime</a>: Wenn FREEZEMON aktiv ist wird automatisch apptime gestartet (falls nicht aktiv)</li>
-			<li><a name="fm_ignoreDev">fm_ignoreDev</a>: Liste von Komma-getrennten Devices. Wenn einzelne möglicherweise einen Freeze verursachenden Device in dieser Liste sind, wird der Freeze ignoriert (nicht geloggt). Bitte das Attribut fm_ignoreMode beachten</li>
+			<li><a name="fm_ignoreDev">fm_ignoreDev</a>: Liste von Komma-getrennten Devices. Wenn einzelne m&ouml;glicherweise einen Freeze verursachenden Device in dieser Liste sind, wird der Freeze ignoriert (nicht geloggt). Bitte das Attribut fm_ignoreMode beachten</li>
 			<li><a name="fm_ignoreMode">fm_ignoreMode</a>: Kann die Werte off,single oder all annehmen. Wenn in fm_ignoreDev Devices angegeben sind wirken sich der ignoreMode wie folgt aus: <br>
-					all: Ein Freeze wird nur dann ignoriert, wenn alle möglicherweise den Freeze verursachenden Devices in der Ignore-Liste enthalten sind. Dies führt unter Umständen dazu, dass mehr Freezes geloggt werden als erwartet.<br>
-					single: Ein Freeze wird ignoriert, sobald ein möglicher Verursacher in der Ignorierliste enthalten ist. Dies führt möglicherweise dazu, dass Freezes übersehen werden.<br>
+					all: Ein Freeze wird nur dann ignoriert, wenn alle m&ouml;glicherweise den Freeze verursachenden Devices in der Ignore-Liste enthalten sind. Dies f&uuml;hrt unter Umst&auml;nden dazu, dass mehr Freezes geloggt werden als erwartet.<br>
+					single: Ein Freeze wird ignoriert, sobald ein m&ouml;glicher Verursacher in der Ignorierliste enthalten ist. Dies f&uuml;hrt m&ouml;glicherweise dazu, dass Freezes &uuml;bersehen werden.<br>
 					off: Alle Freezes werden geloggt.<br>
 					Sofern das Attribut nicht gesetzt ist, aber Ignore-Devices angegeben sind, wird im Modus "all" ignoriert.</li>
 			<li><a name="fm_log">fm_log</a>: dynamischer Loglevel, nimmt einen String der Form 10:1 5:2 1:3 entgegen, was bedeutet: Freezes > 10 Sekunden werden mit Loglevel 1 geloggt, >5 Sekunden mit Loglevel 2 usw...</li>
-			<li><a name="fm_logFile">fm_logFile</a>: ist ein gültiger Filename (wie z.B. ./log/freeze-%Y%m%d-%H%M%S.log). Wenn gesetzt, werdn Meldungen auf Loglevel 5 (auch wenn global Loglevel < 5 ist) vor einem Freeze in einem seperaten File geloggt.</li>
-			<li><a name="fm_logExtraSeconds">fm_logExtraSeconds</a>: dobsoletes Attribut, wird nicht mehr genutzt und sollte gelöscht werden</li>
-			<li><a name="fm_logKeep">fm_logKeep</a>: Eine Zahl, die angibt wieviele Logfiles behalten werden sollen. Wenn gesetzt, werden alle Logfiles ausser den letzten n Freezemon Logfiles regelmäßig gelöscht.</li>
-			<li><a name="fm_whitelistSub">fm_whitelistSub</a>: Komma-getrennte Liste von Subroutinen wo du sicher bist, dass sie keinen Freeze verursachen. Whitelisted Subs erscheinen nicht in der "possibly caused by" Liste. Typischerweise listet man hier Subroutinen,  die regelmäßig in der "possibly caused by" Liste auftauchen, wo du aber wirklich sicher bist, dass sie nicht die Ursache sind. Anmerkung: Die Subroutine ist der initiale Teil (vor dem devicename in Klammern) in Freezemon Logmeldungen.</li>
+			<li><a name="fm_logFile">fm_logFile</a>: ist ein g&uuml;ltiger Filename (wie z.B. ./log/freeze-%Y%m%d-%H%M%S.log). Wenn gesetzt, werdn Meldungen auf Loglevel 5 (auch wenn global Loglevel < 5 ist) vor einem Freeze in einem seperaten File geloggt.</li>
+			<li><a name="fm_logExtraSeconds">fm_logExtraSeconds</a>: dobsoletes Attribut, wird nicht mehr genutzt und sollte gel&ouml;scht werden</li>
+			<li><a name="fm_logKeep">fm_logKeep</a>: Eine Zahl, die angibt wieviele Logfiles behalten werden sollen. Wenn gesetzt, werden alle Logfiles ausser den letzten n Freezemon Logfiles regelm&auml;ßig gel&ouml;scht.</li>
+			<li><a name="fm_statistics">fm_statistics</a>: EXPERIMENTELL! Erstellt ein reading f&uuml;r jedes Device, das "probably" einen Freeze verursacht hat und z&auml;hlt, wie oft es m&ouml;glicherweise an einem Freeze beteiligt war.</li>
+			<li><a name="fm_whitelistSub">fm_whitelistSub</a>: Komma-getrennte Liste von Subroutinen wo du sicher bist, dass sie keinen Freeze verursachen. Whitelisted Subs erscheinen nicht in der "possibly caused by" Liste. Typischerweise listet man hier Subroutinen,  die regelm&auml;ßig in der "possibly caused by" Liste auftauchen, wo du aber wirklich sicher bist, dass sie nicht die Ursache sind. Anmerkung: Die Subroutine ist der initiale Teil (vor dem devicename in Klammern) in Freezemon Logmeldungen.</li>
+			<li><a name="fm_statistics">fm_statistics</a>: aktivieren/deaktivieren der Freeze Statistik. Erzeugt Readings f&uuml;r jedes Device, das m&ouml;glicherweise an einem Freeze beteiligt war und Summiert die H&auml;ufigkeit und Dauer dieser Freezes</li>
+			<li><a name="fm_statistics_low">fm_statistics_low</a>: Parametrisierung des clear statistics_low set Kommandos, im Format c:t. Bei clear statistics_low werden alle Statistics-Readings gel&ouml;scht deren Count kleiner oder gleich "c" ist UND deren kumulierte Dauer kleiner oder gleich "t" ist</li>
 			<li><a name="disable">disable</a>: aktivieren/deaktivieren der Freeze-Erkennung</li>
 		</ul>
   </ul>

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_ZWave.pm 17186 2018-08-20 20:10:55Z rudolfkoenig $
+# $Id: 10_ZWave.pm 19189 2019-04-15 10:50:20Z rudolfkoenig $
 # See ZWDongle.pm for inspiration
 package main;
 
@@ -83,11 +83,11 @@ my %zwave_class = (
                stop        => "05" },
     get   => { swmStatus   => "02",
                swmSupported=> "06" },
-    parse => { "..2603(.*)"=> '($1 eq "00" ? "state:off" :
+    parse => { "..2603(..)"=> '($1 eq "00" ? "state:off" :
                                ($1 eq "ff" ? "state:on" :
                                              "state:dim ".hex($1)))',
                "052603(..)(..)(..)" => 'sprintf("swmStatus:%s target %s '.
-                    'duration %s", hex($1), hex($2), ZWave_duration($3))', # V4
+                    'duration %s", hex($1), hex($2), ZWave_byte2time($3))', # V4
                "..260100.."=> "state:setOff",
                "..2601ff.."=> "state:setOn",
                "..260420"  => "state:swmBeginUp",
@@ -728,6 +728,7 @@ ZWave_Initialize($)
     noExplorerFrames:noArg
     noWakeupForApplicationUpdate:noArg
     secure_classes
+    setExtensionsEvent:1,0
     showtime:noArg
     vclasses
     useMultiCmd:noArg
@@ -1128,6 +1129,9 @@ ZWave_Cmd($$@)
     $cmd .= " ".join(" ", @a) if(@a);
     my $iohash = $hash->{IODev};
     my $withSet = ($iohash->{showSetInState} && !$cmdList{$cmd}{ctrlCmd});
+    $cmd = $hash->{SetExtensionsCommand}
+                if($hash->{SetExtensionsCommand} &&
+                   AttrVal($name, "setExtensionsEvent", undef));
     readingsSingleUpdate($hash, "state", $withSet ? "set_$cmd" : $cmd, 1);
 
   }
@@ -5186,25 +5190,27 @@ sub
 ZWave_time2byte($$)
 {
   my ($hash, $txt) = @_;
+  my $n = ($hash ? $hash->{NAME} : "unknown");
+
   if($txt !~ m/^[0-9]+$/) {
-    Log 1, "ZWave_time2byte: wrong duration $txt, replacing it with 0";
+    Log 1, "$n: wrong duration $txt specified, replacing it with 0";
     return "00";
   }
   my $b = ($txt <= 0x7f ? $txt : int($txt/60)+0x7f);
   $b = 0xfe if($b > 0xfe);
   my $b2 = $b > 0x7f ? ($b - 0x7f) * 60 : $b;
-  my $n = ($hash ? $hash->{NAME} : "unknown");
   Log3 $n, 2, "$n: changing *for-timeout to $b2 from $txt" if($b2 != $txt);
   return sprintf("%02x", $b);
 }
 
 sub
-ZWave_byte2time($)
+ZWave_byte2time($) # Table 8 in SDS13781
 {
   my ($duration) = @_;
   my $time = hex($duration);
-  $time = ($time - 0x7f) * 60 if($time>0x7f && $time<0xff);
-  return (lc($duration) eq "ff" ? "factoryDefault" : "$time seconds");
+  $time = ($time - 0x7f) * 60 if($time>0x7f && $time<0xfe);
+  return (lc($duration) eq "fe" ? "unknown" :
+         (lc($duration) eq "ff" ? "reservedValue" : "$time seconds"));
 }
 
 #####################################
@@ -6454,6 +6460,11 @@ s2Hex($)
       command. It contains a space seperated list of the the command classes
       that are supported with SECURITY.
       </li>
+
+    <li><a name="setExtensionsEvent">setExtensionsEvent</a><br>
+      If set, the event will contain the command implemented by SetExtensions
+      (e.g. on-for-timer 10), else the executed command (e.g. on).</li><br>
+
     <li><a href="#showtime">showtime</a></li>
     <li><a name="vclasses">vclasses</a><br>
       This is the result of the "get DEVICE versionClassAll" command, and

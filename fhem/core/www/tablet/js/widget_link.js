@@ -1,22 +1,17 @@
 /* FTUI Plugin
- * Copyright (c) 2015-2016 Mario Stephan <mstephan@shared-files.de>
+ * Copyright (c) 2015-2019 Mario Stephan <mstephan@shared-files.de>
  * Under MIT License (http://www.opensource.org/licenses/mit-license.php)
  */
 
-/* global ftui:true, Modul_widget:true, Powerange: true */
+/* global ftui:true, Modul_widget:true */
 
 "use strict";
 
 var Modul_link = function () {
 
-    function isReadOnly(elem) {
-        var lock = elem.data('readonly');
-        return (lock === 'true' || lock === '1' || lock === 'on');
-    }
-
     function onClicked(elem) {
 
-        if (isReadOnly(elem)) {
+        if (elem.hasClass('lock')) {
             elem.addClass('fail-shake');
             setTimeout(function () {
                 elem.removeClass('fail-shake');
@@ -36,7 +31,6 @@ var Modul_link = function () {
                 elem.closest('nav').trigger('changedSelection', [elem.text()]);
                 var sel = elem.data('load');
                 if (sel) {
-                    console.log($(sel).siblings().filter('.page'));
                     $(sel).siblings().filter('.page').fadeOut(elem.data('fade-duration'), function () {
                         $(sel).siblings().filter('.page').removeClass("active");
                     });
@@ -94,6 +88,7 @@ var Modul_link = function () {
         var color = isActive ? elem.mappedColor('active-color') : elem.mappedColor('color');
         var backgroundColor = isActive ? elem.mappedColor('active-background-color') : elem.mappedColor('background-color');
         var borderColor = isActive ? elem.mappedColor('active-border-color') : elem.mappedColor('border-color');
+        
         elem.css({
             color: color,
             backgroundColor: backgroundColor,
@@ -112,9 +107,12 @@ var Modul_link = function () {
     }
 
     function init_attr(elem) {
-        elem.initData('cmd', 'set');
+        
+        //init standard attributes 
+        base.init_attr.call(me, elem);
+
         elem.initData('color', ftui.getClassColor(elem) || ftui.getStyle('.' + me.widgetname, 'color') || '#aa6900');
-        elem.initData('background-color', ftui.getStyle('.' + me.widgetname, 'background-color') || null);
+        elem.initData('background-color', ftui.getStyle('.' + me.widgetname, 'background-color') || 'transparent');
         elem.initData('icon-left', elem.data('icon') || null);
         elem.initData('icon-right', null);
         elem.initData('width', 'auto');
@@ -125,10 +123,12 @@ var Modul_link = function () {
         elem.initData('active-color', elem.data('color'));
         elem.initData('active-border-color', elem.data('border-color'));
         elem.initData('active-background-color', elem.data('background-color'));
-        me.addReading(elem, 'get');
+
         me.addReading(elem, 'title');
-        if (elem.isDeviceReading('lock')) {
-            me.addReading(elem, 'lock');
+
+        // init embedded widgets
+        if (elem.find('[data-type]').length > 0) {
+            ftui.initWidgets('[data-wgid="' + elem.wgid() + '"]');
         }
     }
 
@@ -164,7 +164,6 @@ var Modul_link = function () {
 
         // set colors of the container element
         colorize(elem);
-        console.log('init link');
         // prepare left icon
         if (leftIcon) {
             var elemLeftIcon = $('<div/>', {
@@ -221,7 +220,7 @@ var Modul_link = function () {
             e.preventDefault();
         });
 
-        $(window).bind('hashchange', function (e) {
+        $(window).bind('hashchange', function () {
             colorize(elem);
         });
 
@@ -260,7 +259,7 @@ var Modul_link = function () {
 
         // load area content but wait until main page is loaded
         if (elem.hasClass('default')) {
-            $(document).one("initWidgetsDone", function (e, area) {
+            $(document).one("initWidgetsDone", function () {
                 var sel = elem.data('load');
                 if ($(sel + " > *").children().length === 0 || elem.hasClass('nocache')) {
                     loadPage(elem);
@@ -290,17 +289,23 @@ var Modul_link = function () {
                 elem.attr('title', val);
             });
 
-        // extra reading for lock
-        me.elements.filterDeviceReading('lock', dev, par)
-            .each(function (idx) {
-                var elem = $(this);
-                elem.data('readonly', elem.getReading('lock').val);
-            });
+        //extra reading for lock
+        me.update_lock(dev, par);
+
+        //extra reading for hide
+        me.update_hide(dev, par);
+
+        //extra reading for reachable
+        me.update_reachable(dev, par);
     }
 
     // public
-    // inherit all public members from base class
-    var me = $.extend(new Modul_widget(), {
+    // inherit members from base class
+    var parent = new Modul_widget();
+    var base = {
+        init_attr: parent.init_attr
+    };
+    var me = $.extend(parent, {
         //override or own public members
         widgetname: 'link',
         init_attr: init_attr,

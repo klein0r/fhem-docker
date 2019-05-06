@@ -1,6 +1,9 @@
-﻿# $Id: 70_NEUTRINO.pm 15133 2017-09-24 21:03:57Z michael.winkler $
+﻿# $Id: 70_NEUTRINO.pm 18461 2019-01-30 20:33:35Z michael.winkler $
 ############################################################################
-# 2017-09-11, v1.0.12
+# 2019-01-20, v1.0.13
+#
+# v1.0.13
+# - BUFIX:   main::readingsBulkUpdateIfChanged   called by ./FHEM/70_NEUTRINO.pm (1191)
 #
 # v1.0.12
 # - BUFIX:   $_ ersetzt durch $uResult
@@ -1185,11 +1188,12 @@ sub NEUTRINO_ReceiveCommand($$$) {
 						}
 
 						# find running record
-						if ($neutrinotime > $timerstartTime && $neutrinotime < $timerstopTime) {
-							readingsBulkUpdateIfChanged( $hash, "recordchannel", $timername );
-							NEUTRINO_SendCommand( $hash, "epginforecord","");
+						if ($timername ne "") {
+							if ($neutrinotime > $timerstartTime && $neutrinotime < $timerstopTime) {
+								readingsBulkUpdateIfChanged( $hash, "recordchannel", $timername );
+								NEUTRINO_SendCommand( $hash, "epginforecord","");
+							}						
 						}
-						
 						$i++;
 					}
 				}

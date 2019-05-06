@@ -1,5 +1,5 @@
 
-FW_version["fhemweb_uzsu.js"] = "$Id: fhemweb_uzsu.js 15716 2017-12-29 18:38:58Z justme1968 $";
+FW_version["fhemweb_uzsu.js"] = "$Id: fhemweb_uzsu.js 18470 2019-01-31 18:27:05Z justme1968 $";
 
 FW_widgets['uzsuToggle'] = {
   createFn:FW_uzsuToggleCreate,
@@ -114,6 +114,7 @@ FW_uzsuSelectCreate(elName, devName, vArr, currVal, set, params, cmd)
 
   var buttons = [];
   for( var i = 1; i < vArr.length; ++i ) {
+    vArr[i] = vArr[i].replace(/#/g," ");
     var button = $('<input type="checkbox">').uniqueId();
     var label = $('<label for="'+button.attr("id")+'">'+vArr[i]+'</label>');
     buttons.push(button);

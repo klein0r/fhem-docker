@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_NeuronPin.pm 17898 2018-12-05 17:38:33Z klausw $
+# $Id: 10_NeuronPin.pm 19081 2019-03-31 21:55:22Z klausw $
 # todo:
 # holen von status nach sets nicht wenn ws verbindung
 # ao funktioniert nicht
@@ -8,6 +8,7 @@ package main;
 
 use strict;
 use warnings;
+use SetExtensions;
 
 my %sets = (
 	'on' => 1,

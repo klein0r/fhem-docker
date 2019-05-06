@@ -1,9 +1,9 @@
 ########################################################################################################################
-# $Id: 49_SSCamSTRM.pm 18007 2018-12-19 21:29:11Z DS_Starter $
+# $Id: 49_SSCamSTRM.pm 19051 2019-03-27 22:10:48Z DS_Starter $
 #########################################################################################################################
 #       49_SSCamSTRM.pm
 #
-#       (c) 2018 by Heiko Maaz
+#       (c) 2018-2019 by Heiko Maaz
 #       forked from 98_weblink.pm by Rudolf König
 #       e-mail: Heiko dot Maaz at t-online dot de
 #
@@ -31,9 +31,13 @@ package main;
 
 use strict;
 use warnings;
+eval "use FHEM::Meta;1" or my $modMetaAbsent = 1; 
 
 # Versions History intern
 our %SSCamSTRM_vNotesIntern = (
+  "2.5.0"  => "27.03.2019  add Meta.pm support ",
+  "2.4.0"  => "24.02.2019  support for \"genericStrmHtmlTag\" in streaming device MODEL generic ",
+  "2.3.0"  => "04.02.2019  SSCamSTRM_Rename / SSCamSTRM_Copy added, Streaming device can now be renamed or copied ",
   "2.2.1"  => "19.12.2018  commandref revised ",
   "2.2.0"  => "13.12.2018  load sscam_hls.js, sscam_tooltip.js from pgm2 for HLS Streaming support and tooltips ",
   "2.1.0"  => "11.12.2018  switch \"popupStream\" from get to set ",
@@ -74,23 +78,26 @@ sub SSCamSTRM_Initialize($) {
   $hash->{AttrList}           = "autoRefresh:selectnumbers,120,0.2,1800,0,log10 ".
                                 "autoRefreshFW:$fwd ".
                                 "disable:1,0 ". 
-                                "forcePageRefresh:1,0 ". 
+                                "forcePageRefresh:1,0 ".
+                                "genericStrmHtmlTag ".
                                 "htmlattr ".
                                 "hideDisplayName:1,0 ".
                                 "popupWindowSize ".
                                 "popupStreamFW:$fwd ".
                                 "popupStreamTo:OK,1,2,3,4,5,6,7,8,9,10,15,20,25,30,40,50,60 ".
                                 $readingFnAttributes;
+  $hash->{RenameFn}           = "SSCamSTRM_Rename";
+  $hash->{CopyFn}             = "SSCamSTRM_Copy";
   $hash->{FW_summaryFn}       = "SSCamSTRM_FwFn";
   $hash->{FW_detailFn}        = "SSCamSTRM_FwFn";
   $hash->{AttrFn}             = "SSCamSTRM_Attr";
-  $hash->{FW_hideDisplayName} = 1;        # Forum 88667
+  $hash->{FW_hideDisplayName} = 1;                     # Forum 88667
   # $hash->{FW_addDetailToSummary} = 1;
-  # $hash->{FW_atPageEnd} = 1;            # wenn 1 -> kein Longpoll ohne informid in HTML-Tag
+  # $hash->{FW_atPageEnd} = 1;                         # wenn 1 -> kein Longpoll ohne informid in HTML-Tag
 
-  #$data{FWEXT}{SSCAMSTRM}{SCRIPT} = "/pgm2/".$hlsjs if (!$data{FWEXT}{SSCAMSTRM}{SCRIPT});
+  eval { FHEM::Meta::InitMod( __FILE__, $hash ) };     # für Meta.pm (https://forum.fhem.de/index.php/topic,97589.0.html)
  
-return undef; 
+return; 
 }
 
 ################################################################
@@ -104,14 +111,38 @@ sub SSCamSTRM_Define($$) {
 
   my $arg = (split("[()]",$link))[1];
   $arg   =~ s/'//g;
-  ($hash->{PARENT},$hash->{MODEL}) = ((split(",",$arg))[0],(split(",",$arg))[2]);
+  ($hash->{PARENT},$hash->{MODEL}) = ((split(",",$arg))[0],(split(",",$arg))[2]); 
+  $hash->{HELPER}{MODMETAABSENT}   = 1 if($modMetaAbsent);                         # Modul Meta.pm nicht vorhanden
+  $hash->{LINK}                    = $link;
   
-  $hash->{VERSION} = $hash->{VERSION} = (reverse sort(keys %SSCamSTRM_vNotesIntern))[0];
-  $hash->{LINK}    = $link;
+  # Versionsinformationen setzen
+  SSCamSTRM_setVersionInfo($hash);
   
   readingsSingleUpdate($hash,"state", "initialized", 1);      # Init für "state" 
   
 return undef;
+}
+
+################################################################
+sub SSCamSTRM_Rename($$) {
+	my ($new_name,$old_name) = @_;
+    my $hash = $defs{$new_name};
+    
+    $hash->{DEF}  =~ s/$old_name/$new_name/g;
+    $hash->{LINK} =~ s/$old_name/$new_name/g;
+
+return;
+}
+
+################################################################
+sub SSCamSTRM_Copy($$) {
+	my ($old_name,$new_name) = @_;
+    my $hash = $defs{$new_name};
+    
+    $hash->{DEF}  =~ s/$old_name/$new_name/g;
+    $hash->{LINK} =~ s/$old_name/$new_name/g;
+
+return;
 }
 
 ################################################################
@@ -180,7 +211,7 @@ sub SSCamSTRM_Attr($$$$) {
     # $name is device name
     # aName and aVal are Attribute name and value
     
-    if ($aName eq "disable") {
+    if($aName eq "disable") {
         if($cmd eq "set") {
             $do = ($aVal) ? 1 : 0;
         }
@@ -188,6 +219,10 @@ sub SSCamSTRM_Attr($$$$) {
 		$val = ($do == 1 ? "disabled" : "initialized");
     
         readingsSingleUpdate($hash, "state", $val, 1);
+    }
+    
+    if($aName eq "genericStrmHtmlTag" && $hash->{MODEL} ne "generic") {
+        return "This attribute is only usable for devices of MODEL \"generic\" ";
     }
     
     if ($cmd eq "set") {
@@ -257,10 +292,45 @@ sub SSCamSTRM_refresh($) {
 return;
 }
 
+#############################################################################################
+#                          Versionierungen des Moduls setzen
+#                  Die Verwendung von Meta.pm und Packages wird berücksichtigt
+#############################################################################################
+sub SSCamSTRM_setVersionInfo($) {
+  my ($hash) = @_;
+  my $name   = $hash->{NAME};
+
+  my $v                    = (sortTopicNum("desc",keys %SSCamSTRM_vNotesIntern))[0];
+  my $type                 = $hash->{TYPE};
+  $hash->{HELPER}{PACKAGE} = __PACKAGE__;
+  $hash->{HELPER}{VERSION} = $v;
+  
+  if($modules{$type}{META}{x_prereqs_src} && !$hash->{HELPER}{MODMETAABSENT}) {
+	  # META-Daten sind vorhanden
+	  $modules{$type}{META}{version} = "v".$v;              # Version aus META.json überschreiben, Anzeige mit {Dumper $modules{SMAPortal}{META}}
+	  if($modules{$type}{META}{x_version}) {                                                                             # {x_version} ( nur gesetzt wenn $Id: 49_SSCamSTRM.pm 19051 2019-03-27 22:10:48Z DS_Starter $ im Kopf komplett! vorhanden )
+		  $modules{$type}{META}{x_version} =~ s/1.1.1/$v/g;
+	  } else {
+		  $modules{$type}{META}{x_version} = $v; 
+	  }
+	  return $@ unless (FHEM::Meta::SetInternals($hash));                                                                # FVERSION wird gesetzt ( nur gesetzt wenn $Id: 49_SSCamSTRM.pm 19051 2019-03-27 22:10:48Z DS_Starter $ im Kopf komplett! vorhanden )
+	  if(__PACKAGE__ eq "FHEM::$type" || __PACKAGE__ eq $type) {
+	      # es wird mit Packages gearbeitet -> Perl übliche Modulversion setzen
+		  # mit {<Modul>->VERSION()} im FHEMWEB kann Modulversion abgefragt werden
+	      use version 0.77; our $VERSION = FHEM::Meta::Get( $hash, 'version' );                                          
+      }
+  } else {
+	  # herkömmliche Modulstruktur
+	  $hash->{VERSION} = $v;
+  }
+  
+return;
+}
+
 1;
 
 =pod
-=item summary    define a Streaming device by SSCam module
+=item summary    Definition of a streaming device by the SSCam module
 =item summary_DE Erstellung eines Streaming-Device durch das SSCam-Modul
 =begin html
 
@@ -359,6 +429,29 @@ Dependend of the Streaming-Device state, different buttons are provided to start
       This may stabilize the video playback in some cases.       
     </li>
     <br>
+    
+  <a name="genericStrmHtmlTag"></a>
+  <li><b>genericStrmHtmlTag</b> &nbsp;&nbsp;&nbsp;&nbsp;(only valid for MODEL "generic") <br>
+  This attribute contains HTML-Tags for video-specification in a Streaming-Device of type "generic". 
+  <br><br> 
+  
+    <ul>
+	  <b>Examples:</b>
+      <pre>
+attr &lt;name&gt; genericStrmHtmlTag &lt;video $HTMLATTR controls autoplay&gt;
+                                 &lt;source src='http://192.168.2.10:32000/$NAME.m3u8' type='application/x-mpegURL'&gt;
+                               &lt;/video&gt; 
+                               
+attr &lt;name&gt; genericStrmHtmlTag &lt;img $HTMLATTR 
+                                 src="http://192.168.2.10:32774"
+                                 onClick="FW_okDialog('&lt;img src=http://192.168.2.10:32774 $PWS&gt')"
+                               &gt  
+      </pre>
+      The variables $HTMLATTR, $NAME and $PWS are placeholders and absorb the attribute "htmlattr" (if set), the SSCam-Devicename 
+      respectively the value of attribute "popupWindowSize" in streaming-device, which specify the windowsize of a popup window.
+    </ul>
+    <br><br>
+    </li>
     
     <a name="hideDisplayName"></a>
     <li><b>hideDisplayName</b><br>
@@ -515,6 +608,29 @@ Abhängig vom Zustand des Streaming-Devices werden zum Start von Aktionen unters
     </li>
     <br>
     
+  <a name="genericStrmHtmlTag"></a>  
+  <li><b>genericStrmHtmlTag</b> &nbsp;&nbsp;&nbsp;&nbsp;(nur für MODEL "generic")<br>
+  Das Attribut enthält HTML-Tags zur Video-Spezifikation in einem Streaming-Device von Typ "generic". 
+  <br><br> 
+  
+    <ul>
+	  <b>Beispiele:</b>
+      <pre>
+attr &lt;name&gt; genericStrmHtmlTag &lt;video $HTMLATTR controls autoplay&gt;
+                                 &lt;source src='http://192.168.2.10:32000/$NAME.m3u8' type='application/x-mpegURL'&gt;
+                               &lt;/video&gt;
+                               
+attr &lt;name&gt; genericStrmHtmlTag &lt;img $HTMLATTR 
+                                 src="http://192.168.2.10:32774"
+                                 onClick="FW_okDialog('&lt;img src=http://192.168.2.10:32774 $PWS &gt')"
+                               &gt                              
+      </pre>
+      Die Variablen $HTMLATTR, $NAME und $PWS sind Platzhalter und übernehmen ein gesetztes Attribut "htmlattr", den SSCam-
+      Devicenamen bzw. das Attribut "popupWindowSize" im Streaming-Device, welches die Größe eines Popup-Windows festlegt.    
+    </ul>
+    <br><br>
+    </li>    
+    
     <a name="hideDisplayName"></a>
     <li><b>hideDisplayName</b><br>
       Verbirgt den Device/Alias-Namen (Link zur Detailansicht).    
@@ -570,4 +686,55 @@ Abhängig vom Zustand des Streaming-Devices werden zum Start von Aktionen unters
 </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 49_SSCamSTRM.pm
+{
+  "abstract": "Definition of a streaming device by the SSCam module",
+  "x_lang": {
+    "de": {
+      "abstract": "Erstellung eines Streaming-Device durch das SSCam-Modul"
+    }
+  },
+  "keywords": [
+    "camera",
+    "streaming",
+    "PTZ",
+    "Synology Surveillance Station",
+    "MJPEG",
+    "HLS",
+    "RTSP"
+  ],
+  "version": "v1.1.1",
+  "release_status": "stable",
+  "author": [
+    "Heiko Maaz <heiko.maaz@t-online.de>"
+  ],
+  "x_fhem_maintainer": [
+    "DS_Starter"
+  ],
+  "x_fhem_maintainer_github": [
+    "nasseeder1"
+  ],
+  "prereqs": {
+    "runtime": {
+      "requires": {
+        "FHEM": 5.00918799,
+        "perl": 5.014       
+      },
+      "recommends": {
+        "FHEM::Meta": 0
+      },
+      "suggests": {
+      }
+    }
+  },
+  "resources": {
+    "x_wiki": {
+      "web": "https://wiki.fhem.de/wiki/SSCAM_-_Steuerung_von_Kameras_in_Synology_Surveillance_Station",
+      "title": "SSCAM - Steuerung von Kameras in Synology Surveillance Station"
+    }
+  }
+}
+=end :application/json;q=META.json
+
 =cut

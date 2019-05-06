@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 96_allowed.pm 17613 2018-10-24 15:37:39Z rudolfkoenig $
+# $Id: 96_allowed.pm 19046 2019-03-27 08:09:43Z rudolfkoenig $
 package main;
 
 use strict;
@@ -408,7 +408,7 @@ EOF
     <li>password &lt;password&gt;</li>
     <li>globalpassword &lt;password&gt;<br>
       these commands set the corresponding attribute, by computing an SHA256
-      hash from the arguments and a salt. Note: the perl module Device::SHA is
+      hash from the arguments and a salt. Note: the perl module Digest::SHA is
       needed.
     </li>
   </ul><br>
@@ -559,7 +559,7 @@ EOF
     <li>globalpassword &lt;password&gt;<br>
       diese Befehle setzen das entsprechende Attribut, indem sie aus den
       Parameter und ein Salt ein SHA256 Hashwert berechnen. Achtung: das perl
-      Modul Device::SHA wird ben&ouml;tigt.
+      Modul Digest::SHA wird ben&ouml;tigt.
     </li>
   </ul><br>
 

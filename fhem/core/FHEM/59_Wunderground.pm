@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: 59_Wunderground.pm 17018 2018-07-22 17:10:31Z loredo $
+# $Id: 59_Wunderground.pm 18995 2019-03-22 20:09:53Z loredo $
 # http://api.wunderground.com/weather/api
 #
 package main;
@@ -12,6 +12,7 @@ use utf8;
 use Encode qw(encode_utf8 decode_utf8);
 use Unit;
 use Data::Dumper;
+use FHEM::Meta;
 
 # initialize ##################################################################
 sub Wunderground_Initialize($) {
@@ -293,6 +294,8 @@ sub Wunderground_Initialize($) {
         'wind_speed'     => { rtype => 'kmph', formula_symbol => 'Ws' },
         'wind_speed_mph' => { rtype => 'mph', formula_symbol => 'Ws' }
     };
+
+    return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 # regular Fn ##################################################################
@@ -320,6 +323,9 @@ sub Wunderground_Define($$$) {
 
     $hash->{API_KEY} = @$a[2];
     $hash->{QUERY}   = @$a[3];
+
+    # Initialize the module and the device
+    return $@ unless ( FHEM::Meta::SetInternals($hash) );
 
     $hash->{QUERY} = "pws:" . $hash->{QUERY}
       if ( $hash->{QUERY} =~ /^[A-Z]{3,}\d{1,}$/ );
@@ -1169,5 +1175,19 @@ sub Wunderground_Hash2Readings($$;$) {
 </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 59_Wunderground.pm
+{
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ]
+}
+=end :application/json;q=META.json
 
 =cut

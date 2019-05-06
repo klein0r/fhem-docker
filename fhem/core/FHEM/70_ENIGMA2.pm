@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: 70_ENIGMA2.pm 17859 2018-11-27 20:10:17Z loredo $
+# $Id: 70_ENIGMA2.pm 18995 2019-03-22 20:09:53Z loredo $
 package main;
 use strict;
 use warnings;
@@ -8,6 +8,7 @@ use Time::Local;
 use Encode qw(encode_utf8 decode_utf8);
 
 use HttpUtils;
+use FHEM::Meta;
 
 # initialize ##################################################################
 sub ENIGMA2_Initialize($) {
@@ -22,7 +23,7 @@ sub ENIGMA2_Initialize($) {
     $hash->{parseParams} = 1;
 
     $hash->{AttrList} =
-"disable:1,0 disabledForIntervals do_not_notify:1,0 https:0,1 http-method:GET,POST http-noshutdown:1,0 disable:0,1 bouquet-tv bouquet-radio timeout remotecontrol:standard,advanced,keyboard lightMode:0,1 ignoreState:0,1 macaddr:textField model wakeupCmd:textField WOL_useUdpBroadcast WOL_port WOL_mode:EW,UDP,BOTH "
+"disable:1,0 disabledForIntervals do_not_notify:1,0 https:0,1 http-method:GET,POST http-noshutdown:1,0 disable:0,1 bouquet-tv bouquet-radio timeout remotecontrol:standard,advanced,keyboard remotecontrolChannel:LEFT_RIGHT,CHANNELDOWN_CHANNELUP lightMode:0,1 ignoreState:0,1 macaddr:textField model wakeupCmd:textField WOL_useUdpBroadcast WOL_port WOL_mode:EW,UDP,BOTH "
       . $readingFnAttributes;
 
     $data{RC_layout}{ENIGMA2_DreamMultimedia_DM500_DM800_SVG} =
@@ -58,6 +59,8 @@ sub ENIGMA2_Initialize($) {
             },
         },
     };
+
+    return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 # regular Fn ##################################################################
@@ -92,6 +95,9 @@ sub ENIGMA2_Define($$) {
     return "Interval parameter needs to be of type integer"
       unless ( $interval =~ /^\d+$/ );
     $hash->{INTERVAL} = $interval;
+
+    # Initialize the device
+    return $@ unless ( FHEM::Meta::SetInternals($hash) );
 
     my $http_user   = shift @$a;
     my $http_passwd = shift @$a;
@@ -656,10 +662,18 @@ sub ENIGMA2_Set($@) {
 
         if ( $state eq "on" || $ignoreState ne "0" ) {
             if ( lc($set) eq "channelup" ) {
-                $cmd = "command=" . ENIGMA2_GetRemotecontrolCommand("RIGHT");
+                $cmd =
+                  "command="
+                  . ENIGMA2_GetRemotecontrolCommand(
+                    AttrVal( $name, 'remotecontrolChannel', 'LEFT_RIGHT' ) eq
+                      'CHANNELDOWN_CHANNELUP' ? 'CHANNELUP' : 'RIGHT' );
             }
             else {
-                $cmd = "command=" . ENIGMA2_GetRemotecontrolCommand("LEFT");
+                $cmd =
+                  "command="
+                  . ENIGMA2_GetRemotecontrolCommand(
+                    AttrVal( $name, 'remotecontrolChannel', 'LEFT_RIGHT' ) eq
+                      'CHANNELDOWN_CHANNELUP' ? 'CHANNELDOWN' : 'LEFT' );
             }
             $result = ENIGMA2_SendCommand( $hash, "remotecontrol", $cmd );
         }
@@ -2943,7 +2957,7 @@ sub ENIGMA2_RClayout_VUplusDuo2() {
             <b>statusRequest</b> &nbsp;&nbsp;-&nbsp;&nbsp; requests the current status of the device
           </li>
           <li>
-            <b>remoteControl</b> UP,DOWN,... &nbsp;&nbsp;-&nbsp;&nbsp; sends remote control commands; see remoteControl help for full command list<br />
+            <b>remoteControl</b> UP,DOWN,... &nbsp;&nbsp;-&nbsp;&nbsp; sends remote control commands; see 'remoteControl ?' for full command list<br />
             Note: You may add the word "long" after the command to simulate a long key press.
           </li>
           <li>
@@ -3033,6 +3047,9 @@ sub ENIGMA2_RClayout_VUplusDuo2() {
           </li>
           <li>
             <b>remotecontrol</b> - Explicitly set specific remote control unit format. This will only be considered for set-command <strong>remoteControl</strong> as of now.
+          </li>
+          <li>
+            <b>remotecontrolChannel</b> - Switch between remote control commands used for set-commands <strong>channelUp</strong> and <strong>channelDown</strong>.
           </li>
           <li>
             <b>timeout</b> - Set different polling timeout in seconds (default=6)
@@ -3291,5 +3308,34 @@ sub ENIGMA2_RClayout_VUplusDuo2() {
     </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 70_ENIGMA2.pm
+{
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ],
+  "keywords": [
+    "Axas",
+    "Dreambox",
+    "GigaBlue",
+    "Protek",
+    "Telestar",
+    "VU+",
+    "VUplus",
+    "DVB-C",
+    "DVB-S",
+    "DVB-T",
+    "SAT Receiver",
+    "Set-top box",
+    "TV"
+  ]
+}
+=end :application/json;q=META.json
 
 =cut

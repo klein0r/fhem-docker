@@ -1,4 +1,4 @@
-# $Id: 45_TRX.pm 18147 2019-01-05 19:11:08Z KernSani $
+# $Id: 45_TRX.pm 18738 2019-02-25 21:56:28Z KernSani $
 #################################################################################
 # 45_TRX.pm
 #
@@ -29,7 +29,8 @@
 #
 #	CHANGELOG
 #
-#	ß4.12.2ß10	Added NotifyDn to catch DISCONNECTED Events	
+#	25.02.2ß19	Fixed missing FW reading for ProXL receivers
+#	ß4.12.2018	Added NotifyDn to catch DISCONNECTED Events	
 #	26.12.2018	RfxMgr-like functionality to enable/disable protocols
 #				Support for Cuveo devices
 #	15.12.2018	added more readings and additional RFX-models
@@ -464,7 +465,7 @@ sub TRX_evaluateResponse($$) {
             '4'  => 'Ext2',
             '5'  => 'Pro1',
             '6'  => 'Pro2',
-            '10' => 'ProXL1',
+            '16' => 'ProXL1',				#forum #97873, just wondering why it comes as 16... 
         }->{$msg10}
           || 'unknown FW Type ' . $msg10;
 

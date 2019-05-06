@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_MQTT2_SERVER.pm 17953 2018-12-11 14:44:34Z rudolfkoenig $
+# $Id: 00_MQTT2_SERVER.pm 18794 2019-03-05 10:56:08Z rudolfkoenig $
 package main;
 
 # TODO: test SSL
@@ -40,10 +40,11 @@ MQTT2_SERVER_Initialize($)
   no warnings 'qw';
   my @attrList = qw(
     SSL:0,1
-    autocreate:0,1
+    autocreate:no,simple,complex
     disable:0,1
     disabledForIntervals
     keepaliveFactor
+    rePublish
     rawEvents
     sslVersion
     sslCertPrefix
@@ -203,9 +204,9 @@ my %cptype = (
 sub
 MQTT2_SERVER_Read($@)
 {
-  my ($hash, $reread) = @_;
+  my ($hash, $reread, $debug) = @_;
 
-  if($hash->{SERVERSOCKET}) {   # Accept and create a child
+  if(!$debug && $hash->{SERVERSOCKET}) {   # Accept and create a child
     my $nhash = TcpServer_Accept($hash, "MQTT2_SERVER");
     return if(!$nhash);
     $nhash->{CD}->blocking(0);
@@ -214,8 +215,9 @@ MQTT2_SERVER_Read($@)
     return;
   }
 
-  my $sname = $hash->{SNAME};
+  my $sname = ($debug ? $hash->{NAME} : $hash->{SNAME});
   my $cname = $hash->{NAME};
+  $hash->{cid} = "debug" if($debug);
   my $c = $hash->{CD};
 
   if(!$reread) {
@@ -246,13 +248,12 @@ MQTT2_SERVER_Read($@)
   my ($tlen, $off) = MQTT2_SERVER_getRemainingLength($hash);
   if($tlen < 0) {
     Log3 $sname, 1, "Bogus data from $cname, closing connection";
-    CommandDelete(undef, $cname);
+    return CommandDelete(undef, $cname);
   }
   return if(length($hash->{BUF}) < $tlen+$off);
 
   my $fb = substr($hash->{BUF}, 0, 1);
   my $pl = substr($hash->{BUF}, $off, $tlen); # payload
-  $hash->{BUF} = substr($hash->{BUF}, $tlen+$off);
 
   my $cp = ord(substr($fb,0,1)) >> 4;
   my $cpt = $cptype{$cp};
@@ -260,48 +261,45 @@ MQTT2_SERVER_Read($@)
 
   # Lowlevel debugging
   if(AttrVal($sname, "verbose", 1) >= 5) {
-    my $pltxt = $pl;
-    $pltxt =~ s/([^ -~])/"(".ord($1).")"/ge;
-    Log3 $sname, 5, "$cpt: $pltxt";
+    my $msg = substr($hash->{BUF}, 0, $off+$tlen);
+    $msg =~ s/([^ -~])/"(".ord($1).")"/ge;
+    Log3 $sname, 5, "$cpt: $msg";
   }
+
+  $hash->{BUF} = substr($hash->{BUF}, $tlen+$off);
 
   if(!defined($hash->{cid}) && $cpt ne "CONNECT") {
     Log3 $sname, 2, "$cname $cpt before CONNECT, disconnecting";
-    CommandDelete(undef, $cname);
-    return MQTT2_SERVER_Read($hash, 1);
+    return CommandDelete(undef, $cname);
   }
 
   ####################################
   if($cpt eq "CONNECT") {
-    ($hash->{protoTxt}, $off) = MQTT2_SERVER_getStr($pl, 0); # V3:MQIsdb V4:MQTT
+    # V3:MQIsdb V4:MQTT
+    ($hash->{protoTxt}, $off) = MQTT2_SERVER_getStr($hash, $pl, 0);
     $hash->{protoNum}  = unpack('C*', substr($pl,$off++,1)); # 3 or 4
     $hash->{cflags}    = unpack('C*', substr($pl,$off++,1));
     $hash->{keepalive} = unpack('n', substr($pl, $off, 2)); $off += 2;
-    ($hash->{cid}, $off) = MQTT2_SERVER_getStr($pl, $off);
-
-    if(!($hash->{cflags} & 0x02)) {
-      Log3 $sname, 2, "$cname wants unclean session, disconnecting";
-      return MQTT2_SERVER_terminate($hash, pack("C*", 0x20, 2, 0, 1));
-    }
+    ($hash->{cid}, $off) = MQTT2_SERVER_getStr($hash, $pl, $off);
 
     my $desc = "keepAlive:$hash->{keepalive}";
     if($hash->{cflags} & 0x04) { # Last Will & Testament
       my ($wt, $wm);
-      ($wt, $off) = MQTT2_SERVER_getStr($pl, $off);
-      ($wm, $off) = MQTT2_SERVER_getStr($pl, $off);
+      ($wt, $off) = MQTT2_SERVER_getStr($hash, $pl, $off);
+      ($wm, $off) = MQTT2_SERVER_getStr($hash, $pl, $off);
       $hash->{lwt} = "$wt:$wm";
       $desc .= " LWT:$wt:$wm";
     }
 
     my ($pwd, $usr) = ("","");
     if($hash->{cflags} & 0x80) {
-      ($usr,$off) = MQTT2_SERVER_getStr($pl,$off);
+      ($usr,$off) = MQTT2_SERVER_getStr($hash, $pl,$off);
       $hash->{usr} = $usr;
       $desc .= " usr:$hash->{usr}";
     }
 
     if($hash->{cflags} & 0x40) {
-      ($pwd, $off) = MQTT2_SERVER_getStr($pl,$off);
+      ($pwd, $off) = MQTT2_SERVER_getStr($hash, $pl,$off);
     }
 
     my $ret = Authenticate($hash, "basicAuth:".encode_base64("$usr:$pwd"));
@@ -318,12 +316,12 @@ MQTT2_SERVER_Read($@)
     my $cf = ord(substr($fb,0,1)) & 0xf;
     my $qos = ($cf & 0x06) >> 1;
     my ($tp, $val, $pid);
-    ($tp, $off) = MQTT2_SERVER_getStr($pl, 0);
-    if($qos) {
+    ($tp, $off) = MQTT2_SERVER_getStr($hash, $pl, 0);
+    if($qos && length($pl) >= $off+2) {
       $pid = unpack('n', substr($pl, $off, 2));
       $off += 2;
     }
-    $val = substr($pl, $off);
+    $val = (length($pl)>$off ? substr($pl, $off) : "");
     Log3 $sname, 4, "$cname $hash->{cid} $cpt $tp:$val";
     addToWritebuffer($hash, pack("CCnC*", 0x40, 2, $pid)) if($qos); # PUBACK
     MQTT2_SERVER_doPublish($hash, $defs{$sname}, $tp, $val, $cf & 0x01);
@@ -338,7 +336,7 @@ MQTT2_SERVER_Read($@)
     my ($subscr, @ret);
     $off = 2;
     while($off < $tlen) {
-      ($subscr, $off) = MQTT2_SERVER_getStr($pl, $off);
+      ($subscr, $off) = MQTT2_SERVER_getStr($hash, $pl, $off);
       my $qos = unpack("C*", substr($pl, $off++, 1));
       $hash->{subscriptions}{$subscr} = $hash->{lastMsgTime};
       Log3 $sname, 4, "  topic:$subscr qos:$qos";
@@ -364,7 +362,7 @@ MQTT2_SERVER_Read($@)
     my ($subscr, @ret);
     $off = 2;
     while($off < $tlen) {
-      ($subscr, $off) = MQTT2_SERVER_getStr($pl, $off);
+      ($subscr, $off) = MQTT2_SERVER_getStr($hash, $pl, $off);
       delete $hash->{subscriptions}{$subscr};
       Log3 $sname, 4, "  topic:$subscr";
     }
@@ -379,49 +377,62 @@ MQTT2_SERVER_Read($@)
   } elsif($cpt eq "DISCONNECT") {
     Log3 $sname, 4, "$cname $hash->{cid} $cpt";
     delete($hash->{lwt}); # no LWT on disconnect, see doc, chapter 3.14
-    CommandDelete(undef, $cname);
+    return CommandDelete(undef, $cname);
 
   ####################################
   } else {
-    Log 1, "M2: Unhandled packet $cpt, disconneting $cname";
-    CommandDelete(undef, $cname);
+    Log 1, "ERROR: Unhandled packet $cpt, disconneting $cname";
+    return CommandDelete(undef, $cname);
 
   }
+  if($hash->{stringError}) {
+    Log3 $sname, 2,
+        "ERROR: $cname $hash->{cid} received bogus data, disconnecting";
+    return CommandDelete(undef, $cname);
+  }
+
   return MQTT2_SERVER_Read($hash, 1);
 }
 
 ######################################
 # Call sendto for all clients + Dispatch + dotrigger if rawEvents is set
-# tgt is the "accept" server, src is the connection generating the data
+# server is the "accept" server, src is the connection generating the data
 sub
 MQTT2_SERVER_doPublish($$$$;$)
 {
-  my ($src, $tgt, $tp, $val, $retain) = @_;
+  my ($src, $server, $tp, $val, $retain) = @_;
   $val = "" if(!defined($val));
-  $src = $tgt if(!defined($src));
+  $src = $server if(!defined($src));
 
   if($retain) {
     my $now = gettimeofday();
     my %h = ( ts=>$now, val=>$val );
-    $tgt->{retain}{$tp} = \%h;
+    $server->{retain}{$tp} = \%h;
 
     # Save it
-    my %nots = map { $_ => $tgt->{retain}{$_}{val} } keys %{$tgt->{retain}};
-    setReadingsVal($tgt, "RETAIN", toJSON(\%nots), FmtDateTime(gettimeofday()));
+    my %nots = map { $_ => $server->{retain}{$_}{val} }
+               keys %{$server->{retain}};
+    setReadingsVal($server,"RETAIN",toJSON(\%nots),FmtDateTime(gettimeofday()));
   }
 
-  foreach my $clName (keys %{$tgt->{clients}}) {
-    MQTT2_SERVER_sendto($tgt, $defs{$clName}, $tp, $val)
+  foreach my $clName (keys %{$server->{clients}}) {
+    MQTT2_SERVER_sendto($server, $defs{$clName}, $tp, $val)
         if($src->{NAME} ne $clName);
   }
 
-  if(defined($src->{cid})) { # "real" MQTT client
-    my $cid = $src->{cid};
+  my $serverName = $server->{NAME};
+  my $cid = $src->{cid};
+  $tp =~ s/:/_/g; # 96608
+  if(defined($cid) ||                    # "real" MQTT client
+     AttrVal($serverName, "rePublish", undef)) {
+    $cid = $src->{NAME} if(!defined($cid));
     $cid =~ s,[^a-z0-9._],_,gi;
-    my $ac = AttrVal($tgt->{NAME}, "autocreate", 1) ? "autocreate:":"";
-    Dispatch($tgt, "$ac$cid:$tp:$val", undef, !$ac);
-    my $re = AttrVal($tgt->{NAME}, "rawEvents", undef);
-    DoTrigger($tgt->{NAME}, "$tp:$val") if($re && $tp =~ m/$re/);
+    my $ac = AttrVal($serverName, "autocreate", "simple");
+    $ac = $ac eq "1" ? "simple" : ($ac eq "0" ? "no" : $ac); # backward comp.
+
+    Dispatch($server, "autocreate=$ac\0$cid\0$tp\0$val", undef, $ac eq "no"); 
+    my $re = AttrVal($serverName, "rawEvents", undef);
+    DoTrigger($server->{NAME}, "$tp:$val") if($re && $tp =~ m/$re/);
   }
 }
 
@@ -476,6 +487,7 @@ MQTT2_SERVER_Write($$$)
   } else {
     Log3 $name, 1, "$name: ERROR: Ignoring function $function";
   }
+  return undef;
 }
 
 sub
@@ -510,11 +522,24 @@ MQTT2_SERVER_getRemainingLength($)
 }
 
 sub
-MQTT2_SERVER_getStr($$)
+MQTT2_SERVER_getStr($$$)
 {
-  my ($in, $off) = @_;
+  my ($hash, $in, $off) = @_;
   my $l = unpack("n", substr($in, $off, 2));
-  return (substr($in, $off+2, $l), $off+2+$l);
+  my $r = substr($in, $off+2, $l);
+  $hash->{stringError} = 1 if(index($r, "\0") >= 0);
+  return ($r, $off+2+$l);
+}
+
+#{MQTT2_SERVER_ReadDebug($defs{m2s}, '(162)(50)(164)(252)(0).7c:2f:80:97:b0:98/GenericAc(130)(26)(212)4(0)(21)BLE2MQTT/OTA/')}
+sub
+MQTT2_SERVER_ReadDebug($$)
+{
+  my ($hash, $s) = @_;
+  $s =~ s/\((\d{1,3})\)/chr($1)/ge;
+  $hash->{BUF} = $s;
+  Log 1, "Debug len:".length($s);
+  MQTT2_SERVER_Read($hash, 1, 1);
 }
 
 1;
@@ -578,12 +603,6 @@ MQTT2_SERVER_getStr($$)
       messages, but not forward them.
       </li><br>
 
-    <a name="rawEvents"></a>
-    <li>rawEvents &lt;topic-regexp&gt;<br>
-      Send all messages as events attributed to this MQTT2_SERVER instance.
-      Should only be used, if there is no MQTT2_DEVICE to process the topic.
-      </li><br>
-
     <a name="keepaliveFactor"></a>
     <li>keepaliveFactor<br>
       the oasis spec requires a disconnect, if after 1.5 times the client
@@ -596,6 +615,20 @@ MQTT2_SERVER_getStr($$)
       </ul>
       </li>
     
+    <a name="rawEvents"></a>
+    <li>rawEvents &lt;topic-regexp&gt;<br>
+      Send all messages as events attributed to this MQTT2_SERVER instance.
+      Should only be used, if there is no MQTT2_DEVICE to process the topic.
+      </li><br>
+
+    <a name="rePublish"></a>
+    <li>rePublish<br>
+      if a topic is published from a source inside of FHEM (e.g. MQTT2_DEVICE),
+      it is only sent to real MQTT clients, and it will not internally
+      republished. By setting this attribute the topic will also be dispatched
+      to the FHEM internal clients.
+      </li><br>
+
     <a name="SSL"></a>
     <li>SSL<br>
       Enable SSL (i.e. TLS)
@@ -611,9 +644,16 @@ MQTT2_SERVER_getStr($$)
        </li><br>
 
     <a name="autocreate"></a>
-    <li>autocreate<br>
+    <li>autocreate [no|simple|complex]<br>
       MQTT2_DEVICES will be automatically created upon receiving an
-      unknown message. Set this value to 0 to disable autocreating.
+      unknown message. Set this value to no to disable autocreating, the
+      default is simple.<br>
+      With simple the one-argument version of json2nameValue is added:
+      json2nameValue($EVENT), with complex the full version:
+      json2nameValue($EVENT, 'SENSOR_', $JSONMAP). Which one is better depends
+      on the attached devices and on the personal taste, and it is only
+      relevant for json payload. For non-json payload there is no difference
+      between simple and complex.
       </li><br>
 
   </ul>

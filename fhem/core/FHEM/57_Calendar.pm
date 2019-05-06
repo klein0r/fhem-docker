@@ -1,4 +1,4 @@
-# $Id: 57_Calendar.pm 18138 2019-01-05 07:59:07Z neubert $
+# $Id: 57_Calendar.pm 18712 2019-02-24 13:09:53Z betateilchen $
 ##############################################################################
 #
 #     57_Calendar.pm
@@ -36,7 +36,7 @@ package main;
 no if $] >= 5.017011, warnings => 'experimental::smartmatch';
 
 #
-# *** Potential isses:
+# *** Potential issues:
 #
 # There might be issues when turning to daylight saving time and back that
 # need further investigation. For counterpart please see
@@ -1683,11 +1683,15 @@ sub Calendar_Initialize($) {
   $hash->{SetFn}   = "Calendar_Set";
   $hash->{AttrFn}   = "Calendar_Attr";
   $hash->{NotifyFn}= "Calendar_Notify";
-  $hash->{AttrList}=  "update:sync,async,none removevcalendar:0,1 " .
-  "cutoffOlderThan hideOlderThan hideLaterThan onCreateEvent " .
-  "ignoreCancelled:0,1 quirks " .
-  "SSLVerify:0,1 defaultFormat defaultTimeFormat " .
-  $readingFnAttributes;
+  $hash->{AttrList}=  "update:none,onUrlChanged ".
+                      "synchronousUpdate:0,1 ".
+                      "removevcalendar:0,1 " .
+                      "ignoreCancelled:0,1 ".
+                      "SSLVerify:0,1 ".
+                      "cutoffOlderThan hideOlderThan hideLaterThan ".
+                      "onCreateEvent quirks ".
+                      "defaultFormat defaultTimeFormat ".
+                      $readingFnAttributes;
 }
 
 
@@ -1711,15 +1715,19 @@ sub Calendar_Define($$) {
   my $type      = $a[3];
   my $url       = $a[4];
   my $interval  = 3600;
-
-  $interval= $a[5] if($#a==5);
+  if($#a==5) {
+    $interval= $a[5] if ($a[5] > 0);
+    Log3 $hash,2,"Calendar $name: interval $a[5] not allowed. Using 3600 as default." if ($a[5] <= 0);
+  }
 
   $hash->{".fhem"}{type}= $type;
   $hash->{".fhem"}{url}= $url;
+  $hash->{".fhem"}{lasturl}= $url;
   $hash->{".fhem"}{interval}= $interval;
   $hash->{".fhem"}{lastid}= 0;
   $hash->{".fhem"}{vevents}= {};
   $hash->{".fhem"}{nxtUpdtTs}= 0;
+  $hash->{".fhem"}{noWildcards} = ($url =~ /google/) ? 1 : 0;
 
   #$attr{$name}{"hideOlderThan"}= 0;
 
@@ -1768,9 +1776,17 @@ sub Calendar_Attr(@) {
         return "$arg must be a perl command in curly brackets but you supplied $arg.";
     }
   } elsif($a[0] eq "update") {
-    my @args= qw/none sync async/;
-    return "Argument for update must be one of " . join(" ", @args) .
-      " instead of $arg." unless($arg ~~ @args);
+    my @args= qw/sync async/;
+    if ($arg ~~ @args) { # inform about new attribute synchronousUpdate
+       Log3 $hash,2,"Calendar $name: Value '$arg' for attribute 'update' is deprecated.";
+       Log3 $hash,2,"Calendar $name: Please use new attribute 'synchronousUpdate' if really needed.";
+       Log3 $hash,2,"Calendar $name: Attribute 'update' deleted. Please use 'save config' to update your configuration.";
+       CommandDefine(undef,"delattr_$name at +00:00:01 deleteattr $name update");
+       return undef;
+    }
+    @args= qw/none onUrlChanged/;
+    return "Calendar $name: Argument for update must be one of " . join(" ", @args) .
+           " instead of $arg." unless($arg ~~ @args);
   }
 
   return undef;
@@ -1995,6 +2011,18 @@ sub Calendar_Get($@) {
         for my $limit (@limits) {
           if($limit =~ /count=([1-9]+\d*)/) {
             $count= $1;
+          } elsif($limit =~ /when=(today|tomorrow)/i) {
+            my ($from,$to);
+            if (lc($1) eq 'today') {
+              $from  = Calendar_GetSecondsFromMidnight();
+              $to    = DAYSECONDS - $from;
+              $from *= -1;
+            } else {
+              $from  = DAYSECONDS - Calendar_GetSecondsFromMidnight();
+              $to    = $from + DAYSECONDS;
+            }
+            push @filters, { ref => \&filter_endafter, param => $t+$from };
+            push @filters, { ref => \&filter_startbefore, param => $t+$to };
           } elsif($limit =~ /from=([+-]?)(.+)/ ) {
             my $sign= $1 eq "-" ? -1 : 1;
             my ($error, $from)= Calendar_GetSecondsFromTimeSpec($2);
@@ -2227,6 +2255,12 @@ sub Calendar_DisarmTimer($) {
 #
 
 ###################################
+sub Calendar_GetSecondsFromMidnight(){
+  my @time = localtime();
+  return (($time[2] * HOURSECONDS) + ($time[1] * MINUTESECONDS) + $time[0]);
+}
+
+###################################
 sub Calendar_GetSecondsFromTimeSpec($) {
 
   my ($tspec) = @_;
@@ -2236,9 +2270,9 @@ sub Calendar_GetSecondsFromTimeSpec($) {
     return ("", $1*86400);
   }
 
-  # seconds
-  if($tspec =~ m/^[0-9]+s?$/) {
-    return ("", $tspec);
+   # seconds
+  if($tspec =~ m/^([0-9]+)s?$/) {
+    return ("", $1);
   }
 
   # D:HH:MM:SS
@@ -2451,9 +2485,23 @@ sub Calendar_GetUpdate($$$;$) {
     return;
   }
 
+  my $url = $hash->{".fhem"}{url};
+  unless ($hash->{".fhem"}{noWildcards} == 1 || AttrVal($name,'quirks','') =~ /noWildcards/) {
+    my @ti = localtime;
+    $url   = ResolveDateWildcards($hash->{".fhem"}{url}, @ti);
+  }
+
+  if($url ne $hash->{".fhem"}{lasturl}) {
+    $hash->{".fhem"}{lasturl} = $url;
+  } elsif (!$force && (AttrVal($hash->{NAME},"update","") eq "onUrlChanged")) {
+    Log3 $hash,4,"Calendar $name: unchanged url and update set to unUrlChanged = nothing to do.";
+    Calendar_CheckTimes($hash, $t);
+    Calendar_RearmTimer($hash, $t);
+    return;
+  }
+
   Log3 $hash, 4, "Calendar $name: Updating...";
   my $type = $hash->{".fhem"}{type};
-  my $url= $hash->{".fhem"}{url};
 
   my $errmsg= "";
   my $ics;
@@ -2572,10 +2620,10 @@ sub Calendar_ProcessUpdate($$$) {
   } else {
     $hash->{".fhem"}{iCalendar}= $ics; # the plain text iCalendar
     $hash->{".fhem"}{removeall}= $removeall;
-    if(AttrVal($name, "update", "sync") eq "async") {
-      Calendar_AsynchronousUpdateCalendar($hash);
-    } else {
+    if( $^O =~ m/Win/ || AttrVal($name, "synchronousUpdate", 0) == 1 ) {
       Calendar_SynchronousUpdateCalendar($hash);
+    } else {
+      Calendar_AsynchronousUpdateCalendar($hash);
     }
   }
 
@@ -3184,20 +3232,41 @@ sub CalendarEventsAsHtml($;$) {
 
     If the URL
     starts with <code>https://</code>, the perl module IO::Socket::SSL must be installed
-    (use <code>cpan -i IO::Socket::SSL</code>).<br><br>
-
-    Note for users of Google Calendar: You can literally use the private ICal URL from your Google Calendar.
-    If your Google Calendar
-    URL starts with <code>https://</code> and the perl module IO::Socket::SSL is not installed on your system, you can
-    replace it by <code>http://</code> if and only if there is no redirection to the <code>https://</code> URL.
-    Check with your browser first if unsure.<br><br>
-
+    (use <code>cpan -i IO::Socket::SSL</code>).<br>
+    <br/>
+    <code>&lt;URL&gt;</code> may contain %-wildcards of the
+    POSIX strftime function of the underlying OS (see your strftime manual).
+    Common used wildcards are:
+    <ul>
+    <li><code>%d</code> day of month (01..31)</li>
+    <li><code>%m</code> month (01..12)</li>
+    <li><code>%Y</code> year (1970...)</li>
+    <li><code>%w</code> day of week (0..6);  0 represents Sunday</li>
+    <li><code>%j</code> day of year (001..366)</li>
+    <li><code>%U</code> week number of year with Sunday as first day of week (00..53)</li>
+    <li><code>%W</code> week number of year with Monday as first day of week (00..53)</li>
+    </ul>
+    <br/>
+    - Wildcards in url will be evaluated on every calendar update.<br/>
+    - The evaluation of wildcards maybe disabled by adding literal 'noWildcards' to attribute 'quirks'. 
+    This may be useful in url containing % without marking a wildcard.<br/> 
+    <br/>
+    Note for users of Google Calendar: 
+    <ul>
+    <li>Wildcards must not be used in Google Calendar url!</li>
+    <li>You can literally use the private ICal URL from your Google Calendar.</li>
+    <li>If your Google Calendar URL starts with <code>https://</code> and the perl module IO::Socket::SSL is 
+    not installed on your system, you can replace it by <code>http://</code> if and only if there is 
+    no redirection to the <code>https://</code> URL. Check with your browser first if unsure.</li>
+    </ul>
+    <br/>
     Note for users of Netxtcloud Calendar: you can use an URL of the form
     <code>https://admin:admin@demo.nextcloud.com/wid0ohgh/remote.php/dav/calendars/admin/personal/?export</code>.
     <p>
 
     The optional parameter <code>interval</code> is the time between subsequent updates
-    in seconds. It defaults to 3600 (1 hour).<br><br>
+    in seconds. It defaults to 3600 (1 hour).<br>
+    An interval = 0 will not be allowed and replaced by 3600 automatically. A corresponding log entry will be created.<br/><br>
 
     Examples:
     <pre>
@@ -3370,11 +3439,13 @@ sub CalendarEventsAsHtml($;$) {
     <tr><td><code>to=[+|-]&lt;timespec&gt;</code></td><td>shows only events that start before
       a timespan &lt;timespec&gt; from now; use a minus sign for events in the
       past; &lt;timespec&gt; is described below in the Attributes section</td></tr>
+    <tr><td><code>when=today|tomorrow</code></td><td>shows events for today or tomorrow</td></tr>
     </table><br>
 
     Examples:<br>
     <code>get MyCalendar events limit:count=10</code><br>
     <code>get MyCalendar events limit:from=-2d</code><br>
+    <code>get MyCalendar events limit:when=today</code><br>
     <code>get MyCalendar events limit:count=10,from=0,to=+10d</code><br>
     <br><br>
 
@@ -3474,12 +3545,20 @@ sub CalendarEventsAsHtml($;$) {
       command. The specification is explained there. Do not enclose
       the &lt;timeFormatSpec&gt; in quotes.</li></p>
 
-    <li><code>update sync|async|none</code><br>
-        If this attribute is not set or if it is set to <code>sync</code>, the processing of
-        the calendar is done in the foreground. Large calendars will block FHEM on slow
-        systems. If this attribute is set to <code>async</code>, the processing is done in the
-        background and FHEM will not block during updates. If this attribute is set to
-        <code>none</code>, the calendar will not be updated at all.
+    <li><code>synchronousUpdate 0|1</code><br>
+        If this attribute is not set or if it is set to 0, the processing is done 
+        in the background and FHEM will not block during updates. <br/>
+        If this attribute is set to 1, the processing of the calendar is done 
+        in the foreground. Large calendars will block FHEM on slow systems. <br/>
+        <br/>
+        Attribute value will be ignored if FHEM is running on a Windows platform.<br/>
+        On Windows platforms the processing will always be done synchronously<br/>
+        </li><p>
+
+    <li><code>update onUrlChanged|none</code><br>
+        If this attribute is set to <code>onUrlChanged</code>, the processing is done only
+        if url to calendar has changed since last calendar update.<br/>
+        If this attribute is set to <code>none</code>, the calendar will not be updated at all.
         </li><p>
 
     <li><code>removevcalendar 0|1</code><br>
@@ -3807,12 +3886,6 @@ sub CalendarEventsAsHtml($;$) {
 <a name="Calendar"></a>
 <h3>Calendar</h3>
 <ul>
-  <br>
-  <b>Diese deutsche &Uuml;bersetzung ist nicht mehr aktuell
-  (siehe bitte <a href="https://forum.fhem.de/index.php/topic,86148.msg786290.html#msg786290">Forumsbeitrag</a>).
-  Bitte hilf bei FHEM mit und aktualisiere diese &Uuml;bersetzung. Die englischsprachige
-  Dokumentation ist immer aktuell.</b><p>
-
   <a name="Calendardefine"></a>
   <b>Define</b>
   <ul>
@@ -3821,24 +3894,44 @@ sub CalendarEventsAsHtml($;$) {
     <br>
     Definiert ein Kalender-Device.<br><br>
 
-    Ein Kalender-Device ermittelt (Serien-) Termine aus einem Quell-Kalender. Dieser kann eine URL oder eine Datei sein.
+    Ein Kalender-Device ermittelt (Serien-)Termine aus einem Quell-Kalender. Dieser kann eine URL oder eine Datei sein.
 	Die Datei muss im iCal-Format vorliegen.<br><br>
 
-    Beginnt die URL mit <code>https://</code>, muss das Perl-Modul IO::Socket::SSL installiert sein
+    Beginnt die <abbr>URL</abbr> mit <code>https://</code>, muss das Perl-Modul <code>IO::Socket::SSL</code> installiert sein
     (use <code>cpan -i IO::Socket::SSL</code>).<br><br>
 
-    Hinweis f&uuml;r Nutzer des Google-Kalenders: Du kann direkt die private iCal-URL des Google Kalender nutzen.
-
-    Sollte Deine Google-Kalender-URL mit <code>https://</code> beginnen und das Perl-Modul IO::Socket::SSL ist nicht auf Deinem Systeme installiert,
-	kannst Du in der URL  <code>https://</code> durch <code>http://</code> ersetzen, falls keine automatische Umleitung auf die <code>https://</code> URL erfolgt.
-    Solltest Du unsicher sein, ob dies der Fall ist, &uuml;berpr&uuml;fe es bitte zuerst mit Deinem Browser.<br><br>
-
+    Die <code>&lt;URL&gt;</code> kann %-wildcards der POSIX
+    strftime-Funktion des darunterliegenden OS enthalten (siehe auch strftime
+    Beschreibung).
+    Allgemein gebr&auml;uchliche Wildcards sind:
+    <ul>
+    <li><code>%d</code> Tag des Monats (01..31)</li>
+    <li><code>%m</code> Monat (01..12)</li>
+    <li><code>%Y</code> Jahr (1970...)</li>
+    <li><code>%w</code> Wochentag (0..6);  beginnend mit Sonntag (0)</li>
+    <li><code>%j</code> Tag des Jahres (001..366)</li>
+    <li><code>%U</code> Wochennummer des Jahres, wobei Wochenbeginn = Sonntag (00..53)</li>
+    <li><code>%W</code> Wochennummer des Jahres, wobei Wochenbeginn = Montag (00..53)</li>
+    </ul>
+    <br/>
+    -Die wildcards werden bei jedem Kalenderupdate ausgewertet.<br/>
+    -Die Auswertung von wildcards kann bei Bedarf f&uuml; einen Kalender deaktiviert werden, indem das Schl&uuml;sselwort 'noWildcards'
+     dem Attribut 'quirks' hinzugef&uuml;gt wird. Das ist n&uuml;tzlich bei url die bereits ein % enthalten, ohne damit ein wildcard
+     zu kennzeichnen.<br/>    
+    <br/>
+    Hinweise f&uuml;r Nutzer des Google-Kalenders: 
+    <ul>
+    <li>Wildcards d&uuml;rfen in Google Kalender URL nicht verwendet werden!</li>
+    <li>Du kannst direkt die private iCal-URL des Google-Kalenders nutzen.</li>
+    <li>Sollte deine Google-Kalender-URL mit <code>https://</code> beginnen und das Perl-Modul <code>IO::Socket::SSL</code> ist nicht auf deinem System  installiert,
+	kannst Du in der URL <code>https://</code> durch <code>http://</code> ersetzen, falls keine automatische Umleitung auf die <code>https://</code> URL erfolgt.
+    Solltest Du unsicher sein, ob dies der Fall ist, &uuml;berpr&uuml;fe es bitte zuerst mit deinem Browser.</li>
+    </ul>
     Hinweis f&uuml;r Nutzer des Nextcloud-Kalenders: Du kannst eine URL der folgenden Form benutzen:
     <code>https://admin:admin@demo.nextcloud.com/wid0ohgh/remote.php/dav/calendars/admin/personal/?export</code>.<p>
 
-
-
-    Der optionale Parameter <code>interval</code> bestimmt die Zeit in Sekunden zwischen den Updates. Default-Wert ist 3600 (1 Stunde).<br><br>
+    Der optionale Parameter <code>interval</code> bestimmt die Zeit in Sekunden zwischen den Updates. Default-Wert ist 3600 (1 Stunde).<br>
+    Eine Intervallangabe von 0 ist nicht erlaubt. Diese wird automatisch durch den Standardwert 3600 ersetzt und im Log protokolliert.<br><br/>
 
     Beispiele:
     <pre>
@@ -3847,8 +3940,7 @@ sub CalendarEventsAsHtml($;$) {
       define IrgendeinKalender Calendar ical file /home/johndoe/calendar.ics
       </pre>
   </ul>
-  <br>
-
+  
   <a name="Calendarset"></a>
   <b>Set </b><br><br>
   <ul>
@@ -3872,71 +3964,170 @@ sub CalendarEventsAsHtml($;$) {
 
     <code>get &lt;name&gt; reload</code><br>
     Entspricht  <code>set &lt;name&gt; reload</code><br><br>
+    
+    
+    <li><code>get &lt;name&gt; events [format:&lt;formatSpec&gt;] [timeFormat:&lt;timeFormatSpec&gt;] [filter:&lt;filterSpecs&gt;] [series:next[=&lt;max&gt;]] [limit:&lt;limitSpecs&gt;]</code><br><br>    
+    Das Schweizer Taschenmesser f&uuml;r die Anzeige von Terminen.
+    Die Termine des Kalenders &lt;name&gt; werden Zeile f&uuml;r Zeile entsprechend der Format- und Filterangaben ausgegeben.
+    Keiner, einer oder mehrere der Parameter <code>format</code>,
+    <code>timeFormat</code>, <code>filter</code>, <code>series</code> und <code>limit</code>
+    k&ouml;nnen angegeben werden, weiterhin ist es sinnvoll, den Parameter <code>filter</code> mehrere Male anzugeben.
+    <br><br>
+    
+    Der Parameter <u><code>format</code></u> legt den zur&uuml;ckgegeben Inhalt fest.<br><br>
+    Folgende Formatspezifikationen stehen zur Verf&uuml;gung:<br><br>
+    
+    <table>
+    <tr><th align="left">&lt;formatSpec&gt;</th><th align="left">Beschreibung</th></tr>
+    <tr><td><code>default</code></td><td>Standardformat (siehe unten)</td></tr>
+    <tr><td><code>full</code></td><td>entspricht <code>custom="$U $M $A $T1-$T2 $S $CA $L"</code></td></tr>
+    <tr><td><code>text</code></td><td>entspricht <code>custom="$T1 $S"</code></td></tr>
+    <tr><td><code>custom="&lt;formatString&gt;"</code></td><td>ein spezifisches Format (siehe unten)</td></tr>
+    <tr><td><code>custom="{ &lt;perl-code&gt; }"</code></td><td>ein spezifisches Format (siehe unten)</td></tr>
+    </table><br>
+    Einzelne Anf&uuml;hrungszeichen (<code>'</code>) k&ouml;nnen anstelle von doppelten Anf&uuml;hrungszeichen (<code>"</code>) innerhalb 
+    eines spezifischen Formats benutzt werden.
+    
+    Folgende Variablen k&ouml;nnen in <code>&lt;formatString&gt;</code> und in
+    <code>&lt;perl-code&gt;</code> verwendet werden:
+    <br><br>
+   
+    <table>
+    <tr><th align="left">variable</th><th align="left">Bedeutung</th></tr>
+    <tr><td><code>$t1</code></td><td>Startzeit in Sekunden</td></tr>
+    <tr><td><code>$T1</code></td><td>Startzeit entsprechend Zeitformat</td></tr>
+    <tr><td><code>$t2</code></td><td>Endzeit in Sekunden</td></tr>
+    <tr><td><code>$T2</code></td><td>Endzeit entsprechend Zeitformat</td></tr>
+    <tr><td><code>$a</code></td><td>Alarmzeit in Sekunden</td></tr>
+    <tr><td><code>$A</code></td><td>Alarmzeit entsprechend Zeitformat</td></tr>
+    <tr><td><code>$d</code></td><td>Dauer in Sekunden</td></tr>
+    <tr><td><code>$D</code></td><td>Dauer in menschenlesbarer Form</td></tr>
+    <tr><td><code>$S</code></td><td>Zusammenfassung</td></tr>
+    <tr><td><code>$L</code></td><td>Ortsangabe</td></tr>
+    <tr><td><code>$CA</code></td><td>Kategorien</td></tr>
+    <tr><td><code>$CL</code></td><td>Klassifizierung</td></tr>
+    <tr><td><code>$DS</code></td><td>Beschreibung</td></tr>
+    <tr><td><code>$U</code></td><td>UID</td></tr>
+    <tr><td><code>$M</code></td><td>Modus</td></tr>
+    </table><br>
+    \, (maskiertes Komma) in Zusammenfassung, Ortsangabe und Beschreibung werden durch ein Komma ersetzt,
+    aber \n (kennzeichnet Absatz) bleibt unber&uuml;hrt.<br><br>
 
-    <code>get &lt;name&gt; &lt;format&gt; &lt;filter&gt; [&lt;max&gt;]</code><br>
-    Die Termine f&uuml;r den Kalender &lt;name&gt; werden Zeile f&uuml;r Zeile ausgegeben.<br><br>
+    Wird der Parameter <code>format</code> ausgelassen, dann wird die Formatierung
+    aus <code>defaultFormat</code> benutzt. Ist dieses Attribut nicht gesetzt,  wird <code>"$T1 $D $S"</code>
+    als Formatierung benutzt.
+    
+    Das letzte Auftreten von <code>format</code> gewinnt bei mehrfacher Angabe.
+    <br><br>
+    
+    Examples:<br>
+    <code>get MyCalendar events format:full</code><br>
+    <code>get MyCalendar events format:custom="$T1-$T2 $S \@ $L"</code><br>
+    <code>get MyCalendar events format:custom={ sprintf("%20s %8s", $S, $D) }</code><br><br>
 
-	Folgende Selektoren/Filter stehen zur Verf&uuml;gung:<br><br>
+    Der Parameter <u><code>timeFormat</code></u> legt das Format f&uuml;r die Start-, 
+    End- und Alarmzeiten fest.<br><br>
 
-	Der Selektor &lt;format&gt legt den zur&uuml;ckgegeben Inhalt fest:<br><br>
+    In <code>&lt;timeFormatSpec&gt;</code> kann die POSIX-Spezifikation verwendet werden.
+    Auf <a href="http://strftime.net">strftime.net</a> gibt es ein Tool zum Erstellen von
+    <code>&lt;timeFormatSpec&gt;</code>.<br><br>
+        
+    Wenn der Parameter <code>timeFormat</code> ausgelassen, dann wird die Formatierung
+    aus <code>defaultTimeFormat</code> benutzt. Ist dieses Attribut nicht gesetzt, dann
+    wird <code>"%d.%m.%Y %H:%M"</code> als Formatierung benutzt.
+    Zum Umschlie&szlig;en der Formatangabe k&ouml;nnen einfache (<code>'</code>) oder
+    doppelte (<code>"</code>) Anf&uuml;hrungszeichen verwendet werden.<br><br>
+
+    Das letzte Auftreten von <code>timeFormat</code> gewinnt bei mehrfacher Angabe.
+    <br><br>    
+
+    Example:<br>
+    <code>get MyCalendar events timeFormat:"%e-%b-%Y" format:full</code><br><br>
+
+
+    Der Parameter <u><code>filter</code></u> schr&auml;nkt die Anzeige der Termine ein.
+    <code>&lt;filterSpecs&gt;</code> ist eine kommaseparierte Liste von
+    <code>&lt;filterSpec&gt;</code>-Angaben.
+    Alle Filterangaben m&uuml;ssen zutreffen, damit ein Termin angezeigt wird.
+    Die Angabe ist kumulativ: jeder angegebene Filter wird zur Filterliste hinzugef&uum;gt
+    und ber&uum;cksichtigt.<br><br>
+    
+    <table>
+    <tr><th align="left"><code>&lt;filterSpec&gt;</code></th><th align="left">Beschreibung</th></tr>
+    <tr><td><code>uid=="&lt;uid&gt;"</code></td><td>UID ist <code>&lt;uid&gt;</code><br>
+      entspricht <code>field(uid)=="&lt;uid&gt;"</code></td></tr>
+    <tr><td><code>uid=~"&lt;regex&gt;"</code></td><td>Der regul&auml;re Ausdruck <code>&lt;regex&gt;</code> entspricht der UID<br>
+      entspricht <code>field(uid)=~"&lt;regex&gt;"</code></td></tr>
+    <tr><td><code>mode=="&lt;mode&gt;"</code></td><td>Modus ist <code>&lt;mode&gt;</code><br>
+      entspricht <code>field(mode)=="&lt;mode&gt;"</code></td></tr>
+    <tr><td><code>mode=~"&lt;regex&gt;"</code></td><td>Der regul&auml;re Ausdruck <code>&lt;regex&gt;</code> entspricht <code>mode</code><br>
+      entspricht <code>field(mode)=~"&lt;regex&gt;"</code></td></tr>
+    <tr><td><code>field(&lt;field&gt;)=="&lt;value&gt;"</code></td><td>Inhalt von <code>&lt;field&gt;</code> ist <code>&lt;value&gt;</code><br>
+      &lt;field&gt; ist eines von <code>uid</code>, <code>mode</code>, <code>summary</code>, <code>location</code>,
+      <code>description</code>, <code>categories</code>, <code>classification</code>
+      </td></tr>
+    <tr><td><code>field(&lt;field&gt;)=~"&lt;regex&gt;"</code></td><td>Inhalt von &lt;field&gt; entspricht dem regul&auml;ren Ausdruck <code>&lt;regex&gt;</code><br>
+      &lt;field&gt; ist eines von <code>uid</code>, <code>mode</code>, <code>summary</code>, <code>location</code>,
+      <code>description</code>, <code>categories</code>, <code>classification</code><br>
+      </td></tr>
+    </table><br>
+    Die doppelten Anf&uuml;hrungszeichen auf der rechten Seite von <code>&lt;filterSpec&gt;</code> sind nicht
+    Teil des regul&auml;ren Ausdrucks. Es k&ouml;nnen stattdessen einfache Anf&uuml;hrungszeichen verwendet werden.
+    <br><br>
+        
+    Examples:<br>
+    <code>get MyCalendar events filter:uid=="432dsafweq64yehdbwqhkd"</code><br>
+    <code>get MyCalendar events filter:uid=~"^7"</code><br>
+    <code>get MyCalendar events filter:mode=="alarm"</code><br>
+    <code>get MyCalendar events filter:mode=~"alarm|upcoming"</code><br>
+    <code>get MyCalendar events filter:field(summary)=~"Mama"</code><br>
+    <code>get MyCalendar events filter:field(classification)=="PUBLIC"</code><br>
+    <code>get MyCalendar events filter:field(summary)=~"Gelber Sack",mode=~"upcoming|start"</code><br>
+    <code>get MyCalendar events filter:field(summary)=~"Gelber Sack" filter:mode=~"upcoming|start"</code>
+    <br><br>
+
+    Der Parameter <u><code>series</code></u> bestimmt die Anzeige von wiederkehrenden 
+    Terminen. <code>series:next</code> begrenzt die Anzeige auf den n&auml;chsten Termin
+    der noch nicht beendeten Termine innerhalb der Serie. <code>series:next=&lt;max&gt;</code>
+    zeigt die n&auml;chsten <code>&lt;max&gt;</code> Termine der Serie. Dies gilt pro Serie.
+    Zur Begrenzung der Anzeige siehe den <code>limit</code>-Parameter.<br><br>
+
+    Der Parameter <u><code>limit</code></u> begrenzt die Anzeige der Termine.
+    <code>&lt;limitSpecs&gt;</code> ist eine kommaseparierte Liste von <code>&lt;limitSpec&gt;</code> Angaben.
+    <br><br>
 
     <table>
-    <tr><th>&lt;format&gt;</th><th>Inhalt</th></tr>
-    <tr><td>uid</td><td>UID des Termins</td></tr>
-    <tr><td>text</td><td>Benutzer-/Monitorfreundliche Textausgabe.</td></tr>
-    <tr><td>summary</td><td>&Uuml;bersicht (Betreff, Titel)</td></tr>
-    <tr><td>location</td><td>Ort</td></tr>
-    <tr><td>categories</td><td>Kategorien</td></tr>
-    <tr><td>alarm</td><td>Alarmzeit</td></tr>
-    <tr><td>start</td><td>Startzeit</td></tr>
-    <tr><td>end</td><td>Endezeit</td></tr>
-    <tr><td>full</td><td>Vollst&auml;ndiger Status</td></tr>
-    <tr><td>debug</td><td>wie &lt;full&gt; mit zus&auml;tzlichen Informationen zur Fehlersuche</td></tr>
+    <tr><th align="left"><code>&lt;limitSpec&gt;</code></th><th align="left">Beschreibung</th></tr>
+    <tr><td><code>count=&lt;n&gt;</code></td><td>zeigt <code>&lt;n&gt;</code> Termine, wobei <code>&lt;n&gt;</code> eine positive Ganzzahl (integer) ist</td></tr>
+    <tr><td><code>from=[+|-]&lt;timespec&gt;</code></td><td>zeigt nur Termine die nach einer Zeitspanne &lt;timespec&gt; ab jetzt enden; 
+    Minuszeichen f&uuml;r Termine in der Vergangenheit benutzen; &lt;timespec&gt; wird weiter unten im Attribut-Abschnitt beschrieben.</td></tr>
+    <tr><td><code>to=[+|-]&lt;timespec&gt;</code></td><td>
+    zeigt nur Termine die vor einer Zeitspanne &lt;timespec&gt; ab jetzt starten; 
+    Minuszeichen f&uuml;r Termine in der Vergangenheit benutzen; &lt;timespec&gt; wird weiter unten im Attribut-Abschnitt beschrieben.</td></tr>
+    <tr><td><code>when=today|tomorrow</code></td><td>zeigt anstehende Termin f&uuml;r heute oder morgen an</td></tr>
     </table><br>
 
-    Der Filter &lt;filter&gt; grenzt die Termine ein:<br><br>
+    Examples:<br>
+    <code>get MyCalendar events limit:count=10</code><br>
+    <code>get MyCalendar events limit:from=-2d</code><br>
+    <code>get MyCalendar events limit:when=today</code><br>
+    <code>get MyCalendar events limit:count=10,from=0,to=+10d</code><br>
+    <br><br>
 
-    <table>
-    <tr><th>&lt;filter&gt;</th><th>Inhalt</th></tr>
-    <tr><td>mode=&lt;regex&gt;</td><td>alle Termine, deren Modus durch den regul&auml;ren Ausdruck &lt;regex&gt beschrieben werden.</td></tr>
-    <tr><td>&lt;mode&gt;</td><td>alle Termine mit Modus &lt;mode&gt.</td></tr>
-    <tr><td>uid=&lt;regex&gt;</td><td>Alle Termine, deren UIDs durch den regul&auml;ren Ausdruck &lt;regex&gt beschrieben werden.</td></tr>
-    <tr><td>&lt;uid&gt;</td><td>Alle Termine mit der UID &lt;uid&gt;</td></tr>
-    <tr><td>&lt;reading&gt;</td><td>Alle Termine die im Reading &lt;reading&gt; aufgelistet werden (modeAlarm, modeAlarmed, modeStart, etc.)
-	- dieser Filter ist abgek&uuml;ndigt und steht in einer zuk&uuml;nftigen Version nicht mehr zur Verf&uuml;gung, bitte mode=&lt;regex&gt; benutzen.</td></tr>
-    <tr><td>all</td><td>Alle Termine (vergangene, aktuelle und zuk&uuml;nftige)</td></tr>
-    <tr><td>next</td><td>Alle Termine, die noch nicht beendet sind. Bei Serienterminen der erste Termin. Benutzer-/Monitorfreundliche Textausgabe</td></tr>
-    </table><br>
+    </li>
+    
+   
+    <li><code>get &lt;name&gt; find &lt;regexp&gt;</code><br>
+    Gibt zeilenweise die UID von allen Terminen aus, deren Zusammenfassung dem regul&auml;ren Ausdruck &lt;regexp&gt; entspricht.<br><br></li>
 
-    Die Filter <code>mode=&lt;regex&gt;</code> und <code>uid=&lt;regex&gt;</code> sollten den Filtern
-    <code>&lt;mode&gt;</code> und <code>&lt;uid&gt;</code> vorgezogen werden.<br><br>
+    <li><code>get &lt;name&gt; vcalendar</code><br>
+    Gibt den Kalender im ICal-Format aus, so wie er von der Quelle abgerufen wurde.<br><br></li>
 
-    Der optionale Parameter <code>&lt;max&gt;</code> schr&auml;nkt die Anzahl der zur&uuml;ckgegebenen Zeilen ein.<br><br>
-
-    Bitte beachte die Attribute <code>hideOlderThan</code> und
-    <code>hideLaterThan</code> f&uuml;r die Seletion von Terminen in einem bestimmten Zeitfenster.
-    Bitte ber&uuml;cksichtige, dass das globale &pm;400 Tageslimit gilt .<br><br>
-
-    Beispiele:<br>
-    <code>get MyCalendar text next</code><br>
-    <code>get MyCalendar summary uid:435kjhk435googlecom 1</code><br>
-    <code>get MyCalendar summary 435kjhk435googlecom 1</code><br>
-    <code>get MyCalendar full all</code><br>
-    <code>get MyCalendar text mode=alarm|start</code><br>
-    <code>get MyCalendar text uid=.*6286.*</code><br>
-    <br>
-
-    <code>get &lt;name&gt; find &lt;regexp&gt;</code><br>
-	Gibt Zeile f&uuml;r Zeile die UIDs aller Termine deren Zusammenfassungen durch den regul&auml;ren Ausdruck &lt;regex&gt beschrieben werden.
-    &lt;regexp&gt;.<br><br>
-
-    <code>get &lt;name&gt; vcalendar</code><br>
-    Gibt den Kalender ICal-Format, so wie er von der Quelle gelesen wurde, zur&uuml;ck.<br><br>
-
-    <code>get &lt;name&gt; vevents</code><br>
-    Gibt eine Liste aller VEVENT-Eintr&auml;ge des Kalenders &lt;name&gt;, angereichert um Ausgaben f&uuml;r die Fehlersuche, zur&uuml;ck.
-    Es werden nur Eigenschaften angezeigt, die w&auml;hrend der Programmausf&uuml;hrung beibehalten wurden. Es wird sowohl die Liste
-	der Termine, die von jedem VEVENT-Eintrag erzeugt wurden, als auch die Liste der ausgelassenen Termine angezeigt.
+    <li><code>get &lt;name&gt; vevents</code><br>
+    Gibt eine Liste aller VEVENT-Eintr&auml;ge mit weiteren Informationen f&uuml;r Debugzwecke zur&uuml;ck.
+    Nur Eigenschaften, die bei der Verarbeitung des Kalenders behalten wurden, werden gezeigt.
+    Die Liste, der aus jedem VEVENT-Eintrag erstellten Termine, wird, ebenso wie die ausgelassenen Termine, gezeigt.
+    </li>
 
   </ul>
 
@@ -3946,15 +4137,31 @@ sub CalendarEventsAsHtml($;$) {
   <b>Attributes</b>
   <br><br>
   <ul>
-    <li><code>update sync|async|none</code><br>
-        Wenn dieses Attribut nicht gesetzt ist oder wenn es auf <code>sync</code> gesetzt ist,
-        findet die Verarbeitung des Kalenders im Vordergrund statt. Gro&szlig;e Kalender werden FHEM
-        auf langsamen Systemen blockieren. Wenn das Attribut auf <code>async</code> gesetzt ist,
-        findet die Verarbeitung im Hintergrund statt, und FHEM wird w&auml;hrend der Verarbeitung
-        nicht blockieren. Wenn dieses Attribut auf <code>none</code> gesetzt ist, wird der
-        Kalender &uuml;berhaupt nicht aktualisiert.
-        </li><p>
+    <li><code>defaultFormat &lt;formatSpec&gt;</code><br>
+        Setzt das Standardformat f&uuml;r <code>get &lt;name&gt; events</code>.
+        Der Aufbau wird dort erkl&auml;t. &lt;formatSpec&gt; muss in doppelte
+        Anf&uuml;hrungszeichen (") gesetzt werden, wie z.B. <code>attr myCalendar defaultFormat "$T1 $D $S"</code>.</li></p>
 
+    <li><code>defaultTimeFormat &lt;timeFormatSpec&gt;</code><br>
+        Setzt das Standardzeitformat f&uuml;r <code>get &lt;name&gt; events</code>.
+        Der Aufbau wird dort erkl&auml;t. &lt;timeFormatSpec&gt; <b>nicht</b> in Anf&uuml;hrungszeichen setzten. </li></p>
+  
+    <li><code>synchronousUpdate 0|1</code><br>
+        Wenn dieses Attribut nicht oder auf 0 gesetzt ist, findet die Verarbeitung im Hintergrund statt 
+        und FHEM wird w&auml;hrend der Verarbeitung nicht blockieren.<br/>
+        Wird dieses Attribut auf 1 gesetzt, findet die Verarbeitung des Kalenders im Vordergrund statt. 
+        Umfangreiche Kalender werden FHEM auf langsamen Systemen blockieren.<br/> 
+        <br/>
+        Das Attribut wird ignoriert, falls FHEM unter Windows betrieben wird. 
+        In diesem Fall erfolgt die Verarbeitung immer synchron.<br/>
+       </li><p>
+
+    <li><code>update none|onUrlChanged</code><br>
+        Wird dieses Attribut auf <code>none</code> gesetzt ist, wird der Kalender &uuml;berhaupt nicht aktualisiert.<br/>
+        Wird dieses Attribut auf <code>onUrlChanged</code> gesetzt ist, wird der Kalender nur dann aktualisiert, wenn sich die 
+        URL seit dem letzten Aufruf ver&auml;ndert hat, insbesondere nach der Auswertung von wildcards im define.<br/>
+        </li><p>
+  
     <li><code>removevcalendar 0|1</code><br>
 		Wenn dieses Attribut auf 1 gesetzt ist, wird der vCalendar nach der Verarbeitung verworfen,
 		gleichzeitig reduziert sich der Speicherverbrauch des Moduls.
@@ -3966,15 +4173,15 @@ sub CalendarEventsAsHtml($;$) {
 
 		Dieses Attribut grenzt die Liste der durch <code>get &lt;name&gt; full|debug|text|summary|location|alarm|start|end ...</code> gezeigten Termine ein.
 
-        Die Zeit wird relativ zur aktuellen Zeit t angegeben.<br>
+        Die Zeit wird relativ zur aktuellen Zeit <var>t</var> angegeben.<br>
 		Wenn &lt;hideOlderThan&gt; gesetzt ist, werden Termine, die vor &lt;t-hideOlderThan&gt; enden, ingnoriert.<br>
         Wenn &lt;hideLaterThan&gt; gesetzt ist, werden Termine, die nach &lt;t+hideLaterThan&gt; anfangen, ignoriert.<p>
 
-        Bitte beachten, dass eine Aktion, die durch einen Wechsel in den Modus "end" ausgel&ouml;st wird, nicht auf den Termin
-        zugreifen kann, wenn hideOlderThan 0 ist, weil der Termin dann schon versteckt ist. Besser hideOlderThan auf 10 setzen.<p>
+        Bitte beachte, dass eine Aktion, die durch einen Wechsel in den Modus "end" ausgel&ouml;st wird, nicht auf den Termin
+        zugreifen kann, wenn <code>hideOlderThan</code> 0 ist, denn der Termin ist dann schon versteckt. Setze <code>hideOlderThan</code> besser auf 10.<p>
 
 
-        <code>&lt;timespec&gt;</code> muss einem der folgenden Formate entsprechen:<br>
+        <code>&lt;timespec&gt;</code> muss; einem der folgenden Formate entsprechen:<br>
         <table>
         <tr><th>Format</th><th>Beschreibung</th><th>Beispiel</th></tr>
         <tr><td>SSS</td><td>Sekunden</td><td>3600</td></tr>
@@ -3987,7 +4194,7 @@ sub CalendarEventsAsHtml($;$) {
         <p>
 
     <li><code>cutoffOlderThan &lt;timespec&gt;</code><br>
-        Dieses Attribut schneidet alle Termine weg, die eine Zeitspanne cutoffOlderThan
+        Dieses Attribut schneidet alle Termine weg, die eine Zeitspanne <code>cutoffOlderThan</code>
         vor der letzten Aktualisierung des Kalenders endeten. Der Zweck dieses Attributs ist es Speicher zu
         sparen. Auf solche Termine kann gar nicht mehr aus FHEM heraus zugegriffen
         werden. Serientermine ohne Ende (UNTIL) und
@@ -4018,10 +4225,10 @@ sub CalendarEventsAsHtml($;$) {
 
     <li><code>quirks &lt;values&gt;</code><br>
         Parameter f&uuml;r spezielle Situationen. <code>&lt;values&gt;</code> ist
-        eine mit Kommas getrennte Liste der folgenden Schl&uuml;sselw&ouml;rter:
+        eine kommaseparierte Liste der folgenden Schl&uuml;sselw&ouml;rter:
         <ul>
           <li><code>ignoreDtStamp</code>: wenn gesetzt, dann zeigt
-          ein ver&auml;ndertes DTSTAMP Attribut eines Termins nicht an, dass
+          ein ver&auml;ndertes DTSTAMP Attribut eines Termins nicht an, dass;
           der Termin ver&auml;ndert wurde.</li>
         </ul>
     </li><p>
@@ -4034,8 +4241,8 @@ sub CalendarEventsAsHtml($;$) {
   <b>Beschreibung</b>
   <ul><br>
 
-  Ein Kalender ist eine Menge von Terminen. Ein Termin hat eine Zusammenfassung (normalerweise der Titel, welcher im Quell-Kalender angezeigt wird), eine Startzeit, eine Endzeit und keine, eine oder mehrere Alarmzeiten. Die Termine werden
-  aus dem Quellkalender ermittelt, welcher &uuml;ber die URL angegeben wird. Sollten mehrere Alarmzeiten f&uuml;r einen Termin existieren, wird nur der fr&uuml;heste Alarmzeitpunkt beibehalten. Wiederkehrende Kalendereintr&auml;ge werden in einem gewissen Umfang unterst&uuml;tzt:
+  Ein Kalender ist eine Menge von Terminen. Ein Termin hat eine Zusammenfassg;ung (normalerweise der Titel, welcher im Quell-Kalender angezeigt wird), eine Startzeit, eine Endzeit und keine, eine oder mehrere Alarmzeiten. Die Termine werden
+  aus dem Quellkalender ermittelt, welcher &uuml;ber die URL angegeben wird. Sollten mehrere Alarmzeiten f&uuml;r einen Termin existieren, wird nur der fr&uuml;heste Alarmzeitpunkt beibehalten. Wiederkehrende Kalendereintr&auml;ge werden in einem gewiss;en Umfang unterst&uuml;tzt:
   FREQ INTERVAL UNTIL COUNT werden ausgewertet, BYMONTHDAY BYMONTH WKST
   werden erkannt aber nicht ausgewertet. BYDAY wird f&uuml;r w&ouml;chentliche und monatliche Termine
   korrekt behandelt. Das Modul wird es sehr wahrscheinlich falsch machen, wenn Du wiederkehrende Termine mit unerkannten oder nicht ausgewerteten Schl&uuml;sselw&ouml;rtern hast.<p>
@@ -4043,9 +4250,9 @@ sub CalendarEventsAsHtml($;$) {
   Termine werden erzeugt, wenn FHEM gestartet wird oder der betreffende Eintrag im Quell-Kalender ver&auml;ndert
   wurde oder der Kalender mit <code>get &lt;name&gt; reload</code> neu geladen wird. Es werden nur Termine
   innerhalb &pm;400 Tage um die Erzeugungs des Termins herum erzeugt. Ziehe in Betracht, den Kalender von Zeit zu Zeit
-  neu zu laden, um zu vermeiden, dass die k&uuml;nftigen Termine ausgehen. Du kann so etwas wie <code>define reloadCalendar at +*240:00:00 set MyCalendar reload</code> daf&uuml;r verwenden.<p>
+  neu zu laden, um zu vermeiden, dass; FHEM die k&uuml;nftigen Termine ausgehen. Du kann so etwas wie <code>define reloadCalendar at +*240:00:00 set MyCalendar reload</code> daf&uuml;r verwenden.<p>
 
-  Manche dummen Kalender benutzen LAST-MODIFIED nicht. Das kann dazu f&uuml;hren, dass Ver&auml;nderungen im
+  Manche dumme Kalender benutzen LAST-MODIFIED nicht. Das kann dazu f&uuml;hren, dass Ver&auml;nderungen im
   Quell-Kalender unbemerkt bleiben. Lade den Kalender neu, wenn Du dieses Problem hast.<p>
 
   Ein Termin wird durch seine UID identifiziert. Die UID wird vom Quellkalender bezogen. Um das Leben leichter zu machen, werden alle nicht-alphanumerischen Zeichen automatisch aus der UID entfernt.<p>
@@ -4055,27 +4262,27 @@ sub CalendarEventsAsHtml($;$) {
   <tr><td>upcoming</td><td>Weder die Alarmzeit noch die Startzeit des Kalendereintrags ist erreicht.</td></tr>
   <tr><td>alarm</td><td>Die Alarmzeit ist &uuml;berschritten, aber die Startzeit des Kalender-Ereignisses ist noch nicht erreicht.</td></tr>
   <tr><td>start</td><td>Die Startzeit ist &uuml;berschritten, aber die Ende-Zeit des Kalender-Ereignisses ist noch nicht erreicht.</td></tr>
-  <tr><td>end</td><td>Die Ende-Zeit des Kalender-Ereignisses wurde &uuml;berschritten.</td></tr>
+  <tr><td>end</td><td>Die Endzeit des Kalender-Ereignisses wurde &uuml;berschritten.</td></tr>
   </table><br>
-  Ein Kalender-Ereignis wechselt umgehend von einem Modus zum Anderen, wenn die Zeit f&uuml;r eine &Auml;nderung erreicht wurde. Dies wird dadurch erreicht, dass auf die fr&uuml;heste zuk&uuml;nftige Zeit aller Alarme, Start- oder Endezeiten aller Kalender-Ereignisse gewartet wird.
+  Ein Kalender-Ereignis wechselt umgehend von einem Modus zum anderen, wenn die Zeit f&uuml;r eine &Auml;nderung erreicht wurde. Dies wird dadurch erreicht, dass auf die fr&uuml;heste zuk&uuml;nftige Zeit aller Alarme, Start- oder Endzeiten aller Kalender-Ereignisse gewartet wird.
   <p>
 
-  Ein Kalender-Device hat verschiedene Readings. Mit Ausnahme von <code>calname</code> stellt jedes Reading eine Semikolon-getrennte Liste von UIDs von Kalender-Ereignisse dar, welche bestimmte Zust&auml;nde haben:
+  Ein Kalender-Device hat verschiedene Readings. Mit Ausnahme von <code>calname</code> stellt jedes Reading eine semikolonseparierte Liste aus UID von Kalender-Ereignisse dar, welche bestimmte Zust&auml;nde haben:
   <table>
   <tr><td>calname</td><td>Name des Kalenders</td></tr>
   <tr><td>modeAlarm</td><td>Ereignisse im Alarm-Modus</td></tr>
   <tr><td>modeAlarmOrStart</td><td>Ereignisse im Alarm- oder Startmodus</td></tr>
   <tr><td>modeAlarmed</td><td>Ereignisse, welche gerade in den Alarmmodus gewechselt haben</td></tr>
   <tr><td>modeChanged</td><td>Ereignisse, welche gerade in irgendeiner Form ihren Modus gewechselt haben</td></tr>
-  <tr><td>modeEnd</td><td>Ereignisse im Endemodus</td></tr>
-  <tr><td>modeEnded</td><td>Ereignisse, welche gerade vom Start- in den Endemodus gewechselt haben</td></tr>
+  <tr><td>modeEnd</td><td>Ereignisse im Endmodus</td></tr>
+  <tr><td>modeEnded</td><td>Ereignisse, welche gerade vom Start- in den Endmodus gewechselt haben</td></tr>
   <tr><td>modeStart</td><td>Ereignisse im Startmodus</td></tr>
   <tr><td>modeStarted</td><td>Ereignisse, welche gerade in den Startmodus gewechselt haben</td></tr>
   <tr><td>modeUpcoming</td><td>Ereignisse im zuk&uuml;nftigen Modus</td></tr>
   </table>
   <p>
 
-  F&uuml;r Serientermine werden mehrere Termine mit der selben UID erzeugt. In diesem Fall
+  F&uuml;r Serientermine werden mehrere Termine mit identischer UID erzeugt. In diesem Fall
   wird die UID nur im interessantesten gelesenen Modus-Reading angezeigt.
   Der interessanteste Modus ist der erste zutreffende Modus aus der Liste der Modi start, alarm, upcoming, end.<p>
 
@@ -4087,7 +4294,7 @@ sub CalendarEventsAsHtml($;$) {
 
   <b>Events</b>
   <ul><br>
-  Wenn der Kalendar neu geladen oder aktualisiert oder eine Alarm-, Start- oder Endezeit
+  Wenn der Kalendar neu geladen oder aktualisiert oder eine Alarm-, Start- oder Endzeit
   erreicht wurde, wird ein FHEM-Event erzeugt:<p>
 
   <code>triggered</code><br><br>
@@ -4112,12 +4319,12 @@ sub CalendarEventsAsHtml($;$) {
   <br>
   Experimentell, bitte mit Vorsicht nutzen.<p>
 
-  Ein Plug-In ist ein kleines Perl-Programm, dass Termine nebenher ver&auml;ndern kann.
+  Ein Plug-In ist ein kleines Perl-Programm, das Termine nebenher ver&auml;ndern kann.
   Das Perl-Programm arbeitet mit der Hash-Referenz <code>$e</code>.<br>
   Die wichtigsten Elemente sind:
 
   <table>
-  <tr><th>code</th><th>description</th></tr>
+  <tr><th>code</th><th>Beschreibung</th></tr>
   <tr><td>$e->{start}</td><td>Startzeit des Termins, in Sekunden seit 1.1.1970</td></tr>
   <tr><td>$e->{end}</td><td>Endezeit des Termins, in Sekunden seit 1.1.1970</td></tr>
   <tr><td>$e->{alarm}</td><td>Alarmzeit des Termins, in Sekunden seit 1.1.1970</td></tr>
@@ -4129,6 +4336,9 @@ sub CalendarEventsAsHtml($;$) {
   kann folgendes Plug-In benutzt werden:<br><br>
   <code>attr MyCalendar onCreateEvent { $e->{alarm}= $e->{start}-86400 if($e->{summary} =~ /Tonne/);; }</code><br>
   <br>Das doppelte Semikolon maskiert das Semikolon. <a href="#perl">Perl specials</a> k&ouml;nnen nicht genutzt werden.<br>
+  <br>
+  Zum Erg&auml;nzen einer fehlenden Endezeit, kann folgendes Plug-In benutzt werden: <br><br>
+  <code>attr MyCalendar onCreateEvent { $e->{end}= $e->{start}+86400 unless(defined($e->{end})) }</code><br>
   </ul>
   <br><br>
 
@@ -4137,16 +4347,16 @@ sub CalendarEventsAsHtml($;$) {
     <i>Alle Termine inkl. Details anzeigen</i><br><br>
     <ul>
     <code>
-    get MyCalendar full all<br>
-    2767324dsfretfvds7dsfn3e4&shy;dsa234r234sdfds6bh874&shy;googlecom   known    alarm 31.05.2012 17:00:00 07.06.2012 16:30:00-07.06.2012 18:00:00 Erna for coffee<br>
-    992hydf4y44awer5466lhfdsr&shy;gl7tin6b6mckf8glmhui4&shy;googlecom   known upcoming                     08.06.2012 00:00:00-09.06.2012 00:00:00 Vacation
+    get MyCalendar events format:full<br>
+    2767324dsfretfvds7dsfn3e4&shy;dsa234r234sdfds6bh874&shy;googlecom     alarm 31.05.2012 17:00:00 07.06.2012 16:30:00-07.06.2012 18:00:00 Erna for coffee<br>
+    992hydf4y44awer5466lhfdsr&shy;gl7tin6b6mckf8glmhui4&shy;googlecom  upcoming                     08.06.2012 00:00:00-09.06.2012 00:00:00 Vacation
     </code><br><br>
     </ul>
 
     <i>Zeige Termine in Deinem Bilderrahmen</i><br><br>
     <ul>
     F&uuml;ge eine Zeile in die <a href="#RSSlayout">layout description</a> ein, um Termine im Alarm- oder Startmodus anzuzeigen:<br><br>
-    <code>text 20 60 { fhem("get MyCalendar text next 2") }</code><br><br>
+    <code>text 20 60 { fhem("get MyCalendar events timeFormat:'%d.%m.%Y %H:%M' format:custom='$T1 $S' filter:mode=~'alarm|start') }</code><br><br>
     Dies kann dann z.B. so aussehen:<br><br>
     <code>
     07.06.12 16:30 Erna zum Kaffee<br>
@@ -4161,7 +4371,7 @@ sub CalendarEventsAsHtml($;$) {
     get MyCalendar find .*Erna.*<br>
     2767324dsfretfvds7dsfn3e4&shy;dsa234r234sdfds6bh874&shy;googlecom
     </code><br><br>
-    Definiere dann ein notify: (Der Punkt nach dem zweiten Doppelpunkt steht f&uuml;r ein Leerzeichen)<br><br>
+    Definiere dann ein notif (der Punkt nach dem zweiten Doppelpunkt steht f&uuml;r ein Leerzeichen)<br><br>
     <code>
     define ErnaComes notify MyCalendar:start:.2767324dsfretfvds7dsfn3e4&shy;dsa234r234sdfds6bh874&shy;googlecom.* set MyLight on
     </code><br><br>
@@ -4171,62 +4381,84 @@ sub CalendarEventsAsHtml($;$) {
     </code><br><br>
     </ul>
 
-    <i>Schalte die Aktoren an und aus</i><br><br>
+    <i>Schalte Aktoren an und aus</i><br><br>
     <ul>
-    Stell Dir einen Kalender vor, dessen Zusammenfassungen (Betreff, Titel) die Namen von Devices in Deiner fhem-Installation sind.
+    Stell Dir einen Kalender vor, dessen Zusammenfassungen (Betreff, Titel) die Namen von Devices in Deiner FHEM-Installation sind.
     Du willst nun die entsprechenden Devices an- und ausschalten, wenn das Kalender-Ereignis beginnt bzw. endet.<br><br>
     <code>
-    define SwitchActorOn notify MyCalendar:start:.* {}<br>
-    </code>
-	Dann auf DEF klicken und im DEF-Editor folgendes zwischen die beiden geschweiften Klammern {} eingeben:
-    <code>
-                my $reading="$EVTPART0";
-                my $uid= "$EVTPART1";
-                my $actor= fhem("get MyCalendar summary $uid");
+    define SwitchActorOn  notify MyCalendar:start:.* { \<br>
+                my $reading="$EVTPART0";; \<br>
+                my $uid= "$EVTPART1";; \<br>
+                my $actor= fhem('get MyCalendar filter:uid=="'.$uid.'" format:custom="$S"');; \<br>
                 if(defined $actor) {
                    fhem("set $actor on")
-                }
-    <br><br>
-    define SwitchActorOff notify MyCalendar:end:.* {}<br>
-    </code>
-	Dann auf DEF klicken und im DEF-Editor folgendes zwischen die beiden geschweiften Klammern {} eingeben:
-    <code>
-                my $reading="$EVTPART0";
-                my $uid= "$EVTPART1";
-                my $actor= fhem("get MyCalendar summary $uid");
+                } \<br>
+    }<br><br>
+    define SwitchActorOff  notify MyCalendar:end:.* { \<br>
+                my $reading="$EVTPART0";; \<br>
+                my $uid= "$EVTPART1";; \<br>
+                my $actor= fhem('get MyCalendar filter:uid=="'.$uid.'" format:custom="$S"');; \<br>
                 if(defined $actor) {
                    fhem("set $actor off")
-                }
+                } \<br>
+    }
     </code><br><br>
-    Auch hier kann ein Logging aufgesetzt werden:<br><br>
+    Auch hier kannst du Aktionen mitloggen:<br><br>
     <code>
-    define LogActors notify MyCalendar:(start|end).* {}<br>
-    </code>
-	Dann auf DEF klicken und im DEF-Editor folgendes zwischen die beiden geschweiften Klammern {} eingeben:
-    <code>
-                my $reading= "$EVTPART0";
-                my $uid= "$EVTPART1";
-                my $actor= fhem("get MyCalendar summary $uid");
-                Log 3 $NAME, 1, "Actor: $actor, Reading $reading";
+    define LogActors notify MyCalendar:(start|end):.*
+    { my $reading= "$EVTPART0";; my $uid= "$EVTPART1";; \<br>
+      my $actor= fhem('get MyCalendar filter:uid=="'.$uid.'" format:custom="$S"');; \<br>
+     Log3 $NAME, 1, "Actor: $actor, Reading $reading" }
     </code><br><br>
     </ul>
+
+    <i>Benachrichtigen &uuml;ber M&uuml;llabholung</i><br><br>
+    <ul>
+    Nehmen wir an der <code>GarbageCalendar</code> beinhaltet alle Termine der
+    M&uuml;llabholung mit der Art des M&uuml;lls innerhalb der Zusammenfassung (summary).
+    Das folgende notify kann zur Benachrichtigung &uuml;ber die M&uuml;llabholung
+    benutzt werden:<br><br><code>
+    define GarbageCollectionNotifier notify GarbageCalendar:alarm:.* { \<br>
+      my $uid= "$EVTPART1";; \<br>
+      my $summary= fhem('get GarbageCalendar events filter:uid=="'.$uid.'" format:custom="$S"');; \<br>
+      # e.g. mail $summary to someone \<br>
+    }</code><br><br>
+
+    Wenn der M&uuml;llkalender keine Erinnerungen hat, dann kannst du sie auf
+    auf einen Tag vor das Datum der Abholung setzen:<br><br><code>
+    attr GarbageCalendar onCreateEvent { $e->{alarm}= $e->{start}-86400 }
+    </code><br><br>
+    Das folgende realisiert eine HTML Anzeige f&uuml;r die n&aauml;chsten Abholungstermine:<br><br>
+    <code>{ CalendarEventsAsHtml('GarbageCalendar','format:text filter:mode=~"alarm|start"') }</code>
+    <br>
+    </ul>
+
+
 
   </ul>
 
   <b>Eingebettetes HTML</b>
   <ul><br>
-  Das Modul stellt eine zus&auml;tzliche Funktion <code>CalendarAsHtml(&lt;name&gt;,&lt;options&gt;)</code> bereit.
-  Diese gibt den HTML-Kode f&uuml;r eine Liste von Terminen zur&uuml;ck. <code>&lt;name&gt;</code> ist der Name des
-  Kalendar-Device und <code>&lt;options&gt;</code> ist das, was Du hinter <code>get &lt;name&gt; text ...</code>
-  schreiben w&uuml;rdest.
-  <br><br>
-  Beispiel: <code>define MyCalendarWeblink weblink htmlCode { CalendarAsHtml("MyCalendar","next 3") }</code>
-  <br><br>
-  Dies ist eine rudiment&auml;re Funktion, die vielleicht in k&uuml;nftigen Versionen erweitert wird.
+    Das Modul definiert zwei Funktionen an, die HTML-Code zur&uuml;ckliefern.<br><br>
+    <code>CalendarAsHtml(&lt;name&gt;,&lt;parameter&gt;)</code> liefert eine Liste von Kalendereintr&auml;gen als
+    HTML zur&uuml;ck. <code>&lt;name&gt;</code> ist der Name des Kalender-Devices; <code>&lt;parameter&gt;</code>
+    w&uuml;rdest Du nach <code>get &lt;name&gt; text ...</code> schreiben. <b>Diese Funktion ist veraltert
+    und sollte nicht mehr genutzt werden!</b>.
+    <br><br>
+    <b>Beispiel</b>
+    <code>define MyCalendarWeblink weblink htmlCode { CalendarAsHtml("MyCalendar","next 3") }</code>
+    <br><br>
+    <code>CalendarEventsAsHtml(&lt;name&gt;,&lt;parameter&gt;)</code> liefert eine Liste von Kalender-Events
+    zur&uuml;ck; zu <code>name</code> und <code>parameters</code> siehe oben.
+     <br><br>
+     <b>Beispiel</b>
+    <br><br>
+    <code>define MyCalendarWeblink weblink htmlCode
+    { CalendarEventsAsHtml('F','format:custom="$T1 $D $S" timeFormat:"%d.%m" series:next=3') }</code>
+    <br><br>
+    Empfehlung: Benutze einfache Anf&uuml;hrungszeichen als &auml;u&szlig;ere Anf&uuml;hrungszeichen.
   <p>
   </ul>
-
-
 </ul>
 
 =end html_DE

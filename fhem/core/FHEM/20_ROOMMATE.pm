@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: 20_ROOMMATE.pm 14136 2017-04-29 16:31:46Z loredo $
+# $Id: 20_ROOMMATE.pm 19327 2019-05-04 19:00:11Z loredo $
 package main;
 use strict;
 use warnings;
@@ -7,7 +7,7 @@ use Data::Dumper;
 use Time::Local;
 
 require RESIDENTStk;
-our (@RESIDENTStk_attr);
+our ( @RESIDENTStk_attr, %RESIDENTStk_subTypes );
 
 # initialize ##################################################################
 sub ROOMMATE_Initialize($) {
@@ -25,11 +25,15 @@ sub ROOMMATE_Initialize($) {
     $hash->{AttrList} =
         "disable:1,0 disabledForIntervals do_not_notify:1,0 "
       . "rr_states:multiple-strict,home,gotosleep,asleep,awoken,absent,gone "
+      . "subType:"
+      . join( ',', @{ $RESIDENTStk_subTypes{ROOMMATE} } ) . " "
       . $readingFnAttributes;
 
     foreach (@RESIDENTStk_attr) {
         $hash->{AttrList} .= " " . $hash->{AttrPrefix} . $_;
     }
+
+    return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 1;
@@ -154,11 +158,21 @@ sub ROOMMATE_Initialize($) {
       </ul><br>
       <br>
       <ul>
-        <u>Synchronizing presence with other ROOMMATE or GUEST devices</u><br>
+        <u>Synchronizing presence with other ROOMMATE, GUEST or PET devices</u><br>
         <br>
         <ul>
-          If you always leave or arrive at your house together with other roommates or guests, you may enable a synchronization of your presence state for certain individuals.<br>
+          If you always leave or arrive at your house together with other roommates, guests or pets, you may enable a synchronization of your presence state for certain individuals.<br>
           By setting attribute rr_passPresenceTo, those individuals will follow your presence state changes to 'home', 'absent' or 'gone' as you do them with your own device.<br>
+          <br>
+          Please note that individuals with current state 'gone' or 'none' (in case of guests) will not be touched.
+        </ul>
+      </ul><br>
+      <br>
+      <ul>
+        <u>Synchronizing state with other ROOMMATE, GUEST or PET devices</u><br>
+        <br>
+        <ul>
+          To sync each and every status change that is _not_ related to leaving or arriving at your house, you may set attribute rr_passStateTo.<br>
           <br>
           Please note that individuals with current state 'gone' or 'none' (in case of guests) will not be touched.
         </ul>
@@ -222,7 +236,10 @@ sub ROOMMATE_Initialize($) {
             <b>rr_noDuration</b> - may be used to disable continuous, non-event driven duration timer calculation (see readings durTimer*)
           </li>
           <li>
-            <b>rr_passPresenceTo</b> - synchronize presence state with other ROOMMATE or GUEST devices; separte devices by space
+            <b>rr_passStateTo</b> - synchronize home state with other ROOMMATE, GUEST or PET devices; separte devices by space
+          </li>
+          <li>
+            <b>rr_passPresenceTo</b> - synchronize presence state with other ROOMMATE, GUEST or PET devices; separte devices by space
           </li>
           <li>
             <b>rr_presenceDevices</b> - take over presence state from any other FHEM device. Separate more than one device with comma meaning ALL of them need to be either present or absent to trigger update of this ROOMMATE device. You may optionally add a reading name separated by :, otherwise reading name presence and state will be considered.
@@ -238,6 +255,9 @@ sub ROOMMATE_Initialize($) {
           </li>
           <li>
             <b>rr_wakeupDevice</b> - reference to enslaved DUMMY devices used as a wake-up timer (part of RESIDENTS Toolkit's wakeuptimer)
+          </li>
+          <li>
+            <b>subType</b> - specifies a specific class of a roommate for the device. This will be considered for home alone status calculation. Defaults to "adult"
           </li>
         </ul>
       </ul><br>
@@ -454,11 +474,21 @@ sub ROOMMATE_Initialize($) {
       </ul><br />
       <br />
       <ul>
-        <u>Anwesenheit mit anderen ROOMMATE oder GUEST Devices synchronisieren</u><br />
+        <u>Anwesenheit mit anderen ROOMMATE, GUEST oder PET Devices synchronisieren</u><br />
         <br />
         <ul>
           Wenn Sie immer zusammen mit anderen Mitbewohnern oder G&auml;sten das Haus verlassen oder erreichen, k&ouml;nnen Sie ihren Status ganz einfach auf andere Mitbewohner &uuml;bertragen.<br />
           Durch das Setzen des Attributs rr_PassPresenceTo folgen die dort aufgef&uuml;hrten Mitbewohner ihren eigenen Status&auml;nderungen nach 'home', 'absent' oder 'gone'.<br />
+          <br />
+          Bitte beachten, dass Mitbewohner mit dem aktuellen Status 'gone' oder 'none' (im Falle von G&auml;sten) nicht beachtet werden.
+        </ul>
+      </ul><br />
+      <br />
+      <ul>
+        <u>Status zu Hause mit anderen ROOMMATE, GUEST oder PET Devices synchronisieren</u><br />
+        <br />
+        <ul>
+          Um jeden Statuswechsel zu synchronisieren, welcher _nicht_ dem erreichen oder verlassen des Hauses entspricht, kann das Attribut rr_passStateTo gesetzt werden.<br />
           <br />
           Bitte beachten, dass Mitbewohner mit dem aktuellen Status 'gone' oder 'none' (im Falle von G&auml;sten) nicht beachtet werden.
         </ul>
@@ -522,7 +552,10 @@ sub ROOMMATE_Initialize($) {
             <b>rr_noDuration</b> - deaktiviert die kontinuierliche, nicht Event-basierte Berechnung der Zeitspannen (siehe Readings durTimer*)
           </li>
           <li>
-            <b>rr_passPresenceTo</b> - synchronisiere die Anwesenheit mit anderen ROOMMATE oder GUEST Devices; mehrere Devices durch Leerzeichen trennen
+            <b>rr_passStateTo</b> - synchronisiere den Status zu Hause mit anderen ROOMMATE, GUEST oder PET Devices; mehrere Devices durch Leerzeichen trennen
+          </li>
+          <li>
+            <b>rr_passPresenceTo</b> - synchronisiere die Anwesenheit mit anderen ROOMMATE, GUEST oder PET Devices; mehrere Devices durch Leerzeichen trennen
           </li>
           <li>
             <b>rr_presenceDevices</b> - &uuml;bernehmen des presence Status von einem anderen FHEM Device. Bei mehreren Devices diese mit Komma trennen, um ein Update des ROOMMATE Devices auszul&ouml;sen, sobald ALLE Devices entweder absent oder present sind. Optional kann auch durch : abgetrennt ein Reading Name angegeben werden, ansonsten werden die Readings presence und state ber&uuml;cksichtigt.
@@ -538,6 +571,9 @@ sub ROOMMATE_Initialize($) {
           </li>
           <li>
             <b>rr_wakeupDevice</b> - Referenz zu versklavten DUMMY Ger&auml;ten, welche als Wecker benutzt werden (Teil von RESIDENTS Toolkit's wakeuptimer)
+          </li>
+          <li>
+            <b>subType</b> - Gibt einen bestimmten Typ eines Mitbewohner f&uuml;r das Device an. Dies wird bei der Berechnung des Home Alone Status ber&uuml;cksichtigt. Standard ist "adult"
           </li>
         </ul>
       </ul><br />
@@ -638,5 +674,26 @@ sub ROOMMATE_Initialize($) {
     </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 20_ROOMMATE.pm
+{
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ],
+  "keywords": [
+    "Attendence",
+    "Family",
+    "People",
+    "Presence",
+    "RESIDENTS"
+  ]
+}
+=end :application/json;q=META.json
 
 =cut

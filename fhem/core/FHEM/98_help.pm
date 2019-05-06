@@ -1,4 +1,4 @@
-# $Id: 98_help.pm 15223 2017-10-10 10:14:24Z betateilchen $
+# $Id: 98_help.pm 18341 2019-01-19 17:24:30Z betateilchen $
 #
 package main;
 use strict;
@@ -255,7 +255,7 @@ sub cref_fill_list(){
   foreach my $mod (sort keys %mods) {
     my %h = (  Fn => undef,
 		      Hlp => "Command $mod not loaded. Use \"help $mod\" for more help" );
-    $cmds{$mod} = \%h if ( ($modIdx{$mod} eq "command") && !(defined($cmds{$mod})) );
+    $cmds{lc($mod)} = \%h if ( ($modIdx{$mod} eq "command") && !(defined($cmds{lc($mod)})) );
   }
 }
 

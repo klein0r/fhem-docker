@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 50_MOBILEALERTSGW.pm 16104 2018-02-06 19:11:13Z MarkusF $
+# $Id: 50_MOBILEALERTSGW.pm 19278 2019-04-28 15:31:59Z MarkusF $
 # Written by Markus Feist, 2017
 package main;
 
@@ -34,7 +34,7 @@ sub MOBILEALERTSGW_Initialize($) {
     #$hash->{NotifyFn}= ($init_done ? "FW_Notify" : "FW_SecurityCheck");
     #$hash->{AsyncOutputFn} = "MOBILEALERTSGW_AsyncOutput";
     #$hash->{ActivateInformFn} = "MOBILEALERTSGW_ActivateInform";
-    $hash->{AttrList} = "forward:0,1 " . $readingFnAttributes;
+    $hash->{AttrList} = "forward:0,1 allowfrom " . $readingFnAttributes;
     Log3 "MOBILEALERTSGW", 5, "MOBILEALERTSGW_Initialize finished.";
 }
 
@@ -150,7 +150,7 @@ sub MOBILEALERTSGW_Set ($$@) {
     if ( $cmd eq "clear" ) {
         if ( $args[0] eq "readings" ) {
             for ( keys %{ $hash->{READINGS} } ) {
-                readingsDelete($hash, $_) if ( $_ ne 'state' );
+                readingsDelete( $hash, $_ ) if ( $_ ne 'state' );
             }
             return undef;
         }
@@ -237,6 +237,8 @@ sub MOBILEALERTSGW_Set ($$@) {
         my $data = pack( "H*", $args[0] );
         my ( $packageHeader, $timeStamp, $packageLength, $deviceID ) =
           unpack( "CNCH12", $data );
+        my ( $sum, $sumWert ) = unpack( "%C63C", $data );
+        $sum &= 0x7F;
         Log3 $name, 4,
             "$name MOBILEALERTSGW: Debuginsert PackageHeader: "
           . $packageHeader
@@ -248,6 +250,19 @@ sub MOBILEALERTSGW_Set ($$@) {
           . $deviceID;
         Log3 $name, 5, "$name MOBILEALERTSGW: Debuginsert for $deviceID: "
           . unpack( "H*", $data );
+        if ( $sum != $sumWert ) {
+            Log3 $MA_wname, 4,
+                "$MA_wname MOBILEALERTSGW: Wrong Checksum expected: 0x"
+              . sprintf( "%02X", $sum )
+              . " got: 0x"
+              . sprintf( "%02X", $sumWert )
+              . "=> ignoring";
+            return undef;
+        }
+        Log3 $MA_wname, 5,
+          "$MA_wname MOBILEALERTSGW: Good Checksum got: 0x"
+          . sprintf( "%02X", $sum );
+
         Dispatch( $hash, $data, undef );
         return undef;
     }
@@ -558,23 +573,35 @@ sub MOBILEALERTSGW_DecodeData($$) {
 
     for ( my $pos = 0 ; $pos < length($POSTdata) ; $pos += MA_PACKAGE_LENGTH ) {
         my $data = substr $POSTdata, $pos, MA_PACKAGE_LENGTH;
-        my ( $packageHeader, $timeStamp, $packageLength, $deviceID ) =
-          unpack( "CNCH12", $data );
-        Log3 $MA_wname, 4,
-            "$MA_wname MOBILEALERTSGW: PackageHeader: "
-          . $packageHeader
-          . " Timestamp: "
-          . scalar( FmtDateTimeRFC1123($timeStamp) )
-          . " PackageLength: "
-          . $packageLength
-          . " DeviceID: "
-          . $deviceID
-          if ( $verbose >= 4 );
-        Log3 $MA_wname, 5,
-          "$MA_wname MOBILEALERTSGW: Data for $deviceID: "
-          . unpack( "H*", $data )
-          if ( $verbose >= 5 );
-        my $found = Dispatch( $defs{$MA_wname}, $data, undef );
+        my ( $sum, $sumWert ) = unpack( "%C63C", $data );
+        $sum &= 0x7F;
+        if ( $sum != $sumWert ) {
+            Log3 $MA_wname, 4,
+                "$MA_wname MOBILEALERTSGW: Wrong Checksum expected: 0x"
+              . sprintf( "%02X", $sum )
+              . " got: 0x"
+              . sprintf( "%02X", $sumWert )
+              . "=> ignoring";
+        }
+        else {
+            my ( $packageHeader, $timeStamp, $packageLength, $deviceID ) =
+              unpack( "CNCH12", $data );
+            Log3 $MA_wname, 4,
+                "$MA_wname MOBILEALERTSGW: PackageHeader: "
+              . $packageHeader
+              . " Timestamp: "
+              . scalar( FmtDateTimeRFC1123($timeStamp) )
+              . " PackageLength: "
+              . $packageLength
+              . " DeviceID: "
+              . $deviceID
+              if ( $verbose >= 4 );
+            Log3 $MA_wname, 5,
+              "$MA_wname MOBILEALERTSGW: Data for $deviceID: "
+              . unpack( "H*", $data )
+              if ( $verbose >= 5 );
+            my $found = Dispatch( $defs{$MA_wname}, $data, undef );
+        }
     }
 }
 
@@ -755,6 +782,9 @@ sub MOBILEALERTSGW_DecodeUDP($$$) {
     <li>forward<br>
       If value 1 is set, the data will be forwarded to the MobileAlerts Server http://www.data199.com/gateway/put .
     </li>
+    <li>allowfrom<br>
+      Sets from which hosts (gateways) IPs inputs are accepted. If not set all private IPs are allowed.
+    </li>
   </ul>
 </ul>
 
@@ -825,6 +855,9 @@ sub MOBILEALERTSGW_DecodeUDP($$$) {
   <ul>
     <li>forward<br>
       Wenn dieser Wert auf 1 gesetzt ist, werden die Daten zus&auml;tzlich zum MobileAlerts Server http://www.data199.com/gateway/put gesendet.
+    </li>
+    <li>allowfrom<br>
+      Gibt an von welchens Host-(Gateways) IPs eingaben angenommen werden. Wenn nicht gesetzt, sind alle privaten IP-Adressen erlaubt.
     </li>
   </ul>
 </ul>

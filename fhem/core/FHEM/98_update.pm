@@ -1,5 +1,5 @@
 ################################################################
-# $Id: 98_update.pm 16551 2018-04-04 18:50:38Z rudolfkoenig $
+# $Id: 98_update.pm 18431 2019-01-27 12:37:02Z rudolfkoenig $
 
 package main;
 use strict;
@@ -324,6 +324,11 @@ doUpdate($$$$)
 
     next if($r[0] ne "UPD");
     my $fName = $r[3];
+    my $wouldExcl;
+    foreach my $ex (@excl) {
+      $wouldExcl = 1 if($fName =~ m/$ex/ || "$src:$fName" =~ m/$ex/);
+    }
+
     if($fName =~ m+\.\.+) {
       uLog 1, "Suspicious line $r, aborting";
       return 1;
@@ -334,10 +339,7 @@ doUpdate($$$$)
 
     } else {
    
-      my $isExcl;
-      foreach my $ex (@excl) {
-        $isExcl = 1 if($fName =~ m/$ex/ || "$src:$fName" =~ m/$ex/);
-      }
+      my $isExcl = (!$isCheck && $wouldExcl);
       my $fPath = "$root/$fName";
       $fPath = $0 if($fPath =~ m/$mainPgm/);
       my $fileOk = ($lh{$fName} &&
@@ -368,7 +370,8 @@ doUpdate($$$$)
     $nChanged++;
     my $sfx = ($arg eq "checktime" ? " $r[1]" : "");
     $sfx =~ s/_.*//;
-    uLog 1, "$r[0] $fName$sfx";
+    uLog 1, "$r[0] $fName$sfx".
+        ($isCheck && $wouldExcl ? " (excluded from update)" : "");
     next if($isCheck);
 
     my $remFile = upd_getUrl("$basePath/$fName");

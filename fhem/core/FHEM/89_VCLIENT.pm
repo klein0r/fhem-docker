@@ -1,6 +1,6 @@
 #################################################################################
 # 
-# $Id: 89_VCLIENT.pm 18048 2018-12-24 19:06:31Z andies $ 
+# $Id: 89_VCLIENT.pm 19080 2019-03-31 18:05:59Z andies $ 
 #
 # FHEM Modul for Viessman Vitotronic200  mit vcontrold-daemon
 #
@@ -50,6 +50,10 @@
 #
 # Version History
 #
+# 2019-03-27 version 0.2.11k: error message instead of debug
+# 2019-01-28 version 0.2.11j: vcontrold-Neigung (Heizkurve) commands not rounded to full number anymore 
+# 2019-01-28 version 0.2.11i: update starts now if device initiated (for example, via FHEM restart) 
+# 2018-12-26 version 0.2.11h: warnings removed
 # 2018-12-24 version 0.2.11g: minor bugfix, more comments with verbose 5
 # 2018-12-08 version 0.2.11f: Integritaetscheck der Rueckgabewerte, Bugs entfernt, Rueckgabe Datum moeglich, offizielles FHEM-Modul
 # 2018-09-14 version 0.2.10: Fehler, wenn vcontrold nicht erreichbar, behoben
@@ -71,7 +75,7 @@ use Scalar::Util qw(looks_like_number);
 use Blocking;
 use Data::Dumper;
 
-my $VCLIENT_version = "0.2.11g";
+my $VCLIENT_version = "0.2.11k";
 my $internal_update_interval  = 0.1; #internal update interval for Write (time between two different write_to_Viessmann commands)
 my $daily_commands_last_day_with_execution = strftime('%d', localtime)-1; #last day when daily commands (commands with type 'daily' ) were executed; set to today
 
@@ -229,11 +233,11 @@ sub VCLIENT_Define($$)
 	if (-f $filename) {
 		$hash->{FILE} = $filename;  	
 	} else {
-		return "VCLIENT: Cannot find file $filename, device $name not defined"
+		return "VCLIENT: Cannot find file $filename, device $name not defined";
 	} 
 
 	if (!looks_like_number($interval)) {
-		return "VCLIENT: Interval must be a number, ".$interval." does not seem to be (zero would be possible!)"
+		return "VCLIENT: Interval must be a number, ".$interval." does not seem to be (zero would be possible!)";
 	}	
 	$hash->{INTERVAL} = $interval;
 	
@@ -310,6 +314,10 @@ sub VCLIENT_Initialize($)
 	  my $hash = $modules{VCLIENT}{defprt}{$d};
 	  $hash->{VERSION} = $VCLIENT_version;
   }
+  
+  if ($hash->{INTERVAL}) {
+  	VCLIENT_Set_New_Update_Interval($hash); 
+  }
 }
 
 
@@ -321,13 +329,13 @@ sub VCLIENT_integrity_check($)
 {
 	my $value = shift;
 	my $integrity = 1;
-	#Temperaturen muessen unter 110 Grad Celsius sein
-	if ($last_cmd =~ /(T|t)emp/) 
+	#Temperaturen muessen unter 110 Grad Celsius sein (vorher testen ob value Zahl ist - vermeidet warnings bei 'Unkown buffer')
+	if (($last_cmd =~ /(T|t)emp/) and ($value =~ /^\d+.\d*$/))
 	{
 		$integrity &&= ($value < 110);
 	}
 	#Status darf nur 0 oder 1 sein
-	if ($last_cmd =~ /(S|s)tatus/)
+	if (($last_cmd =~ /(S|s)tatus/) and ($value =~ /^\d$/))
 	{
 		$integrity &&= ($value =~ /(0|1)/);
 	}
@@ -403,8 +411,8 @@ sub VCLIENT_ParseBuf_And_WriteReading($$){
 			# ueblicherweise stehen hier numerische Angaben, ausser zB bei der Betriebsart
 			if (looks_like_number($results[0])){
 				#if ( $last_cmd =~ /(S|s)tatus/ || $last_cmd =~ /BetriebSpar/ || $last_cmd =~ /BetriebParty/ )
-				# Wenn vcontrold-command "Temp" enthaelt, Runden auf 1 , sonst Runden auf 0 (=Statuswert)
-				if ($last_cmd !~ /(T|t)emp/)
+				# Wenn vcontrold-command "Temp" oder "Neigung" (Heizkurve!) enthaelt, Runden auf 1 , sonst Runden auf 0 (=Statuswert)
+				if (($last_cmd !~ /(T|t)emp/) and ($last_cmd !~ /Neigung/))
 				{
 					$value = sprintf("%.0f", $results[0]); #rounding to integer, if status value
 				} else {
@@ -430,8 +438,8 @@ sub VCLIENT_ParseBuf_And_WriteReading($$){
 			$value = substr($value, 0, -3);# loesche letztes separation sign | beim timer
 		} else {
 	   		# format der Ausgabe unbekannt
-			$value = "$name: Unkown buffer format";
-			Debug("$name: buf ".$buf);			
+			$value = "";
+			Log3 $name, 1, $name.": Cannot handle buf = ".$buf;			
 		}
 		Log3 $name, 3,  $name.": Received ".$value." for ".$reading;
    	}
@@ -713,7 +721,6 @@ sub VCLIENT_Set_New_Write_Interval($)
 	#set up timer for writing next signal (fixed at $internal_update_interval seconds after opening connection)
 	my $my_internal_timer = AttrVal( $name, 'internal_update_interval', $internal_update_interval);
 	InternalTimer(gettimeofday()+ $my_internal_timer, "VCLIENT_Write", $hash); 
-	#InternalTimer($my_internal_timer, "VCLIENT_Write", $hash); 
 }
 
 

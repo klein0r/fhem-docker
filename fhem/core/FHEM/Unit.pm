@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: Unit.pm 17875 2018-12-01 10:09:46Z loredo $
+# $Id: Unit.pm 19016 2019-03-24 13:23:26Z loredo $
 package main;
 use strict;
 use warnings;
@@ -4656,3 +4656,26 @@ sub CommandDeleteReadingDesc($@) {
 }
 
 1;
+
+=pod
+=encoding utf8
+
+=for :application/json;q=META.json Unit.pm
+{
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ],
+  "keywords": [
+    "RType",
+    "Unit"
+  ]
+}
+=end :application/json;q=META.json
+
+=cut

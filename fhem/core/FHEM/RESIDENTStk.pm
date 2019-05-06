@@ -1,12 +1,13 @@
 ###############################################################################
-# $Id: RESIDENTStk.pm 17593 2018-10-22 15:35:04Z loredo $
+# $Id: RESIDENTStk.pm 19327 2019-05-04 19:00:11Z loredo $
 package main;
 use strict;
 use warnings;
 use Data::Dumper;
 
 use Unit;
-our (@RESIDENTStk_attr);
+use FHEM::Meta;
+our ( @RESIDENTStk_attr, %RESIDENTStk_subTypes );
 
 # module variables ############################################################
 @RESIDENTStk_attr = (
@@ -22,12 +23,18 @@ our (@RESIDENTStk_attr);
     "moods",
     "moodSleepy",
     "noDuration:0,1",
+    "passStatusTo",
     "passPresenceTo",
     "presenceDevices",
     "realname:group,alias",
     "showAllStates:0,1",
     "wakeupDevice",
 
+);
+%RESIDENTStk_subTypes = (
+    ROOMMATE => [ 'baby', 'toddler', 'child', 'teenager', 'adult', 'senior' ],
+    GUEST => [ 'generic', 'minor', 'domesticWorker', 'vacationer' ],
+    PET   => [ 'generic', 'bird',  'cat',            'dog', 'monkey', 'pig' ]
 );
 
 ## initialize #################################################################
@@ -73,6 +80,10 @@ sub RESIDENTStk_Define($$) {
         || !defined( $a[2] )
         || $a[2] =~ /^[A-Za-z\d._]+(?:,[A-Za-z\d._]*)*$/ );
 
+    # Initialize the module and the device
+    return $@ unless ( FHEM::Meta::SetInternals($hash) );
+    use version 0.77; our $VERSION = FHEM::Meta::Get( $hash, 'version' );
+
     $hash->{MOD_INIT}  = 1;
     $hash->{NOTIFYDEV} = "global";
     delete $hash->{RESIDENTGROUPS} if ( $hash->{RESIDENTGROUPS} );
@@ -93,14 +104,18 @@ sub RESIDENTStk_Define($$) {
             my $fname = $name;
             $fname =~ s/^$prefix//;
 
-            $attr{$name}{group} = $fname               if ( $prefix eq "rr_" );
-            $attr{$name}{group} = "Guests"             if ( $prefix eq "rg_" );
-            $attr{$name}{alias} = "Status"             if ( $prefix eq "rr_" );
-            $attr{$name}{alias} = $fname               if ( $prefix eq "rg_" );
-            $attr{$name}{icon}  = "people_sensor"      if ( $prefix eq "rr_" );
-            $attr{$name}{icon}  = "scene_visit_guests" if ( $prefix eq "rg_" );
+            $attr{$name}{group} = $fname   if ( $prefix eq "rr_" );
+            $attr{$name}{group} = "Guests" if ( $prefix eq "rg_" );
+            $attr{$name}{group} = "Pets"   if ( $prefix eq "rp_" );
+            $attr{$name}{alias} = "Status" if ( $prefix eq "rr_" );
+            $attr{$name}{alias} = $fname
+              if ( $prefix eq "rg_" || $prefix eq "rp_" );
+            $attr{$name}{icon} = "people_sensor"      if ( $prefix eq "rr_" );
+            $attr{$name}{icon} = "scene_visit_guests" if ( $prefix eq "rg_" );
+            $attr{$name}{icon} = "dog_silhouette"     if ( $prefix eq "rp_" );
             $attr{$name}{rr_realname} = "group" if ( $prefix eq "rr_" );
             $attr{$name}{rg_realname} = "alias" if ( $prefix eq "rg_" );
+            $attr{$name}{rp_realname} = "alias" if ( $prefix eq "rp_" );
             $attr{$name}{sortby}      = "1";
 
             if ( $hash->{RESIDENTGROUPS} ) {
@@ -111,6 +126,12 @@ sub RESIDENTStk_Define($$) {
             }
         }
     }
+
+    my $subtype = 'generic';
+    $subtype = AttrVal( $name, 'subType', 'adult' ) if ( $TYPE eq 'ROOMMATE' );
+    $subtype = AttrVal( $name, 'subType', 'generic' ) if ( $TYPE eq 'PET' );
+    $subtype = AttrVal( $name, 'subType', 'generic' ) if ( $TYPE eq 'GUEST' );
+    $hash->{SUBTYPE} = $subtype if ( $TYPE ne 'RESIDENTS' );
 
     # trigger for modified objects
     if ( $TYPE ne "RESIDENTS" ) {
@@ -163,6 +184,19 @@ sub RESIDENTStk_Undefine($$) {
         }
     }
 
+    # delete child pets
+    if ( defined( $hash->{PETS} )
+        && $hash->{PETS} ne "" )
+    {
+        my @registeredPets =
+          split( /,/, $hash->{PETS} );
+
+        foreach my $child (@registeredPets) {
+            fhem( "delete " . $child );
+            Log3 $name, 3, "RESIDENTS $name: deleted device $child";
+        }
+    }
+
     return undef;
 }
 
@@ -172,6 +206,7 @@ sub RESIDENTStk_Set($@) {
     my ( $hash, @a ) = @_;
     my $name      = $hash->{NAME};
     my $TYPE      = GetType($name);
+    my $SubType   = defined( $hash->{SUBTYPE} ) ? $hash->{SUBTYPE} : 'generic';
     my $prefix    = RESIDENTStk_GetPrefixFromType($name);
     my $state     = ReadingsVal( $name, "state", "initialized" );
     my $presence  = ReadingsVal( $name, "presence", "undefined" );
@@ -179,6 +214,7 @@ sub RESIDENTStk_Set($@) {
     my $location  = ReadingsVal( $name, "location", "undefined" );
     my $roommates = ( $hash->{ROOMMATES} ? $hash->{ROOMMATES} : undef );
     my $guests    = ( $hash->{GUESTS} ? $hash->{GUESTS} : undef );
+    my $pets      = ( $hash->{PETS} ? $hash->{PETS} : undef );
     my $silent    = 0;
 
     return undef if ( IsDisabled($name) );
@@ -201,8 +237,10 @@ sub RESIDENTStk_Set($@) {
             $TYPE eq "RESIDENTS"
             && (   lc( $a[1] ) eq "addroommate"
                 || lc( $a[1] ) eq "addguest"
+                || lc( $a[1] ) eq "addpet"
                 || lc( $a[1] ) eq "removeroommate"
                 || lc( $a[1] ) eq "removeguest"
+                || lc( $a[1] ) eq "removepet"
                 || lc( $a[1] ) eq "create" )
           );
     }
@@ -264,9 +302,10 @@ sub RESIDENTStk_Set($@) {
     }
     else {
         if ($adminMode) {
-            $usage .= " addRoommate addGuest";
+            $usage .= " addRoommate addGuest addPet";
             $usage .= " removeRoommate:" . $roommates if ($roommates);
             $usage .= " removeGuest:" . $guests if ($guests);
+            $usage .= " removePet:" . $pets if ($pets);
             $usage .= " create:wakeuptimer";
         }
     }
@@ -313,8 +352,10 @@ sub RESIDENTStk_Set($@) {
             $newstate = $a[1];
         }
 
-        $newstate = "none" if ( $newstate eq "gone" && $TYPE eq "GUEST" );
-        $newstate = "gone" if ( $newstate eq "none" && $TYPE ne "GUEST" );
+        $newstate = "none"
+          if ( $newstate eq "gone" && $TYPE eq "GUEST" );
+        $newstate = "gone"
+          if ( $newstate eq "none" && $TYPE ne "GUEST" );
 
         Log3 $name, 2, "$TYPE set $name " . $newstate if ( !$silent );
 
@@ -334,6 +375,18 @@ sub RESIDENTStk_Set($@) {
                 }
             }
 
+            # loop through every pet
+            if ($pets) {
+                my @registeredPets =
+                  split( /,/, $pets );
+
+                foreach my $pet (@registeredPets) {
+                    fhem "set $pet silentSet state $newstate"
+                      if ( ReadingsVal( $pet, "state", "initialized" ) ne
+                        $newstate );
+                }
+            }
+
             # loop through every guest
             if ($guests) {
                 $newstate = "none" if ( $newstate eq "gone" );
@@ -342,14 +395,16 @@ sub RESIDENTStk_Set($@) {
                   split( /,/, $guests );
 
                 foreach my $guest (@registeredGuests) {
-                    fhem "set $guest silentSet state $newstate"
+                    fhem "set $guest"
+                      . ( $roommates || $pets ? ":FILTER=state!=none" : "" )
+                      . " silentSet state $newstate"
                       if ( ReadingsVal( $guest, "state", "initialized" ) ne
                         $newstate );
                 }
             }
         }
 
-        # ROOMMATE+GUEST: if state changed
+        # ROOMMATE+GUEST+PET: if state changed
         elsif ( $state ne $newstate ) {
             readingsBeginUpdate($hash);
 
@@ -564,8 +619,29 @@ sub RESIDENTStk_Set($@) {
                       split( ' ', $attr{$name}{ $prefix . 'passPresenceTo' } );
 
                     foreach my $object (@linkedObjects) {
-                        if (   IsDevice( $object, "ROOMMATE|GUEST" )
-                            && $defs{$object} ne $name
+                        if (   IsDevice( $object, "ROOMMATE|GUEST|PET" )
+                            && $defs{$object}{NAME} ne $name
+                            && ReadingsVal( $object, "state", "" ) ne "gone"
+                            && ReadingsVal( $object, "state", "" ) ne "none" )
+                        {
+                            fhem("set $object $newstate");
+                        }
+                    }
+                }
+            }
+            else {
+
+                # adjust linked objects
+                if ( defined( $attr{$name}{ $prefix . 'passStatusTo' } )
+                    && $attr{$name}{ $prefix . 'passStatusTo' } ne "" )
+                {
+                    my @linkedObjects =
+                      split( ' ', $attr{$name}{ $prefix . 'passStatusTo' } );
+
+                    foreach my $object (@linkedObjects) {
+                        if (   IsDevice( $object, "ROOMMATE|GUEST|PET" )
+                            && $defs{$object}{NAME} ne $name
+                            && ReadingsVal( $object, "state", "" ) ne "absent"
                             && ReadingsVal( $object, "state", "" ) ne "gone"
                             && ReadingsVal( $object, "state", "" ) ne "none" )
                         {
@@ -576,7 +652,10 @@ sub RESIDENTStk_Set($@) {
             }
 
             # clear readings if guest is gone
-            if ( $newstate eq "none" ) {
+            if (   $newstate eq "none"
+                && $TYPE eq "GUEST"
+                && $SubType eq 'generic' )
+            {
                 readingsBulkUpdate( $hash, "lastArrival", "-" )
                   if ( ReadingsVal( $name, "lastArrival", "-" ) ne "-" );
                 readingsBulkUpdate( $hash, "lastAwake", "-" )
@@ -726,6 +805,66 @@ sub RESIDENTStk_Set($@) {
             if ( IsDevice($rg_name) ) {
                 Log3 $name, 3, "$TYPE $name: deleted device $rg_name"
                   if fhem( "delete " . $rg_name );
+            }
+        }
+        else {
+            return "No Argument given, choose one of name ";
+        }
+    }
+
+    # RESIDENTS only: addPet
+    elsif ( $TYPE eq "RESIDENTS" && lc( $a[1] ) eq "addpet" ) {
+        Log3 $name, 2, "$TYPE set $name " . $a[1] . " " . $a[2]
+          if ( defined( $a[2] ) );
+
+        my $rp_name;
+        my $rp_name_attr;
+
+        if ( $a[2] ne "" ) {
+            $rp_name = "rp_" unless ( $a[2] =~ /^rp_/ );
+            $rp_name .= $a[2];
+
+            # define pet
+            fhem( "define " . $rp_name . " PET " . $name )
+              unless ( IsDevice($rp_name) );
+
+            if ( IsDevice($rp_name) ) {
+                return "Can't create, device $rp_name already existing."
+                  unless ( IsDevice( $rp_name, "PET" ) );
+
+                my $lang =
+                  $a[3]
+                  ? uc( $a[3] )
+                  : AttrVal( $rp_name, "rp_lang",
+                    AttrVal( $name, "rgr_lang", undef ) );
+                fhem( "attr " . $rp_name . " rp_lang " . $lang )
+                  if ($lang);
+
+                $attr{$rp_name}{comment} = "Auto-created by $name"
+                  unless ( defined( $attr{$rp_name}{comment} )
+                    && $attr{$rp_name}{comment} eq "Auto-created by $name" );
+
+                fhem "sleep 1;set $rp_name silentSet state home";
+                Log3 $name, 3, "$TYPE $name: created new device $rp_name";
+            }
+        }
+        else {
+            return "No Argument given, choose one of name ";
+        }
+    }
+
+    # RESIDENTS only: removePet
+    elsif ( $TYPE eq "RESIDENTS" && lc( $a[1] ) eq "removepet" ) {
+        Log3 $name, 2, "$TYPE set $name " . $a[1] . " " . $a[2]
+          if ( defined( $a[2] ) );
+
+        if ( $a[2] ne "" ) {
+            my $rp_name = $a[2];
+
+            # delete pet
+            if ( IsDevice($rp_name) ) {
+                Log3 $name, 3, "$TYPE $name: deleted device $rp_name"
+                  if fhem( "delete " . $rp_name );
             }
         }
         else {
@@ -970,6 +1109,7 @@ sub RESIDENTStk_Set($@) {
 sub RESIDENTStk_Attr(@) {
     my ( $cmd, $name, $attribute, $value ) = @_;
     my $hash   = $defs{$name};
+    my $TYPE   = GetType($name);
     my $prefix = RESIDENTStk_GetPrefixFromType($name);
 
     if (   $attribute eq $prefix . "wakeupDevice"
@@ -982,8 +1122,30 @@ m/^([a-zA-Z\d._]+(:[A-Za-z\d_\.\-\/]+)?,?)([a-zA-Z\d._]+(:[A-Za-z\d_\.\-\/]+)?,?
           );
     }
 
+    elsif ( $attribute eq "subType" ) {
+        return "invalid value $value"
+          unless (
+            $cmd eq "del"
+            || defined( $RESIDENTStk_subTypes{$TYPE} ) && grep m/^$value$/,
+            @{ $RESIDENTStk_subTypes{$TYPE} }
+          );
+        if ( $cmd eq "del" ) {
+            $hash->{SUBTYPE} = 'generic'
+              if ( $TYPE eq 'GUEST' || $TYPE eq 'PET' );
+            $hash->{SUBTYPE} = 'adult' if ( $TYPE eq 'ROOMMATE' );
+        }
+        else {
+            $hash->{SUBTYPE} = $value;
+        }
+    }
+
     elsif ( !$init_done ) {
         return undef;
+    }
+
+    elsif ( $attribute eq "rgr_homeAloneInStatus" ) {
+        return "invalid value $value"
+          unless ( $cmd eq "del" || $value eq '0' || $value eq '1' );
     }
 
     elsif ( $attribute eq "disable" ) {
@@ -1142,7 +1304,7 @@ m/^((?:DELETE)?ATTR)\s+([A-Za-z\d._]+)\s+([A-Za-z\d_\.\-\/]+)(?:\s+(.*)\s*)?$/
                 || $attr eq $prefix . "presenceDevices"
                 || $attr eq $prefix . "wakeupResetSwitcher" );
 
-            # when attributes of RESIDENTS, ROOMMATE or GUEST were changed
+            # when attributes of RESIDENTS, ROOMMATE, GUEST or PET were changed
             if ( $d eq $name ) {
                 if ( defined( &{'DoInitDev'} ) ) {
                     DoInitDev($name)
@@ -1212,9 +1374,9 @@ m/^((?:DELETE)?ATTR)\s+([A-Za-z\d._]+)\s+([A-Za-z\d_\.\-\/]+)(?:\s+(.*)\s*)?$/
 
     return "" if ( IsDisabled($name) or IsDisabled($devName) );
 
-    # process events from ROOMMATE or GUEST devices
+    # process events from ROOMMATE, GUEST or PET devices
     # only when they hit RESIDENTS devices
-    if ( $TYPE eq "RESIDENTS" && $devType =~ /^ROOMMATE|GUEST$/ ) {
+    if ( $TYPE eq "RESIDENTS" && $devType =~ /^ROOMMATE|GUEST|PET$/ ) {
 
         my $events = deviceEvents( $dev, 1 );
         return "" unless ($events);
@@ -1533,10 +1695,11 @@ sub RESIDENTStk_SetLocation(@) {
 
     # update locationPresence
     # if ( $posBeaconUUID eq "" ) {
-        readingsBulkUpdate( $hash, "locationPresence", "present" )
-          if ( $trigger == 1 );
-        readingsBulkUpdate( $hash, "locationPresence", "absent" )
-          if ( $trigger == 0 );
+    readingsBulkUpdate( $hash, "locationPresence", "present" )
+      if ( $trigger == 1 );
+    readingsBulkUpdate( $hash, "locationPresence", "absent" )
+      if ( $trigger == 0 );
+
     # }
 
     # # update positionPresence
@@ -1852,10 +2015,10 @@ m/^((?:next[rR]un)?\s*(off|OFF|([\+\-])?(([0-9]{2}):([0-9]{2})|([1-9]+[0-9]*)))?
           "RESIDENTStk $NAME: "
           . "WARNING - user device $wakeupUserdevice does not exist!";
     }
-    elsif ( !IsDevice( $wakeupUserdevice, "RESIDENTS|ROOMMATE|GUEST" ) ) {
+    elsif ( !IsDevice( $wakeupUserdevice, "RESIDENTS|ROOMMATE|GUEST|PET" ) ) {
         Log3 $NAME, 3,
           "RESIDENTStk $NAME: "
-          . "WARNING - defined user device '$wakeupUserdevice' is not a RESIDENTS, ROOMMATE or GUEST device!";
+          . "WARNING - defined user device '$wakeupUserdevice' is not a RESIDENTS, ROOMMATE, GUEST or PET device!";
     }
 
     # check for required wakeupMacro attribute
@@ -1982,7 +2145,7 @@ if (\$EVTPART0 eq \"stop\") {\
 
         ########
         # (re)create other notify and watchdog templates
-        # for ROOMMATE or GUEST devices
+        # for ROOMMATE, GUEST or PET devices
 
         # macro: gotosleep
         if (   !IsDevice( $wakeupUserdevice, "RESIDENTS" )
@@ -2851,9 +3014,9 @@ sub RESIDENTStk_wakeupRun($;$) {
     elsif ( !IsDevice($wakeupUserdevice) ) {
         return "$NAME: Non existing wakeupUserdevice $wakeupUserdevice";
     }
-    elsif ( !IsDevice( $wakeupUserdevice, "RESIDENTS|ROOMMATE|GUEST" ) ) {
+    elsif ( !IsDevice( $wakeupUserdevice, "RESIDENTS|ROOMMATE|GUEST|PET" ) ) {
         return "$NAME: "
-          . "wakeupUserdevice $wakeupUserdevice is not of type RESIDENTS, ROOMMATE or GUEST";
+          . "wakeupUserdevice $wakeupUserdevice is not of type RESIDENTS, ROOMMATE, GUEST or PET";
     }
     elsif ( IsDevice( $wakeupUserdevice, "GUEST" )
         && $wakeupUserdeviceState eq "none" )
@@ -3562,6 +3725,17 @@ sub RESIDENTStk_findResidentSlaves($;$) {
         push @GUESTS, $_;
     }
 
+    my @PETS;
+    foreach ( devspec2array("TYPE=PET") ) {
+        next
+          unless (
+            defined( $defs{$_}{RESIDENTGROUPS} )
+            && grep { $hash->{NAME} eq $_ }
+            split( /,/, $defs{$_}{RESIDENTGROUPS} )
+          );
+        push @PETS, $_;
+    }
+
     if ( scalar @ROOMMATES ) {
         $hash->{ROOMMATES} = join( ",", @ROOMMATES );
     }
@@ -3576,6 +3750,13 @@ sub RESIDENTStk_findResidentSlaves($;$) {
         delete $hash->{GUESTS};
     }
 
+    if ( scalar @PETS ) {
+        $hash->{PETS} = join( ",", @PETS );
+    }
+    elsif ( $hash->{PETS} ) {
+        delete $hash->{PETS};
+    }
+
     if ( $hash->{ROOMMATES} ) {
         $ret .= "," if ($ret);
         $ret .= $hash->{ROOMMATES};
@@ -3583,6 +3764,10 @@ sub RESIDENTStk_findResidentSlaves($;$) {
     if ( $hash->{GUESTS} ) {
         $ret .= "," if ($ret);
         $ret .= $hash->{GUESTS};
+    }
+    if ( $hash->{PETS} ) {
+        $ret .= "," if ($ret);
+        $ret .= $hash->{PETS};
     }
 
     return RESIDENTStk_findDummySlaves( $hash, $ret );
@@ -3784,3 +3969,25 @@ sub RESIDENTStk_DoInitDev(@) {
 }
 
 1;
+
+=pod
+=encoding utf8
+
+=for :application/json;q=META.json RESIDENTStk.pm
+{
+  "author": [
+    "Julian Pawlowski <julian.pawlowski@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "loredo"
+  ],
+  "x_fhem_maintainer_github": [
+    "jpawlowski"
+  ],
+  "keywords": [
+    "RESIDENTS"
+  ]
+}
+=end :application/json;q=META.json
+
+=cut
