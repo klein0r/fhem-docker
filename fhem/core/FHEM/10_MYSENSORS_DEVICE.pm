@@ -21,7 +21,7 @@
 #     You should have received a copy of the GNU General Public License
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-# $Id: 10_MYSENSORS_DEVICE.pm 19314 2019-05-03 05:02:58Z Beta-User $
+# $Id: 10_MYSENSORS_DEVICE.pm 19370 2019-05-11 14:49:14Z Beta-User $
 #
 ##############################################
 
@@ -1135,12 +1135,13 @@ sub timeoutAck($) {
     if ($hash->{IODev}->{outstandingAck} == 0) {
       Log3 $hash->{NAME}, 4, "$hash->{NAME}: timeoutAck called, no outstanding Acks at all";
       readingsSingleUpdate($hash,"heartbeat","alive",1) if (ReadingsVal($hash,"heartbeat","dead") eq "NACK");
-    } elsif (@{$hash->{IODev}->{messagesForRadioId}->{$hash->{radioId}}->{messages}}) {
-       Log3 $hash->{NAME}, 4, "$hash->{NAME}: timeoutAck called, outstanding: @$hash->{IODev}->{messagesForRadioId}->{$hash->{radioId}}->{messages}";
-        readingsSingleUpdate($hash,"heartbeat","NACK",1) ;
+    } elsif (my $outs = $hash->{IODev}->{messagesForRadioId}->{$hash->{radioId}}->{messages}) {
+      my $outstanding = @$outs;
+      Log3 $hash->{NAME}, 4, "$hash->{NAME}: timeoutAck called, outstanding: $outstanding";
+      readingsSingleUpdate($hash,"heartbeat","NACK",1) ;
     } else {
-        Log3 $hash->{NAME}, 4, "$hash->{NAME}: timeoutAck called, no outstanding Acks for Node";
-        readingsSingleUpdate($hash,"heartbeat","alive",1) if (ReadingsVal($hash,"heartbeat","dead") eq "NACK");
+      Log3 $hash->{NAME}, 4, "$hash->{NAME}: timeoutAck called, no outstanding Acks for Node";
+      readingsSingleUpdate($hash,"heartbeat","alive",1) if (ReadingsVal($hash,"heartbeat","dead") eq "NACK");
     }
 }
 

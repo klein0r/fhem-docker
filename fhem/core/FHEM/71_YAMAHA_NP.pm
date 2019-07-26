@@ -1,4 +1,4 @@
-# $Id: 71_YAMAHA_NP.pm 16025 2018-01-28 17:48:28Z ra666ack $     
+# $Id: 71_YAMAHA_NP.pm 19821 2019-07-12 17:49:40Z ra666ack $     
 ###############################################################################
 #
 # 71_YAMAHA_NP.pm
@@ -210,9 +210,9 @@ sub YAMAHA_NP_Attr
   }
   elsif($attrName eq "timerRepeat")
   {
-    if ($cmd eq "set" && $attrVal !~ /^(once|every)$/)
+    if ($cmd eq "set" && lc($attrVal) !~ /^(once|every)$/)
     {
-      return "Use 'once' or 'every'";
+      return "'timerRepeat' must be 'once' or 'every'.";
     }
   }
   elsif($attrName eq "timerHour")
@@ -371,6 +371,12 @@ sub YAMAHA_NP_GetStatus
     
     # Basic status request
     YAMAHA_NP_SendCmd($hash, "GET:System,Basic_Status:GetParam", "statusRequest", "basicStatus", 0);
+    
+    YAMAHA_NP_SendCmd($hash, "GET:System,Sound,Balance:GetParam", "statusRequest", "balance", 0);
+    YAMAHA_NP_SendCmd($hash, "GET:System,Sound,Equalizer,Low:GetParam", "statusRequest", "EQlow", 0);
+    YAMAHA_NP_SendCmd($hash, "GET:System,Sound,Equalizer,Mid:GetParam", "statusRequest", "EQmid", 0);
+    YAMAHA_NP_SendCmd($hash, "GET:System,Sound,Equalizer,High:GetParam", "statusRequest", "EQhigh", 0);
+    YAMAHA_NP_SendCmd($hash, "GET:System,Sound,Enhancer:GetParam", "statusRequest", "enhancer", 0);
   }
 
   # Reset Timer for the next loop.
@@ -504,11 +510,12 @@ sub YAMAHA_NP_Set
     my $address = $hash->{helper}{ADDRESS};
     
     # Get model info in case not defined
-    if(not defined($hash->{MODEL}) or not defined($hash->{FIRMWARE}))
+    if(not defined($hash->{MODEL}) or not defined($hash->{FIRMWARE}) or not defined($hash->{FIRMWARE_STATUS}))
     {
       YAMAHA_NP_SendCmd($hash, "GET:System,Misc,Network,Info:GetParam", "statusRequest", "networkInfo" , 0);
       YAMAHA_NP_getModel($hash);
       YAMAHA_NP_SendCmd($hash, "GET:System,Config:GetParam"           , "statusRequest", "systemConfig", 0);
+      YAMAHA_NP_SendCmd($hash, "GET:System,Misc,Update,Yamaha_Network_Site,Status:GetParam" , "checkForNewFirmware", "noArg", 0);
     }
     
     # Setting default values. Update from device during existing communication.
@@ -553,8 +560,14 @@ sub YAMAHA_NP_Set
       # Context-sensitive command availability        
       if (ReadingsVal($name,"power","") !~ m/(off|absent)/)
       {
-        $usage .=" input:".$inputs_comma
-      
+        $usage .=" friendlyName"
+                ." soundBalance:slider,-10,1,10"
+                ." soundEqLow:slider,-10,1,10"
+                ." soundEqMid:slider,-10,1,10"
+                ." soundEqHigh:slider,-10,1,10"
+                ." soundEnhancer:on,off"
+                ." checkForNewFirmware:noArg"
+                ." input:".$inputs_comma
                 ." volumeStraight:slider,".$volumeStraightMin.",1,".$volumeStraightMax
                 ." volume:slider,0,1,100"
                 ." volumeUp:noArg"
@@ -1325,6 +1338,17 @@ desiredListNloop:
       
       Log3 $name, 4, "YAMAHA_NP ($name) - new target volume: $hash->{helper}{targetVolume}";
     }
+    elsif($what eq "soundEnhancer")
+    {
+      if(lc($a[2]) =~ /^(on|off)$/)
+      {
+        YAMAHA_NP_SendCmd($hash, "PUT:System,Sound,Enhancer:".ucfirst(lc($a[2])), $what, $a[2], 0);
+      }
+      else
+      {
+        return "'soundEnhancer must be [on|off]"
+      }
+    }
     elsif($what eq "sleep")
     {
       if($a[2] eq "off")
@@ -1452,6 +1476,50 @@ desiredListNloop:
       # Toggle CD Tray
       YAMAHA_NP_SendCmd($hash, "PUT:System,Misc,Tray:Open/Close", $what, "Open/Close", 0);
     }
+    elsif($what eq "soundBalance")
+    {
+      if($a[2] >= -10 and $a[2] <= 10)
+      {
+        YAMAHA_NP_SendCmd($hash, "PUT:System,Sound,Balance:$a[2]", "soundBalance", $a[2], 0);
+      }
+      else
+      {
+        return "'soundBalance' must be between -10 and 10."
+      }
+    }
+    elsif($what eq "soundEqLow")
+    {
+      if($a[2] >= -10 and $a[2] <= 10)
+      {
+        YAMAHA_NP_SendCmd($hash, "PUT:System,Sound,Equalizer,Low:$a[2]", "soundEqLow", $a[2], 0);
+      }
+      else
+      {
+        return "'soundEqLow' must be between -10 and 10."
+      }
+    }
+    elsif($what eq "soundEqMid")
+    {
+      if($a[2] >= -10 and $a[2] <= 10)
+      {
+        YAMAHA_NP_SendCmd($hash, "PUT:System,Sound,Equalizer,Mid:$a[2]", "soundEqMid", $a[2], 0);
+      }
+      else
+      {
+        return "'soundEqMid' must be between -10 and 10."
+      }
+    }
+    elsif($what eq "soundEqHigh")
+    {
+      if($a[2] >= -10 and $a[2] <= 10)
+      {
+        YAMAHA_NP_SendCmd($hash, "PUT:System,Sound,Equalizer,High:$a[2]", "soundEqHigh", $a[2], 0);
+      }
+      else
+      {
+        return "'soundEqHigh' must be between -10 and 10."
+      }
+    }
     elsif($what eq "clockUpdate")
     {  # Clock Update
       my $clockUpdateCurrentTime = Time::Piece->new();
@@ -1535,6 +1603,23 @@ desiredListNloop:
         return "Please use straight device volume range :".$hash->{helper}{VOLUMESTRAIGHTMIN}."...".$hash->{helper}{VOLUMESTRAIGHTMAX}.".";
       }
     }
+    elsif($what eq "checkForNewFirmware")
+    {
+        YAMAHA_NP_SendCmd($hash, "GET:System,Misc,Update,Yamaha_Network_Site,Status:GetParam" , "checkForNewFirmware", "noArg", 0);
+    }
+    elsif($what eq "friendlyName")
+    {
+      # Accept 1 to 15 characters
+      if (length($a[2]) >= 1 and length($a[2]) <= 15)
+      {
+        $hash->{helper}{friendlyName} = $a[2];
+        YAMAHA_NP_SendCmd($hash, "PUT:System,Misc,Network,Network_Name:".$a[2], $what, $a[2], 0);        
+      }
+      else
+      {
+        return "'friendlyName' must be between 1 and 15 characters."
+      }
+    }
     elsif($what eq "timerSet")
     {
       # TimerSet
@@ -1552,8 +1637,8 @@ desiredListNloop:
          # Configure Timer according to provided parameters
         YAMAHA_NP_SendCmd($hash, "PUT:System,Misc,Timer,Param:"
                                 ."<Start_Time>".sprintf("%02d", $timerHour).":".sprintf("%02d", $timerMinute)."</Start_Time>"
-                                ."<Volume>$timerVolume</Volume>"
-                                ."<Repeat>$timerRepeat</Repeat>", $what, $a[2], 0);
+                                ."<Volume><Lvl>$timerVolume</Lvl></Volume>"
+                                ."<Repeat>".ucfirst(lc($timerRepeat))."</Repeat>", $what, $a[2], 0);
       }
       else
       {
@@ -1883,6 +1968,26 @@ sub YAMAHA_NP_ParseResponse
             $hash->{helper}{sleep} = $sl;
             readingsBulkUpdate($hash, "sleep", $sl);
           }
+        }
+        elsif($arg eq "enhancer")
+        {
+            if($data =~ /RC="0"/ and $data =~ /<Enhancer>(.*)<\/Enhancer>/){readingsBulkUpdate($hash, "soundEnhancer", lc($1));}        
+        }
+        elsif($arg eq "balance")
+        {
+            if($data =~ /RC="0"/ and $data =~ /<Balance>(.*)<\/Balance>/){readingsBulkUpdate($hash, "soundBalance", $1);}        
+        }        
+        elsif($arg eq "EQlow")
+        {
+            if($data =~ /RC="0"/ and $data =~ /<Low>(.*)<\/Low>/){readingsBulkUpdate($hash, "soundEqLow", $1);}           
+        }
+        elsif($arg eq "EQmid")
+        {
+            if($data =~ /RC="0"/ and $data =~ /<Mid>(.*)<\/Mid>/){readingsBulkUpdate($hash, "soundEqMid", $1);}        
+        }
+        elsif($arg eq "EQhigh")
+        {
+            if($data =~ /RC="0"/ and $data =~ /<High>(.*)<\/High>/){readingsBulkUpdate($hash, "soundEqHigh", $1);}        
         }
         elsif($arg eq "playerStatus")
         {
@@ -2369,6 +2474,48 @@ sub YAMAHA_NP_ParseResponse
           return;
         }
       }
+      elsif($cmd eq "checkForNewFirmware")
+      {
+        if($data =~ /RC="0"/ and $data =~ /<Status>Unavailable<\/Status>/)
+        {
+            $hash->{FIRMWARE_STATUS} = "Most recent version installed";
+            $hash->{helper}{dInfo}{FIRMWARE_STATUS} = "Most recent version installed";
+        }
+        else
+        {
+            $hash->{FIRMWARE_STATUS} = "New Firmware available";
+            $hash->{helper}{dInfo}{FIRMWARE_STATUS} = "New Firmware available";
+        }
+      }
+      elsif($cmd eq "friendlyName")
+      {
+        if($data =~ /RC="0"/)
+        {
+          $hash->{FRIENDLY_NAME} = $hash->{helper}{friendlyName};
+          $hash->{helper}{dInfo}{FRIENDLY_NAME} = $hash->{helper}{friendlyName};
+          delete $hash->{helper}{friendlyName};
+        }
+      }
+      elsif($cmd eq "soundEnhancer")
+      {
+        if($data =~ /RC="0"/){readingsBulkUpdate($hash, "soundEnhancer", lc($arg));} 
+      }
+      elsif($cmd eq "soundBalance")
+      {
+        if($data =~ /RC="0"/){readingsBulkUpdate($hash, "soundBalance", $arg);} 
+      }
+      elsif($cmd eq "soundEqLow")
+      {
+        if($data =~ /RC="0"/){readingsBulkUpdate($hash, "soundEqLow", $arg);} 
+      }
+      elsif($cmd eq "soundEqMid")
+      {
+        if($data =~ /RC="0"/){readingsBulkUpdate($hash, "soundEqMid", $arg);} 
+      }
+      elsif($cmd eq "soundEqHigh")
+      {
+        if($data =~ /RC="0"/){readingsBulkUpdate($hash, "soundEqHigh", $arg);} 
+      }
       elsif($cmd eq "mute")
       {
         if($data =~ /RC="0"/){readingsBulkUpdate($hash, "mute", $arg);}
@@ -2680,12 +2827,14 @@ sub YAMAHA_NP_html2txt
 	  <br>
       <u>Available commands:</u><br><br>
       <li><b>CDTray</b> &ndash; open/close the CD tray.</li>
+      <li><b>checkForNewFirmware</b> &ndash; Checks for firmware updates. The result is stored in 'Internals' und 'deviceInfo'.</li>
       <li><b>clockUpdate</b> &ndash; updates the system clock with current time. The local time information is taken from the FHEM server.</li>
       <li><b>dimmer</b> < 1..3 > &ndash; Sets the display brightness.</li>
       <li><b>directPlay</b> < input:Stream Level 1,Stream Level 2,... > &ndash; allows direct stream selection e.g. CD:1, DAB:1, netradio:Bookmarks,SWR3 (case&ndash;sensitive)</li>
       <li><b>favoriteDefine</b> < name:input[,Stream Level 1,Stream Level 2,...] > &ndash; defines and stores a favorite stream e.g. CoolSong:CD,1 (predefined favorites are the available inputs)</li>
       <li><b>favoriteDelete</b> < name > &ndash; deletes a favorite stream</li>
       <li><b>favoritePlay</b> < name > &ndash; plays a favorite stream</li>
+      <li><b>friendlyName</b> < name > &ndash; sets network player's friendly name (network name). String must be between 1 and 15 characters.</li>
       <li><b>input</b> [&lt;parameter&gt;] &ndash; selects the input channel. The inputs are read dynamically from the device. Available inputs can be set (e.g. cd, tuner, aux1, aux2, ...).</li>
       <li><b>mute</b> [on|off] &ndash; activates/deactivates muting</li>
       <li><b>off</b> &ndash; shuts down the device </li>
@@ -2707,6 +2856,11 @@ sub YAMAHA_NP_html2txt
         <li><b>repeatAll</b> &ndash; Set repeat mode All</li>
       </ul>
       <li><b>selectStream</b> &ndash; direct context&ndash;sensitive stream selection depending on the input and available streams. Available streams are read out from device automatically. Depending on the number, this may take some time... (Limited to 999 list entries.) (see also 'maxPlayerLineItems' attribute</li>
+	  <li><b>soundBalance</b> <-10..10> &ndash; Set balance</li>
+	  <li><b>soundEnhancer</b> [on|off] &ndash; Music Enhancer on|off</li>
+	  <li><b>soundEqLow</b> <-10..10> &ndash; Set EQ Low band</li>
+	  <li><b>soundEqMid</b> <-10..10> &ndash; Set EQ Mid band</li>
+	  <li><b>soundEqHigh</b> <-10..10> &ndash; Set EQ High band</li>
 	  <li><b>sleep</b> [off|30min|60min|90min|120min] &ndash; activates the internal sleep timer</li>
       <li><b>standbyMode</b> [eco|normal] &ndash; set the standby mode</li>
       <li><b>statusRequest [&lt;parameter&gt;] </b> &ndash; requests the current status of the device</li>
@@ -2782,6 +2936,11 @@ sub YAMAHA_NP_html2txt
         <li>presence &ndash; presence status of the device (present|absent)</li>
         <li>selectStream &ndash; status of the selectStream command</li>
         <li>sleep &ndash; sleep timer value (off|30 min|60 min|90 min|120 min)</li>
+        <li><b>soundEqLow</b> &ndash; Balance value</li>
+        <li><b>soundEnhancer</b> &ndash; Music Enhancer on|off</li>
+        <li><b>soundEqLow</b> &ndash; Equalizer value Low band</li>
+        <li><b>soundEqMid</b> &ndash; Equalizer value Mid band</li>
+        <li><b>soundEqHigh</b> &ndash; Equalizer value High band</li>
         <li>standbyMode &ndash; status of the standby mode (normal|eco)</li>
         <li>state &ndash; current state information (on|off)</li>
         <li>volume &ndash; relative volume (0...100)</li>
@@ -2882,12 +3041,14 @@ sub YAMAHA_NP_html2txt
 	  <br>
       <u>Verf&uuml;gbare Befehle:</u><br><br>
       <li><b>CDTray</b> &ndash; &Ouml;ffnen und Schlie&szlig;en des CD&ndash;Fachs.</li>
+      <li><b>checkForNewFirmware</b> &ndash; Pr&uuml;ft die Verf&uuml;gbarkeit neuer Firmware. Das Ergebnis wird in 'Internals' and 'deviceInfo' gespeichert.</li>
       <li><b>clockUpdate</b> &ndash; Aktualisierung der Systemzeit des Network Players. Die Zeitinformation wird von dem FHEM Server bezogen, auf dem das Modul ausgef&uuml;hrt wird.</li>
       <li><b>dimmer</b> [1..3] &ndash; Einstellung der Anzeigehelligkeit</li>
       <li><b>directPlay</b> < input:Stream Level 1,Stream Level 2,... > &ndash; erm&ouml;glicht direktes Abspielen eines Audiostreams/einer Audiodatei z.B. CD:1, DAB:1, netradio:Bookmarks,SWR3 </li>
       <li><b>favoriteDefine</b> < name:input[,Stream Level 1,Stream Level 2,...] > &ndash; Speichert einen Favoriten e.g. CoolSong:CD,1 (vordefinierte Favoriten sind die verf&uuml;gbaren Eing&auml;nge)</li>
       <li><b>favoriteDelete</b> < name > &ndash; L&ouml;scht einen Favoriten</li>
       <li><b>favoritePlay</b> < name > &ndash; Spielt einen Favoriten ab</li>
+	  <li><b>friendlyName</b> < name> &ndash; Setzt den Ger&auml;tenamen (friendly name / network name). String muss zwischen einem und 15 Zeichen sein.</li>
 	  <li><b>input</b> [&lt;parameter&gt;] &ndash; Auswahl des Eingangs des Network Players. (Nicht verf&uuml;gbar beim ausgeschaltetem Ger&auml;t)</li>
       <li><b>mute</b> [on|off] &ndash; Aktiviert/Deaktiviert die Stummschaltung</li>
       <li><b>off</b> &ndash; Network Player ausschalten</li>
@@ -2910,6 +3071,11 @@ sub YAMAHA_NP_html2txt
       </ul>
 	  <li><b>selectStream</b> &ndash; Direkte kontextsensitive Streamauswahl. Ver&uuml;gbare Men&uuml;eintr&auml;ge werden automatisch generiert. Bedingt durch das KOnzept des Yamaha&ndash;Protokolls kann dies etwas Zeit in Anspruch nehmen. (Defaultm&auml;ssig auf 999 Listeneint&auml;ge limitiert. s.a. maxPlayerLineItems Attribut.)</li>
 	  <li><b>sleep</b> [off|30min|60min|90min|120min] &ndash; Aktiviert/Deaktiviert den internen Sleep&ndash;Timer</li>
+      <li><b>soundBalance</b> <-10..10> &ndash; Setzt balance</li>
+	  <li><b>soundEnhancer</b> [on|off] &ndash; Music Enhancer on|off</li>
+	  <li><b>soundEqLow</b> <-10..10> &ndash; Setzt EQ Low band</li>
+	  <li><b>soundEqMid</b> <-10..10> &ndash; Setzt EQ Mid band</li>
+	  <li><b>soundEqHigh</b> <-10..10> &ndash; Setzt EQ High band</li>
       <li><b>standbyMode</b> [eco|normal] &ndash; Umschaltung des Standby Modus.</li>
       <li><b>statusRequest [&lt;parameter&gt;] </b> &ndash; Abfrage des aktuellen Status des Network Players.</li>
       <ul>
@@ -2982,6 +3148,11 @@ sub YAMAHA_NP_html2txt
         <li>power &ndash; Aktueller Devicestatus (on|off)</li>
         <li>presence &ndash; Ger&aumlteverf&uuml;gbarkeit im Netzwerk (present|absent)</li>
         <li>selectStream &ndash; Status des selectStream Befehls</li>
+        <li><b>soundEqLow</b> &ndash; Balance Wert</li>
+        <li><b>soundEnhancer</b> &ndash; Music Enhancer on|off</li>
+        <li><b>soundEqLow</b> &ndash; Equalizer Wert Low band</li>
+        <li><b>soundEqMid</b> &ndash; Equalizer Wert Mid band</li>
+        <li><b>soundEqHigh</b> &ndash; Equalizer Wert High band</li>        
         <li>sleep &ndash; Sleeptimer Wert (off|30 min|60 min|90 min|120 min)</li>
         <li>standbyMode &ndash; Standby Mode Status (normal|eco)</li>
         <li>state &ndash; Aktueller Ger&auml;tezusand (on|off)</li>

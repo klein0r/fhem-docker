@@ -26,7 +26,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 73_AMADCommBridge.pm 19090 2019-04-02 06:24:39Z CoolTux $
+# $Id: 73_AMADCommBridge.pm 19673 2019-06-20 20:34:51Z CoolTux $
 #
 ###############################################################################
 ##
@@ -58,16 +58,130 @@
 ##
 ##
 
-package main;
+package FHEM::AMADCommBridge;
 
 use strict;
 use warnings;
+use POSIX;
 use FHEM::Meta;
+use GPUtils qw(GP_Import GP_Export);
+use HttpUtils;
+use TcpServerUtils;
 
-my $modulversion   = '4.4.1';
-my $flowsetversion = '4.4.0';
+my $missingModul = '';
+eval "use Encode qw(encode encode_utf8);1" or $missingModul .= 'Encode ';
 
-sub AMADCommBridge_Initialize($) {
+# try to use JSON::MaybeXS wrapper
+#   for chance of better performance + open code
+eval {
+    require JSON::MaybeXS;
+    import JSON::MaybeXS qw( decode_json encode_json );
+    1;
+};
+
+if ($@) {
+    $@ = undef;
+
+    # try to use JSON wrapper
+    #   for chance of better performance
+    eval {
+
+        # JSON preference order
+        local $ENV{PERL_JSON_BACKEND} =
+          'Cpanel::JSON::XS,JSON::XS,JSON::PP,JSON::backportPP'
+          unless ( defined( $ENV{PERL_JSON_BACKEND} ) );
+
+        require JSON;
+        import JSON qw( decode_json encode_json );
+        1;
+    };
+
+    if ($@) {
+        $@ = undef;
+
+        # In rare cases, Cpanel::JSON::XS may
+        #   be installed but JSON|JSON::MaybeXS not ...
+        eval {
+            require Cpanel::JSON::XS;
+            import Cpanel::JSON::XS qw(decode_json encode_json);
+            1;
+        };
+
+        if ($@) {
+            $@ = undef;
+
+            # In rare cases, JSON::XS may
+            #   be installed but JSON not ...
+            eval {
+                require JSON::XS;
+                import JSON::XS qw(decode_json encode_json);
+                1;
+            };
+
+            if ($@) {
+                $@ = undef;
+
+                # Fallback to built-in JSON which SHOULD
+                #   be available since 5.014 ...
+                eval {
+                    require JSON::PP;
+                    import JSON::PP qw(decode_json encode_json);
+                    1;
+                };
+
+                if ($@) {
+                    $@ = undef;
+
+                    # Fallback to JSON::backportPP in really rare cases
+                    require JSON::backportPP;
+                    import JSON::backportPP qw(decode_json encode_json);
+                    1;
+                }
+            }
+        }
+    }
+}
+
+## Import der FHEM Funktionen
+#-- Run before package compilation
+BEGIN {
+
+    # Import from main context
+    GP_Import(
+        qw(readingsSingleUpdate
+          readingsBulkUpdate
+          readingsBeginUpdate
+          readingsEndUpdate
+          defs
+          modules
+          Log3
+          CommandAttr
+          CommandDelete
+          CommandSet
+          readingFnAttributes
+          attr
+          AttrVal
+          ReadingsVal
+          init_done
+          urlEncode
+          Dispatch
+          HttpUtils_NonblockingGet
+          TcpServer_Open
+          TcpServer_Close
+          TcpServer_Accept
+          AnalyzeCommandChain
+          AnalyzePerlCommand)
+    );
+}
+
+#-- Export to main context with different name
+GP_Export(
+    qw(
+      Initialize
+      )
+);
+
+sub Initialize($) {
 
     my ($hash) = @_;
 
@@ -92,60 +206,7 @@ sub AMADCommBridge_Initialize($) {
       . 'fhemServerIP '
       . $readingFnAttributes;
 
-    foreach my $d ( sort keys %{ $modules{AMADCommBridge}{defptr} } ) {
-
-        my $hash = $modules{AMADCommBridge}{defptr}{$d};
-        $hash->{VERSIONMODUL}   = $modulversion;
-        $hash->{VERSIONFLOWSET} = $flowsetversion;
-    }
-
     return FHEM::Meta::InitMod( __FILE__, $hash );
-}
-
-package FHEM::AMADCommBridge;
-
-use strict;
-use warnings;
-use POSIX;
-use FHEM::Meta;
-
-use GPUtils qw(GP_Import)
-  ;    # wird für den Import der FHEM Funktionen aus der fhem.pl benötigt
-
-my $missingModul = '';
-
-use HttpUtils;
-use TcpServerUtils;
-
-eval "use Encode qw(encode encode_utf8);1" or $missingModul .= 'Encode ';
-eval "use JSON;1"                          or $missingModul .= 'JSON ';
-
-## Import der FHEM Funktionen
-BEGIN {
-    GP_Import(
-        qw(readingsSingleUpdate
-          readingsBulkUpdate
-          readingsBeginUpdate
-          readingsEndUpdate
-          defs
-          modules
-          Log3
-          CommandAttr
-          CommandDelete
-          CommandSet
-          attr
-          AttrVal
-          ReadingsVal
-          init_done
-          urlEncode
-          Dispatch
-          HttpUtils_NonblockingGet
-          TcpServer_Open
-          TcpServer_Close
-          TcpServer_Accept
-          AnalyzeCommandChain
-          AnalyzePerlCommand)
-    );
 }
 
 sub Define($$) {
@@ -155,6 +216,8 @@ sub Define($$) {
     my @a = split( '[ \t][ \t]*', $def );
 
     return $@ unless ( FHEM::Meta::SetInternals($hash) );
+    use version 0.44; our $VERSION = FHEM::Meta::Get( $hash, 'version' );
+
     return 'too few parameters: define <name> AMADCommBridge <tcp-port>'
       if ( @a < 2 and @a > 3 );
     return
@@ -171,8 +234,8 @@ sub Define($$) {
 
     $hash->{BRIDGE}         = 1;
     $hash->{PORT}           = $port;
-    $hash->{VERSIONMODUL}   = $modulversion;
-    $hash->{VERSIONFLOWSET} = $flowsetversion;
+    $hash->{VERSION}        = version->parse($VERSION)->normal;
+    $hash->{VERSIONFLOWSET} = FHEM::Meta::Get( $hash, 'x_flowsetversion' );
 
     CommandAttr( undef, $name . ' room AMAD' )
       if ( AttrVal( $name, 'room', 'none' ) eq 'none' );
@@ -813,6 +876,8 @@ sub ProcessRead($$) {
 
     my ( $hash, $buf ) = @_;
     my $name = $hash->{NAME};
+    my $flowsetversion =
+      $modules{AMADCommBridge}{defptr}{BRIDGE}->{VERSIONFLOWSET};
 
     my @data   = split( '\R\R', $buf );
     my $data   = $data[0];
@@ -1397,6 +1462,8 @@ sub ParseMsg($$) {
   ],
   "release_status": "stable",
   "license": "GPL_2",
+  "version": "v4.4.3",
+  "x_flowsetversion": "4.4.1",
   "author": [
     "Marko Oldenburg <leongaultier@gmail.com>"
   ],

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_MQTT2_SERVER.pm 18794 2019-03-05 10:56:08Z rudolfkoenig $
+# $Id: 00_MQTT2_SERVER.pm 19753 2019-07-01 06:42:12Z rudolfkoenig $
 package main;
 
 # TODO: test SSL
@@ -154,7 +154,7 @@ MQTT2_SERVER_Set($@)
   if($a[0] eq "publish") {
     shift(@a);
     my $retain;
-    if(@a>2 && $a[0] eq "-r") {
+    if(@a>1 && $a[0] eq "-r") {
       $retain = 1;
       shift(@a);
     }
@@ -405,9 +405,14 @@ MQTT2_SERVER_doPublish($$$$;$)
   $src = $server if(!defined($src));
 
   if($retain) {
-    my $now = gettimeofday();
-    my %h = ( ts=>$now, val=>$val );
-    $server->{retain}{$tp} = \%h;
+    if(!defined($val) || $val eq "") {
+      delete($server->{retain}{$tp});
+    } else {
+      my $now = gettimeofday();
+      my %h = ( ts=>$now, val=>$val );
+      $server->{retain}{$tp} = \%h;
+    }
+
 
     # Save it
     my %nots = map { $_ => $server->{retain}{$_}{val} }

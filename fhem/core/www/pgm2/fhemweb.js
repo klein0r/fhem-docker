@@ -1,6 +1,6 @@
 "use strict";
 var FW_version={};
-FW_version["fhemweb.js"] = "$Id: fhemweb.js 19285 2019-04-28 20:18:39Z rudolfkoenig $";
+FW_version["fhemweb.js"] = "$Id: fhemweb.js 19890 2019-07-23 14:57:21Z rudolfkoenig $";
 
 var FW_serverGenerated;
 var FW_serverFirstMsg = (new Date()).getTime()/1000;
@@ -1208,7 +1208,6 @@ FW_longpoll()
     FW_pollConn.onclose = 
     FW_pollConn.onerror = 
     FW_pollConn.onmessage = FW_doUpdate;
-    FW_pollConn.onopen = function(){FW_wsPing(FW_pollConn);};
 
   } else {
     FW_pollConn = new XMLHttpRequest();
@@ -1223,17 +1222,6 @@ FW_longpoll()
   log("Inform-channel opened ("+(FW_longpollType==1 ? "HTTP":FW_longpollType)+
                 ") with filter "+filter);
 }
-
-
-function
-FW_wsPing(conn) // idle websockets are closed by the browser after 55sec
-{
-  if(!conn || conn.readyState != conn.OPEN)
-    return;
-  conn.send("\n");
-//  setTimeout(function(){FW_wsPing(conn);}, 30000);
-}
-
 /*************** LONGPOLL END **************/
 
 

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 50_MOBILEALERTSGW.pm 19278 2019-04-28 15:31:59Z MarkusF $
+# $Id: 50_MOBILEALERTSGW.pm 19394 2019-05-17 18:23:31Z MarkusF $
 # Written by Markus Feist, 2017
 package main;
 
@@ -464,14 +464,14 @@ sub MOBILEALERTSGW_Read($$) {
     if ( $actioncode eq "00" ) {
         Log3 $MA_wname, 4,
 "$MA_wname MOBILEALERTSGW: $MA_cname: Initrequest from $gwserial $gwmac";
-        MOBILEALERTSGW_DecodeInit( $hash, $POSTdata );
         MOBILEALERTSGW_DefaultAnswer($hash);
+        MOBILEALERTSGW_DecodeInit( $hash, $POSTdata );
     }
     elsif ( $actioncode eq "C0" ) {
         Log3 $MA_wname, 4,
           "$MA_wname MOBILEALERTSGW: $MA_cname: Data from $gwserial $gwmac";
-        MOBILEALERTSGW_DecodeData( $hash, $POSTdata );
         MOBILEALERTSGW_DefaultAnswer($hash);
+        MOBILEALERTSGW_DecodeData( $hash, $POSTdata );
     }
     else {
         TcpServer_WriteBlocking( $MA_chash,

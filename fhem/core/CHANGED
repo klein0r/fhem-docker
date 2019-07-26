@@ -1,5 +1,182 @@
 # Add changes at the top of the list. Keep it in ASCII, and 80-char wide.
 # Do not insert empty lines here, update check depends on it.
+ - feature: 93_Log2Syslog: V5.8.1, new attributes and further developments 
+            regarding to Forum: topic,75426.msg958836.html#msg958836,
+            use "get <device> versionNotes" for further informations
+ - change:  77_UWZ: remove last InternalTimer Fn parameter
+ - feature: 14_SD_WS.pm: crc calculation fixes and
+            new protocol for Atech wireless weather station 
+            added new sensor TECVANCE TV-4848 
+ - change:  14_SD_RSL.pm: changed loglevel from 4 to 3 and improved readability
+ - feature: 14_SD_WS07.pm: new sensor / station Auriol AFW 2 A1, IAN: 297514
+ - feature: 90_SIGNALduino_un.pm: support tracing geiger rohrmotor signals
+ - change:  00_SIGNALduino.pm: v3.4.0
+            Option to reconstruct last bit of transmission in MU and MS signals
+            if there is enough data to detect it.
+            Moved protocol hash into a separate perl module instead of loading
+            a simple textfile into a variable. 
+            Added standard deviceOverview output in detail page #545
+            new internal (Protocol_ID), which will provide the protocolID in
+            logcial modules.
+            Drop-down list for set command config CC1101 (#589)
+            add drop-down list for cc1101_bWidth, cc1101_rAmpl and cc1101_sens
+ - change:  49_SSCam: PTZ panel internal code changed 
+ - bugfix:  49_SSCam: fix warnings
+ - feature: 49_SSCam: support of FTUI Widget with SSCamSTRM, new attributes
+                      in SSCamSTRM, some fixes
+ - feature: 71_YAMAHA_NP: Added undocumented reverse-engineered
+                          sound functionality :-)
+                          (balance, enhancer, equalizer)
+ - bugfix:  76_SMAPortal: show multiple consumer icons if planned
+ - bugfix:  73_AutoShuttersControl: Fix for missing closed tag for strong
+ - feature: 71_YAMAHA_NP: New commands 'checkForNewFirmware' and 'friendlyName'
+ - feature: 95_Astro: v2.1.0: add alternative global functions
+                              to replace SUNRISE_EL
+ - feature: 98_WeekdayTimer now supports holiday2we entries 
+               weekEnd and noWeekEnd
+ - bugfix:  71_YAMAHA_NP: fixed 'timerRepeat'
+ - new:     76_SMAPortal: new module to integrate the SMA Sunny Portal
+                          (comes with 76_SMAPortalSPG graphic device and a 
+                          widget for FTUI), special thanks to Wzut and Xguide !
+ - bugfix:  95_Astro: v2.0.3: improved Windows POSIX compatibility for
+                      timezone support
+ - bugfix:  73_AutoShuttersControl: Fix for missing closed tag for strong
+ - feature: 73_AutoShuttersControl: delayed self defense drive then absent,
+               fix many of little bugs, change shading logic
+ - feature: 59_WUup: add Meta support
+ - new:     10_FS10: New module for controling FS10 devices
+ - change:  59_WUup: replaced link to API documentation
+ - feature: 77_UWZ: change to packages, add Meta Support
+ - feature: 74_XiaomiBTLESens: add Meta Support and GP_Export Support
+ - feature: 82_LGTV_WebOS: add wakeupCmd attribut to be executed when turning
+                  on an absent device. Can be an FHEM command or Perl command
+ - bugfix:  32_withings: handle duplicate pwv values
+ - change:  49_SSCam: increase get SID timeout to at least 60 s to avoid 
+                      potential auth.cgi problem, set compatibility to SVS 
+                      version 8.2.4, improve disable/enable behavior
+ - bugfix:  71_YAMAHA_NP: Fixed 'timerVolume'
+ - new:     huedevice.template: New template for HUEDevice
+ - feature: 31_HUEDevice: allow perl code with setList and configList attributes
+ - bugfix:  95_Astro: v2.0.2: Calculate astronomical season based on ecliptic
+                      latitude instead of static day of the year to make season
+                      transition times more reliable. Also, seasons for
+                      southern hemisphere are now reflected correctly.
+ - change:  49_SSCam: Presets and Patrols can contain spaces in its name if the
+                      Preset or Patrol was definined in SVS or Cam Webinterface
+ - bugfix:  74_AMADDevice: fix PERL WARNING: Subroutine redefined
+ - bugfix:  73_AMADCommBridge: fix bug Undefined subroutine
+ - change:  GPUtils: add modul header
+ - feature: GPUtils: change Maintainer, add Export Fn
+ - feature: 73_AMADCommBridge: change version code
+ - feature: 31_HUEDevice: added configList attribute
+                         added optional setsensor|configsensor param to set json
+                         added support for Eurotronic Spirit ZigBee thermostat
+                                                                      (by Shojo)
+ - bugfix: 73_AMADCommBridge: fix $version bug
+ - update:  95_Astro: v2.0.0
+                   device attributes for language, timezone and locale settings
+                   new set command "update"
+                   new attribute recomputeAt
+                   support for disable attribute
+                   improved startup and readings update behaviour
+                   different custom horizon for morning/evening twilight
+                   unit and label support for text
+                   regional settings for numeric values and time in text format
+                   enhanced options for Astro_Get()
+                   fix some typos
+                   stability improvements
+ - feature: 73_GardenaSmartBridge: change package code
+ - feature: 73_AMADCommBridge: change package code
+ - feature: 42_AptToDate: change every package code
+ - feature: 73_AutoShuttersControl: change every package code
+ - feature: 73_AMADCommBridge: try to use JSON::MaybeXS wrapper for chance of
+                       better performance + open code
+ - bugfix:  73_AutoShuttersControl: fix many bugs, code expand's and new
+                                    logic values
+ - bugfix:  73_GardenaSmartBridge: fix undefined value
+                    as an ARRAY reference bug
+ - update:  59_Weather.pm: API Files try to use JSON::MaybeXS wrapper for chance
+                    of better performance + open code, more log entry
+ - update:  98_Siro.pm: V1.3 fix perlwarnings
+                    addcmd lock_cmd
+                    addcmd lock_remote
+                    change devstateicon/cmd
+ - change:  55_PIFACE: now WiringPI V >= 2.46 supported
+ - feature: 73_AutoShuttersControl: add new attribut 
+               ASC_Sgading_MinMax_Elevation, many bug fixes
+ - bugfix:  88_HMCCU: Fixed noInitialUpdate bug
+ - bugfix:  70_BOTVAC: set robotSounds filter
+ - feature: 70_BOTVAC: add pollingMode
+                       add preferences
+                       use whitespace to separate boundaries
+                       remove style element from cleaning statistics
+ - bugfix:  73_AutoShuttersControl: fix litte bugs and change manual drive
+                             detection
+ - feature: 49_SSCam: In detailview are buttons provided to open the camera 
+                      native setup screen or Synology Surveillance Station and
+                      the Synology Surveillance Station online help
+ - bugfix:  73_DoorBird: bugfix for timing between History-Image + event
+ - feature: 73_GardenaSmartBridge: add dynamic baseURL
+ - bugfix:  73_AutoShuttersControl: add new english commandref, fix many bugs
+                      change manual drive detection code
+ - bugfix:  73_DoorBird: bugfix for History-Image on event.
+ - bugfix:  93_DbLog: fix ignore MinInterval if value is "0", Forum: #100344
+ - change:  36_Vallox: added reading for handling homebridge speed control
+ - bugfix:  72_FB_CALLMONITOR: fix wrong call-by-call number removing for
+                               german call-by-call numbers
+ - change:  93_DbRep: commandRef revised
+ - new Version:  98_Siro.pm: V1.0
+                 (Forum: https://forum.fhem.de/index.php/topic,100605.0.html)
+                 !!! NOTE !!! Configuration must be adjusted .
+ - bugfix:  73_AutoShuttersControl: fix bugs and add patches
+ - feature: 30_HUEBridge, 31HUEDevice: scenes can be given by name
+                                       scene dropdown in FHEMWEB
+                                       show light names for scenes and groups
+ - bugfix:  73_GardenaSmartBridge: fix crash then call ARRAY reference
+ - change:  49_SSCam: enhanced log entries of snapinfos with debugactivetoken
+ - change:  49_SSCam: attributes rec/snapemailtxt, rec/snaptelegramtxt may
+                      contain ":", StmKey quoted depending on attribute
+                      noQuotesForSID (Forum: #45671.msg938236.html#msg938236)
+ - change:  77_SMAEM: set reset to delete and reinitialize cacheFile, 
+                      support of Installer.pm/Meta.pm added
+ - change:  73_GardenaSmartBridge: change loglevel
+ - change:  50_TelegramBot: allow \s, addtl silenCmds, fixes
+ - change:  55_PIFACE: Now wiringPi V2.46 is supported. Various optimizations
+ - feature: 73_DoorBird: Automatic snapshots at events with path as Reading
+ - bugfix:  73_AutoShuttersControl: expand shading out drives, fix commandref
+                                    ascAPIget
+ - bugfix:  73_GardenaSmartBridge: bugfixes, expand Bridge readings
+ - bugfix:  73_DoorBird: license information corrected
+ - bugfix:  73_DoorBird: bugfix in commandref und doppelter UDP Verarbeitung
+ - feature: 73_DoorBird: for :application/json;q=META.json 73_DoorBird.pm added
+ - feature: 73_AutoShuttersControl: add ASC API for get ASC intern values
+ - feature: 73_AutoShuttersControl: add set commands and readings for
+                  aktivate shadding, add drive in shading position then
+                  come home and shading mode is home and asc is in shading
+ - feature: 73_DoorBird: UDP events for doorbell and motion-sensor implemented
+ - feature: 74_UnifiClient: add new Module UnifiClient as BETA
+ - feature: 74_Unifi: add new Module UnifiClient
+             added setter for Usergroups an UC-Version
+             restores clients after restart
+             reads Client-Insights to update blocked reading
+ - bugfix:  59_Weather: fix little bug then create weblink
+ - bugfix:  88_HMCCU: Flag for disabling initial device update
+ - bugfix:  10_MYSENSORS_DEVICE: prevent fhem crashing by ack timeout 
+             at higher verobse levels
+ - change:  98_Heating_Control.pm will be removed soon. Users will need to
+             change their device definitions to 98_WeekdayTimer; supporting
+             code is provided, but perl calls have to be changed manually.
+ - bugfix:  73_AutoShuttersControl: fix bug roommate and windwo comfort
+ - bugfix:  73_DoorBird: Error 404 handling for history images corrected
+ - bugfix:  73_AutoShuttersControl: fix sunset sunrise object values
+ - feature: 74_AMADtaskerset_4.4.0.prj: add nfc tag support in taskerset
+               74_AMADautomagicflowset: fix bug then use VLC player
+ - feature: 73_DoorBird: Images can be stored as JPGs
+ - feature: 73_DoorBird: Secure communication with https ans SessionID
+ - bugfix:  73_AutoShuttersControl: fix brightness detection for IsDay,
+               fix detection for manual driveing
+ - bugfix:  73_GardenaSmartBridge: fix the fix
+ - bugfix:  73_GardenaSmartBridge: check if defined $data
  - bufix:   55_DWD_OpenData: SunUp calculation (forum #83097 msg #931972)
  - feature: 10_RESIDENTS: add home alone mode
  - new:     20_PET: new RESIDENTS module type for pets at home

@@ -1,12 +1,14 @@
 ###############################################################################
-# $Id: HOMESTATEtk.pm 19016 2019-03-24 13:23:26Z loredo $
+# $Id: HOMESTATEtk.pm 19391 2019-05-16 17:18:23Z loredo $
 package main;
 use strict;
 use warnings;
 use Data::Dumper;
-use Time::Local;
 
+#use Unit;
+#use RESIDENTStk;
 require RESIDENTStk;
+our ( %RESIDENTStk_types, %RESIDENTStk_subTypes );
 
 # module variables ############################################################
 my %stateSecurity = (
@@ -39,7 +41,7 @@ my %readingsMap = (
     dst_long         => 'calTodDST',
     isholiday        => 'calTodHoliday',
     isly             => 'calTodLeapyear',
-    iswe             => 'calTodTodWeekend',
+    iswe             => 'calTodWeekend',
     mday             => 'calTodMonthday',
     mdayrem          => 'calTodMonthdayRem',
     monISO           => 'calTodMonthN',
@@ -50,6 +52,7 @@ my %readingsMap = (
     seasonAstro_long => 'calTodSAstro',
     seasonMeteoChng  => 'calTodSMeteoChng',
     seasonMeteo_long => 'calTodSMeteo',
+    seasonPhenoChng  => 'calTodSPhenoChng',
     seasonPheno_long => 'calTodSPheno',
     sunrise          => 'calTodSunrise',
     sunset           => 'calTodSunset',
@@ -86,7 +89,8 @@ my %readingsMap_tom = (
     seasonAstro_long => 'calTomSAstro',
     seasonMeteoChng  => 'calTomSMeteoChng',
     seasonMeteo_long => 'calTomSMeteo',
-    seasonPheno_long => 'calTodSPheno',
+    seasonPhenoChng  => 'calTomSPhenoChng',
+    seasonPheno_long => 'calTomSPheno',
     sunrise          => 'calTomSunrise',
     sunset           => 'calTomSunset',
     wdaynISO         => 'calTomWeekdayN',
@@ -124,7 +128,8 @@ sub HOMESTATEtk_Initialize($) {
       " HolidayDevices:multiple,"
       . join( ",", devspec2array( "TYPE=holiday" . $holidayFilter ) );
     $hash->{AttrList} .= " ResidentsDevices:multiple,"
-      . join( ",", devspec2array("TYPE=RESIDENTS,TYPE=ROOMMATE,TYPE=GUEST") );
+      . join( ",",
+        devspec2array("TYPE=RESIDENTS,TYPE=ROOMMATE,TYPE=PET,TYPE=GUEST") );
 }
 
 # module Fn ####################################################################
@@ -182,14 +187,14 @@ sub HOMESTATEtk_InitializeDev($) {
 
     foreach ( sort keys %{ $hash->{'.t'} } ) {
         next if ( ref( $hash->{'.t'}{$_} ) );
-        my $r = $readingsMap{$_} ? $readingsMap{$_} : undef;
+        my $r = defined( $readingsMap{$_} ) ? $readingsMap{$_} : undef;
         my $v = $hash->{'.t'}{$_};
 
         readingsBulkUpdateIfChanged( $hash, $r, $v )
           if ( defined($r) );
 
-        $r = $readingsMap_tom{$_} ? $readingsMap_tom{$_} : undef;
-        $v = $hash->{'.t'}{1}{$_} ? $hash->{'.t'}{1}{$_} : undef;
+        $r = defined( $readingsMap_tom{$_} ) ? $readingsMap_tom{$_} : undef;
+        $v = defined( $hash->{'.t'}{1}{$_} ) ? $hash->{'.t'}{1}{$_} : undef;
 
         readingsBulkUpdateIfChanged( $hash, $r, $v )
           if ( defined($r) && defined($v) );
@@ -198,16 +203,23 @@ sub HOMESTATEtk_InitializeDev($) {
     unless ( $lang =~ /^en/i || !$hash->{'.t'}{$lang} ) {
         foreach ( sort keys %{ $hash->{'.t'}{$lang} } ) {
             next if ( ref( $hash->{'.t'}{$lang}{$_} ) );
-            my $r = $readingsMap{$_} ? $readingsMap{$_} . "_$langUc" : undef;
+            my $r =
+              defined( $readingsMap{$_} )
+              ? $readingsMap{$_} . "_$langUc"
+              : undef;
             my $v = $hash->{'.t'}{$lang}{$_};
 
             readingsBulkUpdateIfChanged( $hash, $r, $v )
               if ( defined($r) );
 
             $r =
-              $readingsMap_tom{$_} ? $readingsMap_tom{$_} . "_$langUc" : undef;
+              defined( $readingsMap_tom{$_} )
+              ? $readingsMap_tom{$_} . "_$langUc"
+              : undef;
             $v =
-              $hash->{'.t'}{1}{$lang}{$_} ? $hash->{'.t'}{1}{$lang}{$_} : undef;
+              defined( $hash->{'.t'}{1}{$lang}{$_} )
+              ? $hash->{'.t'}{1}{$lang}{$_}
+              : undef;
 
             readingsBulkUpdateIfChanged( $hash, $r, $v )
               if ( defined($r) && defined($v) );
@@ -269,12 +281,12 @@ sub HOMESTATEtk_Define($$$) {
         $attr{$name}{icon} = "control_building_control"
           if ( $TYPE eq "HOMESTATE" );
         $attr{$name}{icon} = "control_building_eg"
-          if ( $TYPE eq "SECTIONSTATE" );
+          if ( $TYPE eq "ZONESTATE" );
         $attr{$name}{icon} = "floor"
           if ( $TYPE eq "ROOMSTATE" );
 
         # find HOMESTATE device
-        if ( $TYPE eq "ROOMSTATE" || $TYPE eq "SECTIONSTATE" ) {
+        if ( $TYPE eq "ROOMSTATE" || $TYPE eq "ZONESTATE" ) {
             my @homestates = devspec2array("TYPE=HOMESTATE");
             if ( scalar @homestates ) {
                 $attr{$name}{"HomestateDevices"} = $homestates[0];
@@ -310,7 +322,7 @@ sub HOMESTATEtk_Define($$$) {
         }
 
         # find ROOMSTATE device
-        if ( $TYPE eq "SECTIONSTATE" ) {
+        if ( $TYPE eq "ZONESTATE" ) {
             my @roomstates = devspec2array("TYPE=ROOMSTATE");
             unless ( scalar @roomstates ) {
                 my $n = "Room";
@@ -334,7 +346,8 @@ sub HOMESTATEtk_Define($$$) {
 
         # find RESIDENTS device
         if ( $TYPE eq "HOMESTATE" ) {
-            my @residents = devspec2array("TYPE=RESIDENTS,TYPE=ROOMMATE");
+            my @residents =
+              devspec2array("TYPE=RESIDENTS,TYPE=ROOMMATE,TYPE=PET");
             if ( scalar @residents ) {
                 $attr{$name}{"ResidentsDevices"} = $residents[0];
                 $attr{$name}{room} = $attr{ $residents[0] }{room}
@@ -408,7 +421,8 @@ sub HOMESTATEtk_Set($$$) {
 
     # usage: mode
     my $i =
-      $autoMode && ReadingsVal( $name, "daytime", "night" ) ne "night"
+      defined($autoMode)
+      && ReadingsVal( $name, "daytime", "night" ) ne "night"
       ? HOMESTATEtk_GetIndexFromArray( ReadingsVal( $name, "daytime", 0 ),
         $UConv::daytimes{en} )
       : 0;
@@ -696,8 +710,8 @@ sub HOMESTATEtk_Attr(@) {
           unless ( $cmd eq "del"
             || $value =~ m/^[A-Za-z\d._]+(?:,[A-Za-z\d._]*)*$/ );
 
-        delete $hash->{SECTIONSTATES};
-        $hash->{SECTIONSTATES} = $value unless ( $cmd eq "del" );
+        delete $hash->{ZONESTATES};
+        $hash->{ZONESTATES} = $value unless ( $cmd eq "del" );
     }
 
     elsif ( $attribute eq "RoomstateDevices" ) {
@@ -775,7 +789,7 @@ sub HOMESTATEtk_Attr(@) {
                   if ( !defined( $attr{$name}{group} )
                     || $attr{$name}{group} eq "Home State" );
             }
-            if ( $TYPE eq "SECTIONSTATE" ) {
+            if ( $TYPE eq "ZONESTATE" ) {
                 $attr{$name}{group} = "Bereichstatus"
                   if ( !defined( $attr{$name}{group} )
                     || $attr{$name}{group} eq "Section State" );
@@ -800,7 +814,7 @@ sub HOMESTATEtk_Attr(@) {
                   if ( !defined( $attr{$name}{group} )
                     || $attr{$name}{group} eq "Zuhause Status" );
             }
-            if ( $TYPE eq "SECTIONSTATE" ) {
+            if ( $TYPE eq "ZONESTATE" ) {
                 $attr{$name}{group} = "Section State"
                   if ( !defined( $attr{$name}{group} )
                     || $attr{$name}{group} eq "Bereichstatus" );
@@ -910,11 +924,11 @@ m/^((?:DELETE)?ATTR)\s+([A-Za-z\d._]+)\s+([A-Za-z\d_\.\-\/]+)(?:\s+(.*)\s*)?$/
 
     return "" if ( IsDisabled($name) or IsDisabled($devName) );
 
-    # process events from RESIDENTS, ROOMMATE or GUEST devices
+    # process events from RESIDENTS, ROOMMATE, PET or GUEST devices
     # only when they hit HOMESTATE devices
     if (   $TYPE ne $devType
         && $devType =~
-        m/^HOMESTATE|SECTIONSTATE|ROOMSTATE|RESIDENTS|ROOMMATE|GUEST$/ )
+        m/^HOMESTATE|ZONESTATE|ROOMSTATE|RESIDENTS|ROOMMATE|PET|GUEST$/ )
     {
 
         my $events = deviceEvents( $dev, 1 );
@@ -925,6 +939,7 @@ m/^((?:DELETE)?ATTR)\s+([A-Za-z\d._]+)\s+([A-Za-z\d_\.\-\/]+)(?:\s+(.*)\s*)?$/
 
             # state changed
             if (   $event !~ /^[a-zA-Z\d._]+:/
+                || $event =~ /^homealoneType:/
                 || $event =~ /^state:/
                 || $event =~ /^presence:/
                 || $event =~ /^mode:/
@@ -964,7 +979,7 @@ sub HOMESTATEtk_GetIndexFromArray($$) {
     my ( $string, $array ) = @_;
     return undef unless ( ref($array) eq "ARRAY" );
     my ($index) = grep { $array->[$_] =~ /^$string$/i } ( 0 .. @$array - 1 );
-    return defined $index ? $index : undef;
+    return defined($index) ? $index : undef;
 }
 
 sub HOMESTATEtk_findHomestateSlaves($;$) {
@@ -973,31 +988,31 @@ sub HOMESTATEtk_findHomestateSlaves($;$) {
 
     if ( $hash->{TYPE} eq "HOMESTATE" ) {
 
-        my @SECTIONSTATES;
-        foreach ( devspec2array("TYPE=SECTIONSTATE") ) {
+        my @ZONESTATES;
+        foreach ( devspec2array("TYPE=ZONESTATE") ) {
             next
               unless (
-                defined( $defs{$_}{SECTIONSTATES} )
+                defined( $defs{$_}{ZONESTATES} )
                 && grep { $hash->{NAME} eq $_ }
-                split( /,/, $defs{$_}{SECTIONSTATES} )
+                split( /,/, $defs{$_}{ZONESTATES} )
               );
-            push @SECTIONSTATES, $_;
+            push @ZONESTATES, $_;
         }
 
-        if ( scalar @SECTIONSTATES ) {
-            $hash->{SECTIONSTATES} = join( ",", @SECTIONSTATES );
+        if ( scalar @ZONESTATES ) {
+            $hash->{ZONESTATES} = join( ",", @ZONESTATES );
         }
-        elsif ( $hash->{SECTIONSTATES} ) {
-            delete $hash->{SECTIONSTATES};
+        elsif ( $hash->{ZONESTATES} ) {
+            delete $hash->{ZONESTATES};
         }
 
-        if ( $hash->{SECTIONSTATES} ) {
+        if ( $hash->{ZONESTATES} ) {
             $ret .= "," if ($ret);
-            $ret .= $hash->{SECTIONSTATES};
+            $ret .= $hash->{ZONESTATES};
         }
     }
 
-    if ( $hash->{TYPE} eq "HOMESTATE" || $hash->{TYPE} eq "SECTIONSTATE" ) {
+    if ( $hash->{TYPE} eq "HOMESTATE" || $hash->{TYPE} eq "ZONESTATE" ) {
 
         my @ROOMSTATES;
         foreach ( devspec2array("TYPE=ROOMSTATE") ) {
@@ -1009,9 +1024,9 @@ sub HOMESTATEtk_findHomestateSlaves($;$) {
                     split( /,/, $defs{$_}{HOMESTATES} )
                 )
                 || (
-                    defined( $defs{$_}{SECTIONSTATES} )
+                    defined( $defs{$_}{ZONESTATES} )
                     && grep { $hash->{NAME} eq $_ }
-                    split( /,/, $defs{$_}{SECTIONSTATES} )
+                    split( /,/, $defs{$_}{ZONESTATES} )
                 )
               );
             push @ROOMSTATES, $_;
@@ -1058,27 +1073,60 @@ sub HOMESTATEtk_devStateIcon($) {
     my $langUc = uc($lang);
     my @devStateIcon;
 
-    # mode
+    # homeAlone
     my $i = 0;
-    foreach ( @{ $UConv::daytimes{en} } ) {
-        push @devStateIcon, "$_:$UConv::daytimes{icons}[$i++]:toggle";
+    foreach my $TYPE ( keys %{ $RESIDENTStk_subTypes{en} } ) {
+        $i = 0;
+        foreach my $subType ( @{ $RESIDENTStk_subTypes{en}{$TYPE} } ) {
+            $subType = $RESIDENTStk_types{en}{$TYPE}
+              if ( $subType eq 'generic' );
+            push @devStateIcon,
+                $subType . "_.+:"
+              . $RESIDENTStk_subTypes{icons}{$TYPE}[ $i++ ]
+              . ":toggle";
+        }
     }
-    unless ( $lang eq "en" && defined( $UConv::daytimes{$lang} ) ) {
+    unless ( $lang ne "en" && defined( $RESIDENTStk_subTypes{$lang} ) ) {
+        foreach my $TYPE ( keys %{ $RESIDENTStk_subTypes{$lang} } ) {
+            $i = 0;
+            foreach my $subType ( @{ $RESIDENTStk_subTypes{en}{$TYPE} } ) {
+                if ( $subType eq 'generic' ) {
+                    $subType = $RESIDENTStk_types{$lang}{$TYPE};
+                }
+                else {
+                    $subType = $RESIDENTStk_subTypes{$lang}{$TYPE}[$i];
+                }
+                push @devStateIcon,
+                    $subType . "_.+:"
+                  . $RESIDENTStk_subTypes{icons}{$TYPE}[ $i++ ]
+                  . ":toggle";
+            }
+        }
+    }
+
+    # mode
+    $i = 0;
+    foreach ( @{ $UConv::daytimes{en} } ) {
+        push @devStateIcon,
+          $_ . ":" . $UConv::daytimes{icons}[ $i++ ] . ":toggle";
+    }
+    if ( $lang ne "en" && defined( $UConv::daytimes{$lang} ) ) {
         $i = 0;
         foreach ( @{ $UConv::daytimes{$lang} } ) {
-            push @devStateIcon, "$_:$UConv::daytimes{icons}[$i++]:toggle";
+            push @devStateIcon,
+              $_ . ":" . $UConv::daytimes{icons}[ $i++ ] . ":toggle";
         }
     }
 
     # security
     $i = 0;
     foreach ( @{ $stateSecurity{en} } ) {
-        push @devStateIcon, "$_:$stateSecurity{icons}[$i++]";
+        push @devStateIcon, $_ . ":" . $stateSecurity{icons}[ $i++ ];
     }
-    unless ( $lang eq "en" && defined( $UConv::daytimes{$lang} ) ) {
+    if ( $lang ne "en" && defined( $UConv::daytimes{$lang} ) ) {
         $i = 0;
         foreach ( @{ $stateSecurity{$lang} } ) {
-            push @devStateIcon, "$_:$stateSecurity{icons}[$i++]";
+            push @devStateIcon, $_ . ":" . $stateSecurity{icons}[ $i++ ];
         }
     }
 
@@ -1162,19 +1210,40 @@ sub HOMESTATEtk_UpdateReadings (@) {
     my $state_awoken    = 0;
     my $state_absent    = 0;
     my $state_gone      = 0;
-    my $wayhome         = 0;
-    my $wayhomeDelayed  = 0;
-    my $wakeup          = 0;
-    foreach my $internal ( "RESIDENTS", "SECTIONSTATES", "ROOMSTATES" ) {
+    my $state_homealoneType;
+    my $state_homealoneSubtype;
+    my $wayhome        = 0;
+    my $wayhomeDelayed = 0;
+    my $wakeup         = 0;
+
+    foreach my $internal ( "RESIDENTS", "ZONESTATES", "ROOMSTATES" ) {
         next unless ( $hash->{$internal} );
         foreach my $presenceDev ( split( /,/, $hash->{$internal} ) ) {
             my $state = ReadingsVal( $presenceDev, "state", "gone" );
-            $state_home++      if ( $state eq "home" );
-            $state_gotosleep++ if ( $state eq "gotosleep" );
-            $state_asleep++    if ( $state eq "asleep" );
-            $state_awoken++    if ( $state eq "awoken" );
-            $state_absent++    if ( $state eq "absent" );
-            $state_gone++      if ( $state eq "gone" || $state eq "none" );
+            $state_home++      if ( $state =~ /home$/ );
+            $state_gotosleep++ if ( $state =~ /gotosleep$/ );
+            $state_asleep++    if ( $state =~ /asleep$/ );
+            $state_awoken++    if ( $state =~ /awoken$/ );
+            $state_absent++    if ( $state =~ /absent$/ );
+            $state_gone++      if ( $state =~ /(?:gone|none)$/ );
+
+            my $homealoneType =
+              ReadingsVal( $presenceDev, "homealoneType", "-" );
+            my $homealoneSubtype =
+              ReadingsVal( $presenceDev, "homealoneSubtype", "-" );
+
+            if (
+                $homealoneType ne '-'
+                && (
+                    !$state_homealoneType
+                    || (   $state_homealoneType eq 'PET'
+                        && $homealoneType ne 'PET' )
+                )
+              )
+            {
+                $state_homealoneType    = $homealoneType;
+                $state_homealoneSubtype = $homealoneSubtype;
+            }
 
             my $wayhome = ReadingsVal( $presenceDev, "wayhome", 0 );
             $wayhome++ if ($wayhome);
@@ -1186,7 +1255,7 @@ sub HOMESTATEtk_UpdateReadings (@) {
     }
     $state_home = 1
       unless ( $hash->{RESIDENTS}
-        || $hash->{SECTIONSTATES}
+        || $hash->{ZONESTATES}
         || $hash->{ROOMSTATES} );
 
     # autoMode
@@ -1229,21 +1298,40 @@ sub HOMESTATEtk_UpdateReadings (@) {
     my $newsecurity;
 
     # unsecured
-    if ( $state_home > 0 && $mode !~ /^night|midevening$/ ) {
+    if (
+           $state_home > 0
+        && $mode !~ /^night|midevening$/
+        && (
+            !$state_homealoneType
+            || (
+                $state_homealoneType eq 'GUEST'
+                && (   $state_homealoneSubtype eq 'guest'
+                    || $state_homealoneSubtype eq 'generic'
+                    || $state_homealoneSubtype eq 'domesticWorker'
+                    || $state_homealoneSubtype eq 'vacationer' )
+            )
+        )
+      )
+    {
         $newsecurity = "unlocked";
     }
 
     # locked
-    elsif ($state_home > 0
-        || $state_awoken > 0
-        || $state_gotosleep > 0
-        || $wakeup > 0 )
+    elsif (
+        ( !$state_homealoneType || $state_homealoneType ne 'PET' )
+        && (   $state_home > 0
+            || $state_awoken > 0
+            || $state_gotosleep > 0
+            || $wakeup > 0 )
+      )
     {
         $newsecurity = "locked";
     }
 
-    # night
-    elsif ( $state_asleep > 0 ) {
+    # night or pet at home
+    elsif ( $state_asleep > 0
+        || ( $state_homealoneType && $state_homealoneType eq 'PET' ) )
+    {
         $newsecurity = "protected";
     }
 
@@ -1277,7 +1365,7 @@ sub HOMESTATEtk_UpdateReadings (@) {
 
     #
     # state calculation:
-    # combine security and mode
+    # combine security, mode and homealone
     #
     my $newstate;
     my $statesrc;
@@ -1294,16 +1382,48 @@ sub HOMESTATEtk_UpdateReadings (@) {
         $statesrc = "security";
     }
 
+    # homealone
+    if ($state_homealoneType) {
+        my $hs;
+        if (   $state_homealoneSubtype eq 'generic'
+            || $state_homealoneType eq 'PET' )
+        {
+            $hs = $RESIDENTStk_types{en}{$state_homealoneType};
+        }
+        else {
+            $hs = $state_homealoneSubtype;
+        }
+
+        $newstate = $hs . '_' . $newstate;
+    }
+
     if ( $newstate ne $state ) {
         readingsBulkUpdate( $hash, "lastState", $state ) if ( $state ne "" );
+        readingsBulkUpdate( $hash, "state", $newstate );
         $state = $newstate;
-        readingsBulkUpdate( $hash, "state", $state );
 
         unless ( $lang eq "en" ) {
             my $stateL = ReadingsVal( $name, "state_$langUc", "" );
             readingsBulkUpdate( $hash, "lastState_$langUc", $stateL )
               if ( $stateL ne "" );
             $stateL = ReadingsVal( $name, $statesrc . "_$langUc", "" );
+
+            if ($state_homealoneType) {
+                my $hs;
+                if (   $state_homealoneSubtype eq 'generic'
+                    || $state_homealoneType eq 'PET' )
+                {
+                    $hs = $RESIDENTStk_types{$lang}{$state_homealoneType};
+                }
+                else {
+                    $hs = $RESIDENTStk_subTypes{$lang}{$state_homealoneType}[
+                      HOMESTATEtk_GetIndexFromArray( $state_homealoneSubtype,
+                          $RESIDENTStk_subTypes{en}{$state_homealoneType} )
+                    ];
+                }
+                $stateL = $hs . '_' . $stateL;
+            }
+
             readingsBulkUpdate( $hash, "state_$langUc", $stateL );
         }
     }
@@ -1311,7 +1431,6 @@ sub HOMESTATEtk_UpdateReadings (@) {
 }
 
 1;
-
 
 =pod
 =encoding utf8

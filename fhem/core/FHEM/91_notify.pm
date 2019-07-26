@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 91_notify.pm 17225 2018-08-29 12:34:29Z rudolfkoenig $
+# $Id: 91_notify.pm 19374 2019-05-11 17:48:03Z rudolfkoenig $
 package main;
 
 use strict;
@@ -67,7 +67,8 @@ notify_Define($$)
   $hash->{".COMMAND"} = $command;
 
   my $doTrigger = ($name !~ m/^$re$/);            # Forum #34516
-  readingsSingleUpdate($hash, "state", "active", $doTrigger);
+  readingsSingleUpdate($hash, "state", "active", $doTrigger)
+        if(!$hash->{TEMPORARY});
   InternalTimer(0, sub(){  notifyRegexpChanged($hash, $re); }, $hash);
 
   return undef;

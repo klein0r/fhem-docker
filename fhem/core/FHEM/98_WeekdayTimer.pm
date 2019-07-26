@@ -1,4 +1,4 @@
-# $Id: 98_WeekdayTimer.pm 19279 2019-04-28 17:10:32Z Beta-User $
+# $Id: 98_WeekdayTimer.pm 19806 2019-07-09 16:52:45Z Beta-User $
 ##############################################################################
 #
 #     98_WeekdayTimer.pm
@@ -44,7 +44,7 @@ sub WeekdayTimer_Initialize($){
   $hash->{GetFn}   = "WeekdayTimer_Get";
   $hash->{AttrFn}  = "WeekdayTimer_Attr";
   $hash->{UpdFn}   = "WeekdayTimer_Update";
-  $hash->{AttrList}= "disable:0,1 delayedExecutionCond switchInThePast:0,1 commandTemplate ".
+  $hash->{AttrList}= "disable:0,1 delayedExecutionCond WDT_delayedExecutionDevices WDT_Group switchInThePast:0,1 commandTemplate ".
      $readingFnAttributes;
 }
 ################################################################################
@@ -102,17 +102,36 @@ sub WeekdayTimer_Set($@) {
   my ($hash, @a) = @_;
 
   return "no set value specified" if(int(@a) < 2);
-  return "Unknown argument $a[1], choose one of enable disable " if($a[1] eq "?");
+  return "Unknown argument $a[1], choose one of enable:noArg disable:noArg WDT_Params:single,WDT_Group,all" if($a[1] eq "?");
 
   my $name = shift @a;
   my $v = join(" ", @a);
 
-  Log3 $hash, 3, "[$name] set $name $v";
-
-  if      ($v eq "enable") {
-     fhem("attr $name disable 0");
+  if ($v eq "enable") {
+    Log3 ($hash, 3, "[$name] set $name $v");
+    if (AttrVal($name, "disable", 0)) {
+      CommandAttr(undef, "$name disable 0");
+    } else {
+      WeekdayTimer_SetTimerOfDay({ HASH => $hash});
+    }
   } elsif ($v eq "disable") {
-     fhem("attr $name disable 1");
+    Log3 $hash, 3, "[$name] set $name $v";
+     CommandAttr(undef, "$name disable 1");
+  } elsif ($v =~ m/WDT_Params/) {
+    if ($v =~ /single/) {
+      WeekdayTimer_SetParm($name);
+      Log3 ($hash, 4, "[$name] set $name $v called");
+    } elsif ($v =~ /WDT_Group/) {
+      my $group = AttrVal($hash->{NAME},"WDT_Group",undef);
+      unless (defined $group ){
+         Log3 $hash, 3, "[$name] set $name $v cancelled: group attribute not set for $name!";
+      } else {
+         WeekdayTimer_SetAllParms($group);
+      }
+    } elsif ($v =~ /all/){
+      WeekdayTimer_SetAllParms("all");
+      Log3 $hash,3, "[$name] set $name $v called; params in all WeekdayTimer instances will be set!";
+    }
   }
   return undef;
 }
@@ -179,7 +198,7 @@ sub WeekdayTimer_Define($$) {
 
   $hash->{NAME}            = $name;
   $hash->{DEVICE}          = $device;
-
+  
   my @switchingtimes       = WeekdayTimer_gatherSwitchingTimes ($hash, \@a);
   my $conditionOrCommand   = join (" ", @a);
 
@@ -239,9 +258,13 @@ sub WeekdayTimer_Profile($) {
         push  (@listeDerTage, WeekdayTimer_getListeDerTage($d, $time)) if ($d>=7);
 
         map { my $day = $_;
-           my $dayOfEchteZeit = $day;
-              $dayOfEchteZeit = ($wday>=1&&$wday<=5) ? 6 : $wday  if ($day==7); # ggf. Samstag $wday ~~ [1..5]
+            my $dayOfEchteZeit = $day;
+            unless (AttrVal('global', 'holiday2we', '') =~ m,\bweekEnd\b,|| $day > 6 ) {
               $dayOfEchteZeit = ($wday==0||$wday==6) ? 1 : $wday  if ($day==8); # ggf. Montag  $wday ~~ [0, 6]
+              $dayOfEchteZeit = ($wday>=1&&$wday<=5) ? 6 : $wday  if ($day==7); # ggf. Samstag $wday ~~ [1..5]
+            } else {
+              $dayOfEchteZeit = $wday;
+            }
             my $echtZeit = WeekdayTimer_EchteZeit($hash, $dayOfEchteZeit, $time);
             $hash->{profile}    {$day}{$echtZeit} = $parameter;
             $hash->{profile_IDX}{$day}{$echtZeit} = $idx;
@@ -283,9 +306,12 @@ sub WeekdayTimer_getListeDerTage($$) {
   my ($d, $time) = @_;
 
   my %hdays=();
-  @hdays{(0, 6)} = undef  if ($d==7); # sa,so   ( $we)
-  @hdays{(1..5)} = undef  if ($d==8); # mo-fr   (!$we)
-
+  unless (AttrVal('global', 'holiday2we', '') =~ m,\bweekEnd\b,) {
+    @hdays{(0, 6)} = undef  if ($d==7); # sa,so   ( $we)
+    @hdays{(1..5)} = undef  if ($d==8); # mo-fr   (!$we)
+  } else {
+    @hdays{(0..6)} = undef  if ($d==8); # mo-fr   (!$we)
+  }
   my $wday;
   my $now = time();
   my ($sec,$min,$hour,$mday,$mon,$year,$nowWday,$yday,$isdst) = localtime($now);
@@ -293,30 +319,35 @@ sub WeekdayTimer_getListeDerTage($$) {
   my @realativeWdays  = (0..6);
   for (my $i=0;$i<=6;$i++) {
 
-     my $relativeDay = $i-$nowWday;
+    my $relativeDay = $i-$nowWday;
     #Log 3, "relativeDay------------>$relativeDay";
-     my ($stunde, $minute, $sekunde) = split (":",$time);
+    my ($stunde, $minute, $sekunde) = split (":",$time);
 
-     my $echteZeit = WeekdayTimer_zeitErmitteln ($now, $stunde, $minute, $sekunde, $relativeDay);
+    my $echteZeit = WeekdayTimer_zeitErmitteln ($now, $stunde, $minute, $sekunde, $relativeDay);
     #Log 3, "echteZeit---$i---->>>$relativeDay<<<----->".FmtDateTime($echteZeit);
-     ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($echteZeit);
+    ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($echteZeit);
 
-    foreach my $h2we (split(',', AttrVal('global', 'holiday2we', ''))) {
-      if($h2we) {
-        my $ergebnis = 'none';
-        if (InternalVal($h2we, 'TYPE', '') eq "holiday") {
+    my $noWeekEnd = 0;
+    my $ergebnis = 'none';
+    if ($wday==$nowWday ){
+      $ergebnis = "is_true" if IsWe();
+    } elsif ( $wday==$nowWday+1) {
+      $ergebnis = "is_true" if IsWe("tomorrow");
+    } else { 
+      foreach my $h2we (split(',', AttrVal('global', 'holiday2we', ''))) {
+        if($h2we && ( $ergebnis eq 'none' || $h2we eq "noWeekEnd" )  && InternalVal($h2we, 'TYPE', '') eq "holiday" && !$noWeekEnd) {
           $ergebnis = CommandGet(undef,$h2we . ' ' . sprintf("%02d-%02d",$mon+1,$mday));
-        } elsif ($wday==$nowWday ){
-          $ergebnis = "is_true" if IsWe();
-        }elsif ( $wday==$nowWday+1){
-          $ergebnis = "is_true" if IsWe("tomorrow");
-        }
-        if ($ergebnis ne 'none') {
-          #Log 3, "ergebnis-------$i----->$ergebnis";
-          $hdays{$i} = undef if ($d==7); #  $we Tag aufnehmen
-          delete $hdays{$i} if ($d==8); # !$we Tag herausnehmen
+          if ($ergebnis ne 'none' && $h2we eq "noWeekEnd") {
+            $ergebnis = 'none';
+            $noWeekEnd = 1;
+          }
         }
       }
+    }
+    if ($ergebnis ne 'none') {
+      #Log 3, "ergebnis-------$i----->$ergebnis";
+      $hdays{$i} = undef if ($d==7||AttrVal('global', 'holiday2we', '') =~ m,\bweekEnd\b,); #  $we Tag aufnehmen
+      delete $hdays{$i} if ($d==8); # !$we Tag herausnehmen
     }
   }
 
@@ -373,8 +404,7 @@ sub WeekdayTimer_daylistAsArray($$){
     # Aufzaehlung 1234 ...
     if (      $daylist =~  m/^[0-8]{0,9}$/g) {
 
-        Log3 ($hash, 3, "[$name] " . '"7" in daylist now means $we(weekend) - see dokumentation!!!' )
-           if (index($daylist, '7') != -1);
+        #Log3 ($hash, 3, "[$name] " . '"7" in daylist now means $we(weekend) - see dokumentation!!!' ) if (index($daylist, '7') != -1);
 
         @days = split("", $daylist);
         @hdays{@days} = undef;
@@ -467,7 +497,7 @@ sub WeekdayTimer_gatherSwitchingTimes {
     #pruefen auf Angabe eines Schaltpunktes
     my $element = "";
     my @restoreElements = ();
-E:  while (@$a > 0) {
+E:    while (@$a > 0) {
 
        my $actualElement = shift @$a;
        push @restoreElements, $actualElement;
@@ -674,6 +704,8 @@ sub WeekdayTimer_SetTimer($) {
 
   }
 }
+########################################################################
+
 ################################################################################
 sub WeekdayTimer_delayedTimerInPast($) {
   my ($myHash) = @_;
@@ -888,7 +920,9 @@ sub WeekdayTimer_FensterOffen ($$$) {
   Log3 $hash, 4, "[$name] delayedExecutionCond:$verzoegerteAusfuehrungCond";
 
   my $verzoegerteAusfuehrung = eval($verzoegerteAusfuehrungCond);
-  Log3 $hash, 4, "[$name] result of delayedExecutionCond:$verzoegerteAusfuehrung";
+
+  my $logtext =  $verzoegerteAusfuehrung // 'no condition attribute set';
+  Log3 $hash, 4, "[$name] result of delayedExecutionCond: $logtext";
 
   if ($verzoegerteAusfuehrung) {
      if (!defined($hash->{VERZOEGRUNG})) {
@@ -910,11 +944,14 @@ sub WeekdayTimer_FensterOffen ($$$) {
                     "EnOcean"         => { "READING" => "state",           "STATUS" => "(open)",        "MODEL" => "r" },
                     "ZWave"           => { "READING" => "state",           "STATUS" => "(open)",        "MODEL" => "r" },
                     "MAX"             => { "READING" => "state",           "STATUS" => "(open.*)",      "MODEL" => "r" },
+                    "dummy"           => { "READING" => "state",           "STATUS" => "(([Oo]pen|[Tt]ilt).*)",   "MODEL" => "r" },
                     "WeekdayTimer"    => { "READING" => "delayedExecution","STATUS" => "^1\$",          "MODEL" => "a" },
                     "Heating_Control" => { "READING" => "delayedExecution","STATUS" => "^1\$",          "MODEL" => "a" }
                   );
 
-  my $fensterKontakte = AttrVal($hash->{NAME}, "windowSensor", "")." ".$hash->{NAME};
+  my $fensterKontakte = $hash->{NAME} ." ". AttrVal($hash->{NAME}, "WDT_delayedExecutionDevices", "");
+  my $HC_fensterKontakte = AttrVal($hash->{NAME}, "windowSensor", undef);
+  $fensterKontakte .= " ".$HC_fensterKontakte if defined $HC_fensterKontakte;
   $fensterKontakte =~ s/^\s+//;
   $fensterKontakte =~ s/\s+$//;
 
@@ -922,13 +959,14 @@ sub WeekdayTimer_FensterOffen ($$$) {
   if ($fensterKontakte ne "" ) {
      my @kontakte = split("[ \t]+", $fensterKontakte);
      foreach my $fk (@kontakte) {
-        if(!$defs{$fk}) {
-           Log3 $hash, 3, "[$name] sensor <$fk> not found - check name.";
+        #hier flexible eigene Angaben ermöglichen?, Schreibweise: Device[:Reading[:ValueToCompare[:Comparator]]]; defaults: Reading=state, ValueToCompare=0/undef/false, all other true, Comparator=eq (options: eq, ne, lt, gt, ==, <,>,<>)
+        my $fk_hash = $defs{$fk};
+        unless($fk_hash) {
+          Log3 $hash, 3, "[$name] sensor <$fk> not found - check name.";
         } else {
-           my $fk_hash = $defs{$fk};
            my $fk_typ  = $fk_hash->{TYPE};
            if (!defined($contacts{$fk_typ})) {
-              Log3 $hash, 3, "[$name] TYPE '$fk_typ' of $fk not yet supported, $fk ignored - inform maintainer";
+                            Log3 $hash, 3, "[$name] TYPE '$fk_typ' of $fk not yet supported, $fk ignored - inform maintainer";
            } else {
 
               my $reading      = $contacts{$fk_typ}{READING};
@@ -1111,27 +1149,33 @@ sub WeekdayTimer_Attr($$$$) {
 sub WeekdayTimer_SetParm($) {
   my ($name) = @_;
 
-  my $hash = $modules{WeekdayTimer}{defptr}{$name};
+  my $hash = $defs{$name};
   if(defined $hash) {
      WeekdayTimer_DeleteTimer($hash);
      WeekdayTimer_SetTimer($hash);
   }
 }
 ################################################################################
-sub WeekdayTimer_SetAllParms() {            # {WeekdayTimer_SetAllParms()}
-
-  my @wdNamen = sort keys %{$modules{WeekdayTimer}{defptr}};
-  foreach my $wdName ( @wdNamen ) {
+sub WeekdayTimer_SetAllParms(;$) {            # {WeekdayTimer_SetAllParms()}
+  my ($group) = @_; 
+  my @wdtNames;
+  if (!defined $group or $group eq "all") {
+    @wdtNames = devspec2array('TYPE=WeekdayTimer');
+  } else {
+    @wdtNames = devspec2array("TYPE=WeekdayTimer:FILTER=WDT_Group=$group");
+  }
+  foreach my $wdName ( @wdtNames ) {
      WeekdayTimer_SetParm($wdName);
   }
-  Log3 undef,  3, "WeekdayTimer_SetAllParms() done on: ".join(" ",@wdNamen );
+  Log3 undef,  3, "WeekdayTimer_SetAllParms() done on: ".join(" ",@wdtNames );
 }
+
 
 1;
 
 =pod
 =encoding utf8
-=item device
+=item helper
 =item summary    sends parameter to devices at defined times
 =item summary_DE sendet Parameter an Devices zu einer Liste mit festen Zeiten
 =begin html
@@ -1189,7 +1233,8 @@ sub WeekdayTimer_SetAllParms() {            # {WeekdayTimer_SetAllParms()}
         <li>7,$we  weekend  ($we)</li>
         <li>8,!$we weekday  (!$we)</li>
         </ul><br>
-         It is possible to define $we or !$we in daylist to easily allow weekend an holiday. $we !$we are coded as 7 8, when using a numeric daylist.<br><br>
+         It is possible to define $we or !$we in daylist to easily allow weekend an holiday. $we !$we are coded as 7 8, when using a numeric daylist. <br>
+         Note: $we will use general IsWe() function to determine $we handling for today and tomorrow. The complete daylist for all other days will reflect the results of holiday devices listed as holiday2we devices in global, including weekEnd and noWeekEnd (see global - holiday2we attribute).<br><br>
       <u>time:</u>define the time to switch, format: HH:MM:[SS](HH in 24 hour format) or a Perlfunction like {sunrise_abs()}. Within the {} you can use the variable $date(epoch) to get the exact switchingtimes of the week. Example: {sunrise_abs_dat($date)}<br><br>
       <u>parameter:</u>the parameter to be set, using any text value like <b>on</b>, <b>off</b>, <b>dim30%</b>, <b>eco</b> or <b>comfort</b> - whatever your device understands.<br>
       NOTE: Use ":" to replace blanks in parameter and escape ":" in case you need it. So e.g. <code>on-till:06\:00</code> will be a valid parameter.
@@ -1227,10 +1272,11 @@ sub WeekdayTimer_SetAllParms() {            # {WeekdayTimer_SetAllParms()}
         <code>define dimmer WeekdayTimer livingRoom Sa-Su,We|07:00|dim30% Sa-Su,We|21:00|dim90% (ReadingsVal("WeAreThere", "state", "no") eq "yes")</code><br>
         The dimmer is only set to dimXX% if the dummy variable WeAreThere is "yes"(not a real live example).<p>
 
-        If you want to have set all WeekdayTimer their current value (after a temperature lowering phase holidays)
+        If you want to have set all WeekdayTimer their current value (e.g. after a temperature lowering phase holidays)
         you can call the function <b>WeekdayTimer_SetParm("WD-device")</b> or <b>WeekdayTimer_SetAllParms()</b>.<br>
+        To limit the affected WeekdayTimer devices to a subset of all of your WeekdayTimers, use the WDT_Group attribute and <b>WeekdayTimer_SetAllParms("<group name>")</b>.<br> This offers the same functionality than <code>set wd WDT_Params WDT_Group</code>
         This call can be automatically coupled to a dummy by a notify:<br>
-        <code>define dummyNotify notify Dummy:. * {WeekdayTimer_SetAllTemps()}</code>
+        <code>define dummyNotify notify Dummy:. * {WeekdayTimer_SetAllParms()}</code>
         <br><p>
         Some definitions without comment:
         <code>
@@ -1254,47 +1300,48 @@ sub WeekdayTimer_SetAllParms() {            # {WeekdayTimer_SetAllParms()}
         define wd    Weekdaytimer device de  fr,$we   09:00|19  (function("exit"))
         </code></pre>
     </ul>
-  </ul>
-
+  
   <a name="WeekdayTimerset"></a>
   <b>Set</b>
-
+    <br><br>
     <code><b><font size="+1">set &lt;name&gt; &lt;value&gt;</font></b></code>
     <br><br>
     where <code>value</code> is one of:<br>
     <pre>
     <b>disable</b>               # disables the Weekday_Timer
     <b>enable</b>                # enables  the Weekday_Timer
-    </pre>
-
-    <b><font size="+1">Examples</font></b>:
+    <ul>NOTE: enable will also initiate a recalculation of the switching times. You may use this e.g. in case one of your global holiday2we devices has changed since 5 seconds past midnight.</ul>
+    <b>WDT_Params [one of: single, WDT_Group or all]</b></pre>
+    <br>
+    <b>Examples</b>:
     <ul>
       <code>set wd disable</code><br>
       <code>set wd enable</code><br>
+      <code>set wd WDT_Params WDT_Group</code><br>
     </ul>
-  </ul>
-
+    <ul>
+    The WDT_Params function can be used to reapply the current switching value to the device, all WDT devices with identical WDT_Group attribute or all WeekdayTimer devices; delay conditions will be obeyed, for non-heating type devices, switchInThePast has to be set.
+    </ul>
   <a name="WeekdayTimerget"></a>
   <b>Get</b> <ul>N/A</ul><br>
 
-  <a name="WeekdayTimerLogattr"></a>
+  <a name="WeekdayTimerattr"></a>
   <b>Attributes</b>
   <ul>
     <li>delayedExecutionCond <br>
-    defines a delay Function. When returning true, the switching of the device is delayed until the function retruns a false value. The behavior is just like a windowsensor in Heating_Control.
+    defines a delay Function. When returning true, the switching of the device is delayed until the function returns a false value. The behavior is just like a windowsensor in Heating_Control.
 
     <br><br>
     <b>Example:</b>
     <pre>
-    attr wd delayedExecutionCond isDelayed("$HEATING_CONTROL","$WEEKDAYTIMER","$TIME","$NAME","$EVENT")
+    attr wd delayedExecutionCond isDelayed("$WEEKDAYTIMER","$TIME","$NAME","$EVENT")
     </pre>
     the parameter $WEEKDAYTIMER(timer name) $TIME $NAME(device name) $EVENT are replaced at runtime by the correct value.
-
     <br><br>
     <b>Example of a function:</b>
     <pre>
-    sub isDelayed($$$$$) {
-       my($hc, $wdt, $tim, $nam, $event ) = @_;
+    sub isDelayed($$$$) {
+       my($wdt, $tim, $nam, $event ) = @_;
 
        my $theSunIsStillshining = ...
 
@@ -1302,6 +1349,12 @@ sub WeekdayTimer_SetAllParms() {            # {WeekdayTimer_SetAllParms()}
     }
     </pre>
     </li>
+    <li>WDT_delayedExecutionDevices<br>
+    Defines a space separated list devices (atm only window sensors are supported). When one of its state readings is <b>open</b> the aktual switch is delayed.</li><br>
+    <br>
+    <li>WDT_Group<br>
+    Used to generate groups of WeekdayTimer devices to be switched together in case one of them is set to WDT_Params with the WDT_Group modifier, e.g. <code>set wd WDT_Params WDT_Group</code>.<br>This is intended to allow former Heating_Control devices to be migrated to WeekdayTimer and replaces the Heating_Control_SetAllTemps() functionality.</li><br>
+
     <li>switchInThePast<br>
     defines that the depending device will be switched in the past in definition and startup phase when the device is not recognized as a heating.
     Heatings are always switched in the past.
@@ -1312,7 +1365,10 @@ sub WeekdayTimer_SetAllParms() {            # {WeekdayTimer_SetAllParms()}
     <li><a href="#event-on-update-reading">event-on-update-reading</a></li>
     <li><a href="#event-on-change-reading">event-on-change-reading</a></li>
     <li><a href="#stateFormat">stateFormat</a></li>
-  </ul><br>
+  <br>
+  </ul>
+  </ul>
+</ul>
 
 =end html
 

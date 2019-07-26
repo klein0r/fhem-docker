@@ -1,5 +1,5 @@
 "use strict";
-FW_version["svg.js"] = "$Id: svg.js 18357 2019-01-20 19:05:41Z rudolfkoenig $";
+FW_version["svg.js"] = "$Id: svg.js 19667 2019-06-20 13:39:55Z rudolfkoenig $";
 
 var svgCallback={};
 if(!svgNS) {
@@ -304,7 +304,9 @@ sv_menu(evt, embed)
 
     if( par.log_scale ) {
       y *= par.log_scale;
-      y = Math.pow(10,y) - 1;
+      if( par.y_min )
+        y += Math.log(par.y_min)/Math.log(10);
+      y = Math.pow(10,y);
     }
 
     y = y.toFixed(par.decimals);

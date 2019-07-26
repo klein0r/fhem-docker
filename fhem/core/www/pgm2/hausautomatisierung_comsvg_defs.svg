@@ -1,0 +1,68 @@
+<!-- will be included in each svg plot -->
+<defs>
+  <linearGradient id="gr_bg" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%"   style="stop-color:#FFFFF7; stop-opacity:1"/>
+    <stop offset="100%" style="stop-color:#FFFFC7; stop-opacity:1"/>
+  </linearGradient>
+
+  <linearGradient id="gr_0" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%"   style="stop-color:#215A94; stop-opacity:.6"/>
+    <stop offset="100%" style="stop-color:#215A94; stop-opacity:.4"/>
+  </linearGradient>
+
+  <linearGradient id="gr_1" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%"   style="stop-color:#18986E; stop-opacity:.6"/>
+    <stop offset="100%" style="stop-color:#18986E; stop-opacity:.4"/>
+  </linearGradient>
+
+  <linearGradient id="gr_2" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%"   style="stop-color:#913100; stop-opacity:.6"/>
+    <stop offset="100%" style="stop-color:#913100; stop-opacity:.4"/>
+  </linearGradient>
+
+  <linearGradient id="gr_3" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%"   style="stop-color:#915700; stop-opacity:.6"/>
+    <stop offset="100%" style="stop-color:#915700; stop-opacity:.4"/>
+  </linearGradient>
+
+  <linearGradient id="gr_4" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%"   style="stop-color:#07325E; stop-opacity:.6"/>
+    <stop offset="100%" style="stop-color:#07325E; stop-opacity:.4"/>
+  </linearGradient>
+
+  <linearGradient id="gr_5" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%"   style="stop-color:#006141; stop-opacity:.6"/>
+    <stop offset="100%" style="stop-color:#006141; stop-opacity:.4"/>
+  </linearGradient>
+
+  <linearGradient id="gr_6" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%"   style="stop-color:#FFA77A; stop-opacity:.6"/>
+    <stop offset="100%" style="stop-color:#FFA77A; stop-opacity:.4"/>
+  </linearGradient>
+  
+  <linearGradient id="gr_7" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%"   style="stop-color:#5F8AB6; stop-opacity:.6"/>
+    <stop offset="100%" style="stop-color:#5F8AB6; stop-opacity:.4"/>
+  </linearGradient>
+
+  <linearGradient id="gr_8" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%"   style="stop-color:#59B99A; stop-opacity:.6"/>
+    <stop offset="100%" style="stop-color:#59B99A; stop-opacity:.4"/>
+  </linearGradient>
+
+  <pattern id="gr0_stripe" width="4" height="4"
+           patternUnits="userSpaceOnUse" patternTransform="rotate(-45 2 2)">
+      <path d="M -1,2 l 6,0" stroke="#215A94" stroke-width="0.5"/>
+  </pattern>
+
+  <pattern id="gr1_stripe" width="4" height="4"
+           patternUnits="userSpaceOnUse" patternTransform="rotate(45 2 2)">
+      <path d="M -1,2 l 6,0" stroke="#18986E" stroke-width="0.5"/>
+  </pattern>
+
+  <linearGradient id="gr0_gyr" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset=  "0%" style="stop-color:#f00; stop-opacity:.6"/>
+    <stop offset= "50%" style="stop-color:#ff0; stop-opacity:.6"/>
+    <stop offset="100%" style="stop-color:#0f0; stop-opacity:.6"/>
+  </linearGradient>
+</defs>

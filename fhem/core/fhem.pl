@@ -27,7 +27,7 @@
 #
 #  Homepage:  http://fhem.de
 #
-# $Id: fhem.pl 19328 2019-05-04 19:13:22Z rudolfkoenig $
+# $Id: fhem.pl 19805 2019-07-09 09:44:07Z rudolfkoenig $
 
 
 use strict;
@@ -106,7 +106,6 @@ sub SemicolonEscape($);
 sub SignalHandling();
 sub TimeNow();
 sub Value($);
-sub WakeUpFn($);
 sub WriteStatefile();
 sub XmlEscape($);
 sub addEvent($$);
@@ -184,7 +183,7 @@ sub CommandSet($$);
 sub CommandSetReading($$);
 sub CommandSetstate($$);
 sub CommandSetuuid($$);
-sub CommandShutdown($$;$$);
+sub CommandShutdown($$;$$$);
 sub CommandSleep($$);
 sub CommandTrigger($$);
 
@@ -279,7 +278,7 @@ use constant {
 };
 
 $selectTimestamp = gettimeofday();
-$cvsid = '$Id: fhem.pl 19328 2019-05-04 19:13:22Z rudolfkoenig $';
+$cvsid = '$Id: fhem.pl 19805 2019-07-09 09:44:07Z rudolfkoenig $';
 
 my $AttrList = "alias comment:textField-long eventMap:textField-long ".
                "group room suppressReading userReadings:textField-long ".
@@ -630,7 +629,7 @@ foreach my $d (keys %defs) {
       $defs{$d}{IODev} = $defs{$defs{$d}{IODevName}};
       delete $defs{$d}{IODevName};
     } else {
-      Log 3, "No I/O device found for $defs{$d}{NAME}";
+      AssignIoPort($defs{$d}); # For fhem.cfg editors? Needs init_done for Log.
     }
     delete $defs{$d}{IODevMissing};
   }
@@ -763,9 +762,11 @@ while (1) {
         my $ret;
         eval { $ret = syswrite($hash->{CD}, $wb); };
         if($@) {
-          Log 4, "Syswrite: $@, deleting $hash->{NAME}";
-          TcpServer_Close($hash);
-          CommandDelete(undef, $hash->{NAME});
+          Log 4, "$hash->{NAME} syswrite: $@";
+          if($hash->{TEMPORARY}) {
+            TcpServer_Close($hash);
+            CommandDelete(undef, $hash->{NAME});
+          }
           next;
         }
 
@@ -777,9 +778,11 @@ while (1) {
             if(TcpServer_WantRead($hash));
 
         } elsif(!$ret) { # zero=EOF, undef=error
-          Log 4, "Write error to $p, deleting $hash->{NAME}";
-          TcpServer_Close($hash);
-          CommandDelete(undef, $hash->{NAME});
+          Log 4, "$hash->{NAME} write error to $p";
+          if($hash->{TEMPORARY}) {
+            TcpServer_Close($hash);
+            CommandDelete(undef, $hash->{NAME})
+          }
 
         } else {
           if($ret >= length($wb)) { # for the > see Forum #29963
@@ -1469,6 +1472,8 @@ CommandRereadCfg($$)
   %fuuidHash = ();
   %intAt = ();
   @intAtA = ();
+  %sleepers = ();
+  %ntfyHash = ();
 
   doGlobalDef($cfgfile);
   my $ret;
@@ -1749,9 +1754,9 @@ CancelDelayedShutdown($)
 }
 
 sub
-DelayedShutdown($$)
+DelayedShutdown($$$)
 {
-  my ($cl, $param) = @_;
+  my ($cl, $param, $exitValue) = @_;
 
   return 1 if(keys %delayedShutdowns);
   foreach my $d (sort keys %defs) {
@@ -1769,7 +1774,7 @@ DelayedShutdown($$)
 
   $checkList = sub()
   {
-     return CommandShutdown($cl, $param, undef, 1)
+     return CommandShutdown($cl, $param, undef, 1, $exitValue)
              if(!keys %delayedShutdowns || $waitingFor++ >= $maxShutdownDelay);
      InternalTimer(gettimeofday()+1, $checkList, undef, 0);
   };
@@ -1778,17 +1783,16 @@ DelayedShutdown($$)
 }
 
 sub
-CommandShutdown($$;$$)
+CommandShutdown($$;$$$)
 {
-  my ($cl, $param, $cmdName, $final) = @_;
-  my $exitValue = 0;
+  my ($cl, $param, $cmdName, $final, $exitValue) = @_;
   if($param && $param =~ m/^(\d+)$/) {
     $exitValue = $1;
     $param = "";
   }
   return "Usage: shutdown [restart|exitvalue]"
         if($param && $param ne "restart");
-  return if(!$final && DelayedShutdown($cl, $param));
+  return if(!$final && DelayedShutdown($cl, $param, $exitValue));
 
   DoTrigger("global", "SHUTDOWN", 1);
   Log 0, "Server shutdown";
@@ -1808,7 +1812,7 @@ CommandShutdown($$;$$)
       exec('cmd.exe /C net stop fhem & net start fhem');
     }
   }
-  exit($exitValue);
+  exit($exitValue ? $exitValue : 0);
 }
 
 
@@ -1843,13 +1847,14 @@ ReplaceSetMagic($$@)       # Forum #38276
 
     if($s && $s =~ /:d|:r|:i/ && $val =~ /(-?\d+(\.\d+)?)/) {
       $val = $1;
-      $val = int($val) if ( $s eq ":i" );
+      $val = int($val)                         if($s eq ":i" );
       $val = round($val, defined($1) ? $1 : 1) if($s =~ /^:r(\d)?/);
+      $val = round($val, $1)                   if($s =~ /^:d(\d)/); #100753
     }
     return $val;
   }
 
-  $a =~s/(\[([ari]:)?([a-zA-Z\d._]+):([a-zA-Z\d._\/-]+)(:(t|sec|i|d|r|r\d))?\])/
+  $a =~s/(\[([ari]:)?([a-zA-Z\d._]+):([a-zA-Z\d._\/-]+)(:(t|sec|i|[dr]\d?))?\])/
          rsmVal($1,$2,$3,$4,$5)/eg;
 
   my $esDef = ($evalSpecials ? 1 : 0);
@@ -2059,6 +2064,7 @@ CommandDefine($$)
         if($currcfgfile ne AttrVal("global", "configfile", "") &&
           !configDBUsed());
   $hash{CL}    = $cl;
+  $hash{TEMPORARY} = 1 if($temporary);
 
   # If the device wants to issue initialization gets/sets, then it needs to be
   # in the global hash.
@@ -2073,7 +2079,6 @@ CommandDefine($$)
 
   } else {
     delete $hash{CL};
-    $hash{TEMPORARY} = 1 if($temporary);
     foreach my $da (sort keys (%defaultattr)) {     # Default attributes
       CommandAttr($cl, "$name $da $defaultattr{$da}");
     }
@@ -2082,8 +2087,10 @@ CommandDefine($$)
                 $modules{$m}{NotifyOrderPrefix} : "50-") . $name;
     }
     %ntfyHash = ();
-    addStructChange("define", $name, $def);
-    DoTrigger("global", "DEFINED $name", 1) if($init_done);
+    if(!$temporary && $init_done) {
+      addStructChange("define", $name, $def);
+      DoTrigger("global", "DEFINED $name", 1);
+    }
   }
   return ($ret && $ignoreErr ?
         "Cannot define $name, remove -ignoreErr for details" : $ret);
@@ -3133,15 +3140,19 @@ CommandTrigger($$)
 
 #####################################
 sub
-WakeUpFn($)
+sleep_WakeUpFn($)
 {
-  my $h = shift;
-  delete $sleepers{$h->{id}} if( $h->{id} );
+  my $id = shift;
+  my $h = $sleepers{$id};
+  return if(!$h);
+  delete $sleepers{$id};
+  CommandDelete($h->{cl}, $h->{name}) if(!defined($h->{sec}));
 
   $evalSpecials = $h->{evalSpecials};
   my $ret = AnalyzeCommandChain($h->{cl}, $h->{cmd});
   Log 2, "After sleep: $ret" if($ret && !$h->{quiet});
 }
+
 sub
 CommandCancel($$)
 {
@@ -3151,16 +3162,18 @@ CommandCancel($$)
 
   if( !$id ) {
     my $ret;
-    foreach $id (keys %sleepers) {
+    foreach $id (sort keys %sleepers) {
+      my $h = $sleepers{$id};
       $ret .= "\n" if( $ret );
-      $ret .= sprintf( "%-10s %s", $id, $sleepers{$id}->{cmd} );
+      $ret .= sprintf( "%-12s %-19s %s", $id, $h->{till}, $h->{cmd} );
     }
-    $ret = "no pending sleeps" if( !$ret );
+    $ret = "no pending sleeps" if(!$ret);
     return $ret;
 
   } elsif( my $h = $sleepers{$id} ) {
-    RemoveInternalTimer( $h );
-    delete $sleepers{$h->{id}};
+    RemoveInternalTimer($id, "sleep_WakeUpFn") if(defined($h->{sec}));
+    CommandDelete($cl, $h->{name}) if(!defined($h->{sec}));
+    delete $sleepers{$id};
 
   } else {
     return "no such id: $id" if( !$quiet );
@@ -3179,24 +3192,47 @@ CommandSleep($$)
     $quiet = $id;
     $id = undef;
   }
-
   return "Argument missing" if(!defined($sec));
-  return "Cannot interpret $sec as seconds" if($sec !~ m/^[0-9\.]+$/);
   return "Last parameter must be quiet" if($quiet && $quiet ne "quiet");
 
-  Log 4, "sleeping for $sec";
+  my $name = ".sleep_".(++$intAtCnt);
+  $id = $name if(!$id);
+
+  my $till;
+  if($sec !~ m/^[0-9\.]+$/) {
+    my ($err, $hr,$min,$s, $fn) = GetTimeSpec($sec);
+    if($err) { # not a valid timespec => treat as regex
+      if(@cmdList && $init_done) {
+        CommandDelete($cl, $sleepers{$id}{name}) if($sleepers{$id});
+        $err = CommandDefine($cl,
+                        "-temporary $name notify $sec {sleep_WakeUpFn('$id')}");
+        $attr{$name}{ignore} = 1;
+        return $err if($err);
+      }
+      $till = $sec;
+      $sec = undef;
+
+    } else {
+      $sec = 3600*$hr+60*$min+$s;
+
+    }
+  }
+  $till = gettimeofday()+$sec if(defined($sec));
 
   if(@cmdList && $init_done) {
     my %h = (cmd          => join(";", @cmdList),
              evalSpecials => $evalSpecials,
              quiet        => $quiet,
+             till         => defined($sec) ? FmtDateTime($till) : $till,
+             sec          => $sec,
+             name         => $name,
              cl           => $cl,
              id           => $id);
-    if( $id ) {
-      RemoveInternalTimer( $sleepers{$id} ) if( $sleepers{$id} );
-      $sleepers{$id} = \%h;
+    if(defined($sec)) {
+      RemoveInternalTimer($id, "sleep_WakeUpFn");
+      InternalTimer($till, "sleep_WakeUpFn", $id, 0);
     }
-    InternalTimer(gettimeofday()+$sec, "WakeUpFn", \%h, 0);
+    $sleepers{$id} = \%h;
     @cmdList=();
 
   } else {
@@ -4107,8 +4143,8 @@ delFromDevAttrList($$)
   my $ua = $attr{$dev}{userattr};
   $ua = "" if(!$ua);
   my %hash = map { ($_ => 1) }
-             grep { " $arg " !~ m/ $_ / }
-             split(" ", "$ua $arg");
+             grep { $_ !~ m/^$arg(:.+)?$/ }
+             split(" ", $ua);
   $attr{$dev}{userattr} = join(" ", sort keys %hash);
   delete $attr{$dev}{userattr}
         if(!keys %hash && defined($attr{$dev}{userattr}));
@@ -5017,6 +5053,9 @@ toJSON($)
   if(not defined $val) {
     return "null";
 
+  } elsif (length( do { no warnings "numeric"; $val & "" } )) {
+    return $val;
+
   } elsif (not ref $val) {
     $val =~ s/([\x00-\x1f\x22\x5c\x7f])/sprintf '\u%04x', ord($1)/ge;
 
@@ -5919,17 +5958,32 @@ sub
 IsWe(;$$)
 {
   my ($when, $wday) = @_;
-  $wday = (localtime(gettimeofday()))[6] if(!defined($wday));
-  $when = "state" if(!$when || $when !~ m/^(yesterday|tomorrow)$/);
-  
-  my $we = ($when eq "yesterday" ? ($wday==0 || $wday==1) :
-           ($when eq "state"     ? ($wday==6 || $wday==0) :
-                                   ($wday==5 || $wday==6))); # tomorrow
-  if(!$we) {
-    foreach my $h2we (split(",", AttrVal("global", "holiday2we", ""))) {
-      my $b = ReadingsVal($h2we, $when, 0);
+
+  my $dt = ($when && $when =~ m/^((\d{4})-)?([01]\d)-([0-3]\d)$/);
+  $when = "state" if(!$when || ($when !~ m/^(yesterday|tomorrow)$/ && !$dt));
+  if(!defined($wday)) {
+    if($dt) {
+      my ($y,$m,$d) = ($2 ? $2-1900 : (localtime())[5], $3-1, $4);
+      $wday = (localtime(mktime(1,1,1,$d,$m,$y,0,0,-1)))[6];
+    } else {
+      $wday = (localtime(gettimeofday()))[6];
+    }
+  }
+
+  my ($we, $wf);
+  foreach my $h2we (split(",", AttrVal("global", "holiday2we", ""))) {
+    my $b = $dt ? CommandGet(undef,"$h2we $when") : ReadingsVal($h2we,$when,0);
+    if($b && $b ne "none") {
+      return 0 if($h2we eq "noWeekEnd");
       $we = 1 if($b && $b ne "none");
     }
+    $wf = 1 if($h2we eq "weekEnd");
+  }
+
+  if(!$wf && !$we) {
+    $we = ($when eq "yesterday" ? ($wday==0 || $wday==1) :
+          ($when ne "tomorrow"  ? ($wday==6 || $wday==0) :
+                                  ($wday==5 || $wday==6))); # tomorrow
   }
   return $we ? 1 : 0;
 }

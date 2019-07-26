@@ -32,7 +32,7 @@
 # * https://forum.fhem.de/index.php/topic,41439.0.html (previous discussions)
 # * https://forum.fhem.de/index.php/topic,13534.45.html (previous discussions)
 #
-# $Id: 72_TA_CMI_JSON.pm 17720 2018-11-10 15:21:47Z delmar $
+# $Id: 72_TA_CMI_JSON.pm 19896 2019-07-24 18:45:04Z delmar $
 #
 ##############################################################################
 
@@ -414,7 +414,7 @@ Weitere Informationen zu diesem Modul im <a href="https://wiki.fhem.de/wiki/UVR1
   <b>Readings</b>
   <br><br>
   Readings werden entsprechend der Definition in den Attributen angelegt.
-=end html
+=end html_DE
 
 # Ende der Commandref
 =cut

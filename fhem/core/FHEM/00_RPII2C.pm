@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_RPII2C.pm 16799 2018-05-29 23:14:28Z klausw $
+# $Id: 00_RPII2C.pm 19551 2019-06-04 20:10:50Z klausw $
 package main;
 
 use strict;
@@ -507,7 +507,6 @@ sub RPII2C_HWACCESS_ioctl($$) {
 
 <a name="RPII2C"></a>
 <h3>RPII2C</h3>
-(en | <a href="commandref_DE.html#RPII2C">de</a>)
 <ul>
 	<a name="RPII2C"></a>
 		Provides access to Raspberry Pi's I2C interfaces for some logical modules and also directly.<br>
@@ -667,7 +666,6 @@ sub RPII2C_HWACCESS_ioctl($$) {
 
 <a name="RPII2C"></a>
 <h3>RPII2C</h3>
-(<a href="commandref.html#RPII2C">en</a> | de)
 <ul>
 	<a name="RPII2C"></a>
 		Erm&ouml;glicht den Zugriff auf die I2C Schnittstellen des Raspberry Pi, BBB, Cubie &uuml;ber logische Module. Register von I2C IC's k&ouml;nnen auch direkt gelesen und geschrieben werden.<br><br>

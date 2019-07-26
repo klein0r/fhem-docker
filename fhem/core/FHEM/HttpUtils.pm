@@ -1,5 +1,5 @@
 ##############################################
-# $Id: HttpUtils.pm 17831 2018-11-24 15:09:17Z rudolfkoenig $
+# $Id: HttpUtils.pm 19689 2019-06-23 07:28:05Z rudolfkoenig $
 package main;
 
 use strict;
@@ -409,8 +409,9 @@ HttpUtils_Connect($)
             my $errno = unpack("I",$packed);
             if($errno) {
               HttpUtils_Close($hash);
-              my $msg = "$host: ".strerror($errno);
+              my $msg = "$host: ".strerror($errno)." ($errno)";
               Log3 $hash, $hash->{loglevel}, "HttpUtils: $msg";
+              $hash->{errno} = $errno;
               return $hash->{callback}($hash, $msg, "");
             }
 
@@ -547,7 +548,7 @@ HttpUtils_Connect2($)
   }
 
   my $method = $hash->{method};
-  $method = ($data ? "POST" : "GET") if( !$method );
+  $method = (defined($data) && length($data) > 0 ? "POST" : "GET") if(!$method);
 
   my $httpVersion = $hash->{httpversion} ? $hash->{httpversion} : "1.0";
 
@@ -569,7 +570,7 @@ HttpUtils_Connect2($)
                  !($hash->{header} &&
                    $hash->{header} =~ /^Authorization:\s*Digest/mi));
   $hdr .= $hash->{header}."\r\n" if($hash->{header});
-  if(defined($data)) {
+  if(defined($data) && length($data) > 0) {
     $hdr .= "Content-Length: ".length($data)."\r\n";
     $hdr .= "Content-Type: application/x-www-form-urlencoded\r\n"
                 if ($hdr !~ "Content-Type:");
@@ -592,9 +593,11 @@ HttpUtils_Connect2($)
     delete($hash->{httpheader});
     $hash->{NAME} = "" if(!defined($hash->{NAME})); 
     my %timerHash = (hash=>$hash, checkSTS=>$selectTimestamp, msg=>"write to");
+    $hash->{conn}->blocking(0);
     $hash->{directReadFn} = sub() {
       my $buf;
       my $len = sysread($hash->{conn},$buf,65536);
+      return if(!defined($len) && $! == EWOULDBLOCK);
       $hash->{buf} .= $buf if(defined($len) && $len > 0);
       if(!defined($len) || $len <= 0 || 
          HttpUtils_DataComplete($hash)) {
@@ -616,6 +619,7 @@ HttpUtils_Connect2($)
     $hash->{directWriteFn} = sub($) { # Nonblocking write
       my $ret = syswrite $hash->{conn}, $data;
       if($ret <= 0) {
+        return if($! == EAGAIN);
         my $err = $!;
         RemoveInternalTimer(\%timerHash);
         HttpUtils_Close($hash);

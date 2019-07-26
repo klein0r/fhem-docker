@@ -1,13 +1,18 @@
 ###############################################################################
-# $Id: RESIDENTStk.pm 19327 2019-05-04 19:00:11Z loredo $
+# $Id: RESIDENTStk.pm 19788 2019-07-06 08:10:55Z loredo $
 package main;
 use strict;
 use warnings;
-use Data::Dumper;
+use POSIX;
 
-use Unit;
 use FHEM::Meta;
-our ( @RESIDENTStk_attr, %RESIDENTStk_subTypes );
+use Time::HiRes qw(gettimeofday);
+use Time::Local;
+use Unit;
+
+#use Data::Dumper;
+
+our ( @RESIDENTStk_attr, %RESIDENTStk_types, %RESIDENTStk_subTypes );
 
 # module variables ############################################################
 @RESIDENTStk_attr = (
@@ -31,10 +36,50 @@ our ( @RESIDENTStk_attr, %RESIDENTStk_subTypes );
     "wakeupDevice",
 
 );
+%RESIDENTStk_types = (
+    en => {
+        ROOMMATE => 'roommate',
+        GUEST    => 'guest',
+        PET      => 'pet',
+    },
+    de => {
+        ROOMMATE => 'Bewohner',
+        GUEST    => 'Gast',
+        PET      => 'Haustier',
+    },
+);
 %RESIDENTStk_subTypes = (
-    ROOMMATE => [ 'baby', 'toddler', 'child', 'teenager', 'adult', 'senior' ],
-    GUEST => [ 'generic', 'minor', 'domesticWorker', 'vacationer' ],
-    PET   => [ 'generic', 'bird',  'cat',            'dog', 'monkey', 'pig' ]
+    en => {
+        ROOMMATE =>
+          [ 'baby', 'toddler', 'child', 'teenager', 'adult', 'senior' ],
+        GUEST => [ 'generic', 'childcare', 'domesticWorker', 'vacationer' ],
+        PET => [ 'generic', 'bird', 'cat', 'dog', 'monkey', 'pig' ]
+    },
+    de => {
+        ROOMMATE => [
+            'Säugling',   'Kleinkind', 'Kind', 'Teenager',
+            'Erwachsener', 'Senior'
+        ],
+        GUEST =>
+          [ 'generisch', 'Kinderbetreuung', 'Hausangestellter', 'Urlaubsgast' ],
+        PET => [ 'generisch', 'Vogel', 'Katze', 'Hund', 'Affe', 'Schwein' ]
+    },
+    icons => {
+        ROOMMATE => [
+            'scene_baby@orange',        'scene_childs_room@orange',
+            'scene_childs_room@orange', 'people_sensor@orange',
+            'people_sensor@green',      'people_sensor@orange'
+        ],
+        GUEST => [
+            'scene_visit_guests@orange', 'scene_childs_room@orange',
+            'scene_cleaning@orange',     'scene_visit_guests@orange'
+        ],
+        PET => [
+            'dog_silhouette@green', 'dog_silhouette@green',
+            'dog_silhouette@green', 'dog_silhouette@green',
+            'dog_silhouette@green', 'dog_silhouette@green'
+        ]
+    },
 );
 
 ## initialize #################################################################
@@ -1126,8 +1171,8 @@ m/^([a-zA-Z\d._]+(:[A-Za-z\d_\.\-\/]+)?,?)([a-zA-Z\d._]+(:[A-Za-z\d_\.\-\/]+)?,?
         return "invalid value $value"
           unless (
             $cmd eq "del"
-            || defined( $RESIDENTStk_subTypes{$TYPE} ) && grep m/^$value$/,
-            @{ $RESIDENTStk_subTypes{$TYPE} }
+            || defined( $RESIDENTStk_subTypes{en}{$TYPE} ) && grep m/^$value$/,
+            @{ $RESIDENTStk_subTypes{en}{$TYPE} }
           );
         if ( $cmd eq "del" ) {
             $hash->{SUBTYPE} = 'generic'
@@ -1302,7 +1347,7 @@ m/^((?:DELETE)?ATTR)\s+([A-Za-z\d._]+)\s+([A-Za-z\d_\.\-\/]+)(?:\s+(.*)\s*)?$/
             next
               unless ( $attr eq $prefix . "wakeupDevice"
                 || $attr eq $prefix . "presenceDevices"
-                || $attr eq $prefix . "wakeupResetSwitcher" );
+                || $attr eq "wakeupResetSwitcher" );
 
             # when attributes of RESIDENTS, ROOMMATE, GUEST or PET were changed
             if ( $d eq $name ) {
@@ -1953,7 +1998,7 @@ m/^((?:next[rR]un)?\s*(off|OFF|([\+\-])?(([0-9]{2}):([0-9]{2})|([1-9]+[0-9]*)))?
       ReadingsVal( $NAME, "wakeupEnforced",
         AttrVal( $NAME, "wakeupEnforced", 0 ) );
     my $wakeupResetSwitcher = AttrVal( $NAME,    "wakeupResetSwitcher", 0 );
-    my $holidayDevice       = AttrVal( "global", "holiday2we",          0 );
+    my $holidayDevices      = AttrVal( "global", "holiday2we",          0 );
     my $room                = AttrVal( $NAME,    "room",                0 );
     my $userattr            = AttrVal( $NAME,    "userattr",            0 );
     my $lastRun = ReadingsVal( $NAME, "lastRun", "07:00" );
@@ -2604,26 +2649,30 @@ return;;\
 
     # verify holiday2we attribute
     if ( $wakeupHolidays ne "" ) {
-        if ( !$holidayDevice ) {
+        if ( !$holidayDevices ) {
             Log3 $NAME, 3,
               "RESIDENTStk $NAME: "
               . "ERROR - wakeupHolidays set in this alarm clock but global attribute holiday2we not set!";
             return "ERROR: "
               . "wakeupHolidays set in this alarm clock but global attribute holiday2we not set!";
         }
-        elsif ( !IsDevice($holidayDevice) ) {
-            Log3 $NAME, 3,
-              "RESIDENTStk $NAME: "
-              . "ERROR - global attribute holiday2we has reference to non-existing device $holidayDevice";
-            return "ERROR: "
-              . "global attribute holiday2we has reference to non-existing device $holidayDevice";
-        }
-        elsif ( !IsDevice( $holidayDevice, "holiday" ) ) {
-            Log3 $NAME, 3,
-              "RESIDENTStk $NAME: "
-              . "ERROR - global attribute holiday2we seems to have invalid device reference - $holidayDevice is not of type 'holiday'";
-            return "ERROR: "
-              . "global attribute holiday2we seems to have invalid device reference - $holidayDevice is not of type 'holiday'";
+        else {
+            foreach my $holidayDevice ( split( ',', $holidayDevices ) ) {
+                if ( !IsDevice($holidayDevice) ) {
+                    Log3 $NAME, 3,
+                      "RESIDENTStk $NAME: "
+                      . "ERROR - global attribute holiday2we has reference to non-existing device $holidayDevice";
+                    return "ERROR: "
+                      . "global attribute holiday2we has reference to non-existing device $holidayDevice";
+                }
+                elsif ( !IsDevice( $holidayDevice, "holiday" ) ) {
+                    Log3 $NAME, 3,
+                      "RESIDENTStk $NAME: "
+                      . "ERROR - global attribute holiday2we seems to have invalid device reference - $holidayDevice is not of type 'holiday'";
+                    return "ERROR: "
+                      . "global attribute holiday2we seems to have invalid device reference - $holidayDevice is not of type 'holiday'";
+                }
+            }
         }
     }
 
@@ -2939,7 +2988,7 @@ sub RESIDENTStk_wakeupRun($;$) {
         AttrVal( $NAME, "wakeupEnforced", 0 ) );
     my $wakeupResetSwitcher = AttrVal( $NAME,    "wakeupResetSwitcher", 0 );
     my $wakeupWaitPeriod    = AttrVal( $NAME,    "wakeupWaitPeriod",    360 );
-    my $holidayDevice       = AttrVal( "global", "holiday2we",          0 );
+    my $holidayDevices      = AttrVal( "global", "holiday2we",          0 );
     my $lastRun = ReadingsVal( $NAME, "lastRun", "06:00" );
     my $nextRun = ReadingsVal( $NAME, "nextRun", "06:00" );
     my $wakeupUserdeviceState  = ReadingsVal( $wakeupUserdevice, "state",  0 );
@@ -2949,14 +2998,13 @@ sub RESIDENTStk_wakeupRun($;$) {
     my $preventRun   = 0;
     my $holidayToday = 0;
 
-    if ( $wakeupHolidays ne ""
-        && IsDevice( $holidayDevice, "holiday" ) )
-    {
-        $holidayToday = 1
-          unless ( ReadingsVal( $holidayDevice, "state", "none" ) eq "none" );
-    }
-    else {
-        $wakeupHolidays = "";
+    if ( $wakeupHolidays ne "" ) {
+        foreach my $holidayDevice ( split( ',', $holidayDevices ) ) {
+            $holidayToday = 1
+              unless ( !IsDevice( $holidayDevice, "holiday" )
+                || ReadingsVal( $holidayDevice, "state", "none" ) eq "none" );
+        }
+        $wakeupHolidays = "" unless ($holidayToday);
     }
 
     my ( $sec, $min, $hour, $mday, $mon, $year, $today, $yday, $isdst ) =
@@ -3255,6 +3303,8 @@ sub RESIDENTStk_wakeupGetNext($;$) {
       if ( defined( $attr{$name}{"rgr_wakeupDevice"} ) );
     $wakeupDeviceAttrName = "rr_wakeupDevice"
       if ( defined( $attr{$name}{"rr_wakeupDevice"} ) );
+    $wakeupDeviceAttrName = "rp_wakeupDevice"
+      if ( defined( $attr{$name}{"rp_wakeupDevice"} ) );
     $wakeupDeviceAttrName = "rg_wakeupDevice"
       if ( defined( $attr{$name}{"rg_wakeupDevice"} ) );
 
@@ -3274,7 +3324,7 @@ sub RESIDENTStk_wakeupGetNext($;$) {
     my $definitiveNextTodayDev;
     my $definitiveNextTomorrowDev;
 
-    my $holidayDevice = AttrVal( "global", "holiday2we", 0 );
+    my $holidayDevices = AttrVal( "global", "holiday2we", 0 );
 
     # check for each registered wake-up device
     for my $wakeupDevice ( split /,/, $wakeupDeviceList ) {
@@ -3341,17 +3391,23 @@ sub RESIDENTStk_wakeupGetNext($;$) {
             Log3 $name, 4,
               "RESIDENTStk $wakeupDevice: 01 - Not considering any holidays";
         }
-        elsif ( IsDevice( $holidayDevice, "holiday" ) ) {
-            $holidayToday = 1
-              unless (
-                ReadingsVal( $holidayDevice, "state", "none" ) eq "none" );
-            $holidayTomorrow = 1
-              unless (
-                ReadingsVal( $holidayDevice, "tomorrow", "none" ) eq "none" );
+        else {
+            foreach my $holidayDevice ( split( ',', $holidayDevices ) ) {
+                if ( IsDevice( $holidayDevice, "holiday" ) ) {
+                    $holidayToday = 1
+                      unless (
+                        ReadingsVal( $holidayDevice, "state", "none" ) eq
+                        "none" );
+                    $holidayTomorrow = 1
+                      unless (
+                        ReadingsVal( $holidayDevice, "tomorrow", "none" ) eq
+                        "none" );
 
-            Log3 $name, 4,
-              "RESIDENTStk $wakeupDevice: "
-              . "01 - Holidays to be considered ($wakeupHolidays) - holidayToday=$holidayToday holidayTomorrow=$holidayTomorrow";
+                    Log3 $name, 4,
+                      "RESIDENTStk $wakeupDevice: "
+                      . "01 - Holidays to be considered ($wakeupHolidays) - holidayToday=$holidayToday holidayTomorrow=$holidayTomorrow";
+                }
+            }
         }
 
         # set day scope for today

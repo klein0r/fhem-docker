@@ -1,4 +1,4 @@
-# $Id: Meta.pm 19255 2019-04-24 14:59:46Z loredo $
+# $Id: Meta.pm 19650 2019-06-19 16:06:23Z loredo $
 
 package main;
 use strict;
@@ -26,17 +26,17 @@ BEGIN {
     # Import from main::
     GP_Import(
         qw(
+          attr
+          Debug
+          defs
+          devspec2array
+          fhemTimeGm
+          FmtDateTime
+          genUUID
+          Log
           modules
           packages
-          defs
-          attr
-          Log
-          Debug
-          devspec2array
-          genUUID
           TimeNow
-          FmtDateTime
-          fhemTimeGm
           )
     );
 }
@@ -1795,11 +1795,18 @@ m/(^#\s+(?:\d{1,2}\.\d{1,2}\.(?:\d{2}|\d{4})\s+)?[^v\d]*(v?(?:\d{1,3}\.\d{1,3}(?
 
                                     if (
                                         !exists(
+                                            $modMeta->{prereqs}{runtime}{$prio}
+                                        )
+                                        || !exists(
                                             $modMeta->{prereqs}{runtime}
                                               {$prio}{$pkgI}
                                         )
                                         || (
-                                            $pkgMeta->{prereqs}{runtime}
+                                            defined(
+                                                $pkgMeta->{prereqs}{runtime}
+                                                  {$pkgIreq}{$pkgI}
+                                            )
+                                            && $pkgMeta->{prereqs}{runtime}
                                             {$pkgIreq}{$pkgI} ne '0'
                                             && $v
                                             && version->parse(
@@ -3236,6 +3243,14 @@ sub __SetXVersion {
           );
     }
 
+    # from META.json only
+    elsif ( $modMeta->{x_file}[7] eq 'META.json' )
+    {
+        $modMeta->{x_version} =
+            $modMeta->{x_file}[2] . ':'
+          . version->parse( $modMeta->{version} )->normal;
+    }
+
     # Generate generic version to fill the gap
     elsif ( $modMeta->{x_file}[7] eq 'generated/blank' ) {
         $modMeta->{x_version} = $modMeta->{x_file}[2] . ':?';
@@ -3287,7 +3302,7 @@ sub __SetXVersion {
       "abstract": "FHEM Entwickler Paket, um Metadaten Unterstützung zu aktivieren"
     }
   },
-  "version": "v0.6.3",
+  "version": "v0.6.4",
   "release_status": "testing",
   "x_changelog": {
     "2019-04-18": {

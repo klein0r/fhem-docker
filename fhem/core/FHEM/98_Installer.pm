@@ -1,4 +1,4 @@
-# $Id: 98_Installer.pm 19288 2019-04-29 13:38:10Z loredo $
+# $Id: 98_Installer.pm 19500 2019-05-30 21:02:07Z loredo $
 
 package main;
 use strict;
@@ -877,17 +877,18 @@ sub ExecuteFhemCommand($) {
 
     my $installer = {};
     $installer->{debug} = $cmd->{debug};
-    my $sudo  = 'sudo -n ';
-    my $sudoH = 'sudo -H -n ';
+    my $locale = 'LC_ALL=C';
+    my $sudo   = $locale . ' sudo -n ';
+    my $sudoH  = $locale . ' sudo -H -n ';
 
     $installer->{cpanversions} =
 'echo n | TEST=$(which cpanm) || echo "sh: command not found: cpanm"; which cpanm >/dev/null 2>&1 && sh -c "'
       . $sudoH
-      . '$(which cpanm) --version 2>&1" 2>&1';
+      . ' $(which cpanm) --version 2>&1" 2>&1';
     $installer->{installperl} =
         'echo n | sh -c "'
       . $sudoH
-      . '$(which cpanm) --quiet '
+      . ' $(which cpanm) --quiet '
       . $cmd->{installPerlReinstall}
       . $cmd->{installPerlNoTest}
       . $cmd->{installPerlEnforced}
@@ -895,13 +896,13 @@ sub ExecuteFhemCommand($) {
     $installer->{uninstallperl} =
         'echo n | sh -c "'
       . $sudoH
-      . '$(which cpanm) -U --quiet --force %PACKAGES%" 2>&1';
+      . ' $(which cpanm) -U --quiet --force %PACKAGES%" 2>&1';
     $installer->{outdatedperl} =
         'echo n | '
       . 'sh -c "'
       . $sudoH
-      . '$(which cpanm) --version 2>&1" 2>&1 && '
-      . 'L1=$(cpan-outdated --verbose 2>&1) && '
+      . ' $(which cpanm) --version 2>&1" 2>&1 && ' . 'L1=$('
+      . ' cpan-outdated --verbose 2>&1) && '
       . '[ "$L1" != "" ] && [ "$L1" != "\n" ] && echo "@Outdated:\n$L1"; ';
 
     my $response;
@@ -1428,8 +1429,14 @@ m/(?:(\w+?): )?(?:(\w+? \d+): )?(\w+?): [^:]*?No.such.file.or.directory$/i
         my ($missing) = $ExtUtilsInstalled->validate($_);
         my $version = $ExtUtilsInstalled->version($_);
         $h->{listedPerl}{$_}{missing} = $missing if ($missing);
-        $h->{listedPerl}{$_}{version} =
-          $version && $version ne '' ? version->parse($version)->numify : 0;
+        eval {
+          $h->{listedPerl}{$_}{version} = version->parse($version)->numify;
+          1;
+        };
+        if ($@) {
+          $h->{listedPerl}{$_}{version} = 0;
+          $@ = undef;
+        }
     }
 
     return $h;
@@ -5530,7 +5537,7 @@ sub __list_module {
       "abstract": "Modul zum Update von FHEM, zur Installation von Drittanbieter FHEM Modulen und der Verwaltung von Systemvoraussetzungen"
     }
   },
-  "version": "v0.5.5",
+  "version": "v0.5.6",
   "release_status": "testing",
   "author": [
     "Julian Pawlowski <julian.pawlowski@gmail.com>"

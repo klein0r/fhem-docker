@@ -1,36 +1,158 @@
 ###############################################################################
-# $Id: UConv.pm 19016 2019-03-24 13:23:26Z loredo $
+# $Id: UConv.pm 19770 2019-07-03 15:58:46Z loredo $
 package main;
+
+# only to suppress file reload error in FHEM
 sub UConv_Initialize() { }
 
 package UConv;
+use strict;
+use warnings;
+use POSIX;
+use utf8;
+
+use Math::Trig;
+use Math::Trig ':pi';
+use Math::Trig ':radial';
+use Math::Trig ':great_circle';
 use Scalar::Util qw(looks_like_number);
-use POSIX qw(strftime);
-use Data::Dumper;
+use Time::HiRes qw(gettimeofday);
+use Time::Local;
+
+#use Data::Dumper;
+
+sub _ReplaceStringByHashKey($$;$);
 
 ####################
 # Translations
 
-our %compasspointss = (
+our %compasspoints = (
     en => [
-        'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
-        'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'
+        [ "North",           "N",   '▲' ],
+        [ "North-Northeast", "NNE", '⬈' ],
+        [ "North-East",      "NE",  '⬈' ],
+        [ "East-Northeast",  "ENE", '⬈' ],
+        [ "East",            "E",   '▶' ],
+        [ "East-Southeast",  "ESE", '⬊' ],
+        [ "Southeast",       "SE",  '⬊' ],
+        [ "South-Southeast", "SSE", '⬊' ],
+        [ "South",           "S",   '▼' ],
+        [ "South-Southwest", "SSW", '⬋' ],
+        [ "Southwest",       "SW",  '⬋' ],
+        [ "West-Southwest",  "WSW", '⬋' ],
+        [ "West",            "W",   '◀' ],
+        [ "West-Northwest",  "WNW", '⬉' ],
+        [ "Northwest",       "NW",  '⬉' ],
+        [ "North-Northwest", "NNW", '⬉' ],
     ],
     de => [
-        'N', 'NNO', 'NO', 'ONO', 'O', 'OSO', 'SO', 'SSO',
-        'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'
+        [ "Norden",        "N",   '▲' ],
+        [ "Nord-Nordost",  "NNO", '⬈' ],
+        [ "Nord-Ost",      "NO",  '⬈' ],
+        [ "Ost-Nordost",   "ONO", '⬈' ],
+        [ "Ost",           "O",   '▶' ],
+        [ "Ost-Südost",   "OSO", '⬊' ],
+        [ "Südost",       "SO",  '⬊' ],
+        [ "Süd-Südost",  "SSO", '⬊' ],
+        [ "Süd",          "S",   '▼' ],
+        [ "Süd-Südwest", "SSW", '⬋' ],
+        [ "Südwest",      "SW",  '⬋' ],
+        [ "West-Südwest", "WSW", '⬋' ],
+        [ "West",          "W",   '◀' ],
+        [ "West-Nordwest", "WNW", '⬉' ],
+        [ "Nordwest",      "NW",  '⬉' ],
+        [ "Nord-Nordwest", "NNW", '⬉' ],
+    ],
+    es => [
+        [ "Norte",          "N",   '▲' ],
+        [ "Norte-Noreste",  "NNE", '⬈' ],
+        [ "Noreste",        "NE",  '⬈' ],
+        [ "Este-Noreste",   "ENE", '⬈' ],
+        [ "Este",           "E",   '▶' ],
+        [ "Este-Sureste",   "ESE", '⬊' ],
+        [ "Sureste",        "SE",  '⬊' ],
+        [ "Sur-Sureste",    "SSE", '⬊' ],
+        [ "Sur",            "S",   '▼' ],
+        [ "Sudoeste",       "SDO", '⬋' ],
+        [ "Sur-Oeste",      "SO",  '⬋' ],
+        [ "Oeste-Suroeste", "OSO", '⬋' ],
+        [ "Oeste",          "O",   '◀' ],
+        [ "Oeste-Noroeste", "ONO", '⬉' ],
+        [ "Noroeste",       "NO",  '⬉' ],
+        [ "Norte-Noroeste", "NNE", '⬉' ],
+
+    ],
+    it => [
+        [ "Nord",             "N",   '▲' ],
+        [ "Nord-Nord-Est",    "NNE", '⬈' ],
+        [ "Nord-Est",         "NE",  '⬈' ],
+        [ "Est-Nord-Est",     "ENE", '⬈' ],
+        [ "Est",              "E",   '▶' ],
+        [ "Est-Sud-Est",      "ESE", '⬊' ],
+        [ "Sud-Est",          "SE",  '⬊' ],
+        [ "Sud-Sud-Est",      "SSE", '⬊' ],
+        [ "Sud",              "S",   '▼' ],
+        [ "Sud-Sud-Ovest",    "SSO", '⬋' ],
+        [ "Sud-Ovest",        "SO",  '⬋' ],
+        [ "Ovest-Sud-Ovest",  "OSO", '⬋' ],
+        [ "Ovest",            "O",   '◀' ],
+        [ "Ovest-Nord-Ovest", "ONO", '⬉' ],
+        [ "Nord-Ovest",       "NO",  '⬉' ],
+        [ "Nord-Nord-Ovest",  "NNO", '⬉' ],
     ],
     nl => [
-        'N', 'NNO', 'NO', 'ONO', 'O', 'OZO', 'ZO', 'ZZO',
-        'Z', 'ZZW', 'ZW', 'WZW', 'W', 'WNW', 'NW', 'NNW'
+        [ "Noorden",           "N",   '▲' ],
+        [ "Noord-Noordoosten", "NNO", '⬈' ],
+        [ "Noordoosten",       "NO",  '⬈' ],
+        [ "Oost-Noordoost",    "ONO", '⬈' ],
+        [ "Oosten",            "O",   '▶' ],
+        [ "Oost-Zuidoost",     "OZO", '⬊' ],
+        [ "Zuidoosten",        "ZO",  '⬊' ],
+        [ "Zuid-Zuidoost",     "ZZO", '⬊' ],
+        [ "Zuiden",            "Z",   '▼' ],
+        [ "Zuid-Zuidwest",     "ZZW", '⬋' ],
+        [ "Zuidwest",          "ZW",  '⬋' ],
+        [ "West-Zuidwest",     "WZW", '⬋' ],
+        [ "West",              "W",   '◀' ],
+        [ "West-Noord-West",   "WNW", '⬉' ],
+        [ "Noord-West",        "NW",  '⬉' ],
+        [ "Noord-Noord-West",  "NNW", '⬉' ],
     ],
     fr => [
-        'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
-        'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'
+        [ "Nord",             "N",   '▲' ],
+        [ "Nord-Nord-Est",    "NNE", '⬈' ],
+        [ "Nord-Est",         "NE",  '⬈' ],
+        [ "Est-Nord-Est",     "ENE", '⬈' ],
+        [ "Est",              "E",   '▶' ],
+        [ "Est-Sud-Est",      "ESE", '⬊' ],
+        [ "Sud-Est",          "SE",  '⬊' ],
+        [ "Sud-Sud-Est",      "SSE", '⬊' ],
+        [ "Sud",              "S",   '▼' ],
+        [ "Sud-Sud-Ouest",    "SSW", '⬋' ],
+        [ "Sud-Ouest",        "SW",  '⬋' ],
+        [ "Ouest-Sud-Ouest",  "OSO", '⬋' ],
+        [ "Ouest",            "O",   '◀' ],
+        [ "Ouest-Nord-Ouest", "ONO", '⬉' ],
+        [ "Nord-Ouest",       "NO",  '⬉' ],
+        [ "Nord-Nord-Ouest",  "NNO", '⬉' ],
     ],
     pl => [
-        'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
-        'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'
+        [ "Północ",                        "N",   '▲' ],
+        [ "Północny-Północny-Wschód",   "NNE", '⬈' ],
+        [ "Północny-Wschód",              "NE",  '⬈' ],
+        [ "Wschód-Północny-Wschód",      "ENE", '⬈' ],
+        [ "Wschód",                         "E",   '▶' ],
+        [ "Wschód-Południowy-Wschód",     "ESE", '⬊' ],
+        [ "Południowy-Południowy-Wschód", "SE",  '⬊' ],
+        [ "Południowy-Wschód",             "SSE", '⬊' ],
+        [ "Południe",                       "S",   '▼' ],
+        [ "Południowo-Południowy-Zachód", "SSW", '⬋' ],
+        [ "Południowy-Zachód",             "SW",  '⬋' ],
+        [ "Zachód-Południowy-Zachód",     "WSW", '⬋' ],
+        [ "Zachód",                         "W",   '◀' ],
+        [ "Zachód-Północny-Zachód",      "WNW", '⬉' ],
+        [ "Północny-Zachód",              "NW",  '⬉' ],
+        [ "Północno-Północny-Zachód",   "NNW", '⬉' ],
     ],
 );
 
@@ -69,53 +191,31 @@ our %hr_formats = (
     ### lang ref ###
     #
 
-    en => {
-        ref => "std",
-    },
+    en => { ref => "std", },
 
-    de => {
-        ref => "std-fr",
-    },
+    de => { ref => "std-fr", },
 
     de_at => {
         ref => "std-fr",
         min => 4,
     },
 
-    de_ch => {
-        ref => "std",
-    },
+    de_ch => { ref => "std", },
 
-    nl => {
-        ref => "std-fr",
-    },
+    nl => { ref => "std-fr", },
 
-    fr => {
-        ref => "std-fr",
-    },
+    fr => { ref => "std-fr", },
 
-    pl => {
-        ref => "std-fr",
-    },
+    pl => { ref => "std-fr", },
 
     ### number ref ###
     #
 
-    0 => {
-        ref => "std",
-    },
-    1 => {
-        ref => "std-fr",
-    },
-    2 => {
-        ref => "old-english",
-    },
-    3 => {
-        ref => "old-european",
-    },
-    4 => {
-        ref => "ch",
-    },
+    0 => { ref => "std", },
+    1 => { ref => "std-fr", },
+    2 => { ref => "old-english", },
+    3 => { ref => "old-european", },
+    4 => { ref => "ch", },
     5 => {
         ref => "std-fr",
         min => 4,
@@ -131,6 +231,17 @@ our %daytimes = (
     de => [
         "Morgen",   "Vormittag", "Mittag", "Nachmittag",
         "Vorabend", "Abend",     "Nacht",
+    ],
+    nl => [
+        "Ochtend", "Vormiddag", "Middag", "Nachmiddag",
+        "Avond",   "Midavond",  "Nacht",
+    ],
+    fr => [
+        "Matin", "Martinée", "Midi", "Après-midi", "Veille", "Soir", "Nuit",
+    ],
+    pl => [
+        "Ranek",   "Rano",     "Południe", "Popołudnie",
+        "Wigilia", "Wieczór", "Noc",
     ],
     icons => [
         "weather_sunrise", "scene_day",
@@ -208,7 +319,7 @@ our %sdt2daytimes = (
         }
     },
 
-    # AUTUMN SEASON
+    # FALL SEASON
     2 => {
 
         # DST = no
@@ -235,33 +346,35 @@ our %sdt2daytimes = (
 
         # DST = no
         0 => {
-            1 => 0,
-            3 => 1,
-            6 => 2,
-            8 => 3,
-
-            #            12 => 4,
+            1  => 0,
+            3  => 1,
+            6  => 2,
+            8  => 3,
+            12 => 4,
         },
     },
 );
 
 our %seasons = (
-    en    => [ "Spring",    "Summer", "Autumn", "Winter", ],
-    de    => [ "Frühling", "Sommer", "Herbst", "Winter", ],
-    pheno => [ 2,           4,        7,        9 ],
+    en    => [ "Spring",    "Summer", "Fall",    "Winter", ],
+    de    => [ "Frühling", "Sommer", "Herbst",  "Winter", ],
+    nl    => [ "Voorjaar",  "Zomer",  "Herfst",  "Winter", ],
+    fr    => [ "Printemps", "Été",  "Automne", "Hiver", ],
+    pl    => [ "Wiosna",    "Lato",   "Jesień", "Zima", ],
+    pheno => [ 2,           4,        7,         9 ],
 );
 
 our %seasonsPheno = (
     en => [
         "Early Spring",
         "First Spring",
-        "Spring",
+        "Full Spring",
         "Early Summer",
-        "Summer",
+        "Midsummer",
         "Late Summer",
-        "Early Autumn",
-        "Autumn",
-        "Late Autumn",
+        "Early Fall",
+        "Fall",
+        "Late Fall",
         "Winter",
     ],
     de => [
@@ -269,21 +382,66 @@ our %seasonsPheno = (
         "Hochsommer",   "Spätsommer",   "Frühherbst",   "Vollherbst",
         "Spätherbst",  "Winter",
     ],
+    nl => [
+        "Vroeg Voorjaar",
+        "Eerste Voorjaar",
+        "Voorjaar",
+        "Vroeg Zomer",
+        "Zomer",
+        "Laat Zomer",
+        "Vroeg Herfst",
+        "Herfst",
+        "Laat Herfst",
+        "Winter",
+    ],
+    fr => [
+        "Avant du printemps",
+        "Début du printemps",
+        "Printemps",
+        "Avant de l'été",
+        "Milieu de l'été",
+        "Fin de l'été",
+        "Avant de l'automne",
+        "Automne",
+        "Fin de l'automne",
+        "Hiver",
+    ],
+    pl => [
+        "Przedwiośnie",
+        "Pierwsza Wiosna",
+        "Wiosna",
+        "Wczesne Lato",
+        "Połowa Lata",
+        "Późnym Latem",
+        "Wczesną Jesienią",
+        "Jesień",
+        "Późną Jesienią",
+        "Zima",
+    ],
 );
 
 our %dst = (
-    en => [ "standard",   "daylight" ],
-    de => [ "Normalzeit", "Sommerzeit" ],
+    en => [ "standard",         "daylight" ],
+    de => [ "Normalzeit",       "Sommerzeit" ],
+    nl => [ "Standaardtijd",    "Zomertijd" ],
+    fr => [ "Heure normale",    "L'heure d'été" ],
+    pl => [ "Standardowy czas", "Czas Letni" ],
 );
 
 our %daystages = (
-    en => [ "weekday",   "weekend",    "holiday",  "vacation", ],
-    de => [ "Wochentag", "Wochenende", "Feiertag", "Urlaubstag", ],
+    en => [ "weekday",   "weekend",    "holiday",     "vacation", ],
+    de => [ "Wochentag", "Wochenende", "Feiertag",    "Urlaubstag", ],
+    nl => [ "Weekdag",   "Weekend",    "Vieringsdag", "Vakantiedag", ],
+    fr => [ "Jour de la semaine", "Weekend", "Vacances", "Villégiature", ],
+    pl => [ "dzień powszedni",   "Weekend", "święto", "Wakacjach", ],
 );
 
 our %reldays = (
-    en => [ "yesterday", "today", "tomorrow" ],
-    de => [ "Gestern",   "Heute", "Morgen" ],
+    en => [ "yesterday", "today",       "tomorrow" ],
+    de => [ "gestern",   "heute",       "morgen" ],
+    nl => [ "gisteren",  "vandaag",     "morgen" ],
+    fr => [ "hier",      "aujourd'hui", "demain" ],
+    pl => [ "wczoraj",   "dzisiaj",     "jutro" ],
 );
 
 our %monthss = (
@@ -294,6 +452,18 @@ our %monthss = (
     de => [
         "Jan", "Feb", "Mar", "Apr", "Mai", "Jun", "Jul", "Aug",
         "Sep", "Okt", "Nov", "Dez", "Jan"
+    ],
+    nl => [
+        "Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Aug",
+        "Sep", "Okt", "Nov", "Dec", "Jan"
+    ],
+    fr => [
+        "Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aût",
+        "Sep", "Oct",  "Nov", "Dec", "Jan"
+    ],
+    pl => [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
+        "Sep", "Oct", "Nov", "Dec", "Jan"
     ],
 );
 
@@ -310,11 +480,32 @@ our %months = (
         "September", "Oktober", "November", "Dezember",
         "Januar"
     ],
+    nl => [
+        "Januari",   "Februari", "Maart",    "April",
+        "Mei",       "Juni",     "Juli",     "Augustus",
+        "September", "Oktober",  "November", "December",
+        "Januari"
+    ],
+    fr => [
+        "Janvier",   "Février", "Mars",     "Avril",
+        "Mai",       "Juin",     "Juillet",  "Août",
+        "Septembre", "Octobre",  "Novembre", "Décembre",
+        "Janvier"
+    ],
+    pl => [
+        "Styczeń",  "Luty",         "Marzec",   "Kwiecień",
+        "Maj",       "Czerwiec",     "July",     "Lipiec",
+        "Wrzesień", "Październik", "Listopad", "Grudzień",
+        "Styczeń"
+    ],
 );
 
 our %dayss = (
-    en => [ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" ],
-    de => [ "So",  "Mo",  "Di",  "Mi",  "Do",  "Fr",  "Sa",  "So" ],
+    en => [ "Sun", "Mon", "Tue", "Wed",  "Thu", "Fri",  "Sat", "Sun" ],
+    de => [ "So",  "Mo",  "Di",  "Mi",   "Do",  "Fr",   "Sa",  "So" ],
+    nl => [ "Zon", "Maa", "Din", "Woe",  "Don", "Vri",  "Zat", "Zon" ],
+    fr => [ "Dim", "Lun", "Mar", "Mer",  "Jeu", "Ven",  "Sam", "Dim" ],
+    pl => [ "Nie", "Pon", "Wto", "śro", "Czw", "Pią", "Sob", "Nie" ],
 );
 
 our %days = (
@@ -326,155 +517,85 @@ our %days = (
         "Sonntag",    "Montag",  "Dienstag", "Mittwoch",
         "Donnerstag", "Freitag", "Samstag",  "Sonntag"
     ],
+    nl => [
+        "Zondag",    "Maandag", "Dinsdag",  "Woensdag",
+        "Donderdag", "Vrijdag", "Zaterdag", "Zondag"
+    ],
+    fr => [
+        "Dimanche", "Lundi",    "Mardi",  "Mercredi",
+        "Jeudi",    "Vendredi", "Samedi", "Dimanche"
+    ],
+    pl => [
+        "Niedziela", "Poniedziałek", "Wtorek", "środa",
+        "Czwartek",  "Piątek",       "Sobota", "Niedziela"
+    ],
 );
 
 our %dateformats = (
     en => '%wday_long%, %mon_long% %mday%',
     de => '%wday_long%, %mday%. %mon_long%',
+    nl => '%wday_long%, %mday%. %mon_long%',
+    fr => '%wday_long%, %mday%. %mon_long%',
+    pl => '%wday_long%, %mday%. %mon_long%',
 );
 
 our %dateformatss = (
     en => '%mon_long% %mday%',
     de => '%mday%. %mon_long%',
+    nl => '%mday%. %mon_long%',
+    fr => '%mday%. %mon_long%',
+    pl => '%mday%. %mon_long%',
 );
 
 # https://www.luftfeuchtigkeit-raumklima.de/tabelle.php
 our %ideal_clima = (
     bathroom => {
-        c => {
-            '−273.15' => 0,
-            '6'         => 1,
-            '16'        => 2,
-            '20'        => 3,
-            '23'        => 4,
-            '27'        => 5,
-        },
-        h => {
-            '0'  => 0,
-            '40' => 1,
-            '50' => 2,
-            '70' => 3,
-            '80' => 4,
-        },
+        c => [ -273.15, 6,  16, 20, 23, 27, ],
+        h => [ 0,       40, 50, 70, 80 ],
     },
     living => {
-        c => {
-            '−273.15' => 0,
-            '6'         => 1,
-            '16'        => 2,
-            '20'        => 3,
-            '23'        => 4,
-            '27'        => 5,
-        },
-        h => {
-            '0'  => 0,
-            '30' => 1,
-            '40' => 2,
-            '60' => 3,
-            '70' => 4,
-        },
+        c => [ -273.15, 6,  16, 20, 23, 27, ],
+        h => [ 0,       30, 40, 60, 70 ],
     },
     kitchen => {
-        c => {
-            '−273.15' => 0,
-            '6'         => 1,
-            '16'        => 2,
-            '18'        => 3,
-            '20'        => 4,
-            '27'        => 5,
-        },
-        h => {
-            '0'  => 0,
-            '40' => 1,
-            '50' => 2,
-            '60' => 3,
-            '70' => 4,
-        },
+        c => [ -273.15, 6,  16, 18, 20, 27, ],
+        h => [ 0,       40, 50, 60, 70 ],
     },
     bedroom => {
-        c => {
-            '−273.15' => 0,
-            '6'         => 1,
-            '12'        => 2,
-            '17'        => 3,
-            '20'        => 4,
-            '23'        => 5,
-        },
-        h => {
-            '0'  => 0,
-            '30' => 1,
-            '40' => 2,
-            '60' => 3,
-            '70' => 4,
-        },
+        c => [ -273.15, 6,  12, 17, 20, 23, ],
+        h => [ 0,       30, 40, 60, 70 ],
     },
     hallway => {
-        c => {
-            '−273.15' => 0,
-            '6'         => 1,
-            '12'        => 2,
-            '15'        => 3,
-            '18'        => 4,
-            '23'        => 5,
-        },
-        h => {
-            '0'  => 0,
-            '30' => 1,
-            '40' => 2,
-            '60' => 3,
-            '70' => 4,
-        },
+        c => [ -273.15, 6,  12, 15, 18, 23, ],
+        h => [ 0,       30, 40, 60, 70 ],
     },
     cellar => {
-        c => {
-            '−273.15' => 0,
-            '6'         => 1,
-            '7'         => 2,
-            '10'        => 3,
-            '15'        => 4,
-            '20'        => 5,
-        },
-        h => {
-            '0'  => 0,
-            '40' => 1,
-            '50' => 2,
-            '60' => 3,
-            '70' => 4,
-        },
+        c => [ -273.15, 6,  7,  10, 15, 20, ],
+        h => [ 0,       40, 50, 60, 70 ],
     },
     outdoor => {
-        c => {
-            '−273.15' => 0,
-            '2.5'       => 1,
-            '5'         => 2,
-            '14'        => 3,
-            '30'        => 4,
-            '35'        => 5,
-        },
-        h => {
-            '0'  => 0,
-            '40' => 1,
-            '50' => 2,
-            '70' => 3,
-            '80' => 4,
-        },
+        c => [ -273.15, 2.5, 5,  14, 30, 35, ],
+        h => [ 0,       40,  50, 70, 80 ],
     },
-);
-
-our %clima_rgb = (
-    c => [ "0055BB", "0066CC", "009999", "4C9329", "E7652B", "C72A23" ],
-    h => [ "C72A23", "E7652B", "4C9329", "009999", "0066CC" ],
 );
 
 our %clima_names = (
     c => {
-        en => [ "freeze",  "cold", "low",     "ideal",   "high", "hot" ],
-        de => [ "frostig", "kalt", "niedrig", "optimal", "hoch", "heiß" ],
-
+        en => [ "freeze",  "cold",  "low",     "ideal",    "high", "hot" ],
+        de => [ "frostig", "kalt",  "niedrig", "optimal",  "hoch", "heiß" ],
+        nl => [ "kil",     "koude", "laag",    "optimale", "hoog", "heet" ],
+        fr => [ "froid",   "froid", "faible",  "optimal",  "haut", "chaud" ],
+        pl =>
+          [ "chłodny", "zimno", "niski", "optymalny", "wysoki", "gorący" ],
+        rgb => [ "0055BB", "0066CC", "009999", "4C9329", "E7652B", "C72A23" ],
     },
     h => {
-        en => [ "dry",     "low",     "ideal",   "high", "wet" ],
-        de => [ "trocken", "niedrig", "optimal", "hoch", "nass" ],
+        en  => [ "dry",     "low",     "ideal",     "high",   "wet" ],
+        de  => [ "trocken", "niedrig", "optimal",   "hoch",   "nass" ],
+        nl  => [ "droog",   "laag",    "optimale",  "hoog",   "nat" ],
+        fr  => [ "sec",     "faible",  "optimal",   "haut",   "humide" ],
+        pl  => [ "suchy",   "niski",   "optymalny", "wysoki", "mokro" ],
+        rgb => [ "C72A23",  "E7652B",  "4C9329",    "009999", "0066CC" ],
     }
 );
 
@@ -655,27 +776,33 @@ sub mi2km($;$) {
 }
 
 #################################
-### Angular conversions
+### Plane angle conversions
 ###
 
 # convert direction in degree to point of the compass
-sub direction2compasspoint($;$) {
-    my ( $azimuth, $lang ) = @_;
+sub direction2compasspoint($;$$) {
+    my ( $deg, $txt, $lang ) = @_;
+    my $i = floor( ( ( $deg + 11.25 ) % 360 ) / 22.5 );
+    return $i if ( !wantarray && defined($txt) && $txt == 0. );
+
     my $directions_txt_i18n;
+    $lang = main::AttrVal( "global", "language", "EN" ) unless ($lang);
 
-    $lang = $main::attr{global}{language} ? $main::attr{global}{language} : "EN"
-      unless ($lang);
-
-    if ( $lang && defined( $compasspointss{ lc($lang) } ) ) {
-        $directions_txt_i18n = $compasspointss{ lc($lang) };
+    if ( exists( $compasspoints{ lc($lang) } ) ) {
+        $directions_txt_i18n = $compasspoints{ lc($lang) };
     }
     else {
-        $directions_txt_i18n = $compasspointss{en};
+        $directions_txt_i18n = $compasspoints{en};
     }
 
-    return @$directions_txt_i18n[
-      int( ( ( $azimuth + 11.25 ) % 360 ) / 22.5 )
-    ];
+    return (
+        $directions_txt_i18n->[$i][0],
+        $directions_txt_i18n->[$i][1],
+        $directions_txt_i18n->[$i][2]
+    ) if wantarray;
+    return $directions_txt_i18n->[$i][2] if ( $txt && $txt == 3. );
+    return $directions_txt_i18n->[$i][0] if ( $txt && $txt == 2. );
+    return $directions_txt_i18n->[$i][1];
 }
 
 #################################
@@ -848,24 +975,19 @@ sub distance($$$$;$$) {
     return _round( "0.000000000", $rnd )
       if ( $lat1 eq $lat2 && $lng1 eq $lng2 );
 
-    use constant M_PI => 4 * atan2( 1, 1 );
-    my $pi80 = M_PI / 180;
-    $lat1 *= $pi80;
-    $lng1 *= $pi80;
-    $lat2 *= $pi80;
-    $lng2 *= $pi80;
-
-    my $r    = 6372.797;        # mean radius of Earth in km
-    my $dlat = $lat2 - $lat1;
-    my $dlng = $lng2 - $lng1;
-    my $a =
-      sin( $dlat / 2 ) * sin( $dlat / 2 ) +
-      cos($lat1) * cos($lat2) * sin( $dlng / 2 ) * sin( $dlng / 2 );
-    my $c = 2 * atan2( sqrt($a), sqrt( 1 - $a ) );
-    my $km = $r * $c;
+    my $aearth = 6378.137;    # GRS80/WGS84 semi major axis of earth ellipsoid
+    my $km = great_circle_distance(
+        deg2rad($lat1), pi / 2. - deg2rad($lng1),
+        deg2rad($lat2), pi / 2. - deg2rad($lng2),
+        $aearth
+    );
 
     return _round(
-        ( $unit eq "nmi" ? km2nmi($km) : ( $unit ? km2mi($km) : $km ) ), $rnd );
+        (
+            $unit && $unit eq "nmi" ? km2nmi($km) : ( $unit ? km2mi($km) : $km )
+        ),
+        $rnd
+    );
 }
 
 sub duration ($$;$) {
@@ -895,6 +1017,73 @@ sub duration ($$;$) {
 #################################
 ### Textual unit conversions
 ###
+
+sub arabic2roman ($) {
+    my ($n) = @_;
+    my %items = ();
+    my @r;
+    return "" if ( !$n || $n eq "" || $n !~ m/^\d+(?:\.\d+)?$/ || $n == 0. );
+    return $n
+      if ( $n >= 1000001. );    # numbers above cannot be displayed/converted
+
+    my %roman = (
+        1       => 'I',
+        5       => 'V',
+        10      => 'X',
+        50      => 'L',
+        100     => 'C',
+        500     => 'D',
+        1000    => 'M',
+        5000    => '(V)',
+        10000   => '(X)',
+        50000   => '(L)',
+        100000  => '(C)',
+        500000  => '(D)',
+        1000000 => '(M)',
+    );
+
+    for my $v ( sort { $b <=> $a } keys %roman ) {
+        my $c = int( $n / $v );
+        next unless ($c);
+        $items{ $roman{$v} } = $c;
+        $n -= $v * $c;
+    }
+
+    my @th = sort { $a <=> $b } keys %roman;
+
+    for ( my $i = 0 ; $i < @th ; $i++ ) {
+        my $v = $th[$i];
+        next if ( $v >= 1000000. );    # numbers above have no greater icon
+        my $k = $roman{$v};
+        my $c = $items{$k};
+        next unless ($c);
+
+        my $gv = $th[ $i + 1. ];
+        my $gk = $roman{$gv};
+
+        if ( $c == 4 || ( $gv / $v == $c ) ) {
+            $items{$gk}++;
+            $c = $gv - $c * $v;
+            $items{$k} = $c * -1;
+
+        }
+    }
+
+    for my $v ( sort { $b <=> $a } keys %roman ) {
+        my $l = $roman{$v};
+        my $c = $items{$l};
+        next unless ($c);
+
+        if ( $c > 0 ) {
+            push @r, $l for ( 1 .. $c );
+        }
+        else {
+            push @r, ( $l, pop @r );
+        }
+    }
+
+    return join '', @r;
+}
 
 ######## humanReadable #########################################
 # What  : Formats a number or text string to be more readable for humans
@@ -928,24 +1117,38 @@ sub humanReadable($;$) {
       );
     my $min =
       ref($h)
-      && defined( $h->{min} )
-      ? $h->{min}
-      : ( !ref($f) && $hr_formats{$f}{min} ? $hr_formats{$f}{min} : 5 );
+      && defined( $h->{min} ) ? $h->{min}
+      : (
+        !ref($f)
+          && $hr_formats{$f}{min} ? $hr_formats{$f}{min}
+        : 5
+      );
     my $group =
       ref($h)
-      && defined( $h->{group} )
-      ? $h->{group}
-      : ( !ref($f) && $hr_formats{$f}{group} ? $hr_formats{$f}{group} : 3 );
+      && defined( $h->{group} ) ? $h->{group}
+      : (
+        !ref($f)
+          && $hr_formats{$f}{group} ? $hr_formats{$f}{group}
+        : 3
+      );
     my $delim =
       ref($h)
-      && $h->{delim}
-      ? $h->{delim}
-      : $hr_formats{ ( $l =~ /^de|nl|fr|pl/i ? "std-fr" : "std" ) }{delim};
+      && $h->{delim} ? $h->{delim}
+      : $hr_formats{
+        (
+            $l =~ /^de|nl|fr|pl/i ? "std-fr"
+            : "std"
+        )
+      }{delim};
     my $sep =
       ref($h)
-      && $h->{sep}
-      ? $h->{sep}
-      : $hr_formats{ ( $l =~ /^de|nl|fr|pl/i ? "std-fr" : "std" ) }{sep};
+      && $h->{sep} ? $h->{sep}
+      : $hr_formats{
+        (
+            $l =~ /^de|nl|fr|pl/i ? "std-fr"
+            : "std"
+        )
+      }{sep};
     my $reverse = ref($h) && defined( $h->{rev} ) ? $h->{rev} : 1;
 
     my @p = split( /\./, $v, 2 );
@@ -1023,23 +1226,39 @@ sub c2condition($;$$) {
     my $rgb = "FFFFFF";
     $lang = "en" if ( !$lang );
 
+    my $thresholds;
+
     if ($roomType) {
-        $roomType = "living"
-          if ( looks_like_number($roomType) );
+        if (   ref($roomType)
+            && ref($roomType) eq 'ARRAY'
+            && scalar @{$roomType} == 6 )
+        {
+            $thresholds = $roomType;
+        }
+        elsif (ref($roomType)
+            || looks_like_number($roomType)
+            || !defined( $ideal_clima{$roomType} ) )
+        {
+            $thresholds = $ideal_clima{living}{c};
+        }
+        else {
+            $thresholds = $ideal_clima{$roomType}{c};
+        }
     }
     else {
-        $roomType = "outdoor";
+        $thresholds = $ideal_clima{outdoor}{c};
     }
 
-    if ( defined( $ideal_clima{$roomType} ) ) {
-        foreach my $th ( reverse sort keys %{ $ideal_clima{$roomType} } ) {
-            if ( $data >= $th ) {
-                my $i = $ideal_clima{$roomType}{$th};
-                $val = $clima_names{c}{$lang}[$i];
-                $rgb = $clima_rgb{c}[$i];
-                last;
-            }
+    my $i = 0;
+    foreach my $th ( @{$thresholds} ) {
+        if ( $data > $th ) {
+            $val = $clima_names{c}{ lc($lang) }[$i];
+            $rgb = $clima_names{c}{rgb}[$i];
         }
+        else {
+            last;
+        }
+        $i++;
     }
 
     return ( $val, $rgb ) if (wantarray);
@@ -1047,26 +1266,45 @@ sub c2condition($;$$) {
 }
 
 # Condition: convert humidity (percent) to humidity condition
-sub humidity2condition($;$) {
-    my ( $data, $indoor ) = @_;
-    my $val = "dry";
-    my $rgb = "C72A23";
+sub humidity2condition($;$$) {
+    my ( $data, $roomType, $lang ) = @_;
+    my $val = "?";
+    my $rgb = "FFFFFF";
+    $lang = "en" if ( !$lang );
 
-    if ( $data >= 80 ) {
-        $val = "wet";
-        $rgb = "0066CC";
+    my $thresholds;
+
+    if ($roomType) {
+        if (   ref($roomType)
+            && ref($roomType) eq 'ARRAY'
+            && scalar @{$roomType} == 5 )
+        {
+            $thresholds = $roomType;
+        }
+        elsif (ref($roomType)
+            || looks_like_number($roomType)
+            || !defined( $ideal_clima{$roomType} ) )
+        {
+            $thresholds = $ideal_clima{living}{h};
+        }
+        else {
+            $thresholds = $ideal_clima{$roomType}{h};
+        }
     }
-    elsif ( $data >= 70 ) {
-        $val = "high";
-        $rgb = "009999";
+    else {
+        $thresholds = $ideal_clima{outdoor}{h};
     }
-    elsif ( $data >= 50 ) {
-        $val = "ideal";
-        $rgb = "4C9329";
-    }
-    elsif ( $data >= 40 ) {
-        $val = "low";
-        $rgb = "E7652B";
+
+    my $i = 0;
+    foreach my $th ( @{$thresholds} ) {
+        if ( $data > $th ) {
+            $val = $clima_names{h}{ lc($lang) }[$i];
+            $rgb = $clima_names{h}{rgb}[$i];
+        }
+        else {
+            last;
+        }
+        $i++;
     }
 
     return ( $val, $rgb ) if (wantarray);
@@ -1234,6 +1472,44 @@ sub h2hms($) {
     return sprintf( "%02d:%02d:%02d", $h, $m, $s );
 }
 
+sub DaysOfMonth (;$$) {
+    my $y = shift;
+    my $m = shift;
+
+    return undef
+      unless (
+          !$y
+        || $y =~ /^\d{10}(?:\.\d+)?$/
+        || (
+            $y =~ /^[1-2]\d{3}$/
+            && (  !$m
+                || $m =~ /^\d{1,2}$/ )
+        )
+      );
+
+    my $t = ( $y =~ /^\d{10}(?:\.\d+)?$/ ? $y : gettimeofday() );
+    $y = 1900. + ( localtime($t) )[5] unless ($y);
+    $m = 1. + ( localtime($t) )[4] if ( !$y || $y !~ /^[1-2]\d{3}$/ );
+    $y = 1900. + ( localtime($t) )[5] if ( $y !~ /^[1-2]\d{3}$/ );
+
+    if ( $m < 8. ) {
+        if ( $m % 2 ) {
+            return 31.;
+        }
+        else {
+            return 28. + IsLeapYear($y)
+              if ( $m == 2. );
+            return 30.;
+        }
+    }
+    elsif ( $m % 2. ) {
+        return 30.;
+    }
+    else {
+        return 31.;
+    }
+}
+
 sub IsLeapYear (;$) {
 
     # Either the value 0 or the value 1 is returned.
@@ -1246,10 +1522,9 @@ sub IsLeapYear (;$) {
     return undef
       unless ( !$y || $y =~ /^\d{10}(?:\.\d+)?$/ || $y =~ /^[1-2]\d{3}$/ );
 
-    if ( !$y || $y !~ /^[1-2]\d{3}$/ ) {
-        my $today = _time($y);
-        $y = $today->{year};
-    }
+    my $t = ( $y =~ /^\d{10}(?:\.\d+)?$/ ? $y : gettimeofday() );
+    $y = 1900. + ( localtime($t) )[5] unless ($y);
+    $y = 1900. + ( localtime($t) )[5] if ( $y !~ /^[1-2]\d{3}$/ );
 
     # If $year is not evenly divisible by 4, it is
     #     not a leap year; therefore, we return the
@@ -1284,24 +1559,6 @@ sub IsLeapYear (;$) {
     return 1;
 }
 
-sub IsDst(;$) {
-    my ($time) = @_;
-    my $ret = _time($time);
-    return $ret->{isdst};
-}
-
-sub IsWeekend(;$) {
-    my ($time) = @_;
-    my $ret = _time($time);
-    return $ret->{iswe};
-}
-
-sub IsHoliday(;$) {
-    my ($time) = @_;
-    my $ret = _time($time);
-    return $ret->{isholiday};
-}
-
 # Get current stage of the daytime based on temporal hours
 # https://de.wikipedia.org/wiki/Temporale_Stunden
 sub GetDaytime(;$$$$) {
@@ -1330,12 +1587,11 @@ sub GetDaytime(;$$$$) {
 
     $ret->{daytimeRel_s} =
       hms2s("$ret->{hour}:$ret->{min}:$ret->{sec}") - $ret->{sunrise_s};
-    $ret->{daytimeRel} = s2hms( $ret->{daytimeRel_s} );
-    $ret->{daytimeT_s} = $ret->{sunset_s} - $ret->{sunrise_s};
-    $ret->{daytimeT}   = s2hms( $ret->{daytimeT_s} );
-    $ret->{daytimeStageLn_s} =
-      $ret->{daytimeT_s} / $ret->{daytimeStages};
-    $ret->{daytimeStageLn} = s2hms( $ret->{daytimeStageLn_s} );
+    $ret->{daytimeRel}       = s2hms( $ret->{daytimeRel_s} );
+    $ret->{daytimeT_s}       = $ret->{sunset_s} - $ret->{sunrise_s};
+    $ret->{daytimeT}         = s2hms( $ret->{daytimeT_s} );
+    $ret->{daytimeStageLn_s} = $ret->{daytimeT_s} / $ret->{daytimeStages};
+    $ret->{daytimeStageLn}   = s2hms( $ret->{daytimeStageLn_s} );
     $ret->{daytimeStage_float} =
       $ret->{daytimeRel_s} / $ret->{daytimeStageLn_s};
     $ret->{daytimeStage} =
@@ -1343,12 +1599,6 @@ sub GetDaytime(;$$$$) {
     $ret->{daytimeStage} = 0
       if ( $ret->{daytimeStage} < 1
         || $ret->{daytimeStage} > $ret->{daytimeStages} );
-
-    # include season data
-    $ret = GetSeason( $ret, $lang );
-
-#$ret = GetSeasonPheno( $ret, $lang );
-#$ret = GetSeasonSocial( $ret, $lang ); #TODO https://de.wikipedia.org/wiki/F%C3%BCnfte_Jahreszeit
 
     # change midnight event when season changes
     $ret->{events}{ $ret->{midnight_t} }{VALUE} = 1
@@ -1361,6 +1611,11 @@ sub GetDaytime(;$$$$) {
     $ret->{events}{ $ret->{midnight_t} }{DESC} .=
       ", Begin astronomical $ret->{seasonAstro_long} season"
       if ( $ret->{seasonAstroChng} && $ret->{seasonAstroChng} == 1 );
+    $ret->{events}{ $ret->{midnight_t} }{VALUE} = 2
+      if ( $ret->{seasonPhenoChng} && $ret->{seasonPhenoChng} == 1 );
+    $ret->{events}{ $ret->{midnight_t} }{DESC} .=
+      ", Begin phenological season $ret->{seasonPheno_long}"
+      if ( $ret->{seasonPhenoChng} && $ret->{seasonPhenoChng} == 1 );
 
     # calculate daytime from daytimeStage, season and DST
     my $ds = $ret->{daytimeStage};
@@ -1368,12 +1623,12 @@ sub GetDaytime(;$$$$) {
 
         #TODO let user define %sdt2daytimes through attribute
         $ret->{daytime} =
-          $sdt2daytimes{ $ret->{seasonMeteo} }{ $ret->{isdst} }{$ds}
+          $sdt2daytimes{1}{ $ret->{isdst} }{$ds}
           if (
-               $sdt2daytimes{ $ret->{seasonMeteo} }
-            && $sdt2daytimes{ $ret->{seasonMeteo} }{ $ret->{isdst} }
+               $sdt2daytimes{1}
+            && $sdt2daytimes{1}{ $ret->{isdst} }
             && defined(
-                $sdt2daytimes{ $ret->{seasonMeteo} }{ $ret->{isdst} }{$ds}
+                $sdt2daytimes{1}{ $ret->{isdst} }{$ds}
             )
           );
         $ds--;
@@ -1423,7 +1678,8 @@ sub GetDaytime(;$$$$) {
     $ret->{events}{ $ret->{midnight_t} }{DESC} =
       "Begin of night time and new calendar day";
     $ret->{events}{ $ret->{1}{midnight_t} }{TYPE} = "dayshift";
-    $ret->{events}{ $ret->{1}{midnight_t} }{TIME} = $ret->{date} . " 24:00:00";
+    $ret->{events}{ $ret->{1}{midnight_t} }{TIME} =
+      $ret->{date} . " 24:00:00";
     $ret->{events}{ $ret->{1}{midnight_t} }{DESC} =
       "End of calendar day and begin night time";
 
@@ -1455,12 +1711,12 @@ sub GetDaytime(;$$$$) {
 
         # find daytime
         my $daytime;
-        $daytime = $sdt2daytimes{ $ret->{seasonMeteo} }{ $ret->{isdst} }{$i}
+        $daytime = $sdt2daytimes{1}{ $ret->{isdst} }{$i}
           if (
-               $sdt2daytimes{ $ret->{seasonMeteo} }
-            && $sdt2daytimes{ $ret->{seasonMeteo} }{ $ret->{isdst} }
+               $sdt2daytimes{1}
+            && $sdt2daytimes{1}{ $ret->{isdst} }
             && defined(
-                $sdt2daytimes{ $ret->{seasonMeteo} }{ $ret->{isdst} }{$i}
+                $sdt2daytimes{1}{ $ret->{isdst} }{$i}
             )
           );
 
@@ -1470,8 +1726,7 @@ sub GetDaytime(;$$$$) {
         if ( $i == $ret->{daytimeStages} + 1 ) {
             $ret->{events}{$t}{TYPE}  = "daytime";
             $ret->{events}{$t}{VALUE} = "midevening";
-            $ret->{events}{$t}{DESC} =
-              "End of daytime";
+            $ret->{events}{$t}{DESC}  = "End of daytime";
         }
         else {
             $ret->{events}{$t}{TYPE}  = "daytimeStage";
@@ -1492,297 +1747,50 @@ sub GetDaytime(;$$$$) {
     return $ret;
 }
 
-sub GetSeason (;$$$);
-
-sub GetSeason (;$$$) {
-    my ( $time, $lang, $meteo ) = @_;
-    $lang = (
-          $main::attr{global}{language}
-        ? $main::attr{global}{language}
-        : "EN"
-    ) unless ($lang);
-
-    my $ret;
-    my $wanthash = 0;
-
-    if ( !$time ) {
-        $time = time;
-    }
-    elsif ( ref($time) eq "HASH" ) {
-        $ret      = $time;
-        $wanthash = 1;
-    }
-    elsif ( $time =~ /^(?:0|1|2|3)$/ ) {
-        return $seasons{ lc($lang) }
-          ? $seasons{ lc($lang) }[$time]
-          : $seasons{en}[$time];
-    }
-    elsif ( $time =~ /[A-Za-z]/ ) {
-        my $index =
-          $seasons{ lc($lang) }
-          ? _GetIndexFromArray( $time, $seasons{ lc($lang) } )
-          : undef;
-        return $index;
-    }
-    elsif ( $time !~ /^\d{10}(?:\.\d+)?$/ ) {
-        return undef;
-    }
-    else {
-        $ret = _time($time);
-    }
-
-    my $index = 0;
-    $index = 3 if ( $ret->{mon} <= 1 );
-    $index++ if ( $ret->{mon} >= 5 );
-    $index++ if ( $ret->{mon} >= 8 );
-    $index++ if ( $ret->{mon} == 11 );
-    $ret->{seasonMeteo} = $index;
-
-    $index = 0;
-    $index = 3 if ( $ret->{yday} < ( 80 + $ret->{isly} ) );
-    $index++ if ( $ret->{yday} >= ( 173 + $ret->{isly} ) );
-    $index++ if ( $ret->{yday} >= ( 265 + $ret->{isly} ) );
-    $index++ if ( $ret->{yday} >= ( 356 + $ret->{isly} ) );
-    $ret->{seasonAstro} = $index;
-
-    unless (wantarray) {
-        ( $ret->{'-1'}{seasonMeteo}, $ret->{'-1'}{seasonAstro} ) =
-          GetSeason( $ret->{'-1'}{time_t}, $lang );
-        ( $ret->{1}{seasonMeteo}, $ret->{1}{seasonAstro} ) =
-          GetSeason( $ret->{1}{time_t}, $lang );
-    }
-
-    # text strings
-    my @langs = ('EN');
-    push @langs, $lang unless ( $lang =~ /^EN/i );
-    foreach (@langs) {
-        my $l = lc($_);
-        $l =~ s/^([a-z]+).*/$1/g;
-        next unless ( $seasons{$l} );
-        my $h = $l eq "en" ? $ret : \%{ $ret->{$_} };
-
-        $h->{seasonMeteo_long} = $seasons{$l}[ $ret->{seasonMeteo} ];
-        $h->{seasonAstro_long} = $seasons{$l}[ $ret->{seasonAstro} ];
-    }
-
-    if ( $ret->{seasonMeteo} ne $ret->{1}{seasonMeteo} ) {
-        $ret->{seasonMeteoChng} = 2;
-    }
-
-    if (   $ret->{'-1'}
-        && defined( $ret->{'-1'}{seasonMeteo} )
-        && defined( $ret->{'-1'}{seasonAstro} )
-        && $ret->{1}
-        && defined( $ret->{1}{seasonMeteo} )
-        && defined( $ret->{1}{seasonAstro} ) )
-    {
-        $ret->{'-1'}{seasonMeteoChng} = 0;
-        $ret->{seasonMeteoChng}       = 0;
-        $ret->{1}{seasonMeteoChng}    = 0;
-
-        if ( $ret->{seasonMeteo} ne $ret->{1}{seasonMeteo} ) {
-            $ret->{seasonMeteoChng} = 2;
-            $ret->{1}{seasonMeteoChng} = 1;
-        }
-        elsif ( $ret->{seasonMeteo} ne $ret->{'-1'}{seasonMeteo} ) {
-            $ret->{'-1'}{seasonMeteoChng} = 2;
-            $ret->{seasonMeteoChng} = 1;
-        }
-
-        $ret->{'-1'}{seasonAstroChng} = 0;
-        $ret->{seasonAstroChng}       = 0;
-        $ret->{1}{seasonAstroChng}    = 0;
-
-        if ( $ret->{seasonAstro} ne $ret->{1}{seasonAstro} ) {
-            $ret->{seasonAstroChng} = 2;
-            $ret->{1}{seasonAstroChng} = 1;
-        }
-        elsif ( $ret->{seasonAstro} ne $ret->{'-1'}{seasonAstro} ) {
-            $ret->{'-1'}{seasonAstroChng} = 2;
-            $ret->{seasonAstroChng} = 1;
-        }
-    }
-
-    return $ret if ($wanthash);
-    return ( $ret->{seasonMeteo}, $ret->{seasonAstro} ) if (wantarray);
-    return $ret->{$lang}{seasonMeteo_long}
-      ? $ret->{$lang}{seasonMeteo_long}
-      : $ret->{seasonMeteo_long}
-      if ($meteo);
-    return $ret->{$lang}{seasonAstro_long}
-      ? $ret->{$lang}{seasonAstro_long}
-      : $ret->{seasonAstro_long};
-}
-
-# Estimate phenologic season from astro and meteo season
-# https://de.wikipedia.org/wiki/Ph%C3%A4nologie#Ph.C3.A4nologischer_Kalender
-sub GetSeasonPheno (;$$) {
-    $lang = (
-          $main::attr{global}{language}
-        ? $main::attr{global}{language}
-        : "EN"
-    ) unless ($lang);
-
-    if ( !$time ) {
-        $time = time;
-    }
-    elsif ( $time =~ /^(?:0|1|2|3|4|5|6|7|8|9|10|11)$/ ) {
-        return $seasonsPheno{ lc($lang) }
-          ? $seasonsPheno{ lc($lang) }[$time]
-          : $seasonsPheno{en}[$time];
-    }
-    elsif ( $time =~ /[A-Za-z]/ ) {
-        my $index =
-          $seasonsPheno{ lc($lang) }
-          ? _GetIndexFromArray( $time, $seasonsPheno{ lc($lang) } )
-          : undef;
-        return $index;
-    }
-    elsif ( $time !~ /^\d{10}(?:\.\d+)?$/ ) {
-        return undef;
-    }
-
-    my (
-        $sec,            $min,     $hour,
-        $mday,           $mdayrem, $month,
-        $monthISO,       $year,    $week,
-        $weekISO,        $wday,    $wdayISO,
-        $yday,           $ydayrem, $isdst,
-        $isLeapYear,     $iswe,    $isHolidayYesterday,
-        $isHolidayToday, $isHolidayTomorrow
-    ) = GetDaySchedule($time);
-
-    my ( $seasonAstro, $seasonAstroIndex, $seasonAstroChng ) = GetSeason($time);
-    my ( $seasonMeteo, $seasonMeteoIndex, $seasonMeteoChng ) =
-      GetSeason( $time, "en", 1 );
-
-    # stick to astro season first
-    my $index = $seasons{pheno}[$seasonAstro];
-
-    # meteos say it's spring time
-    if ( $seasonMeteo == 0 ) {
-        $index = 0;
-    }
-
-    # meteos say it's summer time
-    elsif ( $seasonMeteo == 1 ) {
-        $index = 3;
-    }
-
-    # meteos say it's autumn time
-    elsif ( $seasonMeteo == 2 ) {
-        $index = 6;
-    }
-
-    # meteos say it's winter time
-    elsif ( $seasonMeteo == 3 ) {
-        $index = 9;
-    }
-
-    # if we know our position and spring is ahead
-    if (   ( $index == 0 || $index == 1 )
-        && $main::attr{global}{latitude}
-        && $main::attr{global}{longitude} )
-    {
-        # it starts in south-west Portugal
-        my $dist = distance(
-            $main::attr{global}{latitude},
-            $main::attr{global}{longitude},
-            37.136633, -8.817837
-        );
-
-        # TODO: let begin of early spring be set by user
-        my $earlySpringBegin = main::time_str2num("$year-02-28 00:00:00");
-        my $days = ( $time - $earlySpringBegin ) / ( 60 * 60 * 24 );
-
-        # comes with 40km per day
-        my $currDist = $dist - ( $days * 40 );
-
-        # when season reached location
-        if ( $currDist <= 0 ) {
-            $index = 2;
-        }
-
-        # when season made 60% of it's way
-        elsif ( $currDist <= $dist * 0.4 ) {
-            $index = 1;
-        }
-    }
-
-    # assume spring progress from calendar
-    elsif ( ( $index == 0 || $index == 1 ) ) {
-        $index = 1 if ( $monthISO == 4 );
-        $index = 2 if ( $monthISO == 5 );
-    }
-
-    # assume summer progress from calendar
-    elsif ( $index == 3 ) {
-        $index = 4 if ( $monthISO == 7 );
-        $index = 5 if ( $monthISO == 8 );
-    }
-
-    # if we know our position and autumn is ahead
-    elsif (( $index == 6 || $index == 7 )
-        && $main::attr{global}{latitude}
-        && $main::attr{global}{longitude} )
-    {
-        # it starts in Helsinki
-        my $dist = distance(
-            $main::attr{global}{latitude},
-            $main::attr{global}{longitude},
-            60.161880, 24.937267
-        );
-
-        # TODO: let begin of early autumn be set by user
-        my $earlySpringBegin = main::time_str2num("$year-09-01 00:00:00");
-        my $days = ( $time - $earlySpringBegin ) / ( 60 * 60 * 24 );
-
-        # comes with 40km per day
-        my $currDist = $dist - ( $days * 40 );
-
-        # when season reached location
-        if ( $currDist <= 0 ) {
-            $index = 8;
-        }
-
-        # when season made 60% of it's way
-        elsif ( $currDist <= $dist * 0.4 ) {
-            $index = 7;
-        }
-    }
-
-    # assume autumn progress from calendar
-    elsif ( ( $index == 6 || $index == 7 ) ) {
-        $index = 7 if ( $monthISO == 10 );
-        $index = 8 if ( $monthISO == 11 );
-    }
-
-    my $seasonPheno =
-      defined($index)
-      && $index{ lc($lang) }
-      ? $seasonsPheno{ lc($lang) }[$index]
-      : $seasonsPheno{en}[$index];
-
-    return ( $seasonPheno, $index ) if (wantarray);
-    return ($seasonPheno);
-}
-
 ####################
 # HELPER FUNCTIONS
 
-sub decimal_mark ($$) {
-    my ( $val, $f ) = @_;
-    return $val unless ( looks_like_number($val) && $f );
-
-    my $text = reverse $val;
-    if ( $f eq "2" ) {
-        $text =~ s:\.:,:g;
-        $text =~ s/(\d\d\d)(?=\d)(?!\d*,)/$1./g;
+sub decimal_mark ($;$) {
+    my $s;
+    my $i;
+    my $f;
+    if ( $_[0] =~ /^(\-|\+)?(\d+)(?:\.(\d+))?$/ ) {
+        $s = $1;
+        $i = reverse $2;
+        $f = $3;
     }
     else {
-        $text =~ s/(\d\d\d)(?=\d)(?!\d*\.)/$1,/g;
+        return $_[0];
     }
-    return scalar reverse $text;
+
+    my $locale = ( $_[1] ? $_[1] : undef );
+
+    my $old_locale = setlocale(LC_NUMERIC);
+    setlocale( LC_NUMERIC, $locale ) if ($locale);
+    use locale ':not_characters';
+    my ( $decimal_point, $thousands_sep, $grouping ) =
+      @{ localeconv() }{ 'decimal_point', 'thousands_sep', 'grouping' };
+    setlocale( LC_NUMERIC, "" );
+    setlocale( LC_NUMERIC, $old_locale );
+    no locale;
+
+    $decimal_point = '.'
+      unless ( defined($decimal_point) && $decimal_point ne '' );
+    $thousands_sep = chr(0x202F)
+      unless ( defined($thousands_sep) && $thousands_sep ne "" );
+    my @grouping =
+      $grouping && $grouping =~ /^\d+$/
+      ? unpack( "C*", $grouping )
+      : (3);
+
+    $i =~ s/(\d{$grouping[0]})(?=\d)/$1$thousands_sep/g;
+    $f =~ s/(\d{$grouping[0]})(?=\d)/$1$thousands_sep/g
+      if ( defined($f) && $f ne '' );
+
+    return
+        ( $s ? $s : '' )
+      . ( reverse $i )
+      . ( defined($f) && $f ne '' ? $decimal_point . $f : '' );
 }
 
 sub _round($;$) {
@@ -1891,20 +1899,15 @@ sub _time(;$$$$) {
     }
     $ret{isholiday} = 0;
 
-    my $holidayDev =
-      $main::attr{global}{holiday2we}
-      && main::IsDevice( $main::attr{global}{holiday2we}, "holiday" )
-      ? $main::attr{global}{holiday2we}
-      : undef;
-    if ($holidayDev) {
+    my $tod;
+    my $ytd;
+    my $tom;
+    if ( main::AttrVal( 'global', 'holiday2we', undef ) ) {
         my $date = sprintf( "%02d-%02d", $ret{monISO}, $ret{mday} );
-        $tod = main::holiday_refresh( $holidayDev, $date );
+        $tod = main::IsWe($date);
         if ($dayOffset) {
-            $date =
-              sprintf( "%02d-%02d", $ret{'-1'}{monISO}, $ret{'-1'}{mday} );
-            $ytd = main::holiday_refresh( $holidayDev, $date );
-            $date = sprintf( "%02d-%02d", $ret{1}{monISO}, $ret{1}{mday} );
-            $tom = main::holiday_refresh( $holidayDev, $date );
+            $ytd  = main::IsWe('yesterday');
+            $tom  = main::IsWe('tomorrow');
         }
 
         if ( $tod ne "none" ) {

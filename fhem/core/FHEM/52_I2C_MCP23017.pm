@@ -1,5 +1,5 @@
 ##############################################################################
-# $Id: 52_I2C_MCP23017.pm 17863 2018-11-27 23:28:39Z klausw $
+# $Id: 52_I2C_MCP23017.pm 19551 2019-06-04 20:10:50Z klausw $
 ##############################################################################
 # Modul for I2C GPIO Extender MCP23017
 #
@@ -456,7 +456,6 @@ sub I2C_MCP23017_UpdReadings($$$) {																						#nach Rueckmeldung read
 
 <a name="I2C_MCP23017"></a>
 <h3>I2C_MCP23017</h3>
-(en | <a href="commandref_DE.html#I2C_MCP23017">de</a>)
 <ul>
 	<a name="I2C_MCP23017"></a>
 		Provides an interface to the MCP23017 16 channel port extender IC. On Raspberry Pi the Interrupt Pin's can be connected to an GPIO and <a href="#RPI_GPIO">RPI_GPIO</a> can be used to get the port values if an interrupt occurs.<br>
@@ -567,7 +566,6 @@ sub I2C_MCP23017_UpdReadings($$$) {																						#nach Rueckmeldung read
 
 <a name="I2C_MCP23017"></a>
 <h3>I2C_MCP23017</h3>
-(<a href="commandref.html#I2C_MCP23017">en</a> | de)
 <ul>
 	<a name="I2C_MCP23017"></a>
 		Erm&ouml;glicht die Verwendung eines MCP23017 I2C 16 Bit Portexenders. 

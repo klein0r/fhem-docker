@@ -10,7 +10,7 @@
 use strict;
 use warnings;
 
-# $Id: commandref_join.pl 16425 2018-03-17 15:27:04Z rudolfkoenig $
+# $Id: commandref_join.pl 19539 2019-06-03 20:25:25Z rudolfkoenig $
 
 my $noWarnings = grep $_ eq '-noWarnings', @ARGV;
 my ($verify) = grep $_ =~ /\.pm$/ , @ARGV;
@@ -154,6 +154,7 @@ generateModuleCommandref($$;$$)
     my $docCount = 0;
     my $hasLink = 0;
     my $dosMode = 0;
+    my $nrEnd = 0;
     while(my $l = <$modFh>) {
       $line++;
 
@@ -163,9 +164,11 @@ generateModuleCommandref($$;$$)
         print "*** $lang $mod: nonempty line after =begin html ignored\n"
           if($l =~ m/^...*$/);
         $skip = 0; $line++;
+        $nrEnd++;
 
       } elsif($l =~ m/^=end html$suffix$/) {
         $skip = 1;
+        $nrEnd--;
         print $fh "<p>" if($fh);        
 
       } elsif(!$skip) {
@@ -222,4 +225,7 @@ EOF
                 "($tagcount{$tag}, last line ok: $llwct{$tag})\n")
         if($tagcount{$tag} && !$noWarnings);
     }
+
+    print "*** $lang $fPath: =end html$suffix: ".($nrEnd>0 ? "missing":"there are too many")."\n"
+        if($nrEnd);
 }

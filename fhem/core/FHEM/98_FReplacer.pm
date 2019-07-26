@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_FReplacer.pm 13876 2017-04-02 09:08:03Z StefanStrobel $
+# $Id: 98_FReplacer.pm 19807 2019-07-09 18:19:29Z StefanStrobel $
 #
 # Basiert auf der Idee Fhem Daten auf einem Kindle anzuzeigen
 # wie im Forum beschrieben
@@ -47,7 +47,11 @@
 # attr SVG_FileLog_PM_1 plotsize 490,100  
 #
 
-
+#
+# ToDo:
+#	fhem blocks during SVG creation. Can we make this async?
+#	$FW_wname undef -> warning in SVG call at startup
+#
 
 package main;
 

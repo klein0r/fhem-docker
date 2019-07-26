@@ -1,5 +1,5 @@
 "use strict";
-FW_version["console.js"] = "$Id: console.js 18398 2019-01-24 12:56:44Z rudolfkoenig $";
+FW_version["console.js"] = "$Id: console.js 19890 2019-07-23 14:57:21Z rudolfkoenig $";
 
 var consConn;
 
@@ -95,7 +95,6 @@ consFill()
     consConn.onclose = 
     consConn.onerror = 
     consConn.onmessage = consUpdate;
-    consConn.onopen = function(){FW_wsPing(consConn);};
 
   } else {
     if(consConn) {

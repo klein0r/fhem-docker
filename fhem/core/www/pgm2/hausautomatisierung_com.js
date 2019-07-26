@@ -19,7 +19,7 @@ function getClock() {
 
 jQuery(document).ready(function ($) {
 
-    var themeVersion = '2.10';
+    var themeVersion = '2.11';
 
     // attr WEB hiddenroom input -> Ansicht anpassen
     if ($('#hdr .maininput').length == 0) {
@@ -128,6 +128,44 @@ jQuery(document).ready(function ($) {
         $('div.devType:contains("-hidden")').parent('td').hide();
     }
 
+    // DevToolTips
+    // Create Toolbar
+    var elHaToolbar = $('<div>').attr('id', 'haToolbar').hide();
+    $('body').append(elHaToolbar);
+
+    $('table.internals .dname').click(function (e) {
+        var deviceName = $(this).attr('data-name');
+        var rowVal = $(this).text();
+
+        if ($(this).html() == "TYPE") {
+            elHaToolbar.html(("GetType('" + deviceName + "');")).show();
+        } else if ($(this).html() == "STATE") {
+            elHaToolbar.html("Value('" + deviceName + "');").show();
+        } else {
+            elHaToolbar.html("InternalVal('" + deviceName + "', '" + rowVal + "', '');").show();
+        }
+    });
+
+    $('table.readings .dname').click(function (e) {
+        var deviceName = $(this).attr('data-name');
+        var rowVal = $(this).text();
+
+        elHaToolbar
+            .html(
+                "ReadingsVal('" + deviceName + "', '" + rowVal + "', '');<br/>" +
+                "[" + deviceName + ":" + rowVal + "]<br/>" +
+                deviceName + ":" + rowVal + ":.*"
+            )
+            .show();
+    });
+
+    $('table.attributes .dname').click(function (e) {
+        var deviceName = $(this).attr('data-name');
+        var rowVal = $(this).text();
+
+        elHaToolbar.html("AttrVal('" + deviceName + "', '" + rowVal + "', '');").show();
+    });
+
     (function($, window, document, undefined) {
         'use strict';
 
@@ -149,7 +187,7 @@ jQuery(document).ready(function ($) {
                 var last, deferTimer;
                 return function() {
                     var context = this, args = arguments, now = +new Date;
-                    if(last && now < last + delay) {
+                    if (last && now < last + delay) {
                         clearTimeout(deferTimer);
                         deferTimer = setTimeout(
                             function() {

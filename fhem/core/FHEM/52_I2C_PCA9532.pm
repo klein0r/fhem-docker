@@ -1,5 +1,5 @@
 ##############################################################################
-# $Id: 52_I2C_PCA9532.pm 17863 2018-11-27 23:28:39Z klausw $
+# $Id: 52_I2C_PCA9532.pm 19551 2019-06-04 20:10:50Z klausw $
 #
 ##############################################################################
 # Modul for I2C PWM Driver PCA9532
@@ -433,7 +433,6 @@ sub I2C_PCA9532_UpdReadings($$$) {
 
 <a name="I2C_PCA9532"></a>
 <h3>I2C_PCA9532</h3>
-(en | <a href="commandref_DE.html#I2C_PCA9532">de</a>)
 <ul>
 	<a name="I2C_PCA9532"></a>
 		Provides an interface to the PCA9532 I2C 16 channel PWM IC. 
@@ -523,7 +522,6 @@ sub I2C_PCA9532_UpdReadings($$$) {
 
 <a name="I2C_PCA9532"></a>
 <h3>I2C_PCA9532</h3>
-(<a href="commandref.html#I2C_PCA9532">en</a> | de)
 <ul>
 	<a name="I2C_PCA9532"></a>
 		Erm&ouml;glicht die Verwendung eines PCA9532 I2C 16 Kanal PWM IC. 

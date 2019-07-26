@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# $Id: commandref_modular.pl 15989 2018-01-25 15:30:37Z rudolfkoenig $
+# $Id: commandref_modular.pl 19575 2019-06-08 10:08:48Z rudolfkoenig $
 
 use strict;
 use warnings;
@@ -92,6 +92,7 @@ for my $lang (@lang) {
   my $linkDumped = 0;
   while(my $l = <IN>) {
 
+    $l =~ s,class="commandref,class="commandref modular,;
     print OUT $l;
     if($l =~ m,\s*<title>,) {
       print OUT << 'EOF'

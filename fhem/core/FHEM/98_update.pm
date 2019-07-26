@@ -1,5 +1,5 @@
 ################################################################
-# $Id: 98_update.pm 18431 2019-01-27 12:37:02Z rudolfkoenig $
+# $Id: 98_update.pm 19835 2019-07-15 18:41:17Z rudolfkoenig $
 
 package main;
 use strict;
@@ -708,7 +708,7 @@ upd_writeFile($$$$)
     <li>Falls man &lt;fileName&gt; spezifiziert, dann werden nur die Dateien
         heruntergeladen, die diesem Regexp entsprechen.</li>
   </ul>
-  Siehe also das restore Befehl.<br>
+  Siehe Befehl restore.<br>
   <br>
   Beispiele:<br>
   <ul>

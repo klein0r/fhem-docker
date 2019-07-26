@@ -22,13 +22,13 @@ UPD 2019-04-02_21:15:45 2826 www/tablet/css/fhem-blue-ui.css
 UPD 2019-04-02_21:15:45 2658 www/tablet/css/fhem-green-ui.css
 UPD 2019-04-02_21:15:45 442 www/tablet/css/ftui_range.css
 UPD 2019-04-02_21:15:45 6652 www/tablet/css/fhem-darkblue-ui.css
-UPD 2019-04-02_21:15:45 66579 www/tablet/css/fhem-tablet-ui.css
+UPD 2019-05-23_21:54:33 66212 www/tablet/css/fhem-tablet-ui.css
 UPD 2019-04-02_21:15:45 2049 www/tablet/css/ftui-bright-mint-ui.css
 UPD 2019-04-02_21:15:45 6936 www/tablet/css/ftui_weekprofile.css
 UPD 2019-04-02_21:15:45 1132 www/tablet/css/ftui_checklist.css
 UPD 2019-04-16_19:41:24 1606 www/tablet/css/ftui_spinner.css
 UPD 2019-04-16_19:57:03 8226 www/tablet/css/fhem-tablet-ui-wdtimer.css
-UPD 2019-04-02_21:15:45 50119 www/tablet/css/fhem-tablet-ui.min.css
+UPD 2019-05-23_22:11:03 49744 www/tablet/css/fhem-tablet-ui.min.css
 UPD 2019-04-02_21:15:45 1113 www/tablet/js/widget_include.js
 UPD 2019-04-02_21:15:45 1769 www/tablet/js/widget_button.js
 UPD 2019-04-02_21:15:45 3530 www/tablet/js/widget_multistatebutton.js
@@ -50,9 +50,9 @@ UPD 2019-04-02_21:15:45 11493 www/tablet/js/widget_thermostat.js
 UPD 2019-04-02_21:15:45 272177 www/tablet/js/widget_chart.js
 UPD 2019-04-02_21:15:45 5722 www/tablet/js/widget_select.js
 UPD 2019-04-02_21:15:45 9665 www/tablet/js/widget_popup.js
-UPD 2019-04-02_21:15:45 2672 www/tablet/js/widget_tts.js
+UPD 2019-07-14_23:40:21 2488 www/tablet/js/widget_tts.js
 UPD 2019-04-02_21:15:45 9772 www/tablet/js/widget_html.js
-UPD 2019-04-02_21:15:45 49756 www/tablet/js/fhem-tablet-ui.min.js
+UPD 2019-05-28_19:31:50 49722 www/tablet/js/fhem-tablet-ui.min.js
 UPD 2019-04-02_21:15:45 7740 www/tablet/js/widget_controller.js
 UPD 2019-04-02_21:15:45 8209 www/tablet/js/widget_highchart3d.js
 UPD 2019-04-02_21:15:45 21234 www/tablet/js/highcharts-meteogram.js
@@ -65,7 +65,7 @@ UPD 2019-04-02_21:15:45 806 www/tablet/js/widget_level.js
 UPD 2019-04-02_21:15:45 6503 www/tablet/js/widget_agenda.js
 UPD 2019-04-02_21:15:45 4299 www/tablet/js/widget_swiper.js
 UPD 2019-04-02_21:15:45 3118 www/tablet/js/widget_slideout.js
-UPD 2019-04-02_21:15:45 12717 www/tablet/js/widget_homestatus.js
+UPD 2019-06-09_22:08:25 12612 www/tablet/js/widget_homestatus.js
 UPD 2019-04-02_21:15:45 8689 www/tablet/js/widget_highchart.js
 UPD 2019-04-02_21:15:45 3060 www/tablet/js/widget_input.js
 UPD 2019-04-02_21:15:45 6478 www/tablet/js/widget_label.js
@@ -79,11 +79,11 @@ UPD 2019-04-02_21:15:45 988 www/tablet/js/widget_wakeup.js
 UPD 2019-04-02_21:15:45 1311 www/tablet/js/widget_reload.js
 UPD 2019-04-02_21:15:45 2978 www/tablet/js/widget_joinedlabel.js
 UPD 2019-04-02_21:15:45 2323 www/tablet/js/widget_readingsgroup.js
-UPD 2019-04-02_21:15:45 19744 www/tablet/js/widget_calview.js
+UPD 2019-05-21_22:24:16 19808 www/tablet/js/widget_calview.js
 UPD 2019-04-02_21:15:45 8419 www/tablet/js/widget_itunes_artwork.js
 UPD 2019-04-02_21:15:45 1493 www/tablet/js/widget_loading.js
 UPD 2019-04-02_21:15:45 9875 www/tablet/js/widget_settimer.js
-UPD 2019-04-02_21:15:45 97070 www/tablet/js/fhem-tablet-ui.js
+UPD 2019-05-28_19:31:45 97071 www/tablet/js/fhem-tablet-ui.js
 UPD 2019-04-02_21:15:45 5053 www/tablet/js/widget_controlbutton.js
 UPD 2019-04-02_21:15:45 1776 www/tablet/js/widget_push.js
 UPD 2019-04-02_21:15:45 5838 www/tablet/js/widget_playstream.js
@@ -91,7 +91,7 @@ UPD 2019-04-02_21:15:45 5776 www/tablet/js/widget_image.js
 UPD 2019-04-02_21:15:45 1684 www/tablet/js/widget_classchanger.js
 UPD 2019-04-02_21:15:45 7249 www/tablet/js/widget_scale.js
 UPD 2019-04-02_21:15:45 24542 www/tablet/js/widget_famultibutton.js
-UPD 2019-04-02_21:08:41 50358 www/tablet/js/widget_weather.js
+UPD 2019-06-05_00:05:02 72352 www/tablet/js/widget_weather.js
 UPD 2019-04-02_21:15:45 31168 www/tablet/js/widget_weekprofile.js
 UPD 2019-04-02_21:15:45 1612 www/tablet/js/widget_rotor.js
 UPD 2019-04-02_21:15:45 8748 www/tablet/js/widget_pagetab.js
@@ -147,7 +147,6 @@ UPD 2019-04-02_21:15:45 1177 www/tablet/lib/powerange.min.css
 UPD 2019-04-02_21:15:45 86923 www/tablet/lib/swiper.jquery.min.js
 UPD 2019-04-02_21:15:45 21397 www/tablet/lib/fa-multi-button.js
 UPD 2019-04-02_21:15:45 2396 www/tablet/lib/jquery.wakeup.js
-UPD 2019-04-02_21:15:45 64814 www/tablet/lib/responsivevoice.js
 UPD 2019-04-02_21:15:45 71950 www/tablet/lib/material-icons.min.css
 UPD 2019-04-02_21:15:45 86926 www/tablet/lib/jquery.min.js
 UPD 2019-04-02_21:15:45 24968 www/tablet/lib/genericons.min.css

@@ -1,6 +1,6 @@
 ##############################################
 ##############################################
-# $Id: 98_HMinfo.pm 19179 2019-04-14 09:51:26Z martinp876 $
+# $Id: 98_HMinfo.pm 19495 2019-05-30 09:17:45Z martinp876 $
 package main;
 use strict;
 use warnings;
@@ -412,7 +412,7 @@ sub HMinfo_autoUpdate($){#in:name, send status-request#########################
   (undef,$name)=split":",$name,2;
   HMinfo_SetFn($defs{$name},$name,"update") if ($name);
   if (AttrVal($name,"autoArchive",undef) && 
-      scalar(@{$modules{CUL_HM}{helper}{confUpdt}})){
+      scalar(keys%{$modules{CUL_HM}{helper}{confUpdt}})){
     my $fn = HMinfo_getConfigFile($name,"configFilename",undef);
     HMinfo_archConfig($defs{$name},$name,"",$fn);
   }
@@ -2073,7 +2073,7 @@ sub HMinfo_archConfig($$$$) {##################################################
                         "HMinfo_archConfigPost", 30, 
                         "HMinfo_bpAbort", "$name:$id");
   $hash->{nb}{$id}{$_} = $bl->{$_} foreach (keys %{$bl});
-  @{$modules{CUL_HM}{helper}{confUpdt}} = ();
+  delete $modules{CUL_HM}{helper}{confUpdt}{$_} foreach (keys %{$modules{CUL_HM}{helper}{confUpdt}});
   return ;
 }
 sub HMinfo_archConfigExec($)  {################################################
@@ -2081,10 +2081,10 @@ sub HMinfo_archConfigExec($)  {################################################
   my ($id,$fN,$opt) = split ",",shift;
   my @eN;
   if ($opt eq "-a"){@eN = HMinfo_getEntities("d","");}
-  else             {@eN = @{$modules{CUL_HM}{helper}{confUpdt}}}
+  else             {@eN = keys %{$modules{CUL_HM}{helper}{confUpdt}}}
   my @names;
   push @names,(CUL_HM_getAssChnNames($_),$_) foreach(@eN);
-  @{$modules{CUL_HM}{helper}{confUpdt}} = ();
+  delete $modules{CUL_HM}{helper}{confUpdt}{$_} foreach (keys %{$modules{CUL_HM}{helper}{confUpdt}});
   my @archs;
   @eN = ();
   foreach(HMinfo_noDup(@names)){
@@ -2106,7 +2106,7 @@ sub HMinfo_archConfigPost($)  {################################################
   my @arr = split(",",shift);
   my ($name,$id,$cl) = split(";",$arr[0]);
   shift @arr;
-  push @{$modules{CUL_HM}{helper}{confUpdt}},@arr;
+  $modules{CUL_HM}{helper}{confUpdt}{$_} = 1 foreach (@arr);
   delete $defs{$name}{nb}{$id};
   return ;
 }

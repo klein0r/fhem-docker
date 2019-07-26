@@ -1,5 +1,5 @@
 ##############################################################################
-# $Id: 51_RPI_GPIO.pm 16687 2018-05-04 19:02:38Z klausw $
+# $Id: 51_RPI_GPIO.pm 19785 2019-07-05 21:39:13Z klausw $
 # 51_RPI_GPIO.pm
 #
 ##############################################################################
@@ -696,7 +696,6 @@ sub RPI_GPIO_inthandling($$) {		#start/stop Interrupthandling
 
 <a name="RPI_GPIO"></a>
 <h3>RPI_GPIO</h3>
-(en | <a href="commandref_DE.html#RPI_GPIO">de</a>)
 <ul>
 	<a name="RPI_GPIO"></a>
 		Raspberry Pi offers direct access to several GPIO via header P1 (and P5 on V2). The Pinout is shown in table under define. 
@@ -789,7 +788,7 @@ sub RPI_GPIO_inthandling($$) {		#start/stop Interrupthandling
     </li>
     <li>active_low<br>
       Inverts logical value<br>
-      Default: off, valid values: on, off<br><br>
+      Default: no, valid values: no, yes<br><br>
     </li>    
     <li>interrupt<br>
       <b>can only be used with GPIO configured as input</b><br>
@@ -842,7 +841,6 @@ sub RPI_GPIO_inthandling($$) {		#start/stop Interrupthandling
 
 <a name="RPI_GPIO"></a>
 <h3>RPI_GPIO</h3>
-(<a href="commandref.html#RPI_GPIO">en</a> | de)
 <ul>
   <a name="RPI_GPIO"></a>
     Das Raspberry Pi erm&ouml;glicht direkten Zugriff zu einigen GPIO's &uuml;ber den Pfostenstecker P1 (und P5 bei V2). Die Steckerbelegung ist in den Tabellen unter Define zu finden.
@@ -935,7 +933,7 @@ sub RPI_GPIO_inthandling($$) {		#start/stop Interrupthandling
     </li>
     <li>active_low<br>
       Invertieren des logischen Wertes<br>
-      Standard: off, g&uuml;ltige Werte: on, off<br><br>
+      Standard: no, g&uuml;ltige Werte: no, yes<br><br>
     </li>  
     <li>interrupt<br>
       <b>kann nur gew&auml;hlt werden, wenn der GPIO als Eingang konfiguriert ist</b><br>

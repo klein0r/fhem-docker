@@ -1,5 +1,5 @@
 #############################################
-# $Id: 98_DOIF.pm 19303 2019-05-01 08:47:16Z Damian $
+# $Id: 98_DOIF.pm 19786 2019-07-05 21:47:08Z Damian $
 #
 # This file is part of fhem.
 #
@@ -2097,7 +2097,7 @@ sub CheckiTimerDoIf($$$) {
   my $found;
   return 1 if ($itimer =~ /\[$device(\]|,.+\])/);
   for (my $j = 0; $j < $max; $j++) {
-    if ($eventa->[$j] =~ "^(.+): ") {
+    if ($eventa->[$j] =~ "^([^:]+): ") {
       $found = ($itimer =~ /\[$device:$1(\]|:.+\]|,.+\])/);
       if ($found) {
         return 1;

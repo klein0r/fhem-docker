@@ -1,6 +1,6 @@
 =for comment
 
-# $Id: 98_fheminfo.pm 18323 2019-01-18 19:37:39Z betateilchen $
+# $Id: 98_fheminfo.pm 19895 2019-07-24 17:32:31Z betateilchen $
 
 This script free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -131,8 +131,11 @@ sub _fi2_Count() {
 # 7. skip for some special cases found in database
       next if ( ($model =~ /^unkno.*/i) || 
                 ($model =~ /virtual.*/i) || 
+                ($model =~ m/\berror\b/i) ||
+                ($model =~ m/^<.*>$/) ||
                 ($model eq '?') || 
                 ($model eq '1') || 
+#                (length($model) > 80) ||
                 (defined($defs{$key}{'chanNo'})) ||
                 ($name =~ m/^unknown_/) );
 
@@ -251,6 +254,8 @@ sub _fi2_findRev() {
 sub _fi2_zwave($) {
   my ($zwave) = @_;
 
+  local *getVal = sub { return $_[0] =~ m/$_[1]\s*=\s*"([^"]*)"/ ? $1 : "unknown" };
+
   my ($mf, $prod, $id) = split(/-/,$zwave);
   ($mf, $prod, $id) = (lc($mf), lc($prod), lc($id)); # Just to make it sure
 
@@ -261,17 +266,23 @@ sub _fi2_zwave($) {
 
   my ($lastMf, $mName, $ret) = ("","");
   foreach my $l (@data) {
-    if($l =~ m/<Manufacturer.*id="([^"]*)".*name="([^"]*)"/) {
-      $lastMf = lc($1);
-      $mName = $2;
+
+    if($l =~ m/<Manufacturer/) {
+      $lastMf = lc(getVal($l, "id"));
+      $mName = getVal($l, "name");
       next;
     }
-    if($l =~ m/<Product type\s*=\s*"([^"]*)".*id\s*=\s*"([^"]*)".*name\s*=\s*"([^"]*)"/) {
-      if($mf eq $lastMf && $prod eq lc($1) && $id eq lc($2)) {
-        $ret = "$mName $3";
+
+    if($l =~ m/<Product/) {
+      my $lId = lc(getVal($l, "id"));
+      my $lProd = lc(getVal($l, "type"));
+      if($mf eq $lastMf && $prod eq $lProd && $id eq $lId) {
+        my $pName = getVal($l, "name");
+        $ret = "$mName $pName";
         last;
       }
     }
+
   }
   return $ret if($ret);
   return $zwave;

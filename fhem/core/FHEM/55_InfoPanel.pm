@@ -1,4 +1,4 @@
-# $Id: 55_InfoPanel.pm 16791 2018-05-28 09:19:51Z betateilchen $
+# $Id: 55_InfoPanel.pm 19497 2019-05-30 15:28:41Z betateilchen $
 
 =for comment
 ##############################################
@@ -61,7 +61,7 @@
 # 2016-09-04 - 12114 - added:   movecalculated
 #
 # 2018-05-06 - 16695 - changed: check plotName exists
-# 2018-05-28 - $Rev: 16791 $ - changed: remove misleading link in commandref
+# 2018-05-28 - $Rev: 19497 $ - changed: remove misleading link in commandref
 #
 ##############################################
 =cut
@@ -1430,7 +1430,8 @@ sub btIP_HTMLHead {
 
   my $r       = (defined($refresh) && $refresh) ? "<meta http-equiv=\"refresh\" content=\"$refresh\"/>" : "";
   my $scripts = btIP_getScript($name);
-  my $meta    = "<meta charset=\"UTF-8\">";
+  my $meta    = "<meta charset=\"UTF-8\">"."\n";
+     $meta   .= "<meta name=\"google\" content=\"notranslate\">";
   my $code    = "$doctype\n<html $xmlns>\n<head>\n<title>$title</title>\n$meta\n$r\n$viewport\n$webApp\n$scripts</head>\n";
   return $code;
 }

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 90_SIGNALduino_un.pm 18676 2019-02-20 21:46:10Z Sidey $
+# $Id: 90_SIGNALduino_un.pm 19858 2019-07-19 18:16:55Z Sidey $
 #
 # The file is part of the SIGNALduino project
 # see http://www.fhemwiki.de/wiki/SIGNALduino to support debugging of unknown signal data
@@ -166,35 +166,6 @@ SIGNALduino_un_Parse($$)
 		Log3 $hash, 4, "$name decoded protocolid: 7 ($SensorTyp / type=$type) mode=$sendMode, sensor id=$id, channel=$channel, temp=$temp, bat=$bat\n" ;
 
 
-	} elsif ($protocol == "78" && length($bitData)>=14)  ## geiger rohrmotor
-	{
-		my %bintotristate=(
- 		 	"00" => "0",
-		 	"10" => "F",
- 		 	"11" => "1"
-		);
-	  
-		my $tscode;
-		for (my $n=0; $n<length($bitData); $n=$n+2) {
-	      $tscode = $tscode . $bintotristate{substr($bitData,$n,2)};
-	    }
-			
-		
-		Log3 $hash, 4, "geiger message converted to tristate code: " . $tscode;
-		#Dispatch($hash, $tscode,undef);
-
-		
-	}	elsif ($protocol == "88" && length($rawData) == 17) {
-		my $serial = substr($bitData,32,28);
-		my $buttonbits = substr($bitData,60,4);
-		
-		my %buttons = (
- 		 	"0010" => "hoch",
-		 	"1001" => "runter",
- 		 	"1000" => "stop"
-		);
-		
-		Log3 $hash, 4, "$name: Roto shutter - Serialbits=$serial Serial=".oct( "0b$serial" )." Buttonbits=$buttonbits Button=$buttons{$buttonbits}";
 	}
 	
 	##############################################################################################

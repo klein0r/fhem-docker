@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_MQTT2_DEVICE.pm 19262 2019-04-25 07:50:19Z rudolfkoenig $
+# $Id: 10_MQTT2_DEVICE.pm 19709 2019-06-25 10:54:12Z rudolfkoenig $
 package main;
 
 use strict;
@@ -172,7 +172,7 @@ MQTT2_DEVICE_Parse($$)
       my $cidExpr = $bp->{$re}{name};
       $newCid = eval $cidExpr;
       if($@) {
-        Log 1, "MQTT2_DEVICE: Error evaluating $cidExpr: $@";
+        Log 1, "MQTT2_DEVICE: Error evaluating bridgeRegexp >$cidExpr<: $@";
         return "";
       }
       $parentBridge = $bp->{$re}{parent};
@@ -657,12 +657,14 @@ MQTT2_DEVICE_nlData($)
 
       $h{$n}{title} = $v;
       $fo = $n if(!$fo);
-      my @a;
-      $h{$n}{neighbors} = \@a;
+      my @a; $h{$n}{neighbors} = \@a;
+      my @b; $h{$n}{neighborstyles} = \@b;
 
-    } elsif($l =~ m/^\s*"([^"]+)"\s*->\s*"([^"]+)"\s\[label="([^"]*)"/) {
-      push @{$h{$1}{neighbors}}, $2;
-      $h{$1}{title} .= "${div}lqi:$3";
+    } elsif($l =~ m/^\s*"([^"]+)"\s*->\s*"([^"]+)".*label="([^"]*)"/) {
+      my ($from,$to,$title) = ($1,$2,$3);
+      push @{$h{$from}{neighbors}}, $to;
+      $h{$from}{title} .= "${div}lqi:$title";
+      push @{$h{$from}{neighborstyles}}, ($l =~ m/style="([^"]+)"/ ? $1 : "");
     }
   }
 
@@ -672,13 +674,15 @@ MQTT2_DEVICE_nlData($)
 
   for my $k (keys %h) {
     my $n = $h{$k}{neighbors};
+    my $ns = $h{$k}{neighborstyles};
     push @ret, '"'.$k.'":{'.
         '"class":"'.$h{$k}{class}.' col_link col_oddrow",'.
         '"img":"'.$h{$k}{img}.'",'.
         '"txt":"'.$h{$k}{txt}.'",'.
         '"title":"'.$h{$k}{title}.'",'.
         '"pos":['.($dp{$k} ? $dp{$k} : '').'],'.
-        '"neighbors":['. (@{$n} ? ('"'.join('","',@{$n}).'"'):'').']}';
+        '"neighbors":['. (@{$n} ? ('"'.join('","',@{$n}).'"'):'').'],'.
+        '"neighborstyles":['. (@{$ns} ? ('"'.join('","',@{$ns}).'"'):'').']}';
   }
 
   my $r = '{"firstObj":"'.$fo.'","el":{'.join(",",@ret).'},'.
@@ -733,8 +737,10 @@ zigbee2mqtt_devStateIcon255($;$$)
     $s = sprintf("dim%02d%%", int((1+int($pct/18))*6.25));
   }
 
-  my $rgb = ReadingsVal($name, $rgbReadingName, "FFFFFF");
-  $s .= "@#$rgb" if($rgb ne "FFFFFF");
+  if($rgbReadingName) {
+    my $rgb = ReadingsVal($name, $rgbReadingName, "FFFFFF");
+    $s .= "@#$rgb" if($rgb ne "FFFFFF");
+  }
 
   return ".*:$s:toggle";
 }

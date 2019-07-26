@@ -1,12 +1,11 @@
 ###############################################################################
-# $Id: 20_ROOMMATE.pm 19327 2019-05-04 19:00:11Z loredo $
+# $Id: 20_ROOMMATE.pm 19533 2019-06-02 19:33:11Z loredo $
 package main;
 use strict;
 use warnings;
-use Data::Dumper;
-use Time::Local;
+use POSIX;
 
-require RESIDENTStk;
+use RESIDENTStk;
 our ( @RESIDENTStk_attr, %RESIDENTStk_subTypes );
 
 # initialize ##################################################################
@@ -26,7 +25,7 @@ sub ROOMMATE_Initialize($) {
         "disable:1,0 disabledForIntervals do_not_notify:1,0 "
       . "rr_states:multiple-strict,home,gotosleep,asleep,awoken,absent,gone "
       . "subType:"
-      . join( ',', @{ $RESIDENTStk_subTypes{ROOMMATE} } ) . " "
+      . join( ',', @{ $RESIDENTStk_subTypes{en}{ROOMMATE} } ) . " "
       . $readingFnAttributes;
 
     foreach (@RESIDENTStk_attr) {

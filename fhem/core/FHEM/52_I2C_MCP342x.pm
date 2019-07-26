@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 52_I2C_MCP342x.pm 17863 2018-11-27 23:28:39Z klausw $
+# $Id: 52_I2C_MCP342x.pm 19551 2019-06-04 20:10:50Z klausw $
 
 package main;
 
@@ -344,7 +344,6 @@ sub I2C_MCP342x_readvoltage($@) {
 
 <a name="I2C_MCP342x"></a>
 <h3>I2C_MCP342x</h3>
-(en | <a href="commandref_DE.html#I2C_MCP342x">de</a>)
 <ul>
 	<a name="I2C_MCP342x"></a>
 		Provides an interface to the MCP3422/3/4 A/D converter.
@@ -404,7 +403,6 @@ sub I2C_MCP342x_readvoltage($@) {
 
 <a name="I2C_MCP342x"></a>
 <h3>I2C_MCP342x</h3>
-(<a href="commandref.html#I2C_MCP342x">en</a> | de)
 <ul>
 	<a name="I2C_MCP342x"></a>
 		Erm&ouml;glicht die Verwendung eines MCP3422/3/4 I2C A/D Wandler.

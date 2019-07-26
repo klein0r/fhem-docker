@@ -18,7 +18,7 @@ a img { border: none; }
 article, aside, details, figcaption, figure, footer, header, hgroup, main, menu, nav, section, summary { display: block; }
 
 #logo { background: url(../hausautomatisierung-com/images/haus_automatisierung.png) no-repeat; height: 120px; margin-left: 40px; margin-top: 10px; position: fixed; width: 220px; top: 0; left: 0; }
-#logo:after { color: #e56524; content: "2.10"; opacity: 0.7; }
+#logo:after { color: #e56524; content: "2.11"; opacity: 0.7; }
 
 body { background: #354d69 url(../hausautomatisierung-com/images/bg_wrapper.jpg) no-repeat center 0 fixed; color: #fff; font-family: 'Open Sans', sans-serif; font-size: 14px; margin: 0 auto; padding: 0; tab-size: 4; }
 

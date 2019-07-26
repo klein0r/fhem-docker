@@ -28,7 +28,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 74_GardenaSmartDevice.pm 19245 2019-04-23 10:46:50Z CoolTux $
+# $Id: 74_GardenaSmartDevice.pm 19641 2019-06-18 14:47:13Z CoolTux $
 #
 ###############################################################################
 ##
@@ -53,15 +53,135 @@
 ##
 ##
 
-package main;
+## unserer packagename
+package FHEM::GardenaSmartDevice;
+
+use GPUtils qw(GP_Import)
+  ;    # wird für den Import der FHEM Funktionen aus der fhem.pl benötigt
+
+my $missingModul = "";
 
 use strict;
 use warnings;
+use POSIX;
 use FHEM::Meta;
+use Time::Local;
+our $VERSION = '1.6.5';
 
-my $version = "1.6.1";
+# try to use JSON::MaybeXS wrapper
+#   for chance of better performance + open code
+eval {
+    require JSON::MaybeXS;
+    import JSON::MaybeXS qw( decode_json encode_json );
+    1;
+};
 
-sub GardenaSmartDevice_Initialize($) {
+if ($@) {
+    $@ = undef;
+
+    # try to use JSON wrapper
+    #   for chance of better performance
+    eval {
+
+        # JSON preference order
+        local $ENV{PERL_JSON_BACKEND} =
+          'Cpanel::JSON::XS,JSON::XS,JSON::PP,JSON::backportPP'
+          unless ( defined( $ENV{PERL_JSON_BACKEND} ) );
+
+        require JSON;
+        import JSON qw( decode_json encode_json );
+        1;
+    };
+
+    if ($@) {
+        $@ = undef;
+
+        # In rare cases, Cpanel::JSON::XS may
+        #   be installed but JSON|JSON::MaybeXS not ...
+        eval {
+            require Cpanel::JSON::XS;
+            import Cpanel::JSON::XS qw(decode_json encode_json);
+            1;
+        };
+
+        if ($@) {
+            $@ = undef;
+
+            # In rare cases, JSON::XS may
+            #   be installed but JSON not ...
+            eval {
+                require JSON::XS;
+                import JSON::XS qw(decode_json encode_json);
+                1;
+            };
+
+            if ($@) {
+                $@ = undef;
+
+                # Fallback to built-in JSON which SHOULD
+                #   be available since 5.014 ...
+                eval {
+                    require JSON::PP;
+                    import JSON::PP qw(decode_json encode_json);
+                    1;
+                };
+
+                if ($@) {
+                    $@ = undef;
+
+                    # Fallback to JSON::backportPP in really rare cases
+                    require JSON::backportPP;
+                    import JSON::backportPP qw(decode_json encode_json);
+                    1;
+                }
+            }
+        }
+    }
+}
+
+## Import der FHEM Funktionen
+#-- Run before package compilation
+BEGIN {
+
+    # Import from main context
+    GP_Import(
+        qw(readingsSingleUpdate
+          readingsBulkUpdate
+          readingsBulkUpdateIfChanged
+          readingsBeginUpdate
+          readingsEndUpdate
+          Log3
+          CommandAttr
+          AttrVal
+          ReadingsVal
+          readingFnAttributes
+          AssignIoPort
+          modules
+          IOWrite
+          defs
+          makeDeviceName)
+    );
+}
+
+# _Export - Export references to main context using a different naming schema
+sub _Export {
+    no strict qw/refs/;    ## no critic
+    my $pkg  = caller(0);
+    my $main = $pkg;
+    $main =~ s/^(?:.+::)?([^:]+)$/main::$1\_/g;
+    foreach (@_) {
+        *{ $main . $_ } = *{ $pkg . '::' . $_ };
+    }
+}
+
+#-- Export to main context with different name
+_Export(
+    qw(
+      Initialize
+      )
+);
+
+sub Initialize($) {
 
     my ($hash) = @_;
 
@@ -75,54 +195,17 @@ sub GardenaSmartDevice_Initialize($) {
     $hash->{AttrFn} = "FHEM::GardenaSmartDevice::Attr";
     $hash->{AttrList} =
         "readingValueLanguage:de,en "
-      . "model:watering_computer,sensor,mower,ic24,power "
+      . "model:watering_computer,sensor,mower,ic24,power,electronic_pressure_pump "
       . "IODev "
       . $readingFnAttributes;
 
     foreach my $d ( sort keys %{ $modules{GardenaSmartDevice}{defptr} } ) {
 
         my $hash = $modules{GardenaSmartDevice}{defptr}{$d};
-        $hash->{VERSION} = $version;
+        $hash->{VERSION} = $VERSION;
     }
-    
+
     return FHEM::Meta::InitMod( __FILE__, $hash );
-}
-
-## unserer packagename
-package FHEM::GardenaSmartDevice;
-
-use GPUtils qw(GP_Import)
-  ;    # wird für den Import der FHEM Funktionen aus der fhem.pl benötigt
-
-my $missingModul = "";
-
-use strict;
-use warnings;
-use POSIX;
-use FHEM::Meta;
-
-use Time::Local;
-
-eval "use JSON;1" or $missingModul .= "JSON ";
-
-## Import der FHEM Funktionen
-BEGIN {
-    GP_Import(
-        qw(readingsSingleUpdate
-          readingsBulkUpdate
-          readingsBulkUpdateIfChanged
-          readingsBeginUpdate
-          readingsEndUpdate
-          Log3
-          CommandAttr
-          AttrVal
-          ReadingsVal
-          AssignIoPort
-          modules
-          IOWrite
-          defs
-          makeDeviceName)
-    );
 }
 
 sub Define($$) {
@@ -143,7 +226,7 @@ sub Define($$) {
     my $category = $a[3];
 
     $hash->{DEVICEID}                = $deviceId;
-    $hash->{VERSION}                 = $version;
+    $hash->{VERSION}                 = $VERSION;
     $hash->{helper}{STARTINGPOINTID} = '';
 
     CommandAttr( undef,
@@ -243,8 +326,17 @@ sub Set($@) {
           SetPredefinedStartPoints( $hash, @args );
         return $err if ( defined($err) );
 
-    ### watering_computer
     }
+    ### electronic_pressure_pump
+    elsif ( lc $cmd eq 'pumptimer' ) {
+
+        my $duration = join( " ", @args );
+
+        $payload =
+          '"name":"pump_manual_watering_timer","parameters":{"duration":'
+          . $duration . '}';
+    }
+    ### watering_computer
     elsif ( lc $cmd eq 'manualoverride' ) {
 
         my $duration = join( " ", @args );
@@ -256,13 +348,11 @@ sub Set($@) {
 
         $payload = '"name":"cancel_override"';
 
-        
     }
     elsif ( lc $cmd eq 'on' or lc $cmd eq 'off' or lc $cmd eq 'on-for-timer' ) {
-    
-        my $val = ( defined($args[0]) ? join(" ", @args)*60 : lc $cmd );
-        $payload =
-            '"properties":{"value":"' . $val . '"}';
+
+        my $val = ( defined( $args[0] ) ? join( " ", @args ) * 60 : lc $cmd );
+        $payload = '"properties":{"value":"' . $val . '"}';
     }
     ### Watering ic24
     elsif ( $cmd =~ /manualDurationValve/ ) {
@@ -281,9 +371,8 @@ sub Set($@) {
           . $duration
           . ',"valve_id":'
           . $valve_id . '}}';
-
-        ### Sensors
     }
+    ### Sensors
     elsif ( lc $cmd eq 'refresh' ) {
 
         my $sensname = join( " ", @args );
@@ -309,13 +398,20 @@ sub Set($@) {
         $list .=
 'parkUntilFurtherNotice:noArg parkUntilNextTimer:noArg startResumeSchedule:noArg startOverrideTimer:slider,0,60,1440 startpoint'
           if ( AttrVal( $name, 'model', 'unknown' ) eq 'mower' );
+
         $list .= 'manualOverride:slider,0,1,59 cancelOverride:noArg'
           if ( AttrVal( $name, 'model', 'unknown' ) eq 'watering_computer' );
+
+#         $list .= 'pumpTimer:slider,0,1,59'
+#           if ( AttrVal( $name, 'model', 'unknown' ) eq 'electronic_pressure_pump' );
+
         $list .=
 'manualDurationValve1:slider,1,1,59 manualDurationValve2:slider,1,1,59 manualDurationValve3:slider,1,1,59 manualDurationValve4:slider,1,1,59 manualDurationValve5:slider,1,1,59 manualDurationValve6:slider,1,1,59'
           if ( AttrVal( $name, 'model', 'unknown' ) eq 'ic24' );
+
         $list .= 'refresh:temperature,light,humidity'
           if ( AttrVal( $name, 'model', 'unknown' ) eq 'sensor' );
+
         $list .= 'on:noArg off:noArg on-for-timer:slider,0,1,60'
           if ( AttrVal( $name, 'model', 'unknown' ) eq 'power' );
 
@@ -331,6 +427,8 @@ sub Set($@) {
       if ( AttrVal( $name, 'model', 'unknown' ) eq 'ic24' );
     $abilities = 'power'
       if ( AttrVal( $name, 'model', 'unknown' ) eq 'power' );
+    $abilities = 'manual_watering'
+      if ( AttrVal( $name, 'model', 'unknown' ) eq 'electronic_pressure_pump' );
 
     $hash->{helper}{deviceAction} = $payload;
     readingsSingleUpdate( $hash, "state", "send command to gardena cloud", 1 );
@@ -351,7 +449,7 @@ sub Parse($$) {
     my $decode_json = eval { decode_json($json) };
     if ($@) {
         Log3 $name, 3,
-          "GardenaSmartBridge ($name) - JSON error while request: $@";
+          "GardenaSmartDevice ($name) - JSON error while request: $@";
     }
 
     Log3 $name, 4, "GardenaSmartDevice ($name) - ParseFn was called";
@@ -410,9 +508,7 @@ sub WriteReadings($$) {
                     $hash,
                     $decode_json->{abilities}[$abilities]{name} . '-'
                       . $propertie->{name},
-                    RigRadingsValue(
-                        $hash, $propertie->{value}
-                    )
+                    RigRadingsValue( $hash, $propertie->{value} )
                   )
                   if ( defined( $propertie->{value} )
                     and $decode_json->{abilities}[$abilities]{name} . '-'
@@ -435,9 +531,7 @@ sub WriteReadings($$) {
                     $hash,
                     $decode_json->{abilities}[$abilities]{name} . '-'
                       . $propertie->{name},
-                    RigRadingsValue(
-                        $hash, $propertie->{value}
-                    )
+                    RigRadingsValue( $hash, $propertie->{value} )
                   )
                   if (
                     defined( $propertie->{value} )
@@ -562,14 +656,10 @@ sub WriteReadings($$) {
             )
           )
     ) if ( AttrVal( $name, 'model', 'unknown' ) eq 'ic24' );
-    
-    readingsBulkUpdate(
-        $hash, 'state',
-        ReadingsVal(
-                $name, 'power-power_timer',
-                'no info from power-timer'
-            )
-    ) if ( AttrVal( $name, 'model', 'unknown' ) eq 'power' );
+
+    readingsBulkUpdate( $hash, 'state',
+        ReadingsVal( $name, 'power-power_timer', 'no info from power-timer' ) )
+      if ( AttrVal( $name, 'model', 'unknown' ) eq 'power' );
 
     readingsEndUpdate( $hash, 1 );
 
@@ -709,8 +799,7 @@ sub RigRadingsValue($$) {
         $rigReadingValue = Zulu2LocalString($readingValue);
     }
     else {
-        $rigReadingValue =
-          ReadingLangGerman( $hash, $readingValue );
+        $rigReadingValue = ReadingLangGerman( $hash, $readingValue );
     }
 
     return $rigReadingValue;

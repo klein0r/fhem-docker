@@ -1,5 +1,5 @@
 "use strict";
-FW_version["zwave_neighborlist.js"] = "$Id: zwave_neighborlist.js 18056 2018-12-26 10:12:47Z rudolfkoenig $";
+FW_version["zwave_neighborlist.js"] = "$Id: zwave_neighborlist.js 19826 2019-07-14 09:51:37Z rudolfkoenig $";
 
 var zw_visible;
 var svgns = 'xmlns="http://www.w3.org/2000/svg"';
@@ -96,7 +96,7 @@ zw_draw(fnRet, width, height)
   for(var o in h) {
     if(h[o].txt && h[o].neighbors)
       for(var i1=0; i1<h[o].neighbors.length; i1++)
-        svg += zw_drawline(ld, h, o, h[o].neighbors[i1]);
+        svg += zw_drawline(ld, h, o, i1);
   }
   for(var o in h)
     if(h[o].txt)
@@ -179,8 +179,10 @@ zw_calcPos(o, n)
 }
 
 function
-zw_drawline(ld, h, o, n)
+zw_drawline(ld, h, o, i1)
 {
+  var n = h[o].neighbors[i1];
+  var ns = (h[o].neighborstyles ? h[o].neighborstyles[i1] : "")
   if(!h[o] || !h[n])
     return "";
   var bidi = false;
@@ -199,7 +201,7 @@ zw_drawline(ld, h, o, n)
   h[n].lines.push(cl);
   var fr = zw_calcPos(h[o], h[n]);
   var to = zw_calcPos(h[n], h[o]);
-  return '<line class="zwLine col_link" data-name="'+cl+
+  return '<line class="zwLine col_link '+ns+'" data-name="'+cl+
                '" x1="'+fr.x+'" y1="'+fr.y+
                '" x2="'+to.x+'" y2="'+to.y+'"'+
                  ' marker-end="url(#endarrow)"'+

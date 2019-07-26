@@ -1,5 +1,5 @@
 ##############################################################################
-# $Id: 74_UnifiSwitch.pm 18717 2019-02-24 17:53:04Z wuehler $
+# $Id: 74_UnifiSwitch.pm 19448 2019-05-22 20:13:24Z wuehler $
 # 74_UnifiSwitch.pm
 
 # CHANGED
@@ -21,12 +21,14 @@
 # - fixed:   74_UnififSwitch: fixed possible log-error in eq in line 135
 # V 0.93
 # - bugfix:  74_UnififSwitch: fixed poe restart
+# V 0.0.94
+# - feature: 74_UnififSwitch: supports new module UnifiClient
 # 
 # TODOs:
 # - state des USW für weiter state-Numbers korrekt in Worte übersetzen 
 
 package main;
-my $version="0.93";
+my $version="0.0.94";
 # Laden evtl. abhängiger Perl- bzw. FHEM-Module
 use strict;
 use warnings;
@@ -66,7 +68,7 @@ sub UnifiSwitch_Define($$) {
     my ( $hash, $def) = @_;
 	my @a = split("[ \t][ \t]*", $def);
 	my $name = $a[0];
-    Log3 $name, 3, "UnifiSwitch_Define - executed. 0 ";
+    Log3 $name, 5, "UnifiSwitch_Define - executed. 0 ";
 	# zweites Argument ist die eindeutige Geräteadresse
 	my $address = $a[2];
     
@@ -149,22 +151,22 @@ sub UnifiSwitch_Set($@){
 
       if( $setVal2 eq 'off' ) {
         $port_overrides->[$idx]{poe_mode} = "off";
-        IOWrite($hash, "Unifi_RestJson_Send", $apRef->{device_id}, $port_overrides);
+        IOWrite($hash, "Unifi_DeviceRestJson_Send", $apRef->{device_id}, $port_overrides);
 
       } elsif( $setVal2 eq 'auto' || $setVal2 eq 'poe+' ) {
         #return "port $setVal not auto poe capable" if( @{$apRef->{port_table}}[$setVal-1]->{poe_caps} & 0x03 ) ;
         $port_overrides->[$idx]{poe_mode} = "auto";
-        IOWrite($hash, "Unifi_RestJson_Send", $apRef->{device_id}, $port_overrides );
+        IOWrite($hash, "Unifi_DeviceRestJson_Send", $apRef->{device_id}, $port_overrides );
 
       } elsif( $setVal2 eq 'passive' ) {
         #return "port $setVal not passive poe capable" if( @{$apRef->{port_table}}[$setVal-1]->{poe_caps} & 0x04 ) ;
         $port_overrides->[$idx]{poe_mode} = "pasv24";
-        IOWrite($hash, "Unifi_RestJson_Send", $apRef->{device_id}, $port_overrides);
+        IOWrite($hash, "Unifi_DeviceRestJson_Send", $apRef->{device_id}, $port_overrides);
 
       } elsif( $setVal2 eq 'passthrough' ) {
         #return "port $setVal not passthrough poe capable" if( @{$apRef->{port_table}}[$setVal-1]->{poe_caps} & 0x08 ) ;
         $port_overrides->[$idx]{poe_mode} = "passthrough";
-        IOWrite($hash, "Unifi_RestJson_Send", $apRef->{device_id}, $port_overrides);
+        IOWrite($hash, "Unifi_DeviceRestJson_Send", $apRef->{device_id}, $port_overrides);
 
       } elsif( $setVal2 eq 'restart' ) {#TODO: Was wir hier gemacht? Funktioniert das noch?
         IOWrite($hash, "Unifi_ApJson_Send", $apRef->{device_id}, {cmd => 'power-cycle', mac => $apRef->{mac}, port_idx => $setVal});
@@ -278,7 +280,7 @@ sub UnifiSwitch_Parse($$) {
 	else{
 		# Keine Gerätedefinition verfügbar
 		# Daher Vorschlag define-Befehl: <NAME> <MODULNAME> <ADDRESSE>
-        Log3 $name, 3, "$name ($self) - return: UNDEFINED UnifiSwitch_".$address." UnifiSwitch $address";
+        Log3 $name, 4, "$name ($self) - return: UNDEFINED UnifiSwitch_".$address." UnifiSwitch $address";
 		return "UNDEFINED ".$address." UnifiSwitch $address";
 	}
 }

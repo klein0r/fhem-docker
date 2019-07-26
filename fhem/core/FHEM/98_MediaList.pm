@@ -1,6 +1,6 @@
 
 ##############################################
-# $Id: 98_MediaList.pm 17958 2018-12-12 10:55:37Z Tobias.Faust $
+# $Id: 98_MediaList.pm 19378 2019-05-12 13:41:34Z Tobias.Faust $
 #
 # 98_MediaList.pm
 #
@@ -43,7 +43,7 @@ use IO::File;
 use Fcntl;
 use File::Basename;
 use File::Copy;
-use Math::Round qw/round/;
+use Math::Round ();
 require 'Blocking.pm';
 require 'HttpUtils.pm';
 use vars qw($readingFnAttributes);
@@ -582,7 +582,7 @@ sub MediaList_GetMP3Tags($$) {
     utf8::encode($album);
     utf8::encode($comment);
 
-    $res = {"Artist" => $artist, "Title" => $title, "Album" => $album, "Time" => round($mp3info->{SECS}), "File" => $file, "Cover" => ""};
+    $res = {"Artist" => $artist, "Title" => $title, "Album" => $album, "Time" => math::round($mp3info->{SECS}), "File" => $file, "Cover" => ""};
     Log3  $hash, 5, "GetMP3Tags: ".Dumper($res);
 
     return $res;

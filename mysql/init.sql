@@ -18,9 +18,9 @@ CREATE TABLE history (
     READING varchar(64),
     VALUE varchar(255),
     UNIT varchar(32),
-    KEY `IDX_HISTORY` (`DEVICE`,`READING`,`TIMESTAMP`,`VALUE`),
-    KEY `IDX_DEVICE` (`DEVICE`,`READING`),
-    KEY `IDX_REPORT` (`TIMESTAMP`,`READING`) USING BTREE
+    KEY `Search_Idx` (`DEVICE`,`READING`,`TIMESTAMP`,`VALUE`),
+    KEY `Device_Idx` (`DEVICE`,`READING`),
+    KEY `Report_Idx` (`TIMESTAMP`,`READING`) USING BTREE
 );
 
 CREATE TABLE current (

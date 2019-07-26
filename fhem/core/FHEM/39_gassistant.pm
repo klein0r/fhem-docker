@@ -99,6 +99,11 @@ gassistant_Define($$)
     CommandAttr(undef, "$name devStateIcon stopped:control_home\@red:start stopping:control_on_off\@orange running.*:control_on_off\@green:stop")
   }
 
+  if( !AttrVal($name, 'room', undef ) ) {
+    $attr{$hash->{NAME}}{room} = "GoogleAssistant";
+  }
+
+
   $hash->{CoProcess} = {  name => 'gassistant-fhem',
                          cmdFn => 'gassistant_getCMD',
                        };
@@ -116,7 +121,7 @@ gassistant_Define($$)
 
 sub
 gassistant_Notify($$)
-{ 
+{
   my ($hash,$dev) = @_;
    
   return if($dev->{NAME} ne "global");
@@ -365,6 +370,7 @@ gassistant_configDefault($;$)
   Log3 $name, 2, "$name: created default configfile: $configfile";
 
   CommandAttr(undef, "$name gassistantFHEM-config $configfile") if( !AttrVal($name, 'gassistantFHEM-config', undef ) );
+  CommandAttr(undef, "$name nrarchive 10") if( !AttrVal($name, 'nrarchive', undef ) );
 
   CommandSave(undef,undef) if( AttrVal( "autocreate", "autosave", 1 ) );
 
@@ -509,6 +515,15 @@ gassistant_Set($$@)
     return "usage: set $name $cmd <authcode>" if( !@args );
     my $authcode = $args[0];
 
+    #create dummy on/off device
+    if (!$main::defs{'GoogleAssistant_dummy'}) {
+      CommandDefine(undef, "GoogleAssistant_dummy dummy");
+      CommandAttr(undef, "GoogleAssistant_dummy alias Testlight");
+      CommandAttr(undef, "GoogleAssistant_dummy genericDeviceType light");
+      CommandAttr(undef, "GoogleAssistant_dummy setList on off");
+      CommandAttr(undef, "GoogleAssistant_dummy room GoogleAssistant");
+    }
+
     $hash->{".triggerUsed"} = 1;
 
     DoTrigger( $name, "authcode: $authcode" );
@@ -557,6 +572,9 @@ gassistant_Set($$@)
     return undef;
   } elsif( $cmd eq 'start' || $cmd eq 'stop' || $cmd eq 'restart' ) {
     setKeyValue('gassistantFHEM.loginURL', '' );
+    if ($cmd eq 'start') {
+      readingsSingleUpdate($hash, 'gassistant-fhem-connection', 'starting...', 1 );
+    }
     readingsSingleUpdate($hash, 'gassistantFHEM.loginURL', 'Waiting for login url from gassistant-fhem', 1 );
   }
 
@@ -745,17 +763,15 @@ gassistant_Attr($$$)
   <b>Set</b>
   <ul>
     <li>reload<br>
-      Reloads the device <code>name</code> or all devices in gassistant-fhem.
-      Will try to send a proacive event to amazon. If this succedes no manual device discovery is needed.
-      If this fails you have to you have to manually start a device discovery
-      for the home automation skill in the amazon gassistant app.</li>
+      Reloads the devices and sends them to Google.
+      </li>
 
     <li>createDefaultConfig<br>
-    adds the default config for the sshproxy to the existing config file or creates a new config file. sets the
+    creates a default gassistant-fhem.cfg file
     gassistantFHEM-config attribut if not already set.</li>
 
     <li>clearCredentials<br>
-    clears all stored sshproxy credentials</li>
+    clears all stored credentials</li>
     
     <li>unregister<br>
     unregister and delete all data in FHEM Connect</li>
