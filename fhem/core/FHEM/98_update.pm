@@ -1,5 +1,5 @@
 ################################################################
-# $Id: 98_update.pm 19835 2019-07-15 18:41:17Z rudolfkoenig $
+# $Id: 98_update.pm 20778 2019-12-18 17:46:44Z rudolfkoenig $
 
 package main;
 use strict;
@@ -28,6 +28,7 @@ my $upd_running;
 
 eval "require IO::Socket::SSL";  # Forum #74387
 my $upd_hasSSL = $@ ? 0 : 1;
+my $upd_wantSSL;
 
 ########################################
 sub
@@ -35,8 +36,8 @@ update_Initialize($$)
 {
   my %hash = (
     Fn  => "CommandUpdate",
-    Hlp => "[<fileName>|all|check|checktime|force] [http://.../controlfile],".
-                "update FHEM",
+    Hlp => "[-noSSL] [<fileName>|all|check|checktime|force] ".
+                "[http://.../controlfile],update FHEM",
   );
   $cmds{update} = \%hash;
 }
@@ -50,6 +51,13 @@ CommandUpdate($$)
 
   my $err = upd_metainit(0);
   return $err if($err);
+
+  if($args[0] && $args[0] eq "-noSSL") {
+    shift @args;
+    $upd_wantSSL = 0;
+  } else {
+    $upd_wantSSL = 1;
+  }
 
   if($args[0] &&
      ($args[0] eq "list" ||
@@ -240,6 +248,8 @@ doUpdate($$$$)
   my ($curr, $max, $src, $arg) = @_;
   my ($basePath, $ctrlFileName);
   $src =~ s'^http://fhem\.de'https://fhem.de' if($upd_hasSSL);
+  $src =~ s'^https://'http://' if(!$upd_wantSSL);
+  uLog 1, "Downloading $src";
   if($src !~ m,^(.*)/([^/]*)$,) {
     uLog 1, "Cannot parse $src, probably not a valid http control file";
     return;
@@ -285,7 +295,7 @@ doUpdate($$$$)
   my %lh;
   foreach my $l (@locList) {
     my @l = split(" ", $l, 4);
-    next if($l[0] ne "UPD");
+    next if($l[0] ne "UPD" && $l[0] ne "CRE");
     $lh{$l[3]}{TS} = $l[1];
     $lh{$l[3]}{LEN} = $l[2];
   }
@@ -311,8 +321,10 @@ doUpdate($$$$)
   my $isSingle = ($arg ne "all" && $arg ne "force"  && !$isCheck);
   foreach my $r (@remList) {
     my @r = split(" ", $r, 4);
+    my $cmd = $r[0];
+    next if(!defined($cmd));
 
-    if($r[0] eq "MOV" && ($arg eq "all" || $arg eq "force")) {
+    if($cmd eq "MOV" && ($arg eq "all" || $arg eq "force")) {
       if($r[1] =~ m+\.\.+ || $r[2] =~ m+\.\.+) {
         uLog 1, "Suspicious line $r, aborting";
         return 1;
@@ -322,7 +334,7 @@ doUpdate($$$$)
       uLog 4, "mv $root/$r[1] $root/$r[2]". ($mvret ? " FAILED:$mvret":"");
     }
 
-    next if($r[0] ne "UPD");
+    next if($cmd ne "UPD" && $cmd ne "CRE");
     my $fName = $r[3];
     my $wouldExcl;
     foreach my $ex (@excl) {
@@ -342,9 +354,10 @@ doUpdate($$$$)
       my $isExcl = (!$isCheck && $wouldExcl);
       my $fPath = "$root/$fName";
       $fPath = $0 if($fPath =~ m/$mainPgm/);
-      my $fileOk = ($lh{$fName} &&
-                    $lh{$fName}{TS} eq $r[1] &&
-                    $lh{$fName}{LEN} eq $r[2]);
+      my $fileOk = ($lh{$fName} &&                  # local files exists and
+                    ($cmd eq "CRE" ||               # either file is create only
+                     ($lh{$fName}{TS} eq $r[1] &&   # or both TS and LEN is same
+                      $lh{$fName}{LEN} eq $r[2]))); # as the remote one
       if($isExcl && !$fileOk) {
         uLog 1, "update: skipping $fName, matches exclude_from_update";
         $nSkipped++;
@@ -356,7 +369,8 @@ doUpdate($$$$)
 
       } else {
         my $sz = -s $fPath;
-        next if($isExcl || ($fileOk && defined($sz) && $sz eq $r[2]));
+        next if($isExcl || 
+                ($fileOk && defined($sz) && ($cmd eq "CRE" || $sz eq $r[2])));
 
       }
     }
@@ -370,7 +384,7 @@ doUpdate($$$$)
     $nChanged++;
     my $sfx = ($arg eq "checktime" ? " $r[1]" : "");
     $sfx =~ s/_.*//;
-    uLog 1, "$r[0] $fName$sfx".
+    uLog 1, "$cmd $fName$sfx".
         ($isCheck && $wouldExcl ? " (excluded from update)" : "");
     next if($isCheck);
 
@@ -581,7 +595,7 @@ upd_writeFile($$$$)
 <a name="update"></a>
 <h3>update</h3>
 <ul>
-  <code>update [&lt;fileName&gt;|all|check|checktime|force]
+  <code>update [-noSSL] [&lt;fileName&gt;|all|check|checktime|force]
        [http://.../controlfile]</code>
   <br>or<br>
   <code>update [add source|delete source|list|reset]</code>
@@ -592,6 +606,9 @@ upd_writeFile($$$$)
   moddir/FHEM directory, and download each file where the attributes (timestamp
   and filelength) are different. Upon completion it triggers the global:UPDATE
   event.
+  <br>
+  -noSSL will use the http protocol instead of https, which might be necessary
+  for some older distributions with outdated ciphers.
   <br>
   With the commands add/delete/list/reset you can manage the list of
   controlfiles, e.g. for thirdparty packages.
@@ -675,18 +692,21 @@ upd_writeFile($$$$)
 <a name="update"></a>
 <h3>update</h3>
 <ul>
-  <code>update [&lt;fileName&gt;|all|check|checktime|force]
+  <code>update [-noSSL] [&lt;fileName&gt;|all|check|checktime|force]
         [http://.../controlfile]</code>
   <br>oder<br>
   <code>update [add source|delete source|list|reset]</code>
   <br>
   <br>
   Erneuert die FHEM Installation. D.h. es wird (werden) zuerst die
-  Kontroll-Datei(en) heruntergeladen, und mit der lokalen Version dieser Datei
+  Kontroll-Datei(en) heruntergeladen und mit der lokalen Version dieser Datei
   in moddir/FHEM verglichen. Danach werden alle in der  Kontroll-Datei
   spezifizierten Dateien heruntergeladen, deren Gr&ouml;&szlig;e oder
-  Zeitstempel sich unterscheidet. Wenn dieser Ablauf abgeschlossen ist, wird
+  Zeitstempel sich unterscheiden. Wenn dieser Ablauf abgeschlossen ist, wird
   das globale UPDATE Ereignis ausgel&ouml;st.
+  <br>
+  Mit -noSSL wird das http Protocol statt https verwendet, was bei bestimmten
+  veralteten Distributionen notwendig sein kann.
   <br>
   Mit den Befehlen add/delete/list/reset kann man die Liste der Kontrolldateien 
   pflegen.
@@ -696,16 +716,16 @@ upd_writeFile($$$$)
   <ul>
     <li>Das contrib Verzeichnis wird nicht heruntergeladen.</li>
     <li>Die Dateien werden auf der Webseite einmal am Tag um 07:45 MET/MEST aus
-        der Quell-Verwaltungssystem (SVN) bereitgestellt.</li>
+        dem Quell-Verwaltungssystem (SVN) bereitgestellt.</li>
     <li>Das all Argument ist die Voreinstellung.</li>
     <li>Das force Argument beachtet die lokale controls_fhem.txt Datei
         nicht.</li>
-    <li>Das check Argument zeigt die neueren Dateien an, und den letzten
+    <li>Das check Argument zeigt die neueren Dateien und den letzten
         Abschnitt aus der CHANGED Datei</li>
     <li>checktime zeigt zus&auml;tzlich zu check den update-Zeitstempel der
         neuen Datei, &uuml;blicherweise version Zeitstempel +1 Tag.
         </li>
-    <li>Falls man &lt;fileName&gt; spezifiziert, dann werden nur die Dateien
+    <li>Falls man &lt;fileName&gt; spezifiziert werden nur die Dateien
         heruntergeladen, die diesem Regexp entsprechen.</li>
   </ul>
   Siehe Befehl restore.<br>
@@ -724,10 +744,10 @@ upd_writeFile($$$$)
   <ul>
     <a name="updateInBackground"></a>
     <li>updateInBackground<br>
-        Wenn dieses Attribut gesetzt ist, wird das update Befehl in einem
-        separaten Prozess ausgef&uuml;hrt, und alle Meldungen werden per Event
+        Wenn dieses Attribut gesetzt ist, wird der update Befehl in einem
+        separaten Prozess ausgef&uuml;hrt und alle Meldungen werden per Event
         &uuml;bermittelt. In der telnet Sitzung wird inform, in FHEMWEB wird
-        das Event Monitor aktiviert. Die Voreinstellung ist an, zum
+        der Event Monitor aktiviert. Die Voreinstellung ist an, zum
         Deaktivieren bitte Attribut auf 0 setzen.
         </li><br>
 
@@ -735,7 +755,7 @@ upd_writeFile($$$$)
     <li>updateNoFileCheck<br>
         Wenn dieses Attribut gesetzt ist, wird die Gr&ouml;&szlig;e der bereits
         vorhandenen, lokalen Datei nicht mit der Sollgr&ouml;&szlig;e
-        verglichen. Dieses Attribut wurde nach nicht genau spezifizierten Wnsch
+        verglichen. Dieses Attribut wurde nach nicht genau spezifiziertem Wunsch
         erfahrener FHEM Benutzer eingefuehrt, die Voreinstellung ist 0.
         </li><br>
 
@@ -754,7 +774,7 @@ upd_writeFile($$$$)
     <a name="exclude_from_update"></a>
     <li>exclude_from_update<br>
         Enth&auml;lt eine Liste durch Leerzeichen getrennter Dateinamen
-        (regexp), welche nicht im update ber&uuml;cksichtigt werden.<br>
+        (Regexp), welche nicht beim update ber&uuml;cksichtigt werden.<br>
         Falls der Wert commandref enth&auml;lt, dann wird commandref_join.pl
         nach dem update nicht aufgerufen, d.h. die Gesamtdokumentation ist
         nicht mehr aktuell. Die Moduldokumentation bleibt weiterhin aktuell.

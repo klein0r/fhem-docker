@@ -1,5 +1,5 @@
 ################################################################
-# $Id: 98_JsonList2.pm 17230 2018-08-30 13:03:48Z rudolfkoenig $
+# $Id: 98_JsonList2.pm 20561 2019-11-22 19:59:14Z rudolfkoenig $
 ################################################################
 
 package main;
@@ -25,7 +25,7 @@ JsonList2_Escape($)
 {
   my $a = shift;
   return "null" if(!defined($a));
-  $a =~ s/([\x00-\x09\x0b-\x19\x5c])/sprintf '\u%04x', ord($1)/ge; # Forum 57377
+  $a =~ s/([\x00-\x09\x0b-\x1f\x5c])/sprintf '\u%04x', ord($1)/ge; # Forum 57377
   $a =~ s/"/\\"/g; 
   $a =~ s/\n/\\n/g; 
   my $b = "x$a";

@@ -29,7 +29,7 @@
 #
 #
 ###########################
-# # $Id: 45_Plugwise.pm 17320 2018-09-10 18:12:55Z Icinger $
+# # $Id: 45_Plugwise.pm 20792 2019-12-20 17:32:00Z rudolfkoenig $
 package main;
 
 use strict;
@@ -1500,6 +1500,6 @@ sub _pulsecorrection {
   <br>
 </ul>
 
-=end html
+=end html_DE
 =cut
 

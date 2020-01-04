@@ -2,7 +2,7 @@
  "nodes": {
   "node-red": {
    "name": "node-red",
-   "version": "0.20.7",
+   "version": "1.0.3",
    "local": false,
    "nodes": {
     "inject": {
@@ -13,27 +13,7 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/core/20-inject.js"
-    },
-    "catch": {
-     "name": "catch",
-     "types": [
-      "catch"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/core/25-catch.js"
-    },
-    "status": {
-     "name": "status",
-     "types": [
-      "status"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/core/25-status.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/common/20-inject.js"
     },
     "debug": {
      "name": "debug",
@@ -43,7 +23,37 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/core/58-debug.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/common/21-debug.js"
+    },
+    "complete": {
+     "name": "complete",
+     "types": [
+      "complete"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/common/24-complete.js"
+    },
+    "catch": {
+     "name": "catch",
+     "types": [
+      "catch"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/common/25-catch.js"
+    },
+    "status": {
+     "name": "status",
+     "types": [
+      "status"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/common/25-status.js"
     },
     "link": {
      "name": "link",
@@ -54,57 +64,7 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/core/60-link.js"
-    },
-    "exec": {
-     "name": "exec",
-     "types": [
-      "exec"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/core/75-exec.js"
-    },
-    "function": {
-     "name": "function",
-     "types": [
-      "function"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/core/80-function.js"
-    },
-    "template": {
-     "name": "template",
-     "types": [
-      "template"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/core/80-template.js"
-    },
-    "delay": {
-     "name": "delay",
-     "types": [
-      "delay"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/core/89-delay.js"
-    },
-    "trigger": {
-     "name": "trigger",
-     "types": [
-      "trigger"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/core/89-trigger.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/common/60-link.js"
     },
     "comment": {
      "name": "comment",
@@ -114,7 +74,7 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/core/90-comment.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/common/90-comment.js"
     },
     "unknown": {
      "name": "unknown",
@@ -124,20 +84,87 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/core/98-unknown.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/common/98-unknown.js"
     },
-    "rpi-gpio": {
-     "name": "rpi-gpio",
+    "function": {
+     "name": "function",
      "types": [
-      "rpi-gpio in",
-      "rpi-gpio out",
-      "rpi-mouse",
-      "rpi-keyboard"
+      "function"
      ],
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/hardware/36-rpi-gpio.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/function/10-function.js"
+    },
+    "switch": {
+     "name": "switch",
+     "types": [
+      "switch"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/function/10-switch.js"
+    },
+    "change": {
+     "name": "change",
+     "types": [
+      "change"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/function/15-change.js"
+    },
+    "range": {
+     "name": "range",
+     "types": [
+      "range"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/function/16-range.js"
+    },
+    "template": {
+     "name": "template",
+     "types": [
+      "template"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/function/80-template.js"
+    },
+    "delay": {
+     "name": "delay",
+     "types": [
+      "delay"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/function/89-delay.js"
+    },
+    "trigger": {
+     "name": "trigger",
+     "types": [
+      "trigger"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/function/89-trigger.js"
+    },
+    "exec": {
+     "name": "exec",
+     "types": [
+      "exec"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/function/90-exec.js"
     },
     "tls": {
      "name": "tls",
@@ -147,7 +174,7 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/io/05-tls.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/network/05-tls.js"
     },
     "httpproxy": {
      "name": "httpproxy",
@@ -157,7 +184,7 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/io/06-httpproxy.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/network/06-httpproxy.js"
     },
     "mqtt": {
      "name": "mqtt",
@@ -169,7 +196,7 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/io/10-mqtt.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/network/10-mqtt.js"
     },
     "httpin": {
      "name": "httpin",
@@ -180,7 +207,7 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/io/21-httpin.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/network/21-httpin.js"
     },
     "httprequest": {
      "name": "httprequest",
@@ -190,7 +217,7 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/io/21-httprequest.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/network/21-httprequest.js"
     },
     "websocket": {
      "name": "websocket",
@@ -203,17 +230,7 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/io/22-websocket.js"
-    },
-    "watch": {
-     "name": "watch",
-     "types": [
-      "watch"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/io/23-watch.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/network/22-websocket.js"
     },
     "tcpin": {
      "name": "tcpin",
@@ -225,7 +242,7 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/io/31-tcpin.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/network/31-tcpin.js"
     },
     "udp": {
      "name": "udp",
@@ -236,68 +253,7 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/io/32-udp.js"
-    },
-    "switch": {
-     "name": "switch",
-     "types": [
-      "switch"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/logic/10-switch.js"
-    },
-    "change": {
-     "name": "change",
-     "types": [
-      "change"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/logic/15-change.js"
-    },
-    "range": {
-     "name": "range",
-     "types": [
-      "range"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/logic/16-range.js"
-    },
-    "split": {
-     "name": "split",
-     "types": [
-      "split",
-      "join"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/logic/17-split.js"
-    },
-    "sort": {
-     "name": "sort",
-     "types": [
-      "sort"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/logic/18-sort.js"
-    },
-    "batch": {
-     "name": "batch",
-     "types": [
-      "batch"
-     ],
-     "enabled": true,
-     "local": false,
-     "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/logic/19-batch.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/network/32-udp.js"
     },
     "CSV": {
      "name": "CSV",
@@ -349,6 +305,37 @@
      "module": "node-red",
      "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/parsers/70-YAML.js"
     },
+    "split": {
+     "name": "split",
+     "types": [
+      "split",
+      "join"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/sequence/17-split.js"
+    },
+    "sort": {
+     "name": "sort",
+     "types": [
+      "sort"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/sequence/18-sort.js"
+    },
+    "batch": {
+     "name": "batch",
+     "types": [
+      "batch"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/sequence/19-batch.js"
+    },
     "file": {
      "name": "file",
      "types": [
@@ -358,7 +345,17 @@
      "enabled": true,
      "local": false,
      "module": "node-red",
-     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/storage/50-file.js"
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/storage/10-file.js"
+    },
+    "watch": {
+     "name": "watch",
+     "types": [
+      "watch"
+     ],
+     "enabled": true,
+     "local": false,
+     "module": "node-red",
+     "file": "/usr/src/node-red/node_modules/@node-red/nodes/core/storage/23-watch.js"
     }
    }
   },
@@ -450,7 +447,7 @@
   },
   "node-red-node-rbe": {
    "name": "node-red-node-rbe",
-   "version": "0.2.4",
+   "version": "0.2.6",
    "local": false,
    "nodes": {
     "rbe": {
@@ -520,7 +517,7 @@
   },
   "node-red-node-tail": {
    "name": "node-red-node-tail",
-   "version": "0.0.2",
+   "version": "0.0.3",
    "local": false,
    "nodes": {
     "tail": {
@@ -545,7 +542,8 @@
      "view-node-status": true,
      "view-show-tips": true,
      "view-snap-grid": true,
-     "view-show-grid": true
+     "view-show-grid": true,
+     "view-node-show-label": true
     }
    }
   }

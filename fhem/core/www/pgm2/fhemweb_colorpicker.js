@@ -1,5 +1,5 @@
 
-FW_version["fhemweb_colorpicker.js"] = "$Id: fhemweb_colorpicker.js 18418 2019-01-25 19:44:21Z justme1968 $";
+FW_version["fhemweb_colorpicker.js"] = "$Id: fhemweb_colorpicker.js 20581 2019-11-25 14:15:52Z justme1968 $";
 
 //TODO: realtime picker
 //
@@ -81,7 +81,7 @@ FW_colorpickerCreate(elName, devName, vArr, currVal, set, params, cmd)
 
       if( cmds[index] )
         cmds[index]( parseInt(arg * ranges[index][2]) );
-      else
+      else if( cmd )
         cmd( rgb );
     }
 

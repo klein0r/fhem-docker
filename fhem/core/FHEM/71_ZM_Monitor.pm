@@ -26,7 +26,7 @@
 #
 # Discussed in FHEM Forum: https://forum.fhem.de/index.php/topic,91847.0.html
 #
-# $Id: 71_ZM_Monitor.pm 18501 2019-02-05 20:39:21Z delmar $
+# $Id: 71_ZM_Monitor.pm 20463 2019-11-06 14:11:20Z delmar $
 #
 ##############################################################################
 
@@ -220,10 +220,23 @@ sub ZM_Monitor_Set {
     if (grep { $_ eq $arg } @ZM_Alarms) {
 
       $arg .= ' '.$args[1] if ( 'on-for-timer' eq $arg );
+
+      my ( $unnamedParams, $namedParams ) = parseParams(join(' ', @args));
+      my $cause = 'fhem';
+      my $notes = '';
+      if( defined($namedParams->{'cause'}) ) {
+        $cause = $namedParams->{'cause'};
+      }
+      if( defined($namedParams->{'notes'}) ) {
+        $notes = $namedParams->{'notes'};
+      }
+
       my $arguments = {
         method => 'changeMonitorAlarm',
         zmMonitorId => $hash->{helper}{ZM_MONITOR_ID},
-        zmAlarm => $arg
+        zmAlarm => $arg,
+        zmCause => $cause,
+        zmNotes => $notes
       };
       my $result = IOWrite($hash, $arguments);
       return $result;
@@ -379,11 +392,12 @@ sub ZM_Monitor_handleMonitorUpdate {
   my ( $io_hash, $message ) = @_;
 
   my $ioName = $io_hash->{NAME};
-  my @msgTokens = split(/\|/, $message); #$message = "$monitorId|$function|$enabled|$streamReplayBuffer";
+  my @msgTokens = split(/\|/, $message); #$message = "$monitorId|$function|$enabled|$streamReplayBuffer|$monitorType";
   my $zmMonitorId = $msgTokens[0];
   my $function = $msgTokens[1];
   my $enabled = $msgTokens[2];
   my $streamReplayBuffer = $msgTokens[3];
+  my $monitorType = $msgTokens[4];
   my $logDevAddress = $ioName.'_'.$zmMonitorId;
 
   if ( my $hash = $modules{ZM_Monitor}{defptr}{$logDevAddress} ) {
@@ -392,6 +406,8 @@ sub ZM_Monitor_handleMonitorUpdate {
     readingsBulkUpdateIfChanged($hash, 'motionDetectionEnabled', $enabled);
     my $bufferChanged = readingsBulkUpdateIfChanged($hash, 'streamReplayBuffer', $streamReplayBuffer);
     readingsEndUpdate($hash, 1);
+
+    $hash->{model} = $monitorType;
 
     ZM_Monitor_UpdateStreamUrls($hash);
 
@@ -409,11 +425,12 @@ sub ZM_Monitor_handleMonitorCreation {
   my ( $io_hash, $message ) = @_;
 
   my $ioName = $io_hash->{NAME};
-  my @msgTokens = split(/\|/, $message); #$message = "$monitorId";
+  my @msgTokens = split(/\|/, $message); #$message = "$monitorId|$monitorType";
   my $zmMonitorId = $msgTokens[0];
   my $logDevAddress = $ioName.'_'.$zmMonitorId;
 
   if ( my $hash = $modules{ZM_Monitor}{defptr}{$logDevAddress} ) {
+    $hash->{model} = $msgTokens[1];
     return $hash->{NAME};
   } else {
     my $autocreate = "UNDEFINED ZM_Monitor_$logDevAddress ZM_Monitor $zmMonitorId";
@@ -502,7 +519,7 @@ sub ZM_Monitor_Notify {
   <a name="ZM_Monitorset"></a>
   <b>Set</b>
   <ul>
-    <li><code>alarmState</code><br>Puts a monitor into alarm state or out of alarm state via the ZoneMinder trigger port.</li>
+    <li><code>alarmState</code><br>Puts a monitor into alarm state or out of alarm state via the ZoneMinder trigger port. Can also take one or both of <code>cause="xxx" notes="xxx"</code> parameters</li>
     <li><code>monitorFunction</code><br>Sets the operating mode of a Monitor in ZoneMinder via the ZoneMinder API.</li>
     <li><code>motionDetectionEnabled</code><br>Enables or disables monitor detection of a monitor via ZoneMinder API.</li>
     <li><code>text</code><br/>Allows you to set a text for a Timestamp's <code>%Q</code> portion in ZoneMinder via the ZoneMinder trigger port.</li>

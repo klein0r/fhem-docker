@@ -1,14 +1,15 @@
 "use strict";
-FW_version["console.js"] = "$Id: console.js 19890 2019-07-23 14:57:21Z rudolfkoenig $";
+FW_version["console.js"] = "$Id: console.js 20828 2019-12-25 20:15:03Z rudolfkoenig $";
 
 var consConn;
+var debug;
 
 var consFilter, oldFilter, consFType="";
 var consLastIndex = 0;
 var withLog = 0;
 var mustScroll = 1;
 
-log("Event monitor is starting");
+log("Event monitor is starting!");
 
 function
 cons_closeConn()
@@ -59,10 +60,22 @@ consUpdate(evt)
   if(new_content == undefined || new_content.length == 0)
     return;
   log("Console Rcvd: "+new_content);
-  if(new_content.indexOf('<') != 0)
-    new_content = new_content.replace(/ /g, "&nbsp;");
-  
-  $("#console").append(new_content);
+
+  // Extract the FHEM-Log, to avoid escaping its formatting (Forum #104842)
+  var logContent = "";
+  var rTab = {'<':'&lt;', '>':'&gt;',' ':'&nbsp;'};
+  new_content = new_content.replace(/(<div class='fhemlog'>)(.*?)(<\/div>)/g,
+  function(all, div1, msg, div2) {
+    logContent += div1+msg.replace(/[<> ]/g, function(a){return rTab[a]})+div2;
+    return "";
+  });
+
+  // replace space with nbsp to preserve formatting
+  var isTa = $("#console").is("textarea"); // 102773
+  new_content = new_content.replace(/(.*)<br>[\r\n]/g, function(all,p1) {
+    return p1.replace(/[<> ]/g, function(a){return rTab[a]})+(isTa?"\n":"<br>");
+  });
+  $("#console").append(logContent+new_content);
     
   if(mustScroll)
     $("#console").scrollTop($("#console")[0].scrollHeight);
@@ -228,7 +241,8 @@ consAddRegexpPart()
     var evtDev=ret[3];
     var evt1 = ret[4].replace(/\s/g, ".")
                      .replace(/[\^\$\[\]\(\)\\]/g, function(s){return"\\"+s});
-    var evt2 = evt1.replace(/\b-?\d*\.?\d+\b/g,'.*').replace(/\.\* \.\*/g,'.*');
+    var evt2 = evt1.replace(/\b-?\d*\.?\d+\b/g,'.*')
+                   .replace(/\.+\*(\.+\*)*/g,'.*');
 
     // build the dialog
     var txt = '<style type="text/css">\n'+

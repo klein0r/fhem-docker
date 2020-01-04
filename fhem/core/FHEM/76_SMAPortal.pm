@@ -1,5 +1,5 @@
 #########################################################################################################################
-# $Id: 76_SMAPortal.pm 19815 2019-07-10 22:15:43Z DS_Starter $
+# $Id: 76_SMAPortal.pm 20064 2019-08-26 17:22:39Z DS_Starter $
 #########################################################################################################################
 #       76_SMAPortal.pm
 #
@@ -162,6 +162,8 @@ use vars qw($FW_ME);                                    # webname (default is fh
 
 # Versions History intern
 our %vNotesIntern = (
+  "2.5.0"  => "25.08.2019  change switch consumer to on<->automatic only in graphic overview, Forum: https://forum.fhem.de/index.php/topic,102112.msg969002.html#msg969002",
+  "2.4.5"  => "22.08.2019  fix some warnings, Forum: https://forum.fhem.de/index.php/topic,102112.msg968829.html#msg968829 ",
   "2.4.4"  => "11.07.2019  fix consinject to show multiple consumer icons if planned ",
   "2.4.3"  => "07.07.2019  change header design of portal graphics again ",
   "2.4.2"  => "02.07.2019  change header design of portal graphics ",
@@ -432,22 +434,28 @@ sub DbLog_split($$) {
   my ($reading, $value, $unit);
 
   if($event =~ m/[_\-fd]Consumption|Quote/) {
-      $event   =~ /^L(.*):\s(.*)\s(.*)/;
-      $reading = "L".$1;
-	  $value   = $2;
-	  $unit    = $3;
+      $event =~ /^L(.*):\s(.*)\s(.*)/;
+      if($1) {
+          $reading = "L".$1;
+          $value   = $2;
+          $unit    = $3;
+      }
   }
   if($event =~ m/Power|PV|FeedIn|SelfSupply|Temperature|Total|Energy|Hour:|Hour(\d\d):/) {
       $event   =~ /^L(.*):\s(.*)\s(.*)/;
-      $reading = "L".$1;
-	  $value   = $2;
-	  $unit    = $3;
+      if($1) {
+          $reading = "L".$1;
+          $value   = $2;
+          $unit    = $3;
+      }
   }   
   if($event =~ m/Next04Hours-IsConsumption|RestOfDay-IsConsumption|Tomorrow-IsConsumption|Battery/) {
-      $event   =~ /^L(.*):\s(.*)\s(.*)/;
-      $reading = "L".$1;
-	  $value   = $2;
-	  $unit    = $3;
+      $event =~ /^L(.*):\s(.*)\s(.*)/;
+      if($1) {
+          $reading = "L".$1;
+          $value   = $2;
+          $unit    = $3;
+      }
   }   
   if($event =~ m/summary/) {
       $event   =~ /(.*):\s(.*)\s(.*)/;
@@ -1440,6 +1448,7 @@ sub extractConsumerData($$) {
                $key    =~ /^(\d+)_.*$/;
                my $lfn = $1; 
                my $cn  = $consumers{"${lfn}_ConsumerName"};            # Verbrauchername
+               next if(!$cn);
                $cn     = replaceJunkSigns($cn);                        # evtl. Umlaute/Leerzeichen im Verbrauchernamen ersetzen
                my $pos = $consumers{"${lfn}_PlannedOpTimeStart"};      # geplanter Start
                my $poe = $consumers{"${lfn}_PlannedOpTimeEnd"};        # geplantes Ende
@@ -1493,6 +1502,7 @@ sub extractConsumerLiveData($$) {
       $consumers{"${i}_ConsumerLfd"}  = $i;
 	  my $cpower                      = $c->{'Consume'}{'Measurement'};           # aktueller Energieverbrauch in W
 	  my $cn                          = $consumers{"${i}_ConsumerName"};          # Verbrauchername
+      next if(!$cn);
       $cn                             = replaceJunkSigns($cn);
       
       $hash->{HELPER}{CONSUMER}{$i}{DeviceName}   = $cn;
@@ -1517,6 +1527,7 @@ sub extractConsumerLiveData($$) {
           my $OperationAutoEna = $c->{'Parameters'}[2]{'Value'};                                           # Automatic Betrieb erlaubt ?
 		  my $ltchange         = TimeAdjust($hash,$c->{'Parameters'}[0]{'Timestamp'}{'DateTime'},$tkind);  # letzter Schaltzeitpunkt der Bluetooth-Steckdose (Verbraucher)
           my $cn  = $consumers{"${i}_ConsumerName"};                                                       # Verbrauchername
+          next if(!$cn);
           $cn     = replaceJunkSigns($cn);                                                                 # evtl. Umlaute/Leerzeichen im Verbrauchernamen ersetzen
           
           if(!$GriSwStt && $GriSwAuto) {
@@ -1571,6 +1582,7 @@ sub extractConsumerHistData($$$) {
       $consumers{"${i}_ConsumerLfd"}  = $i;
 	  my $cpower                      = $c->{'TotalEnergy'}{'Measurement'};    # Energieverbrauch im Timeframe in Wh                                         
 	  my $cn                          = $consumers{"${i}_ConsumerName"};       # Verbrauchername
+      next if(!$cn);
       $cn                             = replaceJunkSigns($cn);
       
       if($tf =~ /month|year/) {
@@ -1648,12 +1660,12 @@ sub setVersionInfo($) {
   if($modules{$type}{META}{x_prereqs_src} && !$hash->{HELPER}{MODMETAABSENT}) {
 	  # META-Daten sind vorhanden
 	  $modules{$type}{META}{version} = "v".$v;              # Version aus META.json überschreiben, Anzeige mit {Dumper $modules{SMAPortal}{META}}
-	  if($modules{$type}{META}{x_version}) {                                                                             # {x_version} ( nur gesetzt wenn $Id: 76_SMAPortal.pm 19815 2019-07-10 22:15:43Z DS_Starter $ im Kopf komplett! vorhanden )
+	  if($modules{$type}{META}{x_version}) {                                                                             # {x_version} ( nur gesetzt wenn $Id: 76_SMAPortal.pm 20064 2019-08-26 17:22:39Z DS_Starter $ im Kopf komplett! vorhanden )
 		  $modules{$type}{META}{x_version} =~ s/1.1.1/$v/g;
 	  } else {
 		  $modules{$type}{META}{x_version} = $v; 
 	  }
-	  return $@ unless (FHEM::Meta::SetInternals($hash));                                                                # FVERSION wird gesetzt ( nur gesetzt wenn $Id: 76_SMAPortal.pm 19815 2019-07-10 22:15:43Z DS_Starter $ im Kopf komplett! vorhanden )
+	  return $@ unless (FHEM::Meta::SetInternals($hash));                                                                # FVERSION wird gesetzt ( nur gesetzt wenn $Id: 76_SMAPortal.pm 20064 2019-08-26 17:22:39Z DS_Starter $ im Kopf komplett! vorhanden )
 	  if(__PACKAGE__ eq "FHEM::$type" || __PACKAGE__ eq $type) {
 	      # es wird mit Packages gearbeitet -> Perl übliche Modulversion setzen
 		  # mit {<Modul>->VERSION()} im FHEMWEB kann Modulversion abgefragt werden
@@ -1903,7 +1915,7 @@ sub PortalAsHtml ($$;$) {
 		  } elsif ($swstate eq "on") {
 		      $swicon = "<a onClick=$cmdauto><img src=\"$FW_ME/www/images/default/10px-kreis-gruen.png\"></a>";
 		  } elsif ($swstate =~ /off.*automatic.*/i) {
-		      $swicon = "<a onClick=$cmdoff><img src=\"$FW_ME/www/images/default/10px-kreis-gelb.png\"></a>";
+		      $swicon = "<a onClick=$cmdon><img src=\"$FW_ME/www/images/default/10px-kreis-gelb.png\"></a>";
 		  }
 		  
           if ($legend_style eq 'icon') {                                                           # mögliche Umbruchstellen mit normalen Blanks vorsehen !

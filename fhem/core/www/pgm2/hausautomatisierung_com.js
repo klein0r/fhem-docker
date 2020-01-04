@@ -19,7 +19,7 @@ function getClock() {
 
 jQuery(document).ready(function ($) {
 
-    var themeVersion = '2.11';
+    var themeVersion = '2.14';
 
     // attr WEB hiddenroom input -> Ansicht anpassen
     if ($('#hdr .maininput').length == 0) {
@@ -65,13 +65,13 @@ jQuery(document).ready(function ($) {
     ).append(
         $('<span id="clock"></span>')
     );
-    
+
     // Add clock
     window.addEventListener('load', getClock, false);
 
 	// Clear spaces
     $('#content .devType, #menu .room a').each(function() {
-    	    $(this).html($(this).html().replace(/&nbsp;/g, ''));
+        $(this).html($(this).html().replace(/&nbsp;/g, ''));
     });
 
     $('#content > br').remove();
@@ -165,6 +165,55 @@ jQuery(document).ready(function ($) {
 
         elHaToolbar.html("AttrVal('" + deviceName + "', '" + rowVal + "', '');").show();
     });
+
+    // Group attributes
+    var attrSelect = $('select.attr');
+    var attrList = new Object();
+    attrList['general'] = ['userattr', 'verbose', 'disable', 'useSetExtensions', 'setList', 'disabledForIntervals', 'showtime'];
+    attrList['readings'] = ['userReadings',  'oldreadings', 'suppressReading', 'readingList'];
+    attrList['msg'] = ['msgContactAudio', 'msgContactLight', 'msgContactMail', 'msgContactPush', 'msgContactScreen', 'msgParams', 'msgPriority', 'msgRecipient', 'msgRecipientAudio', 'msgRecipientLight', 'msgRecipientMail', 'msgRecipientPush', 'msgRecipientScreen', 'msgRecipientText', 'msgTitle', 'msgTitleShrt', 'msgType'];
+    attrList['events'] = ['event-aggregator', 'event-min-interval', 'event-on-change-reading', 'event-on-update-reading', 'eventMap', 'timestamp-on-change-reading', 'setExtensionsEvent'];
+    attrList['fhemweb'] = ['alias', 'comment', 'cmdIcon', 'devStateIcon', 'devStateStyle', 'group', 'icon', 'room', 'sortby', 'stateFormat', 'webCmd', 'webCmdLabel', 'widgetOverride'];
+    attrList['floorplan'] = ['fp_arrange', 'fp_backgroundimg', 'fp_default', 'fp_noMenu', 'fp_roomIcons', 'fp_setbutton', 'fp_viewport'];
+    attrList['database'] = ['DbLogExclude', 'DbLogInclude'];
+
+    var optGroups = new Object();
+    optGroups['device'] = $('<optgroup label="device"></optgroup>');
+    for (var attrGroup in attrList) {
+        optGroups[attrGroup] = $('<optgroup label="' + attrGroup + '"></optgroup>');
+    }
+
+    if (attrSelect) {
+        // clear the original list
+        var attributeOptionList = attrSelect.children();
+        var selectedItem = attrSelect.find('option:selected');
+        attrSelect.empty();
+
+        // add attributes to predefined optgroups
+        attributeOptionList.each(function(i, e) {
+            var found = false;
+            for (var attrGroup in attrList) {
+                if (attrList[attrGroup].indexOf($(e).attr('value')) > -1) {
+                    optGroups[attrGroup].append(e);
+                    found = true;
+                }
+            }
+
+            if (!found) {
+                optGroups['device'].append(e);
+            }
+        });
+
+        // add optgroups to select
+        for (var optGroup in optGroups) {
+            if (optGroups[optGroup].children().length) {
+                attrSelect.append(optGroups[optGroup]);
+            }
+        };
+
+        // select previously selected item
+        selectedItem.prop('selected', true);
+    }
 
     (function($, window, document, undefined) {
         'use strict';

@@ -1,4 +1,4 @@
-# $Id: configDB.pm 19514 2019-06-01 07:50:09Z betateilchen $
+# $Id: configDB.pm 20123 2019-09-07 17:51:10Z betateilchen $
 
 =for comment
 
@@ -647,7 +647,7 @@ sub cfgDB_MigrationImport() {
 
 # return SVN Id, called by fhem's CommandVersion
 sub cfgDB_svnId() { 
-	return "# ".'$Id: configDB.pm 19514 2019-06-01 07:50:09Z betateilchen $' 
+	return "# ".'$Id: configDB.pm 20123 2019-09-07 17:51:10Z betateilchen $' 
 }
 
 # return filelist depending on directory and regexp

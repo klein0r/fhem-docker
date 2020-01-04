@@ -8,7 +8,13 @@ sub DockerImageInfo_Initialize($) {
     my ($hash) = @_;
 
     $hash->{DefFn}    = "DockerImageInfo_Define";
+    $hash->{UndefFn}  = "DockerImageInfo_Undefine";
     $hash->{AttrList} = $readingFnAttributes;
+
+    # add userattr to FHEMWEB devices to control healthcheck
+    foreach ( devspec2array("TYPE=FHEMWEB:FILTER=TEMPORARY!=1") ) {
+        addToDevAttrList( $_, 'DockerHealthCheck:1,0' );
+    }
 
     return FHEM::Meta::InitMod( __FILE__, $hash );
 }
@@ -16,7 +22,7 @@ sub DockerImageInfo_Initialize($) {
 ###################################
 sub DockerImageInfo_Define($$) {
     my ( $hash, $def ) = @_;
-    my @a = split( "[ \t][ \t]*", $def );
+    my @a    = split( "[ \t][ \t]*", $def );
     my $name = $hash->{NAME};
 
     return "Wrong syntax: use define <name> DockerImageInfo"
@@ -47,6 +53,7 @@ sub DockerImageInfo_Define($$) {
 
     if ( -e '/.dockerenv' ) {
         $defs{$name}{STATE} = "Initialized";
+        DockerImageInfo_GetImageInfo();
     }
     else {
         $defs{$name}{STATE} = "ERROR: Host is not a container";
@@ -55,14 +62,24 @@ sub DockerImageInfo_Define($$) {
     return undef;
 }
 
+sub DockerImageInfo_Undefine($$) {
+    my ( $hash, $def ) = @_;
+    delete $modules{'DockerImageInfo'}{defptr};
+}
+
+sub DockerImageInfo_HealthCheck() {
+    return "undefined"
+      unless ( defined( $modules{'DockerImageInfo'}{defptr} ) );
+    my $n = $modules{'DockerImageInfo'}{defptr}{NAME};
+    $defs{$n}{STATE} = 'ok';
+    return "";
+}
+
 sub DockerImageInfo_GetImageInfo() {
-    return
-      unless ($init_done);
     return "undefined"
       unless ( defined( $modules{'DockerImageInfo'}{defptr} ) );
     my $n = $modules{'DockerImageInfo'}{defptr}{NAME};
 
-    $defs{$n}{STATE} = 'ok';
     readingsBeginUpdate( $defs{$n} );
 
     my $NAME;
@@ -80,7 +97,7 @@ sub DockerImageInfo_GetImageInfo() {
         readingsBulkUpdateIfChanged( $defs{$n}, $NAME, $VAL );
     }
 
-    $VAL = '[ ';
+    $VAL   = '[ ';
     @LINES = split( "\n", `sort --stable --unique /etc/sudoers.d/fhem*` );
     foreach my $LINE (@LINES) {
         $VAL .= ', ' unless ( $VAL eq '[ ' );
@@ -132,7 +149,6 @@ m/^uid=(\d+)\((\w+)\)\s+gid=(\d+)\((\w+)\)\s+groups=((?:\d+\(\w+\),)*(?:\d+\(\w+
         `cat /docker.hostnetwork` );
 
     readingsEndUpdate( $defs{$n}, 1 );
-    return undef;
 }
 
 1;
@@ -196,8 +212,8 @@ m/^uid=(\d+)\((\w+)\)\s+gid=(\d+)\((\w+)\)\s+groups=((?:\d+\(\w+\),)*(?:\d+\(\w+
 
 =for :application/json;q=META.json 99_DockerImageInfo.pm
 {
-  "version": "v0.5.0",
-  "x_release_date": "2019-04-02",
+  "version": "v0.6.0",
+  "x_release_date": "2019-07-28",
   "release_status": "stable",
   "license": [
     "MIT"

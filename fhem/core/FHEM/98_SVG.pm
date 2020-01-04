@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_SVG.pm 19688 2019-06-23 07:17:03Z rudolfkoenig $
+# $Id: 98_SVG.pm 20859 2019-12-31 10:21:48Z rudolfkoenig $
 package main;
 
 use strict;
@@ -49,6 +49,9 @@ sub SVG_getControlPoints($);
 sub SVG_calcControlPoints($$$$$$);
 
 my %SVG_devs;       # hash of from/to entries per device
+my $SVG_hdr = 'version="1.1" xmlns="http://www.w3.org/2000/svg" '.
+              'xmlns:xlink="http://www.w3.org/1999/xlink" '.
+              'data-origin="FHEM"';
 
 
 #####################################
@@ -185,7 +188,7 @@ SVG_getplotsize($)
 }
 
 sub
-SVG_isEmbed($)
+SVG_embed()
 {
   return AttrVal($FW_wname, "plotEmbed", 0);
 }
@@ -238,10 +241,16 @@ SVG_FwFn($$$$)
   if($pm eq "SVG") {
     $ret .= "<div class=\"SVGplot SVG_$d\">";
 
-    if(SVG_isEmbed($FW_wname)) {
+    my $embed = SVG_embed();
+    if($embed) {
       my ($w, $h) = split(",", SVG_getplotsize($d));
-      $ret .= "<embed src=\"$arg\" type=\"image/svg+xml\" " .
-            "width=\"$w\" height=\"$h\" name=\"$d\"/>\n";
+      if($embed == 1) {
+        $ret .= "<embed src='$arg' type='image/svg+xml' " .
+              "width='$w' height='$h' name='$d'/>\n";
+      } else {
+        $ret .= "<svg $SVG_hdr class='plotembed_2' data-src='$arg' ".
+                  "data-dev='$d' style='width:${w}px; height:${h}px'></svg>\n";
+      }
 
     } else {
       my $oret=$FW_RET; $FW_RET="";
@@ -745,7 +754,7 @@ SVG_readgplotfile($$$)
 
   my $specval = AttrVal($wl, "plotfunction", undef);
 
-  my $plotReplace = AttrVal($wl, "plotReplace", undef);
+  my $plotReplace = AttrVal($wl, "plotReplace", $FW_webArgs{plotReplace});
   my $pr;
   (undef, $pr) = parseParams($plotReplace,"\\s"," ") if($plotReplace);
   my $prSubst = sub($)
@@ -838,7 +847,7 @@ SVG_substcfg($$$$$$)
   my $gplot_script = join("", @{$cfg});
   $gplot_script .=  $plot if(!$splitret);
 
-  my $plotReplace = AttrVal($wl, "plotReplace", undef);
+  my $plotReplace = AttrVal($wl, "plotReplace", $FW_webArgs{plotReplace});
   if($plotReplace) {
     my ($list, $pr) = parseParams($plotReplace, "\\s"," ");
     for my $k (keys %$pr) {
@@ -1006,6 +1015,7 @@ SVG_calcOffsets($$)
     $l[4] += $off;
     $l[4] += 12, $l[5]-- if($l[4] < 0);
     my @me = (31,28,31,30,31,30,31,31,30,31,30,31);
+    $me[1]++ if(($sy+1900)%4); # leap year. Ignore 1900 and 2100 :)
 
     if(SVG_Attr($FW_wname, $wl, "endPlotToday", undef)) {
       $sy = $ey = $l[5];
@@ -1013,12 +1023,12 @@ SVG_calcOffsets($$)
       $sm += 12, $sy-- if($sm < 0);
       $sd = $l[3]+1; $ed = $l[3];
       $sd=1, $sm=$em, $sy=$ey if($sd > $me[$sm]);
+      $ed = $me[$em] if($ed > $me[$em]);
 
     } else {
       $sy = $ey = $l[5];
       $sm = $em = $l[4];
       $sd = 1; $ed = $me[$l[4]];
-      $ed++ if($l[4]==1 && !(($sy+1900)%4)); # leap year
     }
     $SVG_devs{$d}{from} = SVG_tspec( 0, 0, 0,$sd,$sm,$sy);
     $SVG_devs{$d}{to}   = SVG_tspec(59,59,23,$ed,$em,$ey);
@@ -1081,9 +1091,9 @@ SVG_doShowLog($$$$;$)
 
     if($pm && $pm =~ m/SVG/) { # FW_fatal for SVG:
       $FW_RETTYPE = "image/svg+xml";
-      FW_pO '<svg xmlns="http://www.w3.org/2000/svg">';
-      FW_pO '<text x="20" y="20">'.$msg.'</text>';
-      FW_pO '</svg>';
+      FW_pO "<svg $SVG_hdr>";
+      FW_pO "<text x='20' y='20'>$msg</text>";
+      FW_pO "</svg>";
       return ($FW_RETTYPE, $FW_RET);
 
     } else {
@@ -1389,15 +1399,14 @@ SVG_render($$$$$$$$$$)
 
   ######################
   # SVG Header
-  my $svghdr = 'version="1.1" xmlns="http://www.w3.org/2000/svg" '.
-               'xmlns:xlink="http://www.w3.org/1999/xlink" '.
-               "id='SVGPLOT_$name' $filter data-origin='FHEM'";
+  my $svghdr = "$SVG_hdr id='SVGPLOT_$name' $filter";
+  my $style =  "style='width:${ow}px; height:${oh}px;'";
   if(!$noHeader) {
     SVG_pO '<?xml version="1.0" encoding="UTF-8"?>';
     SVG_pO '<!DOCTYPE svg>';
-    SVG_pO "<svg $svghdr width=\"${ow}px\" height=\"${oh}px\">";
+    SVG_pO "<svg $svghdr width='${ow}px' height='${oh}px' $style>";
   } else {
-    SVG_pO "<svg $svghdr style='width:${ow}px; height:${oh}px;'>";
+    SVG_pO "<svg $svghdr $style>";
   }
 
   my $prf = AttrVal($parent_name, "stylesheetPrefix", "");
@@ -2218,10 +2227,13 @@ SVG_render($$$$$$$$$$)
     $txtoff2 += $th;
   }
 
-  my $fnName = SVG_isEmbed($FW_wname) ? "parent.window.svg_init" : "svg_init";
-
-  SVG_pO "<script type='text/javascript'>if(typeof $fnName == 'function') ".
+  my $embed = SVG_embed();
+  if($embed != 2) {
+    my $fnName = $embed ? "parent.window.svg_init" : "svg_init";
+    SVG_pO "<script type='text/javascript'>if(typeof $fnName == 'function') ".
                 "$fnName('SVGPLOT_$name')</script>";
+  }
+
   SVG_pO "</svg>";
   return $SVG_RET;
 }
@@ -2626,13 +2638,11 @@ plotAsPng(@)
       enclosed in "" or {}. value will be evaluated as a perl expression, if it
       is enclosed in {}.
       <br>
-      In the .gplot file &lt;key&gt; is replaced with the corresponding value,
-      the evaluation of {} takes place <i>after</i> the input file is
-      processed, so $data{min1} etc can be used.
-      <br>
-      %key% will be repaced <i>before</i> the input file is processed, this
-      expression can be used to replace parameters for the input processing.
-    </li><br>
+      In the .gplot file &lt;key&gt; and %key% will be replaced with the
+      corresponding value. The evaluation of &lt;key&gt; takes place after the
+      input file is processed, so e.g. $data{min1} can be used in the title.
+      %key% will be repaced before the input file is processed, this expression
+      can be used to replace parameters for the input processing.  </li><br>
 
     <li><a href="#plotsize">plotsize</a></li><br>
     <li><a href="#plotWeekStartDay">plotWeekStartDay</a></li><br>
@@ -2865,14 +2875,11 @@ plotAsPng(@)
       enthalten, falls es in "" oder {} eingeschlossen ist. Wert wird als
       perl-Ausdruck ausgewertet, falls es in {} eingeschlossen ist.
       <br>
-      In der .gplot Datei werden &lt;Name&gt; Zeichenketten durch den
-      zugehoerigen Wert ersetzt, die Auswertung von {} Ausdr&uuml;cken erfolgt
-      <i>nach</i> dem die Daten ausgewertet wurden, d.h. man kann hier
-      $data{min1},etc verwenden.
-      <br>
-      Bei %Name% erfolgt die Ersetzung <i>vor</i> der Datenauswertung, das kann
-      man verwenden, um Parameter f&uuml;r die Auswertung zu ersetzen.
-    </li><br>
+      In der .gplot Datei wird &lt;Name&gt; und %Name% durch den
+      zugeh&ouml;rigen Wert ersetzt, wobei &lt;Name&gt; nach der Extraktion der
+      Logdaten ersetzt wird, damit man auf Werte wie $data{min1} zugreifen
+      kann, und %Name% davor, damit man die Regeln in der .gplot Datei f&uuml;r
+      die Extraktion anpassen kann.</li><br>
 
     <li><a href="#plotsize">plotsize</a></li><br>
     <li><a href="#plotWeekStartDay">plotWeekStartDay</a></li><br>

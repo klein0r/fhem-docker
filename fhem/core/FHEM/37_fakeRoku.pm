@@ -1,4 +1,4 @@
-# $Id: 37_fakeRoku.pm 18619 2019-02-17 14:49:36Z justme1968 $
+# $Id: 37_fakeRoku.pm 20309 2019-10-04 09:16:41Z justme1968 $
 
 package main;
 
@@ -609,7 +609,7 @@ fakeRoku_Parse($$;$$$)
 
   if( !$handled ) {
     $peerhost = $peerhost ? " from $peerhost" : '';
-    Log3 $name, 2, "$name: unhandled message$peerhost: $msg";
+    Log3 $name, 4, "$name: unhandled message$peerhost: $msg";
   }
 
   return undef;

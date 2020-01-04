@@ -5,6 +5,10 @@
 #  (c) 2017-2018 Copyright: Marko Oldenburg (leongaultier at gmail dot com)
 #  All rights reserved
 #
+#  Special thanks goes to:
+#       -  Charlie71: add special patch
+#
+#
 #  This script is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
 #  the Free Software Foundation; either version 2 of the License, or
@@ -21,7 +25,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 74_XiaomiBTLESens.pm 19768 2019-07-03 09:00:38Z CoolTux $
+# $Id: 74_XiaomiBTLESens.pm 20864 2020-01-01 20:06:37Z CoolTux $
 #
 ###############################################################################
 
@@ -152,6 +156,7 @@ BEGIN {
 GP_Export(
     qw(
       Initialize
+      stateRequestTimer
       )
 );
 
@@ -170,6 +175,15 @@ my %XiaomiModels = (
         'wdatalisten' => 1,
         'battery'     => '0x18',
         'firmware'    => '0x24',
+        'devicename'  => '0x3'
+    },
+    clearGrassSens => {
+        'rdata'       => '0x1e',
+        'wdata'       => '0x10',
+        'wdataValue'  => '0100',
+        'wdatalisten' => 2,
+        'battery'     => '0x3b',
+        'firmware'    => '0x2a',
         'devicename'  => '0x3'
     },
 );
@@ -208,7 +222,8 @@ sub Initialize($) {
       . "minLux "
       . "maxLux "
       . "sshHost "
-      . "model:flowerSens,thermoHygroSens "
+	  . "psCommand "				
+      . "model:flowerSens,thermoHygroSens,clearGrassSens "
       . "blockingCallLoglevel:2,3,4,5 "
       . $readingFnAttributes;
 
@@ -427,7 +442,9 @@ sub stateRequest($) {
                 )
               );
 
-            if ( $hash->{helper}{CallSensDataCounter} < 1 ) {
+            if ( $hash->{helper}{CallSensDataCounter} < 1
+                and AttrVal( $name, 'model', '' ) ne 'clearGrassSens' )
+            {
                 CreateParamGatttool(
                     $hash,
                     'write',
@@ -438,13 +455,21 @@ sub stateRequest($) {
                   $hash->{helper}{CallSensDataCounter} + 1;
 
             }
+            elsif ( $hash->{helper}{CallSensDataCounter} < 1
+                and AttrVal( $name, 'model', '' ) eq 'clearGrassSens' )
+            {
+                CreateParamGatttool( $hash, 'read',
+                    $XiaomiModels{ AttrVal( $name, 'model', '' ) }{rdata},
+                );
+                $hash->{helper}{CallSensDataCounter} =
+                  $hash->{helper}{CallSensDataCounter} + 1;
+            }
             else {
                 $readings{'lastGattError'} = 'charWrite faild';
                 WriteReadings( $hash, \%readings );
                 $hash->{helper}{CallSensDataCounter} = 0;
                 return;
             }
-
         }
         else {
 
@@ -468,7 +493,7 @@ sub stateRequestTimer($) {
     stateRequest($hash);
 
     InternalTimer( gettimeofday() + $hash->{INTERVAL} + int( rand(300) ),
-        "FHEM::XiaomiBTLESens::stateRequestTimer", $hash );
+        "XiaomiBTLESens_stateRequestTimer", $hash );
 
     Log3 $name, 4,
       "XiaomiBTLESens ($name) - stateRequestTimer: Call Request Timer";
@@ -607,6 +632,10 @@ sub CreateParamGatttool($@) {
     }
 }
 
+sub Gatttool_executeCommand{
+    my $command = join ' ', @_;
+    ($_ = qx{$command 2>&1}, $? >> 8);
+}
 sub ExecGatttool_Run($) {
 
     my $string = shift;
@@ -637,11 +666,12 @@ sub ExecGatttool_Run($) {
         $cmd .= "--char-write-req -a $handle -n $value"
           if ( $gattCmd eq 'write' );
         $cmd .= " --listen" if ($listen);
-        $cmd .= " 2>&1 /dev/null";
+#        $cmd .= " 2>&1 /dev/null";
+        $cmd .= " 2>&1";
         $cmd .= "'"         if ( $sshHost ne 'none' );
 
-        $cmd =
-"ssh $sshHost 'gatttool -i $hci -b $mac --char-write-req -a 0x33 -n A01F && gatttool -i $hci -b $mac --char-read -a 0x35 2>&1 /dev/null'"
+#        $cmd = "ssh $sshHost 'gatttool -i $hci -b $mac --char-write-req -a 0x33 -n A01F && gatttool -i $hci -b $mac --char-read -a 0x35 2>&1 /dev/null'"
+        $cmd = "ssh $sshHost 'gatttool -i $hci -b $mac --char-write-req -a 0x33 -n A01F && gatttool -i $hci -b $mac --char-read -a 0x35 2>&1 '"
           if (  $sshHost ne 'none'
             and $gattCmd eq 'write'
             and AttrVal( $name, "model", "none" ) eq 'flowerSens' );
@@ -650,13 +680,15 @@ sub ExecGatttool_Run($) {
 
             my $grepGatttool;
             my $gatttoolCmdlineStaticEscaped =
-              CometBlueBTLE_CmdlinePreventGrepFalsePositive(
+              BTLE_CmdlinePreventGrepFalsePositive(
                 "gatttool -i $hci -b $mac");
-
-            $grepGatttool = qx(ps ax| grep -E \'$gatttoolCmdlineStaticEscaped\')
+            my $psCommand =  AttrVal( $name, 'psCommand', 'ps ax' );
+			Log3 $name, 5, 'Execute Command: $psCommand | grep -E "$gatttoolCmdlineStaticEscaped"';
+#            $grepGatttool = qx(ps ax| grep -E \'$gatttoolCmdlineStaticEscaped\')
+            $grepGatttool = qx( $psCommand | grep -E \'$gatttoolCmdlineStaticEscaped\')
               if ( $sshHost eq 'none' );
-            $grepGatttool =
-              qx(ssh $sshHost 'ps ax| grep -E "$gatttoolCmdlineStaticEscaped"')
+#            $grepGatttool =  qx(ssh $sshHost 'ps ax| grep -E "$gatttoolCmdlineStaticEscaped"')
+            $grepGatttool = qx(ssh $sshHost ' $psCommand | grep -E "$gatttoolCmdlineStaticEscaped"')
               if ( $sshHost ne 'none' );
 
             if ( not $grepGatttool =~ /^\s*$/ ) {
@@ -670,22 +702,27 @@ sub ExecGatttool_Run($) {
         }
 
         $loop = 0;
+		my $returnString ="";
+        my $returnCode = "1";
         do {
 
-            Log3 $name, 5,
-"XiaomiBTLESens ($name) - ExecGatttool_Run: call gatttool with command: $cmd and loop $loop";
+            Log3 $name, 5, "XiaomiBTLESens ($name) - ExecGatttool_Run: call gatttool with command: $cmd and loop $loop";
 
-            @gtResult = split( ": ", qx($cmd) );
+            ($returnString, $returnCode) = Gatttool_executeCommand($cmd);
+            @gtResult = split( ": ", $returnString);
+ #           @gtResult = split( ": ", qx($cmd) );
 
             Log3 $name, 5,
               "XiaomiBTLESens ($name) - ExecGatttool_Run: gatttool loop result "
               . join( ",", @gtResult );
             $loop++;
 
-            $gtResult[0] = 'connect error'
+            $returnCode = "2"
               unless ( defined( $gtResult[0] ) );
 
-        } while ( $loop < 5 and $gtResult[0] eq 'connect error' );
+#        } while ( $loop < 5 and $gtResult[0] eq 'connect error' );
+        } while ( $loop < 5 and $returnCode ne "0" );
+        Log3 $name, 3,"XiaomiBTLESens ($name) - ExecGatttool_Run: errorcode: \"$returnCode\", ErrorString: \"$returnString\"" if ($returnCode ne "0");
 
         Log3 $name, 4,
           "XiaomiBTLESens ($name) - ExecGatttool_Run: gatttool result "
@@ -827,7 +864,6 @@ sub ProcessingNotification($@) {
 
             $readings = ThermoHygroSensHandle0x18( $hash, $notification );
         }
-
         elsif ( $handle eq '0x10' ) {
             ### Thermo/Hygro Sens - Read Sensor Data
             Log3 $name, 4,
@@ -835,7 +871,6 @@ sub ProcessingNotification($@) {
 
             $readings = ThermoHygroSensHandle0x10( $hash, $notification );
         }
-
         elsif ( $handle eq '0x24' ) {
             ### Thermo/Hygro Sens - Read Firmware Data
             Log3 $name, 4,
@@ -843,7 +878,6 @@ sub ProcessingNotification($@) {
 
             $readings = ThermoHygroSensHandle0x24( $hash, $notification );
         }
-
         elsif ( $handle eq '0x3' ) {
             ### Thermo/Hygro Sens - Read and Write Devicename
             Log3 $name, 4,
@@ -853,6 +887,39 @@ sub ProcessingNotification($@) {
                 $XiaomiModels{ AttrVal( $name, 'model', '' ) }{devicename} )
               unless ( $gattCmd eq 'read' );
             $readings = ThermoHygroSensHandle0x3( $hash, $notification );
+        }
+    }
+    elsif ( AttrVal( $name, 'model', 'none' ) eq 'clearGrassSens' ) {
+        if ( $handle eq '0x3b' ) {
+            ### Clear Grass Sens - Read Battery Data
+            Log3 $name, 4,
+              "XiaomiBTLESens ($name) - ProcessingNotification: handle 0x3b";
+
+            $readings = ClearGrassSensHandle0x3b( $hash, $notification );
+        }
+        elsif ( $handle eq '0x1e' ) {
+            ### Clear Grass Sens - Read Sensor Data
+            Log3 $name, 4,
+              "XiaomiBTLESens ($name) - ProcessingNotification: handle 0x1e";
+
+            $readings = ClearGrassSensHandle0x1e( $hash, $notification );
+        }
+        elsif ( $handle eq '0x2a' ) {
+            ### Clear Grass Sens - Read Firmware Data
+            Log3 $name, 4,
+              "XiaomiBTLESens ($name) - ProcessingNotification: handle 0x2a";
+
+            $readings = ClearGrassSensHandle0x2a( $hash, $notification );
+        }
+        elsif ( $handle eq '0x3' ) {
+            ### Clear Grass Sens - Read and Write Devicename
+            Log3 $name, 4,
+              "XiaomiBTLESens ($name) - ProcessingNotification: handle 0x3";
+
+            return CreateParamGatttool( $hash, 'read',
+                $XiaomiModels{ AttrVal( $name, 'model', '' ) }{devicename} )
+              unless ( $gattCmd eq 'read' );
+            $readings = ClearGrassSensHandle0x3( $hash, $notification );
         }
     }
 
@@ -1022,6 +1089,87 @@ sub ThermoHygroSensHandle0x3($$) {
     return \%readings;
 }
 
+sub ClearGrassSensHandle0x3b($$) {
+    ### Clear Grass Sens - Battery Data
+    my ( $hash, $notification ) = @_;
+
+    my $name = $hash->{NAME};
+    my %readings;
+
+    Log3 $name, 4, "XiaomiBTLESens ($name) - Clear Grass Sens Handle0x3b";
+
+    chomp($notification);
+    $notification =~ s/\s+//g;
+
+    ### neue Vereinheitlichung für Batteriereadings Forum #800017
+    $readings{'batteryPercent'} = hex( substr( $notification, 14, 2 ) );
+    $readings{'batteryState'} =
+      ( hex( substr( $notification, 14, 2 ) ) > 15 ? "ok" : "low" );
+
+    $hash->{helper}{CallBattery} = 1;
+    CallBattery_Timestamp($hash);
+    return \%readings;
+}
+
+sub ClearGrassSensHandle0x1e($$) {
+    ### Clear Grass Sens - Read Sensor Data
+    my ( $hash, $notification ) = @_;
+
+    my $name = $hash->{NAME};
+    my %readings;
+
+    Log3 $name, 4, "XiaomiBTLESens ($name) - Clear Grass Sens Handle0x1e";
+
+    return stateRequest($hash)
+      unless ( $notification =~ /^([0-9a-f]{2}(\s?))*$/ );
+
+    my @numberOfHex = split( ' ', $notification );
+
+    $notification =~ s/\s+//g;
+
+    $readings{'temperature'} = hex( substr( $notification, 4, 2 ) ) / 10;
+    $readings{'humidity'} =
+      hex( substr( $notification, 11, 1 ) . substr( $notification, 8, 2 ) ) /
+      10;
+
+    $hash->{helper}{CallBattery} = 0;
+    return \%readings;
+}
+
+sub ClearGrassSensHandle0x2a($$) {
+    ### Clear Grass Sens - Read Firmware Data
+    my ( $hash, $notification ) = @_;
+
+    my $name = $hash->{NAME};
+    my %readings;
+
+    Log3 $name, 4, "XiaomiBTLESens ($name) - Clear Grass Sens Handle0x2a";
+
+    $notification =~ s/\s+//g;
+
+    $readings{'firmware'} = pack( 'H*', $notification );
+
+    $hash->{helper}{CallBattery} = 0;
+    return \%readings;
+}
+
+sub ClearGrassSensHandle0x3($$) {
+    ### Clear Grass Sens - Read and Write Devicename
+    my ( $hash, $notification ) = @_;
+
+    my $name = $hash->{NAME};
+    my %readings;
+
+    Log3 $name, 4, "XiaomiBTLESens ($name) - Clear Grass Sens Handle0x3";
+
+    $notification =~ s/\s+//g;
+
+    $readings{'devicename'} = pack( 'H*', $notification );
+
+    $hash->{helper}{CallBattery} = 0;
+    return \%readings;
+}
+
 sub WriteReadings($$) {
 
     my ( $hash, $readings ) = @_;
@@ -1045,7 +1193,9 @@ sub WriteReadings($$) {
               . ReadingsVal( $name, 'temperature', 0 ) . ' H: '
               . ReadingsVal( $name, 'humidity',    0 )
         )
-    ) if ( AttrVal( $name, 'model', 'none' ) eq 'thermoHygroSens' );
+      )
+      if ( AttrVal( $name, 'model', 'none' ) eq 'thermoHygroSens'
+        or AttrVal( $name, 'model', 'none' ) eq 'clearGrassSens' );
 
     readingsEndUpdate( $hash, 1 );
 
@@ -1201,7 +1351,7 @@ sub CreateDevicenameHEX($) {
     return $devicenameHex;
 }
 
-sub CometBlueBTLE_CmdlinePreventGrepFalsePositive($) {
+sub BTLE_CmdlinePreventGrepFalsePositive($) {
 
 # https://stackoverflow.com/questions/9375711/more-elegant-ps-aux-grep-v-grep
 # Given abysmal (since external-command-based) performance in the first place, we'd better
@@ -1402,7 +1552,7 @@ sub CometBlueBTLE_CmdlinePreventGrepFalsePositive($) {
   ],
   "release_status": "stable",
   "license": "GPL_2",
-  "version": "v2.6.0",
+  "version": "v2.8.1",
   "author": [
     "Marko Oldenburg <leongaultier@gmail.com>"
   ],

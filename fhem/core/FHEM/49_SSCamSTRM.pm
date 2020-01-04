@@ -1,5 +1,5 @@
 ########################################################################################################################
-# $Id: 49_SSCamSTRM.pm 19837 2019-07-15 21:09:30Z DS_Starter $
+# $Id: 49_SSCamSTRM.pm 20478 2019-11-08 20:53:30Z DS_Starter $
 #########################################################################################################################
 #       49_SSCamSTRM.pm
 #
@@ -35,6 +35,11 @@ eval "use FHEM::Meta;1" or my $modMetaAbsent = 1;
 
 # Versions History intern
 our %SSCamSTRM_vNotesIntern = (
+  "2.10.2" => "08.11.2019  undef \$link in SSCamSTRM_FwFn / SSCamSTRM_AsHtml to save memory ",
+  "2.10.1" => "18.10.2019  set parentState initial in Define, Forum: https://forum.fhem.de/index.php/topic,45671.msg985136.html#msg985136 ",
+  "2.10.0" => "21.09.2019  new attribute hideAudio ",
+  "2.9.0"  => "19.09.2019  new attribute noLink ",
+  "2.8.0"  => "09.09.2019  new attribute hideButtons ",
   "2.7.0"  => "15.07.2019  FTUI support, new attributes htmlattrFTUI, hideDisplayNameFTUI, ptzButtonSize, ptzButtonSizeFTUI ",
   "2.6.0"  => "21.06.2019  GetFn -> get <name> html ",
   "2.5.0"  => "27.03.2019  add Meta.pm support ",
@@ -83,8 +88,11 @@ sub SSCamSTRM_Initialize($) {
                                 "genericStrmHtmlTag ".
                                 "htmlattr ".
                                 "htmlattrFTUI ".
+                                "hideAudio:1,0 ".
+                                "hideButtons:1,0 ".
                                 "hideDisplayName:1,0 ".
                                 "hideDisplayNameFTUI:1,0 ".
+                                "noLink:1,0 ".
                                 "popupWindowSize ".
                                 "popupStreamFW:$fwd ".
                                 "popupStreamTo:OK,1,2,3,4,5,6,7,8,9,10,15,20,25,30,40,50,60 ".
@@ -123,7 +131,8 @@ sub SSCamSTRM_Define($$) {
   # Versionsinformationen setzen
   SSCamSTRM_setVersionInfo($hash);
   
-  readingsSingleUpdate($hash,"state", "initialized", 1);      # Init für "state" 
+  readingsSingleUpdate($hash,"state", "initialized", 1);            # Init für "state" 
+  readingsSingleUpdate($hash,"parentState", "initialized", 1);      # Init für "parentState" Forum: https://forum.fhem.de/index.php/topic,45671.msg985136.html#msg985136
   
 return undef;
 }
@@ -291,6 +300,8 @@ sub SSCamSTRM_FwFn($;$$$) {
       InternalTimer(gettimeofday()+$al, "SSCamSTRM_refresh", $hash, 0);
       Log3($d, 5, "$d - next start of autoRefresh: ".FmtDateTime(gettimeofday()+$al));
   }
+  
+  undef $link;
 
 return $ret;
 }
@@ -331,12 +342,12 @@ sub SSCamSTRM_setVersionInfo($) {
   if($modules{$type}{META}{x_prereqs_src} && !$hash->{HELPER}{MODMETAABSENT}) {
 	  # META-Daten sind vorhanden
 	  $modules{$type}{META}{version} = "v".$v;              # Version aus META.json überschreiben, Anzeige mit {Dumper $modules{SMAPortal}{META}}
-	  if($modules{$type}{META}{x_version}) {                                                                             # {x_version} ( nur gesetzt wenn $Id: 49_SSCamSTRM.pm 19837 2019-07-15 21:09:30Z DS_Starter $ im Kopf komplett! vorhanden )
+	  if($modules{$type}{META}{x_version}) {                                                                             # {x_version} ( nur gesetzt wenn $Id: 49_SSCamSTRM.pm 20478 2019-11-08 20:53:30Z DS_Starter $ im Kopf komplett! vorhanden )
 		  $modules{$type}{META}{x_version} =~ s/1.1.1/$v/g;
 	  } else {
 		  $modules{$type}{META}{x_version} = $v; 
 	  }
-	  return $@ unless (FHEM::Meta::SetInternals($hash));                                                                # FVERSION wird gesetzt ( nur gesetzt wenn $Id: 49_SSCamSTRM.pm 19837 2019-07-15 21:09:30Z DS_Starter $ im Kopf komplett! vorhanden )
+	  return $@ unless (FHEM::Meta::SetInternals($hash));                                                                # FVERSION wird gesetzt ( nur gesetzt wenn $Id: 49_SSCamSTRM.pm 20478 2019-11-08 20:53:30Z DS_Starter $ im Kopf komplett! vorhanden )
 	  if(__PACKAGE__ eq "FHEM::$type" || __PACKAGE__ eq $type) {
 	      # es wird mit Packages gearbeitet -> Perl übliche Modulversion setzen
 		  # mit {<Modul>->VERSION()} im FHEMWEB kann Modulversion abgefragt werden
@@ -379,6 +390,7 @@ sub SSCamSTRM_AsHtml($;$) {
   }
   
   $ret .= "</html>";
+  undef $link;
   
 return $ret;
 }
@@ -527,6 +539,18 @@ attr &lt;name&gt; genericStrmHtmlTag &lt;img $HTMLATTR
     <br><br>
     </li>
     
+    <a name="hideAudio"></a>
+    <li><b>hideAudio</b><br>
+      Hide the control block for audio playback in the footer.    
+    </li>
+    <br>
+    
+    <a name="hideButtons"></a>
+    <li><b>hideButtons</b><br>
+      Hide the buttons in the footer. It has no impact for streaming devices of type "switched".    
+    </li>
+    <br>
+    
     <a name="hideDisplayName"></a>
     <li><b>hideDisplayName</b><br>
       Hide the device/alias name (link to detail view).     
@@ -558,6 +582,12 @@ attr &lt;name&gt; genericStrmHtmlTag &lt;img $HTMLATTR
         <b>Example: </b><br>
         attr &lt;name&gt; htmlattr width="580" height="460" <br>
       </ul>
+    </li>
+    <br>
+    
+    <a name="noLink"></a>
+    <li><b>noLink</b><br>
+      The device name or alias doesn't contain a link to the detail device view. 
     </li>
     <br>
     
@@ -750,7 +780,19 @@ attr &lt;name&gt; genericStrmHtmlTag &lt;img $HTMLATTR
       Devicenamen bzw. das Attribut "popupWindowSize" im Streaming-Device, welches die Größe eines Popup-Windows festlegt.    
     </ul>
     <br><br>
-    </li>    
+    </li> 
+    
+    <a name="hideAudio"></a>
+    <li><b>hideAudio</b><br>
+      Verbirgt die Steuerungsbereich für die Audiowiedergabe in der Fußzeile.    
+    </li>
+    <br>  
+
+    <a name="hideButtons"></a>
+    <li><b>hideButtons</b><br>
+      Verbirgt die Drucktasten in der Fußzeile. Dieses Attribut hat keinen Einfluß bei Streaming-Devices vom Typ "switched".    
+    </li>
+    <br>    
     
     <a name="hideDisplayName"></a>
     <li><b>hideDisplayName</b><br>
@@ -783,6 +825,12 @@ attr &lt;name&gt; genericStrmHtmlTag &lt;img $HTMLATTR
         <b>Beispiel: </b><br>
         attr &lt;name&gt; htmlattr width="580" height="460"  <br>
       </ul>
+    </li>
+    <br>
+    
+    <a name="noLink"></a>
+    <li><b>noLink</b><br>
+      Der Devicename oder Alias enthält keinen Link zur Detailansicht. 
     </li>
     <br>
     

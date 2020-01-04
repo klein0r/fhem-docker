@@ -1,5 +1,5 @@
 "use strict";
-FW_version["f18.js"] = "$Id: f18.js 19292 2019-04-29 21:30:58Z rudolfkoenig $";
+FW_version["f18.js"] = "$Id: f18.js 20818 2019-12-23 20:12:15Z rudolfkoenig $";
 
 // TODO: hierMenu+Pin,SVGcolors,floorplan
 // Known bugs: AbsSize is wrong for ColorSlider
@@ -66,7 +66,6 @@ $(document).ready(function(){
   });
   f18_menu();
   f18_tables();
-  f18_svgSetCols();
   if(typeof svgCallback != "undefined")
     svgCallback.f18 = f18_svgSetCols;
   $("[data-name]").each(function(){ f18_setPos(this) });
@@ -366,6 +365,7 @@ f18_special()
     addHider("hideLogo", true, "Hide logo", f18_menu);
     addHider("hideInput", true, "Hide input", f18_menu);
     addHider("hideTextInput", true, "Hide text input", f18_menu);
+    addHider("hideMenu", true, "Hide menu", f18_menu);
     addHider("hidePin", true, "Hide pin", function(c){
       $("div.pinHeader div.pin").css("display", c ? "none":"block");
     });
@@ -416,7 +416,8 @@ f18_resize()
   log("f18.js resize W:"+w+" S:"+screen.width);
   var hl = f18_getAttr("hideLogo"),
       hi = f18_getAttr("hideInput"),
-      pm = f18_getAttr("Pinned.menu"),
+      hm = f18_getAttr("hideMenu"),
+      pm = f18_getAttr("Pinned.menu") || hm,
       rm = (f18_getAttr("rightMenu") && f18_small),
       hti = f18_getAttr("hideTextInput");
 
@@ -436,6 +437,7 @@ f18_resize()
   $("#menuBtn").toggle(!pm || f18_small);
   $("#menuBtn").css({ left:(rm ? "auto":"10px"), right:(rm ? "10px":"auto") });
   $("#logo")   .css({ left:(rm ? "auto":lleft ), right:(rm ? "48px":"auto") });
+  $("#menu").css({ display: (hm ? "none":"block") });
   if(FW_isiOS)
     $("#logo,#menuBtn").css({ top:'12px'});
 }
@@ -795,7 +797,7 @@ f18_svgSetCols(svg)
 {
   function col(n) { return f18_getAttr("cols."+n, true) };
 
-  if(!svg || !svg.getAttribute("data-origin"))
+  if(!svg || !$(svg).attr("data-origin"))
     return;
 
   var style = $(svg).find("> style").first();

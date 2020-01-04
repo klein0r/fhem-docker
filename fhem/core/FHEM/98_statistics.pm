@@ -1,5 +1,5 @@
 ﻿##############################################
-# $Id: 98_statistics.pm 16438 2018-03-18 18:51:57Z tupol $
+# $Id: 98_statistics.pm 20819 2019-12-23 23:07:57Z tupol $
 #
 #  98_statistic.pm
 # 
@@ -178,7 +178,7 @@ sub statistics_Define($$)
   $hash->{NOTIFYDEV} = "global,".$devName;
 
   $hash->{STATE} = "Waiting for notifications";
-  $hash->{fhem}{modulVersion} = '$Date: 2018-03-18 18:51:57 +0000 (Sun, 18 Mar 2018) $';
+  $hash->{fhem}{modulVersion} = '$Date: 2019-12-24 00:07:57 +0100 (Tue, 24 Dec 2019) $';
 
   RemoveInternalTimer($hash);
   
@@ -1164,11 +1164,10 @@ sub statistics_UpdateDevReading($$$$)
 1;
 
 =pod
-=begin html
-
-=item helper
 =item summary Calculates statistical values and adds them to the devices.
 =item summary_DE Berechnet statistische Werte und fügt sie dem Gerät hinzu.
+=item helper
+=begin html
 
 <a name="statistics"></a>
 <h3>statistics</h3>

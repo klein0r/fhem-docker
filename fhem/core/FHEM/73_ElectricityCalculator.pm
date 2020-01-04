@@ -1,4 +1,4 @@
-# $Id: 73_ElectricityCalculator.pm 16601 2018-04-13 17:57:41Z Sailor $
+# $Id: 73_ElectricityCalculator.pm 20576 2019-11-25 13:09:58Z Sailor $
 ########################################################################################################################
 #
 #     73_ElectricityCalculator.pm
@@ -694,7 +694,7 @@ sub ElectricityCalculator_Notify($$)
 		if ($ElectricityCountReadingTimestampDelta > 1)
 		{
 			### Calculate DW (electric Energy difference) of previous and current value / [kWh]
-			my $ElectricityCountReadingValueDelta = sprintf('%.3f', ($ElectricityCountReadingValueCurrent - $ElectricityCountReadingValuePrevious));
+			my $ElectricityCountReadingValueDelta = sprintf('%.3f', ($ElectricityCountReadingValueCurrent)) - sprintf('%.3f', ($ElectricityCountReadingValuePrevious));
 			Log3 $ElectricityCalcName, 5, $ElectricityCalcName. " : ElectricityCalculator - ElectricityCountReadingValueDelta                : " . $ElectricityCountReadingValueDelta;
 
 			### Calculate Current Power P = DW/Dt[kWh/s] * 3600[s/h] * 1000 [1/k] / SiPrefixPowerFactor

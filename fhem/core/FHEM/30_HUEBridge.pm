@@ -1,5 +1,5 @@
 
-# $Id: 30_HUEBridge.pm 19854 2019-07-19 13:04:29Z justme1968 $
+# $Id: 30_HUEBridge.pm 20856 2019-12-30 22:05:43Z justme1968 $
 
 # "Hue Personal Wireless Lighting" is a trademark owned by Koninklijke Philips Electronics N.V.,
 # see www.meethue.com for more information.
@@ -31,6 +31,7 @@ sub HUEBridge_Initialize($)
 
   #Consumer
   $hash->{DefFn}    = "HUEBridge_Define";
+  $hash->{RenameFn} = "HUEBridge_Rename";
   $hash->{NotifyFn} = "HUEBridge_Notify";
   $hash->{SetFn}    = "HUEBridge_Set";
   $hash->{GetFn}    = "HUEBridge_Get";
@@ -110,6 +111,7 @@ HUEBridge_Read($)
           }
 
           my $chash = $modules{HUEDevice}{defptr}{$code};
+          #Log 1, $chash;
           if( defined($chash) ) {
             HUEDevice_Parse($chash,$obj);
             HUEBridge_updateGroups($hash, $chash->{ID}) if( !$chash->{helper}{devtype} );
@@ -179,7 +181,7 @@ HUEBridge_Detect($)
   Log3 $name, 3, "HUEBridge_Detect";
 
   my ($err,$ret) = HttpUtils_BlockingGet({
-    url => "http://www.meethue.com/api/nupnp",
+    url => "https://discovery.meethue.com/",
     method => "GET",
   });
 
@@ -255,6 +257,18 @@ HUEBridge_Define($$)
   }
 
   return undef;
+}
+sub
+HUEBridge_Rename($$$)
+{
+  my ($new,$old) = @_;
+
+  foreach my $chash ( values %{$modules{HUEDevice}{defptr}} ) {
+    next if( !$chash->{IODev} );
+    next if( $chash->{IODev}{NAME} ne $new );
+
+    HUEDevice_IODevChanged($chash, $old, $new);
+  }
 }
 sub
 HUEBridge_Notify($$)
@@ -484,6 +498,7 @@ HUEBridge_string2array($)
 sub
 HUEBridge_scene2id($$)
 {
+  # hash is the bridge device
   my ($hash,$id) = @_;
   $hash = $defs{$hash} if( ref($hash) ne 'HASH' );
   return undef if( !$hash );
@@ -492,13 +507,13 @@ HUEBridge_scene2id($$)
     $id = $1;
   }
 
-  if( $hash->{helper}{scenes} ) {
+  if( my $scenes = $hash->{helper}{scenes} ) {
     return $id if( defined($hash->{helper}{scenes}{$id}) );
     $id = lc($id);
     $id =~ s/\((.*)\)$/\\\($1\\\)/;
 
-    foreach my $key ( keys %{$hash->{helper}{scenes}} ) {
-      my $scene = $hash->{helper}{scenes}{$key};
+    foreach my $key ( keys %{$scenes} ) {
+      my $scene = $scenes->{$key};
 
       return $key if( lc($key) eq $id );
       #return $key if( $scene->{name} eq $id );
@@ -508,6 +523,32 @@ HUEBridge_scene2id($$)
 
   return '<unknown>';
 }
+sub
+HUEBridge_scene2id_deCONZ($$)
+{
+  # hash is the client device
+  my ($hash,$id) = @_;
+  my $name = $hash->{NAME};
+  #Log3 $name, 4, "HUEBridge_scene2id_deCONZ: $id, hash: " . Dumper $hash;
+  $hash = $defs{$hash} if( ref($hash) ne 'HASH' );
+  return undef if( !$hash );
+
+  if( $id =~ m/\[id=(.*)\]$/ ) {
+    $id = $1;
+  }
+
+  if( my $scenes = $hash->{helper}{scenes} ) {
+    $id = lc($id);
+    $id =~ s/\((.*)\)$/\\\($1\\\)/;
+    for my $scene ( @{$scenes} ) {
+       #Log3 $name, 4, "HUEBridge_scene2id_deCONZ scene:". Dumper $scene;
+      return $scene->{id} if( lc($scene->{name}) =~ m/^$id$/ );
+    }
+  }
+
+  return '<unknown>';
+}
+
 sub
 HUEbridge_groupOfLights($$)
 {
@@ -930,7 +971,7 @@ HUEBridge_Set($@)
       map { $count{$scenes->{$_}{name}}++ } keys %{$scenes};
       $list .= " scene:". join(",", sort map { my $scene = $scenes->{$_}{name};
                                                my $group = '';
-                                               if( $count{$scene} > 1 ) {
+                                               if( $scenes->{$_}{lights} && $count{$scene} > 1 ) {
                                                  my $lights = join( ",", @{$scenes->{$_}{lights}} );
                                                  $group = HUEbridge_groupOfLights($hash,$lights);
                                                  $group = join( ";", map { my $l = $hash->{helper}{lights}{$_}{name}; $l?$l:$_;} @{$scenes->{$_}{lights}} ) if( !$group && $hash->{helper}{lights} );
@@ -940,9 +981,10 @@ HUEBridge_Set($@)
                                                  $group = $_ if( !$group );
 
                                                  $scene .= " ($group)";
-                                                 $scene .= " [id=$_]" if( 1 || $group =~ /;/ );;
+                                                 $scene .= " [id=$_]" if( 1 || $group =~ /;/ );
                                                }
-                                               $scene =~ s/ /#/g; $scene;} keys %{$scenes} );
+                                               $scene =~ s/ /#/g; $scene;
+                                             } keys %{$scenes} );
     } else {
       $list .= " scene";
     }
@@ -972,11 +1014,19 @@ HUEBridge_Get($@)
     my $ret = "";
     foreach my $key ( sort {$a<=>$b} keys %{$result} ) {
       my $code = $name ."-". $key;
-      my $fhem_name ="";
-      $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
-      $ret .= sprintf( "%2i: %-25s %-15s %s\n", $key, $result->{$key}{name}, $fhem_name, $result->{$key}{type} );
+      my $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
+      $fhem_name = "" if( !$fhem_name );
+      $ret .= sprintf( "%2i  %-25s %-15s %-25s", $key, $result->{$key}{name}, $fhem_name, $result->{$key}{type} );
+      $ret .= sprintf( "capabilities: %s", encode_json($result->{$key}{capabilities}) ) if( $arg && $arg eq 'detail' && defined($result->{$key}{capabilities}) );
+      $ret .= sprintf( "\n%2s  %-25s %-15s %-25s      config: %s", "", "", "", "", encode_json($result->{$key}{config}) ) if( $arg && $arg eq 'detail' && defined($result->{$key}{config}) );
+      $ret .= sprintf( "\n%2s  %-25s %-15s %-25s       state: %s", "", "", "", "", encode_json($result->{$key}{state}) ) if( $arg && $arg eq 'detail' && defined($result->{$key}{state}) );
+      $ret .= "\n";
     }
-    $ret = sprintf( "%2s  %-25s %-15s %s\n", "ID", "NAME", "FHEM", "TYPE" ) .$ret if( $ret );
+    if( $arg && $arg eq 'detail' ) {
+      $ret = sprintf( "%2s  %-25s %-15s %-25s %s\n", "ID", "NAME", "FHEM", "TYPE", "DETAIL" ) .$ret if( $ret ); 
+    } else {
+      $ret = sprintf( "%2s  %-25s %-15s %-25s\n", "ID", "NAME", "FHEM", "TYPE" ) .$ret if( $ret ); 
+    }
     return $ret;
 
   } elsif($cmd eq 'groups') {
@@ -987,8 +1037,8 @@ HUEBridge_Get($@)
     my $ret = "";
     foreach my $key ( sort {$a<=>$b} keys %{$result} ) {
       my $code = $name ."-G". $key;
-      my $fhem_name ="";
-      $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
+      my $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
+      $fhem_name = "" if( !$fhem_name );
       $result->{$key}{type} = '' if( !defined($result->{$key}{type}) );     #deCONZ fix
       $result->{$key}{class} = '' if( !defined($result->{$key}{class}) );   #deCONZ fix
       $result->{$key}{lights} = [] if( !defined($result->{$key}{lights}) ); #deCONZ fix
@@ -1008,9 +1058,10 @@ HUEBridge_Get($@)
     $hash->{helper}{scenes} = $result;
     my $ret = "";
     foreach my $key ( sort {$result->{$a}{name} cmp $result->{$b}{name}} keys %{$result} ) {
-      $ret .= sprintf( "%-20s %-20s", $key, $result->{$key}{name} );
+      $ret .= sprintf( "%-20s %-25s %-10s", $key, $result->{$key}{name}, $result->{$key}{type} );
       $ret .= sprintf( "%i %i %i %-40s %-20s", $result->{$key}{recycle}, $result->{$key}{locked},$result->{$key}{version}, $result->{$key}{owner}, $result->{$key}{lastupdated}?$result->{$key}{lastupdated}:'' ) if( $arg && $arg eq 'detail' );
-      my $lights = join( ",", @{$result->{$key}{lights}} );
+      my $lights = "";
+      $lights = join( ",", @{$result->{$key}{lights}} ) if( $result->{$key}{lights} );
       my $group = HUEbridge_groupOfLights($hash,$lights);
 
       if( !$arg && $group ) {
@@ -1023,7 +1074,7 @@ HUEBridge_Get($@)
       }
     }
     if( $ret ) {
-      my $header = sprintf( "%-20s %-20s", "ID", "NAME" );
+      my $header = sprintf( "%-20s %-25s %-10s", "ID", "NAME", "TYPE" );
       $header .= sprintf( "%s %s %s %-40s %-20s", "R", "L", "V", "OWNER", "LAST UPDATE" ) if( $arg && $arg eq 'detail' );
       $header .= sprintf( " %s\n", "LIGHTS" );
       $ret = $header . $ret;
@@ -1087,8 +1138,8 @@ HUEBridge_Get($@)
     my $ret = "";
     foreach my $key ( sort {$a<=>$b} keys %{$result} ) {
       my $code = $name ."-S". $key;
-      my $fhem_name ="";
-      $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
+      my $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
+      $fhem_name = "" if( !$fhem_name );
       $ret .= sprintf( "%2i: %-15s %-15s %-20s", $key, $result->{$key}{name}, $fhem_name, $result->{$key}{type} );
       $ret .= sprintf( " %s", encode_json($result->{$key}{state}) ) if( $arg && $arg eq 'detail' );
       $ret .= sprintf( "\n%-56s %s", '', encode_json($result->{$key}{config}) ) if( $arg && $arg eq 'detail' );
@@ -1226,42 +1277,107 @@ HUEBridge_updateGroups($$)
   foreach my $chash ( values %{$groups} ) {
     my $count = 0;
     my %readings;
+    my ($hue,$sat,$bri);
     foreach my $light ( split(',', $chash->{lights}) ) {
       next if( !$light );
       my $current = $modules{HUEDevice}{defptr}{"$name-$light"}{helper};
       next if( !$current );
+      #next if( !$current->{on} );
       next if( $current->{helper}{devtype} );
 
-      $readings{ct} += $current->{ct};
-      $readings{bri} += $current->{bri};
-      $readings{pct} += $current->{pct};
-      $readings{sat} += $current->{sat};
+      my( $h, $s, $v );
+
+      if( $current->{on} && $current->{colormode} && $current->{colormode} eq 'hs' ) {
+        $h = $current->{hue} / 65535;
+        $s = $current->{sat} / 254;
+        $v = $current->{bri} / 254;
+
+      } elsif( $current->{on} && $current->{rgb} &&  $current->{rgb}  =~ m/^(..)(..)(..)/ ) {
+        my( $r, $g, $b ) = (hex($1)/255.0, hex($2)/255.0, hex($3)/255.0);
+        ( $h, $s, $v ) = Color::rgb2hsv($r,$g,$b);
+
+        $s = 0 if( !defined($s) );
+      }
+
+
+      if( defined($h) ) {
+        #Log 1, ">>> $h $s $v";
+        if( defined($hue) ) {
+           my $a = $hue < $h ? $hue : $h;
+           my $b = $hue < $h ? $h : $hue;
+
+           my $d1 = $b-$a;
+           my $d2 = $a+1-$b;
+
+           if( $d1 < $d2 ) {
+             $hue = $a + $d1 / 2;
+           } else {
+              $hue = $b + $d2 / 2;
+           }
+
+           $sat += $s;
+           $bri += $v;
+
+        } else {
+          $hue = $h;
+          $sat = $s;
+          $bri = $v;
+
+        }
+      }
+
+      $readings{ct} += $current->{ct} if( $current->{ct} );
+      $readings{bri} += $current->{bri} if( defined($current->{bri}) );
+      $readings{pct} += $current->{pct} if( defined($current->{pct}) );
+      $readings{sat} += $current->{sat} if( defined($current->{sat}) );
 
       $readings{on} |= ($current->{on}?'1':'0');
       $readings{reachable} |= ($current->{reachable}?'1':'0');
 
       if( !defined($readings{alert}) ) {
         $readings{alert} = $current->{alert};
-      } elsif( $readings{alert} ne $current->{alert} ) {
-        $readings{alert} = "nonuniform";
+      } elsif( $current->{alert} && $readings{alert} ne $current->{alert} ) {
+        $readings{alert} = 'nonuniform';
       }
       if( !defined($readings{colormode}) ) {
         $readings{colormode} = $current->{colormode};
-      } elsif( $readings{colormode} ne $current->{colormode} ) {
+      } elsif( $current->{colormode} && $readings{colormode} ne $current->{colormode} ) {
         $readings{colormode} = "nonuniform";
       }
       if( !defined($readings{effect}) ) {
         $readings{effect} = $current->{effect};
-      } elsif( $readings{effect} ne $current->{effect} ) {
+      } elsif( $current->{effect} && $readings{effect} ne $current->{effect} ) {
         $readings{effect} = "nonuniform";
       }
 
       ++$count;
     }
-    $readings{ct} = int($readings{ct} / $count + 0.5);
-    $readings{bri} = int($readings{bri} / $count + 0.5);
-    $readings{pct} = int($readings{pct} / $count + 0.5);
-    $readings{sat} = int($readings{sat} / $count + 0.5);
+
+    if( defined($hue) && $readings{colormode} && $readings{colormode} ne "ct" ) {
+      #Log 1, "$hue $sat $bri";
+      $readings{colormode} = 'hs';
+      $readings{hue} = int($hue * 65535);
+      $readings{sat} = int($sat * 254 / $count + 0.5);
+
+      $readings{bri} = int($bri * 254 / $count + 0.5);
+      $readings{pct} = int($bri * 100 / $count + 0.5);
+
+    } else {
+      foreach my $key ( qw( ct bri pct sat ) ) {
+        $readings{$key} = int($readings{$key} / $count + 0.5) if( defined($readings{$key}) );
+      }
+    }
+
+    if( defined($hue) ) {
+      $hue -= 1 if( $hue >= 1 );
+      my ($r,$g,$b) = Color::hsv2rgb($hue,$sat/$count,$bri/$count);
+
+      $r *= 255;
+      $g *= 255;
+      $b *= 255;
+
+      $readings{rgb} = sprintf( "%02x%02x%02x", $r+0.5, $g+0.5, $b+0.5 )
+    }
 
     if( $readings{on} ) {
       if( $readings{pct} > 0
@@ -1386,6 +1502,7 @@ HUEBridge_Autocreate($;$)
     } else {
       $cmdret= CommandAttr(undef,"$devname alias ".$result->{$id}{name});
       $cmdret= CommandAttr(undef,"$devname room HUEDevice");
+      $cmdret= CommandAttr(undef,"$devname group HUEDevice");
       $cmdret= CommandAttr(undef,"$devname IODev $name");
 
       HUEDeviceSetIcon($devname);
@@ -1598,8 +1715,8 @@ HUEBridge_HTTP_Call($$$;$)
   } elsif($ret eq '') {
     return undef;
   } elsif($ret =~ /^error:(\d){3}$/) {
-    my %result = { error => "HTTP Error Code $1" };
-    return \%result;
+    my $result = { error => "HTTP Error Code $1" };
+    return $result;
   }
 
   if( !$ret ) {
@@ -1814,6 +1931,20 @@ HUEBridge_dispatch($$$;$)
         HUEBridge_updateGroups($hash, $param->{chash}{ID});
       }
 
+    } elsif( $type =~ m/^lights\/(\d*)\/bridgeupdatestate$/ ) { 
+      # only for https://github.com/bwssytems/ha-bridge
+      # see https://forum.fhem.de/index.php/topic,11020.msg961555.html#msg961555
+      if( $queryAfterSet ) {
+        my $chash = $param->{chash};
+        if( $chash->{helper}->{update_timeout} ) {
+          RemoveInternalTimer($chash);
+          InternalTimer(gettimeofday()+1, "HUEDevice_GetUpdate", $chash, 0);
+        } else {
+          RemoveInternalTimer($chash);
+          HUEDevice_GetUpdate( $chash );
+        }
+      }
+
     } elsif( $type =~ m/^groups\/(\d*)$/ ) {
       HUEDevice_Parse($param->{chash},$json);
 
@@ -1931,8 +2062,8 @@ HUEBridge_HTTP_Request($$$@)
   }
   undef $conn;
   if($header[0] =~ /^[^ ]+ ([\d]{3})/ && $1 != 200) {
-    my %result = { error => "error: $1" };
-    return \%result;
+    my $result = { error => "error: $1" };
+    return $result;
   }
   return $ret;
 }
@@ -1981,6 +2112,9 @@ HUEBridge_Attr($$$)
 1;
 
 =pod
+=item tag cloudfree
+=item tag publicAPI
+=item tag protocol:zigbee
 =item summary    module for the phillips hue bridge
 =item summary_DE Modul f&uuml;r die Philips HUE Bridge
 =begin html

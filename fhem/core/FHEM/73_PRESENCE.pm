@@ -1,4 +1,4 @@
-﻿# $Id: 73_PRESENCE.pm 18314 2019-01-18 13:49:05Z markusbloch $
+﻿# $Id: 73_PRESENCE.pm 20782 2019-12-19 10:51:06Z markusbloch $
 ##############################################################################
 #
 #     73_PRESENCE.pm
@@ -57,6 +57,8 @@ PRESENCE_Initialize($)
                         "absenceTimeout ".
                         "presenceTimeout ".
                         "powerCmd ".
+                        "retryInterval ".
+                        "retryCount ".
                         $readingFnAttributes;
 
     $hash->{AttrRenameMap} = { "ping_count" => "pingCount",
@@ -558,7 +560,12 @@ PRESENCE_Attr(@)
             return "not a valid time frame value. See commandref for the correct syntax.";
         }
     }
-
+    elsif($a[0] eq "set" and $a[2] =~ /^(retryInterval|retryCount)$/)
+    {
+        return $a[2]." must be a valid positive integer number" if($a[3] !~ /^\d+$/);
+        return $a[2]." is not applicable for mode '".$hash->{MODE}."'" if($hash->{MODE} =~ /^(event|lan-bluetooth)$/);
+    }
+    
     return undef;
 }
 
@@ -1516,7 +1523,7 @@ sub PRESENCE_setNotfiyDev($)
     <u>Example</u><br><br>
     <code>define iPhone PRESENCE shellscript "/opt/check_device.sh iPhone"</code><br><br>
     <b>Mode: event</b><br><br>
-    <code>define &lt;name&gt; PRESENCE evemt &lt;absent-regexp&gt; &lt;present-regexp&gt;</code><br>
+    <code>define &lt;name&gt; PRESENCE event &lt;absent-regexp&gt; &lt;present-regexp&gt;</code><br>
     <br>
     Listens for events of other FHEM definitions to determine a presence state. You must provide two event regexp's in the same style as for the <a href="#notify">notify</a> module.<br><br>
     If an event matches one of the provides regexps, the presence state will be changed.<br><br>

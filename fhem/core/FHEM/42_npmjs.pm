@@ -1,4 +1,4 @@
-# $Id: 42_npmjs.pm 19863 2019-07-20 08:48:27Z loredo $
+# $Id: 42_npmjs.pm 20855 2019-12-30 14:36:05Z loredo $
 
 package main;
 use strict;
@@ -960,6 +960,7 @@ sub ExecuteNpmCommand($) {
       . '--json --silent --depth=0 2>/dev/null); '
       . '[ "$L1" != "" ] && [ "$L1" != "\n" ] && echo ", \"listed\": $L1"; '
       . 'L2=$('
+      . $sudo
       . $locale
       . ' npm outdated '
       . $global
@@ -1184,6 +1185,7 @@ sub RetrieveNpmOutput($$) {
                       . "<br /><br />"
                       . "You may add the following lines to /etc/sudoers.d/$runningUser:\n"
                       . "<pre>"
+                      . "  $runningUser ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm outdated *\n"
                       . "  $runningUser ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm update *\n"
                       . "  $runningUser ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm install *\n"
                       . "  $runningUser ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm uninstall *"
@@ -1676,6 +1678,7 @@ sub ToDay() {
   Global installations will be controlled by default and running update/install/uninstall require sudo permissions like this:<br>
   <br>
   <code>
+    fhem ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm outdated *<br>
     fhem ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm update *<br>
     fhem ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm install *<br>
     fhem ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm uninstall *
@@ -1866,7 +1869,7 @@ sub ToDay() {
       "abstract": "Modul zur Bedienung der Node.js Installation und Updates"
     }
   },
-  "version": "v1.1.2",
+  "version": "v1.1.3",
   "release_status": "stable",
   "author": [
     "Julian Pawlowski <julian.pawlowski@gmail.com>"

@@ -5,7 +5,7 @@
 # e-mail: omega at online dot de
 #
 ##############################################
-# $Id: 02_HTTPSRV.pm 16874 2018-06-15 17:18:55Z neubert $
+# $Id: 02_HTTPSRV.pm 20110 2019-09-05 17:30:20Z neubert $
 
 package main;
 use strict;
@@ -64,7 +64,7 @@ HTTPSRV_Initialize($) {
     $hash->{UndefFn}   = "HTTPSRV_Undef";
     #$hash->{AttrFn}    = "HTTPSRV_Attr";
     $hash->{AttrList}  = "directoryindex " .
-                        "readings";
+                         "readings " . $readingFnAttributes;
     $hash->{AttrFn}    = "HTTPSRV_Attr";
     #$hash->{SetFn}     = "HTTPSRV_Set";
 

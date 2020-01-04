@@ -1,4 +1,4 @@
-# $Id: 72_FB_CALLMONITOR.pm 19517 2019-06-01 12:18:45Z markusbloch $
+# $Id: 72_FB_CALLMONITOR.pm 20486 2019-11-10 08:06:06Z markusbloch $
 ##############################################################################
 #
 #     72_FB_CALLMONITOR.pm
@@ -553,6 +553,8 @@ FB_CALLMONITOR_Read($)
             delete($hash->{helper}{TEMP}{$array[2]});
         } 
     }
+    
+    $hash->{PARTIAL} = $buffer;
 }
 
 #####################################

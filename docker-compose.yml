@@ -22,13 +22,6 @@ services:
             - "mysql"
             - "mqtt"
 
-    habridge:
-        restart: always
-        build: habridge
-        network_mode: host
-        volumes:
-            - ./habridge/data/:/opt/habridge/data/
-
     mysql:
         restart: always
         expose:
@@ -42,7 +35,11 @@ services:
             - ./mysql/init.sql:/docker-entrypoint-initdb.d/fhem-init.sql
             - ./mysql/data:/var/lib/mysql
         environment:
-            - MYSQL_RANDOM_ROOT_PASSWORD=yes
+            - MYSQL_DATABASE=fhem
+            - MYSQL_USER=fhemuser
+            - MYSQL_PASSWORD=2jRHnEi3WuNSQAcX7
+            - MYSQL_RANDOM_ROOT_PASSWORD=true
+            - MYSQL_ONETIME_PASSWORD=false
         networks:
             - fhem-network
 
@@ -54,13 +51,13 @@ services:
         ports:
             - "1883:1883"
             - "9001:9001"
-        image: toke/mosquitto
+        image: eclipse-mosquitto:1.6.8
         networks:
             - fhem-network
         volumes:
-            - ./mqtt/config/:/mqtt/config/
-            - ./mqtt/log/:/mqtt/log/
-            - ./mqtt/data/:/mqtt/data/
+            - ./mqtt/config/:/mosquitto/config/
+            - ./mqtt/log/:/mosquitto/log/
+            - ./mqtt/data/:/mosquitto/data/
 
     nodered:
         restart: always
@@ -68,7 +65,7 @@ services:
             - "1880"
         ports:
             - "1880:1880"
-        image: nodered/node-red-docker:0.20.7
+        image: nodered/node-red:1.0.3-2
         user: "1000:1000"
         volumes:
             - ./nodered/data/:/data/

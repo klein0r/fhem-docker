@@ -1,10 +1,10 @@
-# $Id: 12_HProtocolGateway.pm 18963 2019-03-18 20:42:00Z eisler $
+# $Id: 12_HProtocolGateway.pm 20549 2019-11-20 14:38:43Z eisler $
 ####################################################################################################
 #
 #	12_HProtocolGateway.pm
 #
 #	Copyright: Stephan Eisler
-#	Email: fhem.dev@hausautomatisierung.co
+#	Email: stephan@eisler.de 
 #
 #	This file is part of fhem.
 #

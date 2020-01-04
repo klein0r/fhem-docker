@@ -1,10 +1,11 @@
 ##############################################
-# $Id: AttrTemplate.pm 19085 2019-04-01 17:00:24Z rudolfkoenig $
+# $Id: AttrTemplate.pm 20425 2019-10-30 08:33:31Z rudolfkoenig $
 package main;
 
 my %templates;
 my $initialized;
 my %cachedUsage;
+use vars qw($FW_addJs);     # Only for helper like AttrTemplate
 
 sub
 AttrTemplate_Initialize()
@@ -68,6 +69,9 @@ AttrTemplate_Initialize()
       } elsif($line =~ m/^farewell:(.*)/) {
         $templates{$name}{farewell} = $1;
 
+      } elsif($line =~ m/^order:(.*)/) {
+        $templates{$name}{order} = $1;
+
       } else {
         push(@{$templates{$name}{cmds}}, $line);
 
@@ -80,9 +84,52 @@ AttrTemplate_Initialize()
     delete($templates{$name});
   }
 
-  my $nr = (int keys %templates);
+  @templates = sort {
+    my $ao = $templates{$a}{order};
+    my $bo = $templates{$b}{order};
+    $ao = (defined($ao) ? $ao : $a);
+    $bo = (defined($bo) ? $bo : $b);
+    return $ao cmp $bo; 
+  } keys %templates;
+
+  my $nr = @templates;
   $initialized = 1;
   Log 2, "AttrTemplates: got $nr entries" if($nr);
+  $FW_addJs = "" if(!defined($FW_addJs));
+  $FW_addJs .= << 'JSEND';
+  <script type="text/javascript">
+    $(document).ready(function() {
+      $("select.set").change(attrAct);
+      function
+      attrAct(){
+        if($("select.set").val() == "attrTemplate") {
+          $('<div id="attrTemplateHelp" class="makeTable help"></div>')
+                .insertBefore("div.makeTable.internals");
+          $("select.select_widget[informid$=attrTemplate]").change(function(){
+            var cmd = "{AttrTemplate_Help('"+$(this).val()+"')}";
+            FW_cmd(FW_root+"?cmd="+cmd+"&XHR=1", function(ret) {
+              $("div#attrTemplateHelp").html(ret);
+            });
+          });
+        } else {
+          $("div#attrTemplateHelp").remove();
+        }
+      }
+      attrAct();
+    });
+  </script>
+JSEND
+}
+
+sub
+AttrTemplate_Help($)
+{
+  my ($n) = @_;
+  return "" if(!$templates{$n});
+  my $ret = "";
+  $ret = $templates{$n}{desc} if($templates{$n}{desc});
+  $ret .= "<br><pre>".join("\n",@{$templates{$n}{cmds}})."</pre>";
+  return $ret;
 }
 
 sub
@@ -100,7 +147,7 @@ AttrTemplate_Set($$@)
   if($cmd ne "attrTemplate") {
     if(!$cachedUsage{$name}) {
       my @list;
-      for my $k (sort keys %templates) {
+      for my $k (@templates) {
         my $h = $templates{$k};
         my $matches;
         $matches = devspec2array($h->{filter}, undef, [$name]) if($h->{filter});
@@ -121,7 +168,7 @@ AttrTemplate_Set($$@)
 
   if($entry eq "?") {
     my @hlp;
-    for my $k (sort keys %templates) {
+    for my $k (@templates) {
       my $h = $templates{$k};
       my $matches;
       $matches = devspec2array($h->{filter}, undef, [$name]) if($h->{filter});
@@ -157,7 +204,7 @@ AttrTemplate_Set($$@)
       $perl_code =~ s/\\DEVICE/DEVICE/g;
       my $ret = eval $perl_code;
       return "Error checking template regexp: $@" if($@);
-      if($ret) {
+      if(defined($ret)) {
         $repl{$parname} = $ret;
         next;
       }
@@ -182,8 +229,11 @@ AttrTemplate_Set($$@)
             $("#FW_okDialog").parent().find(".ui-dialog-buttonpane button")
             .unbind("click").click(function(){
               var val = encodeURIComponent($("#FW_okDialog input").val());
-              FW_cmd(FW_root+"?cmd="+val+"&XHR=1",
-                     function(){ location.reload() } );
+              FW_cmd(FW_root+"?cmd="+val+"&XHR=1", function(resp){
+                if(resp)
+                  return FW_okDialog("<pre>"+resp+"</pre>");
+                location.reload()
+              });
               $("#FW_okDialog").remove();
             })}, 100);
          </script>

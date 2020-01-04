@@ -7,10 +7,9 @@ This is a template for a docker based fhem installation. It contains a lot of se
 ## Contains
 
 - FHEM + haus-automatisierung.com FHEM frontend style + Tablet UI + ABFALL Module
-- MQTT (configured)
-- mySQL-Logging (configured)
+- MQTT (pre-configured)
+- mySQL-Logging (pre-configured)
 - NodeRed
-- HA-Bridge
 
 ## Requirements
 

@@ -1,4 +1,4 @@
-# $Id: 73_DoorBird.pm 19549 2019-06-04 19:08:27Z Sailor $
+# $Id: 73_DoorBird.pm 20597 2019-11-26 12:39:20Z Sailor $
 ########################################################################################################################
 #
 #     73_DoorBird.pm
@@ -34,8 +34,8 @@
 ########################################################################################################################
 # List of open Problems:
 #
-# Check problems with error message after startup: "PERL WARNING: Prototype mismatch: sub main::memcmp: none vs ($$;$) at /usr/local/share/perl/5.24.1/Sub/Exporter.pm line 445."
-#
+# Problem with error message after startup: "PERL WARNING: Prototype mismatch: sub main::memcmp: none vs ($$;$) at /usr/local/share/perl/5.24.1/Sub/Exporter.pm line 445."
+# This problem has been addressed to GitHub since its based on problems with sub-libary
 #
 #
 ########################################################################################################################
@@ -82,11 +82,17 @@ sub DoorBird_Initialize($)
 							   "SipDevice:" . join(",", devspec2array("TYPE=SIP")) . " " .
 							   "SipNumber " .
 							   "ImageFileDir " .
+							   "AudioFileDir " .
+							   "VideoFileDir " .
+							   "VideoFileFormat:mpeg,mpg,mp4,avi,mov,dvd,vob,ogg,ogv,mkv,flv,webm " .
+							   "VideoDurationDoorbell " .
+							   "VideoDurationMotion " .
+							   "VideoDurationKeypad " .
 							   "EventReset " .
 							   "SessionIdSec:slider,0,10,600 " .
 							   "WaitForHistory " .
+							   "OpsModeList " .
 							   "disable:1,0 " .
-							   "debug:1,0 " .
 						       "loglevel:slider,0,1,5 " .
 						       $readingFnAttributes;
 }
@@ -159,23 +165,29 @@ sub DoorBird_Define($$)
 	}
 	####END#### Check whether username and password are already encrypted ######################################END#####
 
-	###START###### Writing values to global hash ###############################################################START####
+	###START###### Writing values to global hash ##############################################################START####
 	  $hash->{NAME}										= $name;
-	  $hash->{RevisonAPI}								= "0.25";
+	  $hash->{RevisonAPI}								= "0.26";
 	  $hash->{helper}{SOX}	  							= "/usr/bin/sox"; #On Windows systems use "C:\Programme\sox\sox.exe"
 	  $hash->{helper}{URL}	  							= $url;
 	  $hash->{helper}{SipDevice}						= AttrVal($name,"SipDevice","");
 	  $hash->{helper}{SipNumber}						= AttrVal($name, "SipNumber", "**620");
-	  $hash->{helper}{debug}							= 0;
 	  $hash->{helper}{PollingTimeout}					= AttrVal($name,"PollingTimeout",5);
 	  $hash->{helper}{KeepAliveTimeout}					= AttrVal($name, "KeepAliveTimeout", 30);
 	  $hash->{helper}{MaxHistory}						= AttrVal($name, "MaxHistory", 50);
 	  $hash->{helper}{HistoryTime}						= "????-??-?? ??:??";
 	  $hash->{helper}{UdpPort}							= AttrVal($name, "UdpPort", 6524);
 	  $hash->{helper}{SessionIdSec}						= AttrVal($name, "SessionIdSec", 540);
-	  $hash->{helper}{ImageFileDir}						= AttrVal($name, "ImageFileDir", 0);
+	  $hash->{helper}{ImageFileDir}						= AttrVal($name, "ImageFileDir", "");
+	  $hash->{helper}{AudioFileDir}						= AttrVal($name, "AudioFileDir", "");
+	  $hash->{helper}{VideoFileDir}						= AttrVal($name, "VideoFileDir", "");
+	  $hash->{helper}{VideoFileFormat}					= AttrVal($name, "VideoFileFormat","mpeg");
+	  $hash->{helper}{VideoDurationDoorbell}			= AttrVal($name, "VideoDurationDoorbell", 0);
+	  $hash->{helper}{VideoDurationMotion}				= AttrVal($name, "VideoDurationMotion", 0);
+	  $hash->{helper}{VideoDurationKeypad}				= AttrVal($name, "VideoDurationKeypad", 0);
 	  $hash->{helper}{EventReset}						= AttrVal($name, "EventReset", 5);
 	  $hash->{helper}{WaitForHistory}					= AttrVal($name, "WaitForHistory", 7);
+	  $hash->{helper}{CameraInstalled}					= false;
 	  $hash->{helper}{SessionId}						= 0;
 	  $hash->{helper}{UdpMessageId}						= 0;
 	  $hash->{helper}{UdpMotionId}						= 0;
@@ -184,21 +196,25 @@ sub DoorBird_Define($$)
 	@{$hash->{helper}{RelayAdresses}}					= (0);
 	@{$hash->{helper}{Images}{History}{doorbell}}		= ();
 	@{$hash->{helper}{Images}{History}{motionsensor}}	= ();
+	@{$hash->{helper}{OpsModeList}}						= ();
+	${$hash->{helper}{OpsModeListBackup}}[0]			= "Initial-gJ8990Gl";
 	  $hash->{helper}{Images}{Individual}{Data}			= "";
 	  $hash->{helper}{Images}{Individual}{Timestamp}	= "";
 	  $hash->{helper}{HistoryDownloadActive} 			= false;
 	  $hash->{helper}{HistoryDownloadCount}	 			= 0;
 	  $hash->{reusePort} 								= AttrVal($name, 'reusePort', defined(&SO_REUSEPORT)?1:0)?1:0;
-	  ####END####### Writing values to global hash ################################################################END#####
+    ####END####### Writing values to global hash ##############################################################END#####
 
 	
-	###START###### For Debugging purpose only ##################################################################START####
+	### For Debugging purpose only 
 	Log3 $name, 5, $name. " : DoorBird - Define H                               : " . $hash;
 	Log3 $name, 5, $name. " : DoorBird - Define D                               : " . $def;
 	Log3 $name, 5, $name. " : DoorBird - Define A                               : " . @a;
 	Log3 $name, 5, $name. " : DoorBird - Define Name                            : " . $name;
 	Log3 $name, 5, $name. " : DoorBird - Define SipDevice                       : " . $hash->{helper}{SipDevice};
-	####END####### For Debugging purpose only ###################################################################END#####
+	Log3 $name, 5, $name. " : DoorBird - Define OpsModeList                     : " . Dumper(@{$hash->{helper}{OpsModeList}});
+	Log3 $name, 5, $name. " : DoorBird - Define OpsModeListBackup[0]            : " . ${$hash->{helper}{OpsModeListBackup}}[0];
+	
 
 	### Initialize Socket connection
 	DoorBird_OpenSocketConn($hash);
@@ -252,6 +268,8 @@ sub DoorBird_Attr(@)
 	my @a                      = @_;
 	my $name                   = $a[1];
 	my $hash                   = $defs{$name};
+
+	Log3 $name, 5, $name. " : DoorBird_Attr - Subfunction entered.";
 	
 	### Check whether disable attribute has been provided
 	if ($a[2] eq "disable") {
@@ -276,19 +294,6 @@ sub DoorBird_Attr(@)
 			### Update STATE of device
 			readingsSingleUpdate($hash, "state", "disconnected", 1);
 			Log3 $name, 4, $name. " : DoorBird - Device enabled as per attribute.";
-		}
-	}
-	### Check whether debug attribute has been provided
-	elsif ($a[2] eq "debug") {
-		### Check whether debug is on
-		if ($a[3] == true) {
-			### Set helper in hash
-			$hash->{helper}{debug} = true;
-		}
-		### If debug is off
-		else {
-			### Set helper in hash
-			$hash->{helper}{debug} = false;
 		}
 	}
 	### Check whether UdpPort attribute has been provided
@@ -391,22 +396,34 @@ sub DoorBird_Attr(@)
 	elsif ($a[2] eq "SessionIdSec") {	
 		### Remove Timer for LostConn
 		RemoveInternalTimer($hash, "DoorBird_RenewSessionID");
+
+		### If the attribute has not been deleted entirely
+		if (defined $a[3]) {
 	
-		### Check whether SessionIdSec is 0 = disabled
-		if ($a[3] == int($a[3]) && ($a[3] == 0)) {
-			### Save attribute as internal
-			$hash->{helper}{SessionIdSec}  = 0;
-		}
-		### If KeepAliveTimeout is numeric and greater than 9s
-		elsif ($a[3] == int($a[3]) &&  ($a[3] > 9)) {
+			### Check whether SessionIdSec is 0 = disabled
+			if ($a[3] == int($a[3]) && ($a[3] == 0)) {
+				### Save attribute as internal
+				$hash->{helper}{SessionIdSec}  = 0;
+			}
+			### If KeepAliveTimeout is numeric and greater than 9s
+			elsif ($a[3] == int($a[3]) &&  ($a[3] > 9)) {
 
-			### Save attribute as internal
-			$hash->{helper}{SessionIdSec}  = $a[3];
+				### Save attribute as internal
+				$hash->{helper}{SessionIdSec}  = $a[3];
 
-			### Re-Initiate the timer
-			InternalTimer(gettimeofday()+$hash->{helper}{SessionIdSec}, "DoorBird_RenewSessionID", $hash, 0);
+				### Re-Initiate the timer
+				InternalTimer(gettimeofday()+$hash->{helper}{SessionIdSec}, "DoorBird_RenewSessionID", $hash, 0);
+			}
+			### If KeepAliveTimeout is NOT numeric or smaller than 10
+			else{
+				### Save standard interval as internal
+				$hash->{helper}{SessionIdSec}  = 540;
+				
+				### Re-Initiate the timer
+				InternalTimer(gettimeofday()+$hash->{helper}{SessionIdSec}, "DoorBird_RenewSessionID", $hash, 0);
+			}
 		}
-		### If KeepAliveTimeout is NOT numeric or smaller than 10
+		### If the attribute has been deleted entirely
 		else{
 			### Save standard interval as internal
 			$hash->{helper}{SessionIdSec}  = 540;
@@ -425,6 +442,78 @@ sub DoorBird_Attr(@)
 		else {
 			### Set helper in hash
 			$hash->{helper}{ImageFileDir} = "";
+		}
+	}
+	### Check whether AudioFileDir attribute has been provided
+	elsif ($a[2] eq "AudioFileDir") {
+		### Check whether AudioFileSave is defined
+		if (defined($a[3])) {
+			### Set helper in hash
+			$hash->{helper}{AudioFileDir} = $a[3];
+		}
+		else {
+			### Set helper in hash
+			$hash->{helper}{AudioFileDir} = "";
+		}
+	}
+	### Check whether VideoFileDir attribute has been provided
+	elsif ($a[2] eq "VideoFileDir") {
+		### Check whether VideoFileSave is defined
+		if (defined($a[3])) {
+			### Set helper in hash
+			$hash->{helper}{VideoFileDir} = $a[3];
+		}
+		else {
+			### Set helper in hash
+			$hash->{helper}{VideoFileDir} = "";
+		}
+	}
+	### Check whether VideoDurationDoorbell attribute has been provided
+	elsif ($a[2] eq "VideoDurationDoorbell") {
+		### Check whether VideoDurationDoorbell is defined
+		if (defined($a[3])) {
+			### Set helper in hash
+			$hash->{helper}{VideoDurationDoorbell} = $a[3];
+		}
+		else {
+			### Set helper in hash
+			$hash->{helper}{VideoDurationDoorbell} = "0";
+		}
+	}
+	### Check whether VideoDurationMotion attribute has been provided
+	elsif ($a[2] eq "VideoDurationMotion") {
+		### Check whether VideoDurationMotion is defined
+		if (defined($a[3])) {
+			### Set helper in hash
+			$hash->{helper}{VideoDurationMotion} = $a[3];
+		}
+		else {
+			### Set helper in hash
+			$hash->{helper}{VideoDurationMotion} = "0";
+		}
+	}	
+	### Check whether VideoDurationKeypad attribute has been provided
+	elsif ($a[2] eq "VideoDurationKeypad") {
+		### Check whether VideoDurationKeypad is defined
+		if (defined($a[3])) {
+			### Set helper in hash
+			$hash->{helper}{VideoDurationKeypad} = $a[3];
+		}
+		else {
+			### Set helper in hash
+			$hash->{helper}{VideoDurationKeypad} = "0";
+		}
+	}
+	### Check whether VideoFileFormat attribute has been provided
+	elsif ($a[2] eq "VideoFileFormat") {
+		### Check whether VideoFileFormat is defined
+		if (defined($a[3])) {
+			### Set helper in hash
+			$hash->{helper}{VideoFileFormat} = $a[3];
+		}
+		else {
+			### Set helper in hash
+			$hash->{helper}{VideoFileFormat} = "mpeg";
 		}
 	}
 	### Check whether EventReset attribute has been provided
@@ -458,6 +547,33 @@ sub DoorBird_Attr(@)
 			$hash->{helper}{WaitForHistory}	= 5;
 		}
 	}
+	### Check whether OpsModeList attribute has been provided
+	elsif ($a[2] eq "OpsModeList") {
+		
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : DoorBird_Attr - OpsModeList entered";
+		Log3 $name, 5, $name. " : DoorBird_Attr - {OpsModeListBackup}}[0]           : " . ${$hash->{helper}{OpsModeListBackup}}[0];
+		
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : DoorBird_Attr - OpsModeListBackup is not initial ";
+
+		### If the attribute has not been deleted entirely or is empty
+		if (defined $a[3]) {
+			### Save OpsList and empty string as internal
+			@{$hash->{helper}{OpsModeList}}	  = split(/ /, $a[3]);
+			
+			### Update depending Readings
+			DoorBird_OpsModeUpdate($hash);
+		}
+		### If the attribute has been deleted entirely or is empty
+		else {
+			### Save OpsList and empty string as internal
+			@{$hash->{helper}{OpsModeList}}	  = "";
+
+			### Update depending Readings
+			DoorBird_OpsModeUpdate($hash);
+		}
+	}	
 	### If no attributes of the above known ones have been selected
 	else {
 		# Do nothing
@@ -497,19 +613,18 @@ sub DoorBird_Get($@)
 	
 	### Define "get" menu
 	my $usage	= "Unknown argument, choose one of ";
-	   $usage  .= "Image_Request:noArg History_Request:noArg ";
+	   $usage  .= "Info_Request:noArg List_Favorites:noArg List_Schedules:noArg ";
 	
-	
-	### If debug modus is enabled and allows JSON extract
-	if ($hash->{helper}{debug} == 1) {
-		$usage .= " Info_Request:,JSON List_Favorites:,JSON List_Schedules:,JSON";
+	### If DoorBird has a Camera installed
+	if ($hash->{helper}{CameraInstalled} == true) {
+		$usage .= "Image_Request:noArg History_Request:noArg "
 	}
-	### If debug modus is NOT enabled
+	### If DoorBird has NO Camera installed
 	else {
-		$usage .= " Info_Request:noArg List_Favorites:noArg List_Schedules:noArg";
+		# Do not add anything
 	}
+	### Return values
 	return $usage if $command eq '?';
-
 	
 	### Log Entry for debugging purposes
 	Log3 $name, 5, $name. " : DoorBird_Get - usage                              : " . $usage;
@@ -569,8 +684,11 @@ sub DoorBird_Set($@)
 	my $name				= shift @a;
 	my $command				= shift @a;
 	my $option				= shift @a;
+	my $ErrorMessage		= "";
 	my $optionString;
+	my $AudioFileDir		=   $hash->{helper}{AudioFileDir};
 	my @RelayAdresses		= @{$hash->{helper}{RelayAdresses}};
+	my @OpsModeList   		= @{$hash->{helper}{OpsModeList}};
 	
 	### Create String to avoid perl warning if option is empty
 	if (defined $option) {
@@ -586,17 +704,127 @@ sub DoorBird_Set($@)
 	Log3 $name, 5, $name. " : DoorBird_Set - command                            : " . $command;
 	Log3 $name, 5, $name. " : DoorBird_Set - option                             : " . $optionString;
 	Log3 $name, 5, $name. " : DoorBird_Set - RelayAdresses                      : " . join(",", @RelayAdresses);
+	Log3 $name, 5, $name. " : DoorBird_Set - OpsModeList                        : " . join(",", @OpsModeList);
 	
 	### Define "set" menu
-	my $usage	= 'Unknown argument, choose one of ';
+	my $usage	= "Unknown argument, choose one of";
+		$usage .= " Test";
+		$usage .= " Open_Door:" . join(",", @RelayAdresses) . " OpsMode:" . join(",", @OpsModeList) . " Restart:noArg Transmit_Audio";
 
-	### Create Selection List
-	$usage .= "Live_Video:on,off Open_Door:" . join(",", @RelayAdresses) . " Light_On:noArg Restart:noArg Live_Audio:on,off Transmit_Audio";
+	### If the OpsModeList is not empty
+	if ((defined(${$hash->{helper}{OpsModeList}}[0])) && (${$hash->{helper}{OpsModeList}}[0] ne "")) {
 
+		### Log Entry for debugging purposes	
+		Log3 $name, 5, $name. " : DoorBird_Set - The OpsModeList is empty";
+		Log3 $name, 5, $name. " : DoorBird_Set - OpsModeList                        : " . Dumper(@{$hash->{helper}{OpsModeList}});
+
+		### For each item in the list of possible Operation Modes
+		foreach (@OpsModeList) {
+			
+			### Set Prefix for ReadingsName
+			my $OpsModeReadingPrefix = "OpsMode" . $_;
+		
+			### For each DoorBirdEvent, create setlist for relays to be activated in case of event
+			$usage .= " " . $OpsModeReadingPrefix . "DoorbellRelay:" . "Off," . join(",", @RelayAdresses);
+			$usage .= " " . $OpsModeReadingPrefix . "MotionRelay:" . "Off," . join(",", @RelayAdresses);
+		   #$usage .= " " . $OpsModeReadingPrefix . "KeypadRelay:"   . "Off," . join(",", @RelayAdresses);
+
+			### If the Attribute for the directories of the audiofiles have bene provided
+			if ($AudioFileDir ne "") {
+
+				### Get current working directory
+				my $cwd = getcwd();
+
+				### Log Entry for debugging purposes
+				Log3 $name, 5, $name. " : DoorBird_Set - working directory                  : " . $cwd;
+
+				### If the path is given as UNIX file system format
+				if ($cwd =~ /\//) {
+					### Log Entry for debugging purposes
+					Log3 $name, 5, $name. " : DoorBird_Set - file system format                 : LINUX";
+
+					### Find out whether it is an absolute path or an relative one (leading "/")
+					if ($AudioFileDir =~ /^\//) {
+						$AudioFileDir = $AudioFileDir;
+					}
+					else {
+						$AudioFileDir = $cwd . "/" . $AudioFileDir;						
+					}
+					
+					### Remove last / of directory if exists
+					$AudioFileDir =~ s/\/\z//;
+					
+				}
+				### If the path is given as Windows file system format
+				elsif ($cwd =~ /\\/) {
+					### Log Entry for debugging purposes
+					Log3 $name, 5, $name. " : DoorBird_Set - file system format                 : WINDOWS";
+
+					### Find out whether it is an absolute path or an relative one (containing ":\")
+					if ($AudioFileDir != /^.:\//) {
+						$AudioFileDir = $cwd . $AudioFileDir;
+					}
+					else {
+						$AudioFileDir = $AudioFileDir;						
+					}
+					
+					### Remove last \ of directory if exists
+					$AudioFileDir =~ s/\\\z//;
+					
+				}
+				### If nothing matches above
+				else {
+					### Set directory to nothing
+					$AudioFileDir = "";
+				}
+				
+				### Log Entry for debugging purposes
+				Log3 $name, 5, $name. " : DoorBird_Set - AudioFileDir                       : " . $AudioFileDir;
+
+				### Get content of subdirectory and eliminate the root directories "." and ".."
+				my @AudioFileList;
+				eval {
+					opendir(ReadOut,$AudioFileDir) or die "Could not open '$AudioFileDir' for reading";
+					@AudioFileList = grep(/^([^.]+)./, readdir(ReadOut));
+					close ReadOut;
+				};
+				### If error message appered
+				if ( $@ ) {
+					$ErrorMessage = $@;
+				}
+				### If no error message appeared and therefore directory exists
+				else {
+					### Log Entry for debugging purposes
+					Log3 $name, 5, $name. " : DoorBird_Set - AudioFileList                      : " . join(",", @AudioFileList);
+
+					### For each DoorBirdEvent, create setlist for the file path for the audio messages
+					$usage .= " " . $OpsModeReadingPrefix . "DoorbellAudio:Off,". join(",", @AudioFileList);
+					$usage .= " " . $OpsModeReadingPrefix . "MotionAudio:Off,". join(",", @AudioFileList);
+				   #$usage .= " " . $OpsModeReadingPrefix . "KeypadAudio:Off,"  . join(",", @AudioFileList);
+			   }
+			}
+		}
+	}
+
+	### If DoorBird has a Camera installed
+	if ($hash->{helper}{CameraInstalled} == true) {
+		### Create Selection List for camera
+		$usage .= " Live_Video:on,off Light_On:noArg Live_Audio:on,off ";
+	}
+	### If DoorBird has NO Camera installed
+	else {
+		# Do not add anything
+	}
+
+	### Log Entry for debugging purposes
+	Log3 $name, 5, $name . " : DoorBord_Set - " . $ErrorMessage;
+	Log3 $name, 2, $name . " : DoorBord_Set - Could not open directory for audiofiles. See commandref for attribute \"AudioFileDir\"." if $ErrorMessage ne "";
+	Log3 $name, 5, $name . " : DoorBird_Set - usage                             : " . $usage;
+
+	### Return values
 	return $usage if $command eq '?';
 	
-	### Log Entry for debugging purposes
-	Log3 $name, 5, $name. " : DoorBird_Set - usage                              : " . $usage;
+	######### Section for response on set-command ##########################################################
 
 	### LIVE VIDEO REQUEST
 	if ($command eq "Live_Video") {
@@ -606,7 +834,8 @@ sub DoorBird_Set($@)
 	### OPEN DOOR
 	elsif ($command eq "Open_Door") {
 		### Call Subroutine and hand back return value
-		return DoorBird_Open_Door($hash, $option)	
+		$hash->{helper}{OpenRelay} = $option;
+		return DoorBird_Open_Door($hash);
 	}
 	### LIGHT ON
 	elsif ($command eq "Light_On") {
@@ -624,11 +853,17 @@ sub DoorBird_Set($@)
 		### Call Subroutine and hand back return value
 		return DoorBird_Live_Audio($hash, $option)	
 	}
-	
 	### LIVE AUDIO TRANSMIT
 	elsif ($command eq "Transmit_Audio") {
 		### Call Subroutine and hand back return value
 		return DoorBird_Transmit_Audio($hash, $option)	
+	}
+	### TEST
+	elsif ($command eq "Test") {
+		### Call Subroutine and hand back return value
+		DoorBird_Video_Request($hash, 10, "doorbell_001", 1571506485);
+		
+		return;
 	}
 	### ADD OR CHANGE FAVORITE
 	### DELETE FAVORITE
@@ -636,11 +871,295 @@ sub DoorBird_Set($@)
 	### DELETE SCHEDULE ENTRY
 	### If none of the above have been selected
 	else {
-		### Do nothing
+		### Update Reading
+		readingsSingleUpdate($hash, $command, $option, 1);
+		
+		### Save new Readings in stat file
+		WriteStatefile();
 		return
 	}
 }
 ####END####### Manipulate service after "Set" command by fhem ##################################################END#####
+
+###START###### Update Readings and variables after update of Operation Mode ###################################START####
+sub DoorBird_OpsModeUpdate($) {
+	my ($hash)			= @_;
+
+	### Obtain values from hash
+	my $name			= $hash->{NAME};
+	my @OpsModeList		= @{$hash->{helper}{OpsModeList}};
+	my $OpsModeActive	= ReadingsVal($name, "OpsMode", "");
+	my $AudioFileDir	= $hash->{helper}{AudioFileDir};
+
+	### Extract all names of Readings which start with "OpsMode"
+	my @OpsModeReadings = grep(/OpsMode/, keys(%{$hash->{READINGS}}));
+
+	### Log Entry for debugging purposes
+	Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate ____________________________________________________________";
+	Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - OpsModeList              : " . Dumper(@{$hash->{helper}{OpsModeList}});
+	Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - OpsModeListBackup        : " . Dumper(@{$hash->{helper}{OpsModeListBackup}});
+	Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - Size of OpsModeList      : " . @OpsModeList;
+	Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - OpsModeActive            : " . $OpsModeActive;
+	Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - AudioFileDir             : " . $AudioFileDir;
+	Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - Readings Current         : " . Dumper(@OpsModeReadings);
+
+	### If the OpsModeList has been changed
+	if (join(",", @{$hash->{helper}{OpsModeListBackup}}) ne join(",", @{$hash->{helper}{OpsModeList}})) {
+	### Log Entry for debugging purposes	
+	Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - The OpsModeList is different from the Backup!";
+
+		### If the OpsModeList has not been deleted (is not empty) and is not in initial state
+		if ((${$hash->{helper}{OpsModeList}}[0] ne "") && (${$hash->{helper}{OpsModeListBackup}}[0] ne "Initial-gJ8990Gl")) {
+
+			### Save new list as backup
+			@{$hash->{helper}{OpsModeListBackup}} = @{$hash->{helper}{OpsModeList}};
+	
+			### Log Entry for debugging purposes	
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - The OpsModeList is filled but not in initial state!";
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - OpsModeList              : " . Dumper(@{$hash->{helper}{OpsModeList}});
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - Readings Old             : " . Dumper(@OpsModeReadings);	
+		
+			### Delete all Readings which start with "OpsMode"
+			foreach (@OpsModeReadings) {
+				### Delete all depending Readings
+				readingsDelete($hash, $_);
+			}
+			
+			### Update Reading for the active Operation Mode with the first item of the list
+			readingsSingleUpdate($hash, "OpsMode", ${$hash->{helper}{OpsModeList}}[0], 1);
+
+			### For each item in the list of possible Operation Modes
+			foreach (@OpsModeList) {
+				
+				### Set Prefix for ReadingsName
+				my $OpsModeReadingPrefix = "OpsMode" . $_;
+			
+				### For each DoorBirdEvent, create Reading for the file path for the audio messages
+				readingsSingleUpdate($hash, $OpsModeReadingPrefix . "DoorbellAudio", "", 1);
+				readingsSingleUpdate($hash, $OpsModeReadingPrefix . "MotionAudio", "", 1);		
+				#readingsSingleUpdate($hash, $OpsModeReadingPrefix . "KeypadAudio",   "", 1);		
+				
+				### For each DoorBirdEvent, create Reading for relays to be activated in case of event
+				readingsSingleUpdate($hash, $OpsModeReadingPrefix . "DoorbellRelay", "", 1);
+				readingsSingleUpdate($hash, $OpsModeReadingPrefix . "MotionRelay", "", 1);		
+				#readingsSingleUpdate($hash, $OpsModeReadingPrefix . "KeypadRelay",   "", 1);		
+			}
+			### Save new Readings in stat file
+			WriteStatefile();
+			
+			### Log Entry for debugging purposes	
+			my @OpsModeReadingsNew = grep(/OpsMode/, keys(%{$hash->{READINGS}}));
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - Readings New             : " . Dumper(@OpsModeReadingsNew);
+			
+		}
+		### If the OpsModeList is empty (is empty) and is not in initial state
+		elsif ((${$hash->{helper}{OpsModeList}}[0] eq "") && (${$hash->{helper}{OpsModeListBackup}}[0] ne "Initial-gJ8990Gl")) {
+
+			### Save new list as backup
+			@{$hash->{helper}{OpsModeListBackup}} = @{$hash->{helper}{OpsModeList}};
+
+			### Extract all names of Readings which start with "OpsMode"
+			my @OpsModeReadings = grep(/OpsMode/, keys(%{$hash->{READINGS}}));
+
+			### Save new list as backup
+			@{$hash->{helper}{OpsModeListBackup}} = @{$hash->{helper}{OpsModeList}};	
+
+			### Log Entry for debugging purposes	
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - The OpsModeList is empty but not in initial state!";
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - OpsModeList              : " . Dumper(@{$hash->{helper}{OpsModeList}});
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - OpsModeListBackup        : " . Dumper(@{$hash->{helper}{OpsModeListBackup}});
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - Readings to be deleted   : " . Dumper(@OpsModeReadings);	
+		
+			### Delete all Readings which start with "OpsMode"
+			foreach (@OpsModeReadings) {
+				### Delete all depending Readings
+				readingsDelete($hash, $_);
+			}
+		}
+		### If the OpsModeList has not been deleted (is not empty) and is in initial state
+		elsif ((${$hash->{helper}{OpsModeList}}[0] ne "") && (${$hash->{helper}{OpsModeListBackup}}[0] eq "Initial-gJ8990Gl")) {
+			### Log Entry for debugging purposes	
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - The OpsModeList is NOT empty and in initial state!";
+
+			### Save new list as backup
+			@{$hash->{helper}{OpsModeListBackup}} = @{$hash->{helper}{OpsModeList}};		
+		}
+		### If the OpsModeList has been deleted (is empty) and is in initial state
+		elsif ((${$hash->{helper}{OpsModeList}}[0] eq "") && (${$hash->{helper}{OpsModeListBackup}}[0] eq "Initial-gJ8990Gl")) {
+			
+			### Log Entry for debugging purposes	
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - The OpsModeList is empty and in initial state!";
+			
+			### Save new list as backup
+			@{$hash->{helper}{OpsModeListBackup}} = @{$hash->{helper}{OpsModeList}};		
+		}
+		### If the OpsModeList is in unknown state
+		else {
+			### Log Entry for debugging purposes	
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - The OpsModeList is in unknown state!";
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - OpsModeList              : " . Dumper(@{$hash->{helper}{OpsModeList}});
+			Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - OpsModeListBackup Old    : " . Dumper(@{$hash->{helper}{OpsModeListBackup}});
+			
+			### Save new list as backup
+			@{$hash->{helper}{OpsModeListBackup}} = @{$hash->{helper}{OpsModeList}};
+			
+			Log3 $name, 3, $name. " : DoorBird_OpsModeUpdate - OpsModeListBackup New    : " . Dumper(@{$hash->{helper}{OpsModeListBackup}});
+		}
+	}
+	### If the OpsModeList has not been changed
+	else {
+		### Log Entry for debugging purposes	
+		Log3 $name, 5, $name. " : DoorBird_OpsModeUpdate - The OpsModeList has not been changed.";
+	}
+}
+####END####### Update Readings and variables after update of Operation Mode ####################################END#####
+
+###START###### Execution of automatic events depending on operation mode ######################################START####
+sub DoorBird_OpsModeExecute($$) {
+	my ($hash, $OpsModeEvent)	= @_;
+
+	### Obtain values from hash
+	my $name				 =   $hash->{NAME};
+	my $AudioFileDir		 =   $hash->{helper}{AudioFileDir};
+	my $Sox					 =   $hash->{helper}{SOX};
+	my @OpsModeList			 = @{$hash->{helper}{OpsModeList}};
+	my $OpsModeActive		 = ReadingsVal($name, "OpsMode", "");
+	my $OpsModeReadingPrefix = "OpsMode" . $OpsModeActive;
+	my $ReadingNameRelay;
+	my $ReadingNameAudio;	
+
+	### Log Entry for debugging purposes
+	Log3 $name, 5, $name. " : DoorBird_OpsModeExecute ___________________________________________________________";
+	Log3 $name, 5, $name. " : DoorBird_OpsModeExecute - OpsModeList             : " . Dumper(@OpsModeList);
+	Log3 $name, 5, $name. " : DoorBird_OpsModeExecute - OpsModeActive           : " . $OpsModeActive;
+	Log3 $name, 5, $name. " : DoorBird_OpsModeExecute - AudioFileDir            : " . $AudioFileDir;
+	Log3 $name, 5, $name. " : DoorBird_OpsModeExecute - OpsModeEvent            : " . $OpsModeEvent;
+	
+	### Get current working directory
+	my $cwd = getcwd();
+
+	### Log Entry for debugging purposes
+	Log3 $name, 5, $name. " : DoorBird_OpsModeExecute - working directory       : " . $cwd;
+
+	### If the path is given as UNIX file system format
+	if ($cwd =~ /\//) {
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : DoorBird_OpsModeExecute - file system format      : LINUX";
+
+		### Find out whether it is an absolute path or an relative one (leading "/")
+		if ($AudioFileDir =~ /^\//) {
+			$AudioFileDir = $AudioFileDir;
+		}
+		else {
+			$AudioFileDir = $cwd . "/" . $AudioFileDir;						
+		}
+		
+		### Remove last / of directory if exists
+		$AudioFileDir =~ s/\/\z//;
+		
+		### Add last / for definitiv
+		$AudioFileDir .= "/";
+	}
+	### If the path is given as Windows file system format
+	elsif ($cwd =~ /\\/) {
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : DoorBird_OpsModeExecute - file system format      : WINDOWS";
+
+		### Find out whether it is an absolute path or an relative one (containing ":\")
+		if ($AudioFileDir != /^.:\//) {
+			$AudioFileDir = $cwd . $AudioFileDir;
+		}
+		else {
+			$AudioFileDir = $AudioFileDir;						
+		}
+		
+		### Remove last \ of directory if exists
+		$AudioFileDir =~ s/\\\z//;
+		
+		### Add last \ for definitiv
+		$AudioFileDir .= "\\";
+	}
+	### If nothing matches above
+	else {
+		### Set directory to nothing
+		$AudioFileDir = "";
+	}
+	
+	### If the event has been triggered by a doorbell event
+	if ($OpsModeEvent =~ m/doorbell/) {
+		### Construct name of reading for the current actions
+		$ReadingNameRelay = $OpsModeReadingPrefix . "DoorbellRelay";
+		$ReadingNameAudio = $OpsModeReadingPrefix . "DoorbellAudio";
+	}
+	### If the event has been triggered by a motion event
+	elsif ($OpsModeEvent =~ m/motion/) {
+		### Construct name of reading for the current actions
+		$ReadingNameRelay = $OpsModeReadingPrefix . "MotionRelay";
+		$ReadingNameAudio = $OpsModeReadingPrefix . "MotionAudio";
+	}
+	### If the event has been triggered by a keypad event
+	elsif ($OpsModeEvent =~ m/keypad/) {
+		### Construct name of reading for the current actions
+		$ReadingNameRelay = $OpsModeReadingPrefix . "KeypadRelay";
+		$ReadingNameAudio = $OpsModeReadingPrefix . "KeypadAudio";	
+	}
+	### If none of the nown events has been triggering this subroutine
+	else {
+		### Log Entry for debugging purposes		
+		Log3 $name, 3, $name. " : DoorBird_OpsModeExecute - Unknown OpsModeEvent has been triggered. Ignoring.";
+	
+		### Do nothing
+	}
+
+	### Get Values of Readings
+	my $ReadingValueRelay = ReadingsVal($name, "$ReadingNameRelay","");
+	my $ReadingValueAudio = ReadingsVal($name, "$ReadingNameAudio","");
+
+	### Create full path to audio file
+	my $AudioFilePath = $AudioFileDir . $ReadingValueAudio;
+
+	### Log Entry for debugging purposes
+	Log3 $name, 5, $name. " : DoorBird_OpsModeExecute - AudioFilePath           : " . $AudioFilePath;
+	Log3 $name, 5, $name. " : DoorBird_OpsModeExecute - ReadingValueAudio       : " . $ReadingValueAudio;
+
+	### Create Sox - command
+	my $SoxCmd = $Sox . " " . $AudioFilePath . " -n stat stats";
+	
+	### Convert file
+	my $AudioLength; 
+	
+	### If the value of the Readings for audiofile is not empty or "Off"
+	if ($ReadingValueAudio ne "" && $ReadingValueAudio ne "Off") {
+
+		### Get FileInfo and extract the length of mediafile in seconds
+		my @FileInfo = qx($SoxCmd 2>&1);
+		$AudioLength = $FileInfo[1];
+		$AudioLength =~ s/Length \(seconds\)\://;
+		$AudioLength =~ s/\s+//g;
+
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : DoorBird_OpsModeExecute - AudioLength             : " . $AudioLength;
+
+
+		### Transmit Audiofile
+		DoorBird_Transmit_Audio($hash, $AudioFilePath);
+		
+		### Log Entry for debugging purposes
+		Log3 $name, 4, $name. " : DoorBird_OpsModeExecute - Audiofile transmitted   : ". $AudioFilePath;
+		
+	}
+	### If the value of the Readings for relay ID is not empty of "Off"
+	if ($ReadingValueRelay ne "" && $ReadingValueRelay ne "Off") {
+
+		### Execute Relay (=Open Door)
+		$hash->{helper}{OpenRelay} = $ReadingValueRelay;
+		InternalTimer(gettimeofday()+ $AudioLength, "DoorBird_Open_Door", $hash, 0);
+		
+		### Log Entry for debugging purposes
+		Log3 $name, 4, $name. " : DoorBird_OpsModeExecute - Relay triggered         : ". $ReadingValueRelay;
+	}
+}
+####END####### Execution of automatic events depending on operation mode #######################################END#####
 
 ###START###### After return of UDP message ####################################################################START####
 sub DoorBird_Read($) {
@@ -995,6 +1514,9 @@ sub DoorBird_Read($) {
 							$Container{"Reading"} 		= $ReadingEvent;
 							InternalTimer(gettimeofday()+ $hash->{helper}{EventReset}, "DoorBird_EventReset", \%Container, 0);
 							
+							### Execute event trigger for Operation Mode
+							DoorBird_OpsModeExecute($hash, "motion");
+				
 							### Log Entry
 							Log3 $name, 3, $name. " : An event has been triggered by the DoorBird unit  : " . $EVENT;
 							Log3 $name, 5, $name. " : DoorBird_Read - Timer for reset reading in        : " . $hash->{helper}{EventReset};
@@ -1057,6 +1579,9 @@ sub DoorBird_Read($) {
 							$Container{"Reading"} 		= $ReadingEvent;
 							InternalTimer(gettimeofday()+ $hash->{helper}{EventReset}, "DoorBird_EventReset", \%Container, 0);
 							
+							### Execute event trigger for Operation Mode
+							DoorBird_OpsModeExecute($hash, "keypad");
+
 							### Log Entry
 							Log3 $name, 3, $name. " : An event has been triggered by the DoorBird unit  : " . $EVENT;
 							Log3 $name, 5, $name. " : DoorBird_Read - Timer for reset reading in        : " . $hash->{helper}{EventReset};
@@ -1119,6 +1644,9 @@ sub DoorBird_Read($) {
 							$Container{"HashReference"} = $hash;
 							$Container{"Reading"} 		= $ReadingEvent;
 							InternalTimer(gettimeofday()+ $hash->{helper}{EventReset}, "DoorBird_EventReset", \%Container, 0);
+
+							### Execute event trigger for Operation Mode
+							DoorBird_OpsModeExecute($hash, "doorbell");
 							
 							### Log Entry
 							Log3 $name, 3, $name. " : An event has been triggered by the DoorBird unit  : " . $EVENT;
@@ -1349,196 +1877,210 @@ sub DoorBird_FW_detailFn($$$$) {
 	my $VideoURL		= ReadingsVal($name, ".VideoURL", "");
 	my $ImageURL		= ReadingsVal($name, ".ImageURL", "");
 	my $AudioURL		= ReadingsVal($name, ".AudioURL", "");
+	my $htmlCode;
 	my $VideoHtmlCode;
 	my $ImageHtmlCode;
 	my $ImageHtmlCodeBig;
 	my $AudioHtmlCode;
 	my @HistoryDoorbell;
 	my @HistoryMotion;
-	
-	### Log Entry for debugging purposes
-	if (defined $hash->{helper}{Images}{History}{doorbell}) {
-		@HistoryDoorbell = @{$hash->{helper}{Images}{History}{doorbell}};
-		Log3 $name, 5, $name. " : DoorBird_FW_detailFn - Size ImageData doorbell    : " . @HistoryDoorbell;
-	}
-	### Log Entry for debugging purposes
-	if (defined $hash->{helper}{Images}{History}{motionsensor}) {
-		@HistoryMotion   = @{$hash->{helper}{Images}{History}{motionsensor}};
-		Log3 $name, 5, $name. " : DoorBird_FW_detailFn - Size ImageData motion      : " . @HistoryMotion;
-	}
-	
-	### If VideoURL is empty
-	if ($VideoURL eq "") {
-		### Create Standard Response
-		$VideoHtmlCode = "Video Stream deactivated";
-	}
-	### If VideoURL is NOT empty
-	else {
 
-		### Create proper html code including popup
-		my $ImageHtmlCodeBig =  "<img src=\\'" . $VideoURL . "\\'>";
-		my $PopupfunctionCode = "onclick=\"FW_okDialog(\'" . $ImageHtmlCodeBig . "\') \" ";
-		$VideoHtmlCode    =  '<img ' . $PopupfunctionCode . ' width="400" height="300"  src="' . $VideoURL . '">';
+#	### If Operation Mode(s) have been provided
+#	if (@{$hash->{helper}{OpsModeList}} > 0) {
+#		### Log Entry for debugging purposes
+#		Log3 $name, 5, $name. " : DoorBird_FW_detailFn - OpsModeList                : " . Dumper(@{$hash->{helper}{OpsModeList}});
+#	}
+#	else {
+#		### Log Entry for debugging purposes
+#		Log3 $name, 5, $name. " : DoorBird_FW_detailFn - OpsModeList is empty";
+#	}
 
-		### Create proper html link
-		#$VideoHtmlCode = '<img src="' . $VideoURL . '" width="400px" height="300px">';
-	}
-	
-	### If ImageData is empty
-	if ($ImageData eq "") {
-		### Create Standard Response
-		$ImageHtmlCode = "Image not available";
-	}
-	### If ImageData is NOT empty
-	else {
-		### Create proper html code including popup
-		my $ImageHtmlCodeBig  =  "<img src=\\'data:image/jpeg;base64," . $ImageData . "\\'><br><center>" . $ImageTimeStamp . "</center>";
-		my $PopupfunctionCode = "onclick=\"FW_okDialog(\'" . $ImageHtmlCodeBig . "\') \" ";
-		$ImageHtmlCode   	  =  '<img ' . $PopupfunctionCode . ' width="400" height="300" alt="tick" src="data:image/jpeg;base64,' . $ImageData . '">';
-	}
-	
-		### If AudioURL is empty
-	if ($AudioURL eq "") {
-		### Create Standard Response
-		$AudioHtmlCode = "Audio Stream deactivated";
-	}
-	### If AudioURL is NOT empty
-	else {
-		### Create proper html code
-		$AudioHtmlCode =  '<audio id="audio_with_controls" controls src="' . $AudioURL . '" ">Your Browser cannot play this audio stream.</audio>';
-	}
-	#type="audio/wav
-	
-	### Create html Code
-	my $htmlCode = '
-	<table border="1" style="border-collapse:separate;">
-		<tbody >
-			<tr>
-				<td width="400px" align="center"><b>Image from ' . $ImageTimeStamp . '</b></td>
-				<td width="400px" align="center"><b>Live Stream</b></td>
-			</tr>
-			
-			<tr>
-				<td id="ImageCell" width="430px" height="300px" align="center">
-					' . $ImageHtmlCode  . '
-				</td>
+	### Only if DoorBird has a Camera installed view the Image and History Part
+	if ($hash->{helper}{CameraInstalled} == true) {
+		
+		### Log Entry for debugging purposes
+		if (defined $hash->{helper}{Images}{History}{doorbell}) {
+			@HistoryDoorbell = @{$hash->{helper}{Images}{History}{doorbell}};
+			Log3 $name, 5, $name. " : DoorBird_FW_detailFn - Size ImageData doorbell    : " . @HistoryDoorbell;
+		}
+		### Log Entry for debugging purposes
+		if (defined $hash->{helper}{Images}{History}{motionsensor}) {
+			@HistoryMotion   = @{$hash->{helper}{Images}{History}{motionsensor}};
+			Log3 $name, 5, $name. " : DoorBird_FW_detailFn - Size ImageData motion      : " . @HistoryMotion;
+		}
+		
+		### If VideoURL is empty
+		if ($VideoURL eq "") {
+			### Create Standard Response
+			$VideoHtmlCode = "Video Stream deactivated";
+		}
+		### If VideoURL is NOT empty
+		else {
 
-				<td id="ImageCell" width="435px" height="300px" align="center">
-					' . $VideoHtmlCode . '<BR>
-				</td>
-			</tr>
-			
-			<tr>
-				<td></td>
-				<td align="center">' . $AudioHtmlCode . '</td>
-			</tr>	
-		</tbody>
-	</table>
-	';
-	
-	### Log Entry for debugging purposes
-#	Log3 $name, 5, $name. " : DoorBird_FW_detailFn - ImageHtmlCode              : " . $ImageHtmlCode;
-#	Log3 $name, 5, $name. " : DoorBird_FW_detailFn - VideoHtmlCode              : " . $VideoHtmlCode;
-#	Log3 $name, 5, $name. " : DoorBird_FW_detailFn - AudioHtmlCode              : " . $AudioHtmlCode;
-	
-	if ((@HistoryDoorbell > 0) || (@HistoryMotion > 0)) {
-		$htmlCode .=	
-		'
-		<BR>
-		<BR>
+			### Create proper html code including popup
+			my $ImageHtmlCodeBig =  "<img src=\\'" . $VideoURL . "\\'>";
+			my $PopupfunctionCode = "onclick=\"FW_okDialog(\'" . $ImageHtmlCodeBig . "\') \" ";
+			$VideoHtmlCode    =  '<img ' . $PopupfunctionCode . ' width="400" height="300"  src="' . $VideoURL . '">';
+
+			### Create proper html link
+			#$VideoHtmlCode = '<img src="' . $VideoURL . '" width="400px" height="300px">';
+		}
+		
+		### If ImageData is empty
+		if ($ImageData eq "") {
+			### Create Standard Response
+			$ImageHtmlCode = "Image not available";
+		}
+		### If ImageData is NOT empty
+		else {
+			### Create proper html code including popup
+			my $ImageHtmlCodeBig  =  "<img src=\\'data:image/jpeg;base64," . $ImageData . "\\'><br><center>" . $ImageTimeStamp . "</center>";
+			my $PopupfunctionCode = "onclick=\"FW_okDialog(\'" . $ImageHtmlCodeBig . "\') \" ";
+			$ImageHtmlCode   	  =  '<img ' . $PopupfunctionCode . ' width="400" height="300" alt="tick" src="data:image/jpeg;base64,' . $ImageData . '">';
+		}
+		
+			### If AudioURL is empty
+		if ($AudioURL eq "") {
+			### Create Standard Response
+			$AudioHtmlCode = "Audio Stream deactivated";
+		}
+		### If AudioURL is NOT empty
+		else {
+			### Create proper html code
+			$AudioHtmlCode =  '<audio id="audio_with_controls" controls src="' . $AudioURL . '" ">Your Browser cannot play this audio stream.</audio>';
+		}
+		#type="audio/wav
+		
+		### Create html Code
+		$htmlCode = '
 		<table border="1" style="border-collapse:separate;">
 			<tbody >
 				<tr>
-					<td align="center" colspan="5"><b>History of events - Last download: ' . $hash->{helper}{HistoryTime} . '</b></td>
+					<td width="400px" align="center"><b>Image from ' . $ImageTimeStamp . '</b></td>
+					<td width="400px" align="center"><b>Live Stream</b></td>
 				</tr>
+				
+				<tr>
+					<td id="ImageCell" width="430px" height="300px" align="center">
+						' . $ImageHtmlCode  . '
+					</td>
 
-				<tr>
-					<td align="center" colspan="2"><b>Doorbell</b></td>
-					<td align="center"></td>
-					<td align="center" colspan="2"><b>Motion-Sensor</b></td>
+					<td id="ImageCell" width="435px" height="300px" align="center">
+						' . $VideoHtmlCode . '<BR>
+					</td>
 				</tr>
+				
 				<tr>
-					<td width="195px" align="center"><b>Picture</b></td>
-					<td width="195px" align="center"><b>Timestamp</b></td>
-					<td width="20px" align="center">#</td>
-					<td width="195px" align="center"><b>Picture</b></td>
-					<td width="195px" align="center"><b>Timestamp</b></td>
-				</tr>		
+					<td></td>
+					<td align="center">' . $AudioHtmlCode . '</td>
+				</tr>	
+			</tbody>
+		</table>
 		';
-
 		
 		### Log Entry for debugging purposes
-		Log3 $name, 5, $name. " : DoorBird_FW_detailFn - hash->{helper}{MaxHistory} : " . $hash->{helper}{MaxHistory};
+		#	Log3 $name, 5, $name. " : DoorBird_FW_detailFn - ImageHtmlCode              : " . $ImageHtmlCode;
+		#	Log3 $name, 5, $name. " : DoorBird_FW_detailFn - VideoHtmlCode              : " . $VideoHtmlCode;
+		#	Log3 $name, 5, $name. " : DoorBird_FW_detailFn - AudioHtmlCode              : " . $AudioHtmlCode;
 		
-		### For all entries in Picture-Array do
-		for (my $i=0; $i <= ($hash->{helper}{MaxHistory} - 1); $i++) {
+		if ((@HistoryDoorbell > 0) || (@HistoryMotion > 0)) {
+			$htmlCode .=	
+			'
+			<BR>
+			<BR>
+			<table border="1" style="border-collapse:separate;">
+				<tbody >
+					<tr>
+						<td align="center" colspan="5"><b>History of events - Last download: ' . $hash->{helper}{HistoryTime} . '</b></td>
+					</tr>
+
+					<tr>
+						<td align="center" colspan="2"><b>Doorbell</b></td>
+						<td align="center"></td>
+						<td align="center" colspan="2"><b>Motion-Sensor</b></td>
+					</tr>
+					<tr>
+						<td width="195px" align="center"><b>Picture</b></td>
+						<td width="195px" align="center"><b>Timestamp</b></td>
+						<td width="20px" align="center">#</td>
+						<td width="195px" align="center"><b>Picture</b></td>
+						<td width="195px" align="center"><b>Timestamp</b></td>
+					</tr>		
+			';
+
+			### Log Entry for debugging purposes
+			Log3 $name, 5, $name. " : DoorBird_FW_detailFn - hash->{helper}{MaxHistory} : " . $hash->{helper}{MaxHistory};
 			
-			my $ImageHtmlCodeDoorbell;
-			my $ImageHtmlCodeMotion;
-			
-			### Create proper html code for image triggered by doorbell
-			if ($HistoryDoorbell[$i]{data} ne "") {
-				### If element contains an error message
-				if ($HistoryDoorbell[$i]{data} =~ m/Error/) {
-					$ImageHtmlCodeDoorbell     = $HistoryDoorbell[$i]{data};
+			### For all entries in Picture-Array do
+			for (my $i=0; $i <= ($hash->{helper}{MaxHistory} - 1); $i++) {
+				
+				my $ImageHtmlCodeDoorbell;
+				my $ImageHtmlCodeMotion;
+				
+				### Create proper html code for image triggered by doorbell
+				if ($HistoryDoorbell[$i]{data} ne "") {
+					### If element contains an error message
+					if ($HistoryDoorbell[$i]{data} =~ m/Error/) {
+						$ImageHtmlCodeDoorbell     = $HistoryDoorbell[$i]{data};
+					}
+					### If element does not contain an error message
+					else {
+						### Create proper html code including popup
+						my $ImageHtmlCodeBig =  "<img src=\\'data:image/jpeg;base64," . $HistoryDoorbell[$i]{data} . "\\'><br><center>" . $HistoryDoorbell[$i]{timestamp} . "</center>";
+						my $PopupfunctionCode = "onclick=\"FW_okDialog(\'" . $ImageHtmlCodeBig . "\') \" ";
+						$ImageHtmlCodeDoorbell    =  '<img ' . $PopupfunctionCode . ' width="190" height="auto" alt="tick" src="data:image/jpeg;base64,' . $HistoryDoorbell[$i]{data} . '">';
+					}
 				}
-				### If element does not contain an error message
 				else {
-					### Create proper html code including popup
-					my $ImageHtmlCodeBig =  "<img src=\\'data:image/jpeg;base64," . $HistoryDoorbell[$i]{data} . "\\'><br><center>" . $HistoryDoorbell[$i]{timestamp} . "</center>";
-					my $PopupfunctionCode = "onclick=\"FW_okDialog(\'" . $ImageHtmlCodeBig . "\') \" ";
-					$ImageHtmlCodeDoorbell    =  '<img ' . $PopupfunctionCode . ' width="190" height="auto" alt="tick" src="data:image/jpeg;base64,' . $HistoryDoorbell[$i]{data} . '">';
+					$ImageHtmlCodeDoorbell =  'No image available';
 				}
-			}
-			else {
-				$ImageHtmlCodeDoorbell =  'No image available';
-			}
-			### Create proper html code for image triggered by motionsensor
-			if ($HistoryMotion[$i]{data} ne "") {
-				### If element contains an error message
-				if ($HistoryMotion[$i]{data} =~ m/Error/) {
-					$ImageHtmlCodeMotion = $HistoryMotion[$i]{data};
+				### Create proper html code for image triggered by motionsensor
+				if ($HistoryMotion[$i]{data} ne "") {
+					### If element contains an error message
+					if ($HistoryMotion[$i]{data} =~ m/Error/) {
+						$ImageHtmlCodeMotion = $HistoryMotion[$i]{data};
+					}
+					### If element does not contain an error message
+					else {
+						### Create proper html code including popup
+						my $ImageHtmlCodeBig =  "<img src=\\'data:image/jpeg;base64," . $HistoryMotion[$i]{data} . "\\'><br><center>" . $HistoryMotion[$i]{timestamp} . "</center>";
+						my $PopupfunctionCode = "onclick=\"FW_okDialog(\'" . $ImageHtmlCodeBig . "\') \" ";
+						$ImageHtmlCodeMotion    =  '<img ' . $PopupfunctionCode . ' width="190" height="auto" alt="tick" src="data:image/jpeg;base64,' . $HistoryMotion[$i]{data} . '">';
+					}
 				}
-				### If element does not contain an error message
 				else {
-					### Create proper html code including popup
-					my $ImageHtmlCodeBig =  "<img src=\\'data:image/jpeg;base64," . $HistoryMotion[$i]{data} . "\\'><br><center>" . $HistoryMotion[$i]{timestamp} . "</center>";
-					my $PopupfunctionCode = "onclick=\"FW_okDialog(\'" . $ImageHtmlCodeBig . "\') \" ";
-					$ImageHtmlCodeMotion    =  '<img ' . $PopupfunctionCode . ' width="190" height="auto" alt="tick" src="data:image/jpeg;base64,' . $HistoryMotion[$i]{data} . '">';
-				}
+					$ImageHtmlCodeMotion =  'No image available';
+				}			
+				
+				$htmlCode .=
+				'
+					<tr>
+						<td align="center">' . $ImageHtmlCodeDoorbell . '</td>
+						<td align="center">' . $HistoryDoorbell[$i]{timestamp} . '</td>
+						<td align="center">' . ($i + 1) . '</td>
+						<td align="center">' . $ImageHtmlCodeMotion . '</td>
+						<td align="center">' . $HistoryMotion[$i]{timestamp} . '</td>
+					</tr>
+				';
+				### Log Entry for debugging purposes
+				#	Log3 $name, 5, $name. " : DoorBird_FW_detailFn - ImageHtmlCodeDoorbell      : " . $ImageHtmlCodeDoorbell;
+				#	Log3 $name, 5, $name. " : DoorBird_FW_detailFn - ImageHtmlCodeMotion        : " . $ImageHtmlCodeMotion;
 			}
-			else {
-				$ImageHtmlCodeMotion =  'No image available';
-			}			
 			
+			### Finish table
 			$htmlCode .=
 			'
-				<tr>
-					<td align="center">' . $ImageHtmlCodeDoorbell . '</td>
-					<td align="center">' . $HistoryDoorbell[$i]{timestamp} . '</td>
-					<td align="center">' . ($i + 1) . '</td>
-					<td align="center">' . $ImageHtmlCodeMotion . '</td>
-					<td align="center">' . $HistoryMotion[$i]{timestamp} . '</td>
-				</tr>
+				</tbody>
+			</table>	
 			';
-			### Log Entry for debugging purposes
-#			Log3 $name, 5, $name. " : DoorBird_FW_detailFn - ImageHtmlCodeDoorbell      : " . $ImageHtmlCodeDoorbell;
-#			Log3 $name, 5, $name. " : DoorBird_FW_detailFn - ImageHtmlCodeMotion        : " . $ImageHtmlCodeMotion;
-		}
-		
-		### Finish table
-		$htmlCode .=
-		'
-			</tbody>
-		</table>	
-		';
-		
-	}	
+			
+		}	
+	}
 	### Log Entry for debugging purposes
-#	Log3 $name, 5, $name. " : DoorBird_FW_detailFn - htmlCode                   : " . $htmlCode;
+	#	Log3 $name, 5, $name. " : DoorBird_FW_detailFn - htmlCode                   : " . $htmlCode;
 
-# my $infoBtn = "</td><td><a onClick='FW_cmd(FW_root+\"?cmd.$name=get $name all&XHR=1\",function(data){FW_okDialog(data)})'\>$info</a>"
-# <a href=\"#!\" onclick=\"FW_okDialog('Testtitle<br><br>TestDescription')\">Testtitle</a>
+	# my $infoBtn = "</td><td><a onClick='FW_cmd(FW_root+\"?cmd.$name=get $name all&XHR=1\",function(data){FW_okDialog(data)})'\>$info</a>"
+	# <a href=\"#!\" onclick=\"FW_okDialog('Testtitle<br><br>TestDescription')\">Testtitle</a>
 	
 	return($htmlCode );
 }
@@ -1572,7 +2114,7 @@ sub DoorBird_Info_Request($$) {
 	
 	### If no error has been handed back
 	if ($err eq "") {
-		### If the option is  asking for the JSON string
+		### If the option is asking for the JSON string
 		if (defined($option) && ($option =~ /JSON/i)) {
 			return $data;		
 		}
@@ -1628,6 +2170,21 @@ sub DoorBird_Info_Request($$) {
 						readingsBulkUpdate($hash, "RelayAddr_" . sprintf("%02d", $RelayNumber), $RelayAddress);
 					}
 				}
+				### If the entry has the information about the device type
+				elsif ( $key eq "DEVICE-TYPE") {
+				
+					### If the Device Type is not containing type numbers which have no camera installed - Currently only "DoorBird D301A - Door Intercom IP Upgrade"
+					if ($VersionContent -> {$key} !~ m/301/) {
+						### Set Information about Camera installed to true
+						$hash->{helper}{CameraInstalled} = true;
+					}
+			
+					### Log Entry for debugging purposes
+					Log3 $name, 5, $name. " : DoorBird_Info_Request - Content of" . sprintf("%15s %-s", $key, ": " . $VersionContent -> {$key});
+
+					### Update Reading
+					readingsBulkUpdate($hash, $key, $VersionContent -> {$key} );
+				}
 				### For all other entries
 				else {
 					
@@ -1640,6 +2197,9 @@ sub DoorBird_Info_Request($$) {
 			}
 			### Update Reading for Firmware-Status
 			readingsBulkUpdate($hash, "Firmware-Status", "up-to-date");
+
+			### Update SessionId
+			DoorBird_RenewSessionID($hash);
 
 			### Execute Readings Bulk Update
 			readingsEndUpdate($hash, 1);
@@ -1882,7 +2442,7 @@ sub DoorBird_Image_Request($$) {
 	Log3 $name, 5, $name. " : DoorBird_Image_Request - hash - ImageFileDir      : " . $hash->{helper}{ImageFileDir};
 
 	### If pictures supposed to be saved as files
-	if ($hash->{helper}{ImageFileDir} ne "0") {
+	if ($hash->{helper}{ImageFileDir} ne "") {
 
 		### Get current working directory
 		my $cwd = getcwd();
@@ -1977,16 +2537,21 @@ sub DoorBird_LastEvent_Image($$$) {
     my $name         = $hash->{NAME};
 	my $event        = $param->{event};
 	my $timestamp	 = $param->{timestamp};
+	my $VideoEvent;
+	my $httpHeader;
 	my $ReadingImage;
 
 	if ($event =~ m/doorbell/ ){
 		$ReadingImage 			= "doorbell_snapshot_" . sprintf("%03d", $param->{doorbellNo});
+		$VideoEvent				= "doorbell_" . sprintf("%03d", $param->{doorbellNo});
 	}
 	elsif ($event =~ m/motion/ ){
 		$ReadingImage 			= "motion_snapshot";
+		$VideoEvent				= "motionsensor" 
 	}
 	elsif ($event =~ m/keypad/ ){
 		$ReadingImage 			= "keypad_snapshot";
+		$VideoEvent				= "keypad" 
 	}
 	else {
 		### Create Log entry
@@ -2030,9 +2595,9 @@ sub DoorBird_LastEvent_Image($$$) {
 				$ImageData =~ s{\n}{}g;
 
 				### Create Timestamp
-				my $httpHeader = $param->{httpheader};
-				   $httpHeader =~ s/^[^_]*X-Timestamp: //;
-				   $httpHeader =~ s/\n.*//g;
+				$httpHeader = $param->{httpheader};
+				$httpHeader =~ s/^[^_]*X-Timestamp: //;
+				$httpHeader =~ s/\n.*//g;
 
 				### If timestamp from history image has NOT been done since the timestamp from the event
 				if ((int($timestamp) - int($httpHeader)) > 0){
@@ -2219,23 +2784,32 @@ sub DoorBird_LastEvent_Image($$$) {
 			readingsSingleUpdate($hash, $ReadingImage, "No image data", 1);
 		}
 	}
-
+	
+	### If the attribute VideoDurationDoorbell has been set and therefore an video shall be recorded
+	if ($hash->{helper}{VideoDurationDoorbell} > 0){
+		### Call sub for Videorecording
+		DoorBird_Video_Request($hash, $hash->{helper}{VideoDurationDoorbell}, $VideoEvent, $httpHeader);
+	}
 	return;
 }
 ####END####### Define Subfunction for LAST EVENT IMAGE REQUEST #################################################END#####
 
 ###START###### Define Subfunction for OPEN DOOR ###############################################################START####
-sub DoorBird_Open_Door($$) {
-	my ($hash, $option)	= @_;
+sub DoorBird_Open_Door($) {
+	my ($hash)	= @_;
 	my $name			= $hash->{NAME};
-	my $command			= "open-door.cgi?r=" . $option; 
+	my $relay			= $hash->{helper}{OpenRelay};
+	my $command			= "open-door.cgi?r=" . $relay; 
 	my $method			= "GET";
 	my $header			= "Accept: application/json";
 	my $username 		= DoorBird_credential_decrypt($hash->{helper}{".USER"});
 	my $err;
 	my $data;
 	my $json;
-
+	
+	### Delete Helper
+	$hash->{helper}{OpenRelay} = "";
+	
 	### Activate Relay
 	($err, $data) = DoorBird_BlockGet($hash, $command, $method, $header);
 
@@ -2260,10 +2834,10 @@ sub DoorBird_Open_Door($$) {
 		### Create return messages and log entries based on error codes returned
 		if ($json->{BHA}{RETURNCODE} eq "1") {
 			### Log Entry
-			Log3 $name, 3, $name. " : DoorBird_Open_Door - Door ". $option . " successfully triggered.";
+			Log3 $name, 3, $name. " : DoorBird_Open_Door - Door ". $relay . " successfully triggered.";
 			
 			### Create popup message
-			return "Door ". $option . " successful triggered.";
+			return "Door ". $relay . " successful triggered.";
 		}
 		elsif ($json->{BHA}{RETURNCODE} eq "204") {
 			### Log Entry
@@ -2832,7 +3406,6 @@ sub DoorBird_History_Request_Parse($) {
 						Log3 $name, 2, $name. " : DoorBird_History_Request - close file error       : " . $! . " - ". $ImageFileName;
 					}
 				}
-			
 				### Log Entry for debugging purposes
 				Log3 $name, 5, $name. " : DoorBird_History_Request - Index - motionsensor   : " . $UrlIndex;
 				Log3 $name, 5, $name. " : DoorBird_History_Request - ImageData- motionsensor: " . length($ImageData);
@@ -2863,7 +3436,169 @@ sub DoorBird_History_Request_Parse($) {
 }
 ####END####### Define Subfunction for HISTORY IMAGE REQUEST ####################################################END#####
 
-###START###### Define Subfunction for LIST FAVOURITES #########################################################START####
+###START###### Define Subfunction for VIDEO REQUEST ###########################################################START####
+sub DoorBird_Video_Request($$$$) {
+	my ($hash, $duration, $event, $timestamp)	= @_;
+
+	### Obtain values from hash
+	my $name			= $hash->{NAME};
+	my $url 			= $hash->{helper}{URL};
+	my $Method			= "GET";
+	my $Header			= "Accept: application/json";
+	my $VideoFileName;
+	my $ReadingVideo;
+	my $err;
+	my $data;
+	
+	### Log Entry for debugging purposes
+	Log3 $name, 5, $name. " : DoorBird_Video_Request ___________________________________________________________";
+	Log3 $name, 5, $name. " : DoorBird_Video_Request - duration                 : " . $duration;
+	Log3 $name, 5, $name. " : DoorBird_Video_Request - event                    : " . $event;
+	Log3 $name, 5, $name. " : DoorBird_Video_Request - timestamp                : " . $timestamp;
+	
+	### Create name for Reading holding the filename for the event triggered video
+	if ($event =~ m/doorbell/ ){
+		Log3 $name, 5, $name. " : DoorBird_Video_Request - doorbell event old       : " . $event;
+		### Extract doorbell pushbutton number from event
+		my $DoorbellNo = $event =~ s/doorbell_//;
+		### Reset event back to doorbell without pushbutton number
+		$event = "doorbell";
+		$ReadingVideo			= "doorbell_video_" . sprintf("%03d", $DoorbellNo);
+
+		Log3 $name, 5, $name. " : DoorBird_Video_Request - doorbellevent new        : " . $event;
+		Log3 $name, 5, $name. " : DoorBird_Video_Request - DoorbellNo               : " . $DoorbellNo;
+		
+	}
+	elsif ($event =~ m/motionsensor/ ){
+		$ReadingVideo 			= "motion_video";
+	}
+	elsif ($event =~ m/keypad/ ){
+		$ReadingVideo 			= "keypad_video";
+	}
+	else {
+		### Create Log entry
+		Log3 $name, 2, $name. " : DoorBird_LastEvent_Image - Unknown event. Breaking up";
+		
+		### Exit sub
+		return
+	}
+	Log3 $name, 3, $name. " : DoorBird_Video_Request - ReadingVideo             : " . $ReadingVideo;
+	
+	### Create complete command URL for DoorBird depending on whether SessionIdSecurity has been enabled (>0) or disabled (=0)
+	my $UrlPrefix 		= "http://" . $url . "/bha-api/";
+	my $UrlPostfix;
+	if ($hash->{helper}{SessionIdSec} > 0) {
+		$UrlPostfix 	= "?sessionid=" . $hash->{helper}{SessionId};
+	}
+	else {
+		my $username 	= DoorBird_credential_decrypt($hash->{helper}{".USER"});
+		my $password	= DoorBird_credential_decrypt($hash->{helper}{".PASSWORD"});
+		$UrlPostfix 	= "?http-user=". $username . "&http-password=" . $password;
+	}
+	my $CommandURL 		= $UrlPrefix . "video.cgi" . $UrlPostfix;
+
+	### Log Entry for debugging purposes
+	Log3 $name, 5, $name. " : DoorBird_Video_Request - CommandURL              : " . $CommandURL ;
+	
+	### Create Timestamp
+	my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=localtime($timestamp);
+	my $VideoFileTimeStamp	= sprintf ( "%04d%02d%02d-%02d%02d%02d", $year+1900, $mon+1, $mday, $hour, $min, $sec);
+
+	### Update STATE of device
+	readingsSingleUpdate($hash, "state", "Retrieving video", 1);
+
+	### Log Entry for debugging purposes
+	Log3 $name, 5, $name. " : DoorBird_Video_Request - hash - VideoFileDir      : " . $hash->{helper}{VideoFileDir};
+
+	### If attribute to video directory has been set
+	if ($hash->{helper}{VideoFileDir} ne "") {
+
+		### Get current working directory
+		my $cwd = getcwd();
+
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : DoorBird_Video_Request - working directory        : " . $cwd;
+
+		### If the path is given as UNIX file system format
+		if ($cwd =~ /\//) {
+			### Log Entry for debugging purposes
+			Log3 $name, 5, $name. " : DoorBird_Video_Request - file system format     : LINUX";
+
+			### Find out whether it is an absolute path or an relative one (leading "/")
+			if ($hash->{helper}{VideoFileDir} =~ /^\//) {
+			
+				$VideoFileName = $hash->{helper}{VideoFileDir};
+			}
+			else {
+				$VideoFileName = $cwd . "/" . $hash->{helper}{VideoFileDir};						
+			}
+
+			### Check whether the last "/" at the end of the path has been given otherwise add it an create complete path
+			if ($hash->{helper}{VideoFileDir} =~ /\/\z/) {
+				$VideoFileName .=       $VideoFileTimeStamp . "_" . $event . "." . $hash->{helper}{VideoFileFormat};
+			}
+			else {
+				$VideoFileName .= "/" . $VideoFileTimeStamp . "_" . $event . "." . $hash->{helper}{VideoFileFormat};
+			}
+			
+			### Log Entry for debugging purposes
+			Log3 $name, 5, $name. " : DoorBird_Video_Request - VideoFileName            : " . $VideoFileName;
+
+			### Create command for shell
+			my $ShellCommand  = "timeout " . $duration . " ffmpeg -hide_banner -loglevel panic -re -i '" . $CommandURL . "' -filter:v setpts=4.0*PTS -y " . $VideoFileName . " &";
+			
+			### Log Entry for debugging purposes
+			Log3 $name, 5, $name. " : DoorBird_Video_Request - ShellCommand             : " . $ShellCommand;
+
+			### Pass shell command to shell and continue with the code below
+			eval {
+							system($ShellCommand) or die "Could not execute" . $ShellCommand . " ". $@;
+			};
+			### If error message appered
+			if ( $@ ) {
+			#				$ErrorMessage = $@;
+			}
+			
+			### Write Last video into reading
+			readingsSingleUpdate($hash, $ReadingVideo, $VideoFileName, 1);
+		}
+
+		### If the path is given as Windows file system format
+		if ($hash->{helper}{VideoFileDir} =~ /\\/) {
+			### Log Entry for debugging purposes
+			Log3 $name, 5, $name. " : DoorBird_Video_Request - file system format       : WINDOWS";
+
+			### Find out whether it is an absolute path or an relative one (containing ":\")
+			if ($hash->{helper}{VideoFileDir} != /^.:\//) {
+				$VideoFileName = $cwd . $hash->{helper}{VideoFileDir};
+			}
+			else {
+				$VideoFileName = $hash->{helper}{VideoFileDir};						
+			}
+
+			### Check whether the last "/" at the end of the path has been given otherwise add it an create complete path
+			if ($hash->{helper}{VideoFileDir} =~ /\\\z/) {
+				$VideoFileName .=       $VideoFileTimeStamp . "_" . $event . "." . $hash->{helper}{VideoFileFormat};
+			}
+			else {
+				$VideoFileName .= "\\" . $VideoFileTimeStamp . "_" . $event . "." . $hash->{helper}{VideoFileFormat};
+			}
+			
+			### Log Entry for debugging purposes
+			Log3 $name, 2, $name. " : DoorBird_Video_Request - Video-Request ha not been implemented for Windows file system. Contact fhem forum and WIKI.";
+		}
+	}
+	### If attribute to video directory has NOT been set
+	else {
+		### Log Entry for debugging purposes
+		Log3 $name, 2, $name . " : DoorBird_Video_Request - Could not open directory for video files. See commandref for attribute \"VideoFileDir\".";
+	}
+
+	return;
+}
+####END####### Define Subfunction for VIDEO REQUEST ############################################################END#####
+	
+##START###### Define Subfunction for LIST FAVOURITES #########################################################START####
 sub DoorBird_List_Favorites($$) {
 	my ($hash, $option)	= @_;
 	my $name			= $hash->{NAME};
@@ -3471,7 +4206,37 @@ sub DoorBird_BlockGet($$$$) {
 			</tr>
 			<tr>
 				<td>
+					<code>AudioFileDir</code> : </td><td>The relative (e.g. "audio") or absolute (e.g. "/mnt/NAS/audio") with or without trailing "/" directory path to which the audio files supposed to be stored.<BR>
+																   The default value is <code>""</code> = disabled<BR>
+				</td>
+			</tr>
+			<tr>
+				<td>
 					<code>ImageFileDir</code> : </td><td>The relative (e.g. "images") or absolute (e.g. "/mnt/NAS/images") with or without trailing "/" directory path to which the image files supposed to be stored.<BR>
+																   The default value is <code>""</code> = disabled<BR>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					<code>VideoFileDir</code> : </td><td>The relative (e.g. "images") or absolute (e.g. "/mnt/NAS/images") with or without trailing "/" directory path to which the video files supposed to be stored.<BR>
+																   The default value is <code>""</code> = disabled<BR>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					<code>VideoFileFormat</code> : </td><td>The file format for the video file to be stored<BR>
+																   The default value is <code>"mpeg"</code><BR>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					<code>VideoDurationDoorbell</code> : </td><td>Time in seconds for how long the video shall be recorded in case of an doorbbell event.<BR>
+																   The default value is <code>0</code> = disabled<BR>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					<code>VideoDurationMotion</code> : </td><td>Time in seconds for how long the video shall be recorded in case of an motion sensor event.<BR>
 																   The default value is <code>0</code> = disabled<BR>
 				</td>
 			</tr>
@@ -3487,6 +4252,12 @@ sub DoorBird_BlockGet($$$$) {
    																   The default value is 7s<BR>
 				</td>
 			</tr>
+			<tr>
+				<td>
+					<code>OpsModeList</code> : </td><td>A space separated list of names for operational modes (e.g. "Normal Party Fire") on which the DoorBird reacts automatically on events.<BR>
+   																   The default value is <code>""</code> = disabled<BR>
+				</td>
+			</tr>			
 		</table>
 	</ul>
 </ul>
@@ -3594,25 +4365,25 @@ sub DoorBird_BlockGet($$$$) {
 			</tr>
 			<tr>
 				<td>
-					<code>KeepAliveTimeout </code> : </td><td>Timeout in Sekunden ohne "still-alive" - UDP Datagramme bevor der Status des Ger&auml;tes auf  "disconnected" gesetzt wird.<BR>
+					<code>KeepAliveTimeout</code> : </td><td>Timeout in Sekunden ohne "still-alive" - UDP Datagramme bevor der Status des Ger&auml;tes auf  "disconnected" gesetzt wird.<BR>
 														  Der Default Wert ist 30s<BR>
 				</td>
 			</tr>
 			<tr>
 				<td>
-					<code>MaxHistory       </code> : </td><td>Anzahl der herunterzuladenden Bilder aus dem Historien-Archiv sowohl f&uuml;r Ereignisse seitens der T&uuml;rklingel als auch f&uuml;r den Bewegungssensor.<BR>
+					<code>MaxHistory</code> : </td><td>Anzahl der herunterzuladenden Bilder aus dem Historien-Archiv sowohl f&uuml;r Ereignisse seitens der T&uuml;rklingel als auch f&uuml;r den Bewegungssensor.<BR>
 														  Der Default Wert ist "50" = Maximum.<BR>
 				</td>
 			</tr>
 			<tr>
 				<td>
-					<code>PollingTimeout   </code> : </td><td>Timeout in Sekunden before der Download-Versuch aufgrund fehlender Antwort seitens der DoorBird-Anlage terminiert wird. Eine Adjustierung mag notwendig sein, sobald Netzwerk-Latenzen aufteten.<BR>
+					<code>PollingTimeout</code> : </td><td>Timeout in Sekunden before der Download-Versuch aufgrund fehlender Antwort seitens der DoorBird-Anlage terminiert wird. Eine Adjustierung mag notwendig sein, sobald Netzwerk-Latenzen aufteten.<BR>
 														  Der Default-Wert ist 10s.<BR>
 				</td>
 			</tr>
 			<tr>
 				<td>
-					<code>UdpPort          </code> : </td><td>Port Nummer auf welcher das DoorBird - Modul nach den UDP Datagrammen der DoorBird - Anlage h&ouml;ren soll. Die Ports sind von der Firmware vorgegeben.<BR>
+					<code>UdpPort</code> : </td><td>Port Nummer auf welcher das DoorBird - Modul nach den UDP Datagrammen der DoorBird - Anlage h&ouml;ren soll. Die Ports sind von der Firmware vorgegeben.<BR>
 														  Der Default Port ist 6524<BR>
 				</td>
 			</tr>
@@ -3636,7 +4407,37 @@ sub DoorBird_BlockGet($$$$) {
 			</tr>
 			<tr>
 				<td>
+					<code>AudioFileDir</code> : </td><td>Der relative (z.B. "audio") oder absolute (z.B. "/mnt/NAS/audio") Verzeichnispfad mit oder ohne nachfolgendem Pfadzeichen "/"  in welchen die Audio-Dateien abgelegt sind.<BR>
+																   Der Default Wert ist <code>0</code> = deaktiviert<BR>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					<code>VideoFileFormat</code> : </td><td>Das Dateiformat f&uuml;r die Videodatei<BR>
+																   Der Default Wert ist <code>"mpeg"</code><BR>
+				</td>
+			</tr>
+			<tr>
+				<td>
 					<code>ImageFileDir</code> : </td><td>Der relative (z.B. "images") oder absolute (z.B. "/mnt/NAS/images") Verzeichnispfad mit oder ohne nachfolgendem Pfadzeichen "/"  in welchen die Bild-Dateien gespeichert werden sollen.<BR>
+																   Der Default Wert ist <code>0</code> = deaktiviert<BR>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					<code>VideoFileDir</code> : </td><td>Der relative (z.B. "images") oderr absolute (z.B. "/mnt/NAS/images") Verzeichnispfad mit oder ohne nachfolgendem Pfadzeichen "/"  in welchen die Video-Dateien gespeichert werden sollen.<BR>
+																   Der Default Wert ist <code>""</code> = deaktiviert<BR>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					<code>VideoDurationDoorbell</code> : </td><td>Zeit in Sekunden für wie lange das Video im Falle eines Klingel Events aufgenommen werden soll.<BR>
+																   Der Default Wert ist <code>0</code> = deaktiviert<BR>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					<code>VideoDurationMotion</code> : </td><td>Zeit in Sekunden für wie lange das Video im Falle eines Bewegungssensor Events aufgenommen werden soll.<BR>
 																   Der Default Wert ist <code>0</code> = deaktiviert<BR>
 				</td>
 			</tr>
@@ -3652,6 +4453,12 @@ sub DoorBird_BlockGet($$$$) {
    																   Der Default Wert ist 7s<BR>
 				</td>
 			</tr>
+			<tr>
+				<td>
+					<code>OpsModeList</code> : </td><td>Eine durch Leerzeichen getrennte Liste von Namen für Operationszust&auml;nde (e.g. "Normal Party Feuer" auf diese der DoorBird automatisch bei Events reagiert.<BR>
+   																   Der Default Wert ist "" = deaktiviert<BR>
+				</td>
+			</tr>			
 		</table>
 	</ul>
 </ul>

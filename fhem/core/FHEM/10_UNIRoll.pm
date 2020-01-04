@@ -1,7 +1,7 @@
 ###################LoTT Uniroll###################
 # First release by D. Fuchs and rudolfkoenig
 # improved by C_Herrmann
-# $Id: 10_UNIRoll.pm 12819 2016-12-18 14:27:48Z C_Herrmann $
+# $Id: 10_UNIRoll.pm 20792 2019-12-20 17:32:00Z rudolfkoenig $
 # 
 # UNIRoll:no synchronisation, the message protocoll begins directly with datas
 # group address  16 Bit like an housecode
@@ -532,3 +532,5 @@ Deutsche Version der Doku nicht vorhanden. Englische Version unter
 
 
 </ul>
+=end html
+=cut

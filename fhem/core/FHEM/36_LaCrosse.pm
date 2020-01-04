@@ -1,5 +1,5 @@
 
-# $Id: 36_LaCrosse.pm 18149 2019-01-05 19:36:58Z HCS $
+# $Id: 36_LaCrosse.pm 20217 2019-09-21 09:53:25Z HCS $
 
 
 package main;
@@ -44,7 +44,7 @@ sub LaCrosse_Define($$) {
     return $msg;
   }
 
-  $a[2] =~ m/^([\da-f]{2})$/i;
+  $a[2] =~ m/^([\da-f]{2,4})$/i;
   return "$a[2] is not a valid LaCrosse address" if( !defined($1) );
 
   my $name = $a[0];

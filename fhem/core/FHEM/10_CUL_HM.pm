@@ -1,7 +1,7 @@
 ##############################################
 ##############################################
 # CUL HomeMatic handler
-# $Id: 10_CUL_HM.pm 19889 2019-07-23 05:59:50Z martinp876 $
+# $Id: 10_CUL_HM.pm 20633 2019-12-01 13:24:15Z martinp876 $
 
 package main;
 
@@ -694,7 +694,6 @@ sub CUL_HM_Attr(@) {#################################
   return $chk if ($chk);
   
   my $updtReq = 0;
-
   if   ($attrName eq "expert"){#[0,1,2]
     $attr{$name}{$attrName} = $attrVal;
     CUL_HM_chgExpLvl($_) foreach ((map{CUL_HM_id2Hash($_)} CUL_HM_getAssChnIds($name)),$defs{$name});
@@ -713,6 +712,7 @@ sub CUL_HM_Attr(@) {#################################
       else{
         return "attribut not allowed for channels"
                       if (!$hash->{helper}{role}{dev});
+        return if (!$init_done); # will do at updateConfig
         CUL_HM_ActAdd(CUL_HM_name2Id($name),$attrVal);
       }
     }
@@ -4714,7 +4714,6 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     }
 
     my (undef,undef,$regName,$data,$peerChnIn) = @a;
-
     $state = "";
     my @regArr = CUL_HM_getRegN($st,$md,($roleD?"00":""),($roleC?$chn:""));
     
@@ -4776,7 +4775,7 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     my ($lChn,$peerId,$peerChn) = ($chn,"000000","00");
 #    if (($list == 3) ||($list == 4)   # peer is necessary for list 3/4
     if ($reg->{p} eq 'y'              # peer is necessary 
-        ||($peerChnIn))              {# and if requested by user
+        ||(defined $peerChnIn and $peerChnIn))   {# and if requested by user
       return "Peer not specified" if ($peerChnIn eq "");
       $peerId  = CUL_HM_peerChId($peerChnIn,$dst);
       ($peerId,$peerChn) = unpack 'A6A2',$peerId.'01';
@@ -4795,9 +4794,9 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     my $addrData;
     if ($dLen < 8){# fractional byte see whether we have stored the register
       #read full 8 bit!!!
-      my $rName = CUL_HM_id2Name($dst.$lChn);
-      $rName =~ s/_chn-\d\d$//;
-      my $curVal = CUL_HM_getRegFromStore($rName,$addr,$list,$peerId.$peerChn);
+      my $cName = CUL_HM_id2Name($dst.$lChn);
+      $cName =~ s/_chn-\d\d$//;
+      my $curVal = CUL_HM_getRegFromStore($cName,$addr,$list,$peerId.$peerChn);
       if ($curVal !~ m/^(set_|)(\d+)$/){
 	    return "peer required for $regName" if ($curVal =~ m/peer/);
         return "cannot calculate value. Please issue set $name getConfig first - $curVal";
@@ -6325,7 +6324,7 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     #peerSmart <peer>  
     $state = "";
     my $set  = $a[2] =~ s/^remove_// ? 0    : 1;
-    my $cmdB = $set                ? "01" : "02";
+    my $cmdB = $set                  ? "01" : "02";
     my %PInfo;
     my $pCnt = 0;
     my $ret;
@@ -8189,27 +8188,27 @@ sub CUL_HM_DumpProtocol($$@) {
 sub CUL_HM_getRegFromStore($$$$@) {#read a register from backup data
   my($name,$regName,$list,$peerId,$regLN)=@_;
   my $hash = $defs{$name};
-  my ($size,$pos,$conv,$factor,$unit) = (8,0,"",1,""); # default
+  my ($size,$pos,$conv,$factor,$unit,$peerRq) = (8,0,"",1,"","n"); # default
   my $addr = $regName;
   my $reg = $culHmRegDefine->{$regName};
   if ($reg) { # get the register's information
-    $addr = $reg->{a};
-    $pos = ($addr*10)%10;
-    $addr = int($addr);
-    $list = $reg->{l};
-    $size = $reg->{s};
-    $size = int($size)*8 + ($size*10)%10;
-    $conv = $reg->{c}; #unconvert formula
+    $addr   = $reg->{a};
+    $pos    = ($addr*10)%10;
+    $addr   = int($addr);
+    $size   = $reg->{s};
+    $size   = int($size)*8 + ($size*10)%10;
+    $list   = $reg->{l};
+    $conv   = $reg->{c}; #unconvert formula
     $factor = $reg->{f};
-    $unit = ($reg->{u}?" ".$reg->{u}:"");
+    $peerRq = $reg->{p};
+    $unit   = ($reg->{u} ? " ".$reg->{u} : "");
   }
   else{
-    return "invalid:regname or address"
-            if($addr<1 ||$addr>255);
+    return "invalid:regname or address" if($addr < 1 ||$addr > 255);
+    $peerRq = hex($peerId) != 0 ? "y":"n";
   }
-
-  return "invalid:no peer for this register" if(($reg->{p} eq "n" && hex($peerId) != 0)
-                                              ||($reg->{p} eq "y" && hex($peerId) == 0));
+  return "invalid:no peer for this register" if((hex($peerId) != 0 && $peerRq eq "n" )
+                                              ||(hex($peerId) == 0 && $peerRq eq "y"));
   my $dst = substr(CUL_HM_name2Id($name),0,6);
   if(!$regLN){
     $regLN = ($hash->{helper}{expert}{raw}?"":".")
@@ -8256,7 +8255,7 @@ sub CUL_HM_getRegFromStore($$$$@) {#read a register from backup data
 
   $data = ($data>>$pos) & (0xffffffff>>(32-$size));
   if (!$conv){                ;# do nothing
-  } elsif($conv eq "lit"     ){$data = defined $reg->{litInv}{$data}?$reg->{litInv}{$data}:"undef lit:$data";
+  } elsif($conv eq "lit"     ){$data = defined $reg->{litInv}{$data} ? $reg->{litInv}{$data} : "undef lit:$data";
   } elsif($conv eq "fltCvT"  ){$data = CUL_HM_CvTflt($data);
   } elsif($conv eq "fltCvT60"){$data = CUL_HM_CvTflt60($data);
   } elsif($conv eq "min2time"){$data = CUL_HM_min2time($data);
@@ -9162,7 +9161,8 @@ sub CUL_HM_dimLog($) {# dimmer readings - support virtual chan - unused so far
 # that period.
 # ActionDetector will use the fixed HMid 000000
 sub CUL_HM_ActGetCreateHash() {# get ActionDetector - create if necessary
-  if (!$modules{CUL_HM}{defptr}{"000000"} && $init_done){
+  return if (!$init_done);
+  if (!$modules{CUL_HM}{defptr}{"000000"}){
     CommandDefine(undef,"ActionDetector CUL_HM 000000");
     $attr{ActionDetector}{actCycle} = 600;
     $attr{ActionDetector}{"event-on-change-reading"} = ".*";
@@ -9196,7 +9196,6 @@ sub CUL_HM_ActAdd($$) {# add an HMid to list for activity supervision
   my ($cycleString,undef)=CUL_HM_time2sec($timeout);
   my $devName = CUL_HM_id2Name($devId);
   my $devHash = $defs{$devName};
-
   $attr{$devName}{actCycle} = $cycleString;
   $attr{$devName}{actStatus}=""; # force trigger
   my $actHash = CUL_HM_ActGetCreateHash();
@@ -10770,6 +10769,14 @@ sub CUL_HM_tempListTmpl(@) { ##################################################
                will be peered/unpeerd to the actor. <a href="CUL_HMpress">press</a> can be
                used to stimulate the related actions as defined in the actor register.
           </li>
+          <li><B>peerSmart [&lt;peer&gt;] </B><a name="CUL_HMpeerSmart"></a><br>
+               The command is similar to <B><a href="#CUL_HMpeerChan">peerChan</a></B>. 
+               peerChan uses only one parameter, the peer which the channel shall be peered to. <br>
+               Therefore peerSmart peers always in single mode (see peerChan). Funktionallity of the peered actor shall be applied 
+               manually by setting register. This is not a big difference to peerChan. <br>
+               Smart register setting could be done using hmTemplate. <br>
+               peerSmart is also available for actor-channel.
+          </li>
           <li><B>peerChan &lt;btn_no&gt; &lt;actChan&gt; [single|<u>dual</u>|reverse][<u>set</u>|unset] [<u>both</u>|actor|remote]</B>
               <a name="CUL_HMpeerChan"></a><br>
           
@@ -12210,7 +12217,15 @@ sub CUL_HM_tempListTmpl(@) { ##################################################
           <li><B>trgPressL [all|&lt;peer&gt;] </B><a name="CUL_HMtrgPressL"></a><br>
                Initiiert ein pressL fuer die peer entity. Wenn <B>all</B> ausgewählt ist wird das Kommando bei jedem der Peers ausgeführt. Siehe auch <a href="CUL_HMpressL">pressL</a><br>
           </li>
-            <li><B>peerChan &lt;btn_no&gt; &lt;actChan&gt; [single|<u>dual</u>|reverse]
+          <li><B>peerSmart [&lt;peer&gt;] </B><a name="CUL_HMpeerSmart"></a><br>
+               Das Kommando ist aehnlich dem <B><a href="#CUL_HMpeerChan">peerChan</a></B>. 
+               peerChan braucht nur einen Parameter, den Peer zu welchem die Beziehung hergestellt werden soll.<br>
+               Daher peert peerSmart immer single mode (siehe peerChan). Die Funktionalitaet des gepeerten Aktors wird über das manuelle 
+               setzen der Register eingestellt. Am Ende ist das kein grosser Unterschied zu peerChan. <br>
+               Smartes Register Setzen kann man mit hmTemplate erreichen. <br>
+               peerSmart ist auch für Aktor Kanäle verfügbar.
+          </li>
+          <li><B>peerChan &lt;btn_no&gt; &lt;actChan&gt; [single|<u>dual</u>|reverse]
               [<u>set</u>|unset] [<u>both</u>|actor|remote]</B><a name="CUL_HMpeerChan"></a><br>
               "peerChan" richtet eine Verbindung zwischen Sender-<B>Kanal</B> und
               Aktor-<B>Kanal</B> ein, bei HM "link" genannt. "Peering" darf dabei nicht

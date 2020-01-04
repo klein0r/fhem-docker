@@ -8,7 +8,7 @@
 # written 2013 by Dennis Bokermann <dbn at gmx.de>
 #
 ##############################################
-# $Id: 70_KODI.pm 18827 2019-03-08 15:42:26Z vbs $
+# $Id: 70_KODI.pm 20527 2019-11-17 14:29:36Z vbs $
 
 package main;
 
@@ -109,11 +109,12 @@ sub KODI_Initialize($$)
   my ($hash) = @_;
   $hash->{DefFn}    = "KODI_Define";
   $hash->{SetFn}    = "KODI_Set";
+  $hash->{GetFn}    = "KODI_Get";
   $hash->{ReadFn}   = "KODI_Read";  
   $hash->{ReadyFn}  = "KODI_Ready";
   $hash->{UndefFn}  = "KODI_Undefine";
   $hash->{AttrFn}   = "KODI_Attr";
-  $hash->{AttrList} = "fork:enable,disable compatibilityMode:kodi,plex offMode:quit,hibernate,shutdown,suspend updateInterval disable:0,1 jsonResponseReading:0,1 " . $readingFnAttributes;
+  $hash->{AttrList} = "compatibilityMode:kodi,plex offMode:quit,hibernate,shutdown,suspend updateInterval disable:0,1 jsonResponseReading:0,1 pvrEnabled:0,1 " . $readingFnAttributes;
 
   $data{RC_makenotify}{XBMC} = "KODI_RCmakenotify";
   $data{RC_layout}{KODI_RClayout}  = "KODI_RClayout";
@@ -157,7 +158,7 @@ sub KODI_Define($$)
   
   $attr{$hash->{NAME}}{"updateInterval"} = 60;
   
-  return undef;
+  return KODI_Connect( $hash, 0 );
 }
 
 sub KODI_Attr($$$$)
@@ -192,96 +193,78 @@ sub KODI_CreateId($)
 
 # Force a connection attempt to KODI as soon as possible 
 # (e.g. you know you just started it and want to connect immediately without waiting up to 60 s)
-sub KODI_Connect($)
+sub KODI_ForceConnect($)
 {
   my ($hash) = @_;
   my $name = $hash->{NAME};
   
+  Log3($name, 4, "$name: KODI_ForceConnect");
+
   if($hash->{Protocol} ne 'tcp') {
     # we dont have a persistent connection anyway
+    Log3($name, 4, "$name: KODI_Connect cancelled. Protocol not tcp.");
     return undef;
   }
   
-  if(AttrVal($hash->{NAME},'fork','disable') eq 'enable') {
-    return undef unless $hash->{CHILDPID}; # nothing to do
-    # well, the fork process does not respond to SIGTERM
-    # so lets use SIGKILL to make things clear to it
-    if ((kill SIGKILL, $hash->{CHILDPID}) != 1) { 
-      Log3 3, $name, "KODI_Connect: ERROR: Unable to kill fork process!";
-      return undef;
-    }
-    $hash->{CHILDPID} = undef; # undefg childpid so the Ready-func will fork again
-  } else {
-    $hash->{NEXT_OPEN} = 0; # force NEXT_OPEN used in DevIO
-  }
+  $hash->{NEXT_OPEN} = 0; # force NEXT_OPEN used in DevIO
 
   return undef;
 }
 
-# kills child process trying to connect (if existing)
-sub KODI_KillConnectionChild($)
-{
-  my ($hash) = @_;
-
-  return if !$hash->{CHILDPID};
-    
-  kill 'KILL', $hash->{CHILDPID};
-  undef $hash->{CHILDPID};
+sub KODI_Connect($$) {
+  my ( $hash, $reopen ) = @_;
+  return DevIo_OpenDev( $hash, $reopen, "KODI_OnConnect", "KODI_OnConnectError" );
 }
 
 sub KODI_Ready($)
 {
   my ($hash) = @_;
   
-  if (AttrVal($hash->{NAME}, 'disable', 0)) {
-    return;
+  if($hash->{Protocol} eq 'tcp') {
+      return undef if IsDisabled( $hash->{NAME} );
+
+      return KODI_Connect( $hash, 1 ) if ( $hash->{STATE} eq "disconnected" );
   }
   
-  if($hash->{Protocol} eq 'tcp') {
-    if(AttrVal($hash->{NAME},'fork','disable') eq 'enable') {
-      if($hash->{CHILDPID} && !(kill 0, $hash->{CHILDPID})) {
-        $hash->{CHILDPID} = undef;
-        return DevIo_OpenDev($hash, 1, "KODI_Init");
-      }
-      elsif(!$hash->{CHILDPID}) {
-        return if($hash->{CHILDPID} = fork);
-        my $ppid = getppid();
-    
-        ### Copied from Blocking.pm
-        foreach my $d (sort keys %defs) {   # Close all kind of FD
-          my $h = $defs{$d};
-          #the following line was added by vbs to not close parent's DbLog DB handle
-          $h->{DBH}->{InactiveDestroy} = 1 if ($h->{TYPE} eq 'DbLog');
-          TcpServer_Close($h) if($h->{SERVERSOCKET});
-          if($h->{DeviceName}) {
-            require "$attr{global}{modpath}/FHEM/DevIo.pm";
-            DevIo_CloseDev($h,1);
-          }
-        }
-        ### End of copied from Blocking.pm
-    
-        while(kill 0, $ppid) {
-          DevIo_OpenDev($hash, 1, "KODI_ChildExit");
-          sleep(5);
-        }
-        exit(0);
-      }
-    } else {
-      return DevIo_OpenDev($hash, 1, "KODI_Init");
-    }
-  }
   return undef;
 }
 
-sub KODI_ChildExit($) 
+sub KODI_OnConnect($) 
 {
-   exit(0);
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+  
+  Log3($name, 4, "$name: Connection established");
+  
+  KODI_ResetPlayerReadings($hash);
+        
+  #since we just successfully connected to KODI I guess its safe to assume the device is awake
+  readingsSingleUpdate($hash,"system","wake",1);
+  $hash->{LAST_RECV} = time();
+  
+  KODI_Update($hash);
+  KODI_PvrUpdateChannels($hash);
+  
+  KODI_QueueIntervalUpdate($hash);
+  
+  return undef;
+}
+
+sub KODI_OnConnectError($$) {
+  my ( $hash, $err ) = @_;
+
+  if ($err) {
+    Log3 $hash, 4, "$hash->{NAME}: unable to connect to KODI device: $err";
+  }
 }
 
 sub KODI_Undefine($$) 
 {
   my ($hash,$arg) = @_;
   
+  my $name = $hash->{NAME};
+  Log3($name, 4, "$name: KODI_Undefine");
+
   RemoveInternalTimer($hash);
   
   KODI_Disconnect($hash);
@@ -295,25 +278,6 @@ sub KODI_Disconnect($)
   if($hash->{Protocol} eq 'tcp') {
     DevIo_CloseDev($hash); 
   }
-  
-  KODI_KillConnectionChild($hash);
-}
-
-sub KODI_Init($) 
-{
-  my ($hash) = @_;
-
-  KODI_ResetPlayerReadings($hash);
-        
-  #since we just successfully connected to KODI I guess its safe to assume the device is awake
-  readingsSingleUpdate($hash,"system","wake",1);
-  $hash->{LAST_RECV} = time();
-  
-  KODI_Update($hash);
-  
-  KODI_QueueIntervalUpdate($hash);
-  
-  return undef;
 }
 
 sub KODI_QueueIntervalUpdate($;$) {
@@ -333,7 +297,7 @@ sub KODI_Check($) {
   my ($hash) = @_;
   my $name = $hash->{NAME};
   
-  Log3 $name, 4, "KODI_Check";
+  Log3 $name, 4, "$name: KODI_Check";
 
   return if(!KODI_CheckConnection($hash));
   
@@ -347,9 +311,9 @@ sub KODI_UpdatePlayerItem($) {
   my ($hash) = @_;
   my $name = $hash->{NAME};
  
-  Log3 $name, 4, "KODI_UpdatePlayerItem";
+  Log3 $name, 4, "$name: KODI_UpdatePlayerItem";
   if (($hash->{STATE} eq 'disconnected') or (ReadingsVal($name, "playStatus","") ne 'playing')) {
-    Log3 $name, 4, "KODI_UpdatePlayerItem - cancelled (disconnected or not playing)";
+    Log3 $name, 4, "$name: KODI_UpdatePlayerItem - cancelled (disconnected or not playing)";
     return;
   }
   
@@ -370,11 +334,11 @@ sub KODI_CheckConnection($) {
   
   # give it 50% tolerance. sticking hard to updateInt might fail if the fhem timer gets delayed for some seconds
   if ($lastRecvDiff > ($updateInt * 1.5)) {
-    Log3 $name, 3, "KODI_CheckConnection: Connection lost! Last data from Kodi received $lastRecvDiff s ago";
+    Log3 $name, 3, "$name: KODI_CheckConnection: Connection lost! Last data from Kodi received $lastRecvDiff s ago";
     DevIo_Disconnected($hash);
     return 0;
   }
-  Log3 $name, 4, "KODI_CheckConnection: Connection still alive. Last data from Kodi received $lastRecvDiff s ago";
+  Log3 $name, 4, "$name: KODI_CheckConnection: Connection still alive. Last data from Kodi received $lastRecvDiff s ago";
   
   return 1;
 }
@@ -382,8 +346,10 @@ sub KODI_CheckConnection($) {
 sub KODI_Update($) 
 {
   my ($hash) = @_;
-  my $obj;
-  $obj  = {
+  my $name = $hash->{NAME};
+  Log3($name, 4, "$name: KODI_Update");
+
+  my $obj  = {
     "method" => "Application.GetProperties",
     "params" => { 
       "properties" => ["volume","muted","name","version"]
@@ -412,6 +378,10 @@ sub KODI_PlayerUpdate($$)
 {
   my $hash = shift;
   my $playerid = shift;
+  
+  my $name = $hash->{NAME};
+  Log3($name, 4, "$name: KODI_PlayerUpdate");
+  
   my $obj  = {
     "method" => "Player.GetProperties",
     "params" => { 
@@ -433,6 +403,10 @@ sub KODI_PlayerGetItem($$)
 {
   my $hash = shift;
   my $playerid = shift;
+  
+  my $name = $hash->{NAME};
+  Log3($name, 4, "$name: KODI_PlayerGetItem");
+  
   my $obj  = {
     "method" => "Player.GetItem",
     "params" => { 
@@ -462,27 +436,27 @@ sub KODI_ProcessRead($$)
   my ($hash, $data) = @_;
   my $name = $hash->{NAME};
   my $buffer = '';
-  Log3($name, 5, "KODI_ProcessRead");
+  Log3($name, 4, "$name: KODI_ProcessRead");
 
   #include previous partial message
   if(defined($hash->{PARTIAL}) && $hash->{PARTIAL}) {
-    Log3($name, 5, "KODI_Read: PARTIAL: " . $hash->{PARTIAL});
+    # Log3($name, 5, "$name: KODI_Read: PARTIAL: " . $hash->{PARTIAL});
     $buffer = $hash->{PARTIAL};
   }
   else {
-    Log3($name, 5, "No PARTIAL buffer");
+    # Log3($name, 5, "$name: No PARTIAL buffer");
   }
   
-  Log3($name, 5, "KODI_Read: Incoming data: " . $data);
+  Log3($name, 5, "$name: KODI_ProcessRead: Incoming data: " . $data);
   
   $buffer = $buffer  . $data;
-  Log3($name, 5, "KODI_Read: Current processing buffer (PARTIAL + incoming data): " . $buffer);
+  Log3($name, 5, "$name: KODI_ProcessRead: Processing buffer now: " . $buffer);
 
   my ($msg,$tail) = KODI_ParseMsg($hash, $buffer);
   #processes all complete messages
   while($msg) {
     $hash->{LAST_RECV} = time();
-    Log3($name, 4, "KODI_Read: Decoding JSON message. Length: " . length($msg) . " Content: " . $msg);
+    Log3($name, 4, "$name: KODI_ProcessRead: Decoding JSON message. Length: " . length($msg) . " Content: " . $msg);
     KODI_SetJsonResponseReading($hash, $msg);
     
     my $obj = JSON->new->utf8(0)->decode($msg);
@@ -491,19 +465,19 @@ sub KODI_ProcessRead($$)
       KODI_ProcessNotification($hash,$obj);
     }
     elsif(defined($obj->{error})) {
-        Log3($name, 3, "KODI_Read: Received error message: " . $msg);
+        Log3($name, 3, "$name: KODI_ProcessRead: Received error message: " . $msg);
     }
     #otherwise it is a answer of a request
     else {
         if (KODI_ProcessResponse($hash,$obj) == -1) {
-            Log3($name, 2, "KODI_ProcessRead: Faulty message: $msg");
+            Log3($name, 2, "$name: KODI_ProcessRead: Faulty message: $msg");
         }
     }
     ($msg,$tail) = KODI_ParseMsg($hash, $tail);
   }
   $hash->{PARTIAL} = $tail;
-  Log3($name, 5, "KODI_Read: Tail: " . $tail);
-  Log3($name, 5, "KODI_Read: PARTIAL: " . $hash->{PARTIAL});
+  # Log3($name, 5, "$name: KODI_ProcessRead: Tail: " . $tail);
+  # Log3($name, 5, "$name: KODI_ProcessRead: PARTIAL: " . $hash->{PARTIAL});
   return;
 }
 
@@ -518,6 +492,10 @@ sub KODI_SetJsonResponseReading($$)
 sub KODI_ResetMediaReadings($)
 {
   my ($hash) = @_;
+  
+  my $name = $hash->{NAME};
+  Log3($name, 4, "$name: KODI_ResetMediaReadings");
+  
   readingsBeginUpdate($hash);
   readingsBulkUpdate($hash, "currentMedia", "" );
   readingsBulkUpdate($hash, "currentOriginaltitle", "" );
@@ -549,6 +527,10 @@ sub KODI_ResetMediaReadings($)
 sub KODI_ResetPlayerReadings($)
 {
   my ($hash) = @_;
+  
+  my $name = $hash->{NAME};
+  Log3($name, 4, "$name: KODI_ResetPlayerReadings");
+
   readingsBeginUpdate($hash);
   readingsBulkUpdate($hash, "time", "" );
   readingsBulkUpdate($hash, "totaltime", "" );
@@ -565,10 +547,15 @@ sub KODI_PlayerOnPlay($$)
 {
   my ($hash,$obj) = @_;
   my $name = $hash->{NAME};
+  
+  Log3($name, 4, "$name: KODI_PlayerOnPlay");
+  
   my $id = KODI_CreateId($hash);
   my $type = $obj->{params}->{data}->{item}->{type};
   if(AttrVal($hash->{NAME},'compatibilityMode','kodi') eq 'plex' || !defined($obj->{params}->{data}->{item}->{id}) || $type eq "picture" || $type eq "unknown") {
     # we either got unknown or picture OR an item not in the library (id not existing)
+    Log3($name, 5, "$name: KODI_PlayerOnPlay: updating player readings");
+
     readingsBeginUpdate($hash);
     readingsBulkUpdate($hash,'playStatus','playing');
     readingsBulkUpdate($hash,'type',$type);
@@ -583,7 +570,7 @@ sub KODI_PlayerOnPlay($$)
     KODI_PlayerGetItem($hash, -1);
   } 
   elsif($type eq "song") {
-    # 
+    Log3($name, 5, "$name: KODI_PlayerOnPlay: preparing to update song info");
     my $req = {
       "method" => "AudioLibrary.GetSongDetails",
       "params" => { 
@@ -601,6 +588,7 @@ sub KODI_PlayerOnPlay($$)
     KODI_Call($hash, $req,1);
   }
   elsif($type eq "episode") {
+    Log3($name, 5, "$name: KODI_PlayerOnPlay: preparing to update episode info");
     my $req = {
       "method" => "VideoLibrary.GetEpisodeDetails",
       "params" => { 
@@ -619,6 +607,7 @@ sub KODI_PlayerOnPlay($$)
     KODI_Call($hash, $req,1);
   }
   elsif($type eq "movie") {
+    Log3($name, 5, "$name: KODI_PlayerOnPlay: preparing to update movie info");
     my $req = {
       "method" => "VideoLibrary.GetMovieDetails",
       "params" => { 
@@ -637,6 +626,7 @@ sub KODI_PlayerOnPlay($$)
     KODI_Call($hash, $req,1);
   }
   elsif($type eq "musicvideo") {
+    Log3($name, 5, "$name: KODI_PlayerOnPlay: preparing to update musicvideo info");
     my $req = {
       "method" => "VideoLibrary.GetMusicVideoDetails",
       "params" => { 
@@ -656,12 +646,40 @@ sub KODI_PlayerOnPlay($$)
   }
 }
 
+sub KODI_Get($@) {
+  my ( $hash, $name, $cmd, @args ) = @_;
+
+  return 'Module disabled!' if AttrVal($hash->{NAME}, 'disable', 0);
+
+  if ($cmd eq "update_channels") {
+    KODI_PvrUpdateChannels($hash);
+  }
+  elsif ($cmd eq "channelid") {
+    if ( !defined( $args[0] ) ) {
+      my $msg = "$hash->{NAME} channelid requires channel name parameter";
+      Log3( $hash, 3, $msg );
+      return $msg;
+    }
+
+    my $channel = join(" ", @args);
+    return KODI_PvrGetChannelId($hash, $channel);
+  } else {
+    return "Unknown command '$cmd', choose one of update_channels:noArg channelid";
+  }
+
+  return undef;
+}
+
 sub KODI_ProcessNotification($$) 
 {
   my ($hash,$obj) = @_;
   my $name = $hash->{NAME};
+  Log3($name, 5, "$name: KODI_ProcessNotification");
+
   #React on volume change - http://wiki.xbmc.org/index.php?title=JSON-RPC_API/v6#Application.OnVolumeChanged
   if($obj->{method} eq "Application.OnVolumeChanged") {
+    Log3($name, 5, "$name: KODI_ProcessNotification: volume change");
+    
     readingsBeginUpdate($hash);
     readingsBulkUpdate($hash,'volume',sprintf("%.2f", $obj->{params}->{data}->{volume}));
     readingsBulkUpdate($hash,'mute',($obj->{params}->{data}->{muted} ? 'on' : 'off'));
@@ -672,9 +690,11 @@ sub KODI_ProcessNotification($$)
   #http://wiki.xbmc.org/index.php?title=JSON-RPC_API/v6#Player.OnPause
   #http://wiki.xbmc.org/index.php?title=JSON-RPC_API/v6#Player.OnStop
   elsif($obj->{method} eq "Player.OnPropertyChanged") {
+    Log3($name, 5, "$name: KODI_ProcessNotification: player property change notification received");
     KODI_PlayerUpdate($hash,$obj->{params}->{data}->{player}->{playerid});
   }
   elsif($obj->{method} =~ /Player\.(OnSeek|OnSpeedChanged|OnPropertyChanged)/) {
+    Log3($name, 5, "$name: KODI_ProcessNotification: player property change");
     my $base = $obj->{params}->{data}->{player};
     readingsBeginUpdate($hash);
     foreach my $key (keys %$base) {
@@ -684,6 +704,7 @@ sub KODI_ProcessNotification($$)
     readingsEndUpdate($hash, 1);
   }
   elsif($obj->{method} eq "Player.OnStop") {
+    Log3($name, 5, "$name: KODI_ProcessNotification: player stopped");
     readingsSingleUpdate($hash,"playStatus",'stopped',1);
 	
 	#HACK: We want to fetch GUI.Properties here to update for example stereoscopicmode.
@@ -692,14 +713,17 @@ sub KODI_ProcessNotification($$)
     KODI_QueueIntervalUpdate($hash, 2);
   }
   elsif($obj->{method} eq "Player.OnPause") {
+    Log3($name, 5, "$name: KODI_ProcessNotification: player paused");
     readingsSingleUpdate($hash,"playStatus",'paused',1);
   }
   elsif($obj->{method} eq "Player.OnPlay") {
+    Log3($name, 5, "$name: KODI_ProcessNotification: player started playing");
     KODI_ResetMediaReadings($hash);
     KODI_PlayerOnPlay($hash, $obj);
 	KODI_Update($hash);
   }
   elsif($obj->{method} eq "Player.OnResume") {
+    Log3($name, 5, "$name: KODI_ProcessNotification: player resumed");
     readingsSingleUpdate($hash,"playStatus",'playing',1);
   }
   elsif($obj->{method} =~ /(Playlist|AudioLibrary|VideoLibrary|System).On(.*)/) {
@@ -711,7 +735,7 @@ sub KODI_ProcessNotification($$)
       }
       
       if (lc($2) eq "sleep") {
-        Log3($name, 3, "KODI notified that it is going to sleep");
+        Log3($name, 3, "$name: KODI notified that it is going to sleep");
         #if we immediatlely close our DevIO then fhem will instantly try to reconnect which might
         #succeed because KODI needs a moment to actually shutdown.
         #So cancel the current timer, fake that the last data has arrived ages ago
@@ -729,9 +753,14 @@ sub KODI_ProcessResponse($$)
 {
   my ($hash,$obj) = @_;
   my $name = $hash->{NAME};
+
   my $id = $obj->{id};
-  #check if the id of the answer matches the id of a pending event
+  Log3($name, 5, "$name: KODI_ProcessResponse: ID $id");
+
+  # check if the id of the answer matches the id of a pending event
+  # used to query further information upon receiving OnPlay events
   if(defined($hash->{PendingEvents}{$id})) {
+    Log3($name, 5, "$name: KODI_ProcessResponse: processing pending event $id");
     my $event = $hash->{PendingEvents}{$id};
     my $name = $event->{name};
     my $type = $event->{type};
@@ -754,6 +783,9 @@ sub KODI_ProcessResponse($$)
     $hash->{PendingEvents}{$id} = undef;
   }
   elsif(exists($hash->{PendingPlayerCMDs}{$id})) {
+    # we wanted to send a player command but we had to find out the player ID first
+    # we should get it here and then send the command
+    Log3($name, 5, "$name: KODI_ProcessResponse: processing pending player command $id");
     my $cmd = $hash->{PendingPlayerCMDs}{$id};
     my $players = $obj->{result};
     if (ref($players) ne "ARRAY") {
@@ -762,8 +794,8 @@ sub KODI_ProcessResponse($$)
           $keys .= ",$k";
         }
         delete $hash->{PendingPlayerCMDs}{$id};
-        Log3($name, 2, "KODI_ProcessResponse: Not received a player array! Pending command cancelled!");
-        Log3($name, 2, "KODI_ProcessResponse: Keys in PendingPlayerCMDs: $keys");
+        Log3($name, 2, "$name: KODI_ProcessResponse: Not received a player array! Pending command cancelled!");
+        Log3($name, 2, "$name: KODI_ProcessResponse: Keys in PendingPlayerCMDs: $keys");
         return -1;
     }
     foreach my $player (@$players) {
@@ -772,25 +804,53 @@ sub KODI_ProcessResponse($$)
       KODI_Call($hash,$cmd,1);
     }
     delete $hash->{PendingPlayerCMDs}{$id};
-  }  
+  }
   else {
+    # this is for handling other responses like responses to Application.GetProperties etc.
     my $result = $obj->{result};
-    if($result && $result ne 'OK' && $result ne JSON::true) {
-      readingsBeginUpdate($hash);
-      foreach my $key (keys %$result) {
-        if ($key eq 'item') {
-          my $item = $obj->{result}->{item};
-          foreach my $ikey (keys %$item) {
-            my $value = $item->{$ikey};
-            KODI_CreateReading($hash,$ikey,$value);
+    if($result && ref $result eq "HASH") {
+      if(exists($obj->{result}->{channelgroups})) {
+        Log3($name, 4, "$name: KODI_ProcessResponse: received channelgroups information");
+        readingsBeginUpdate($hash);
+        foreach my $cg (@{$obj->{result}->{channelgroups}}) {
+            my $cgid =  sprintf("%03d", $cg->{channelgroupid});
+            readingsBulkUpdate($hash, "channelgroup_${cgid}_type", $cg->{channeltype});
+            readingsBulkUpdate($hash, "channelgroup_${cgid}_label", $cg->{label});
+            
+            KODI_PvrGetChannels($hash, $cgid);
+        }
+        readingsEndUpdate($hash, 1);
+      } 
+      elsif(exists($obj->{result}->{channels})) {
+        Log3($name, 4, "$name: KODI_ProcessResponse: received channels information");
+        readingsBeginUpdate($hash);
+        foreach my $c (@{$obj->{result}->{channels}}) {
+            my $cid = $c->{channelid};
+            readingsBulkUpdate($hash, "channel_" . sprintf("%03d", $cid), $c->{label});
+        }
+        readingsEndUpdate($hash, 1);
+      }
+      else {
+        Log3($name, 4, "$name: KODI_ProcessResponse: updating readings");
+        readingsBeginUpdate($hash);
+        foreach my $key (keys %$result) {
+          if ($key eq 'item') {
+            my $item = $obj->{result}->{item};
+            foreach my $ikey (keys %$item) {
+              my $value = $item->{$ikey};
+              KODI_CreateReading($hash,$ikey,$value);
+            }
+          }
+          else {
+            my $value = $result->{$key};
+            KODI_CreateReading($hash,$key,$value);
           }
         }
-        else {
-          my $value = $result->{$key};
-          KODI_CreateReading($hash,$key,$value);
-        }
+        readingsEndUpdate($hash, 1);
       }
-      readingsEndUpdate($hash, 1);
+    }
+    else {
+      Log3($name, 5, "$name: KODI_ProcessResponse: ignoring response: $result");
     }
   }
   return 0;
@@ -899,7 +959,7 @@ sub KODI_ParseMsg($$)
         $tail .= $c;
       }
       elsif(($open == $close) && ($c ne '{')) {
-        Log3($name, 3, "KODI_ParseMsg: Garbage character before message: " . $c); 
+        Log3($name, 3, "$name: KODI_ParseMsg: Garbage character before message: " . $c); 
       }
       else {
         if($c eq '{') {
@@ -923,6 +983,9 @@ sub KODI_Set($@)
 {
   my ($hash, $name, $cmd, @args) = @_;
   our %KODI_WindowNames;
+  
+  Log3($name, 4, "$name: KODI_Set: $cmd");
+
   if($cmd eq "off") {
     $cmd = AttrVal($hash->{NAME},'offMode','quit');
   }
@@ -962,6 +1025,17 @@ sub KODI_Set($@)
   }
   elsif($cmd eq 'openepisodeid') {
     return KODI_Set_Open($hash, 'episode', @args);
+  }
+  elsif($cmd eq 'openchannel') {
+    my $channel = join(' ', @args);
+    my $cid = KODI_PvrGetChannelId($hash, $channel);
+    if ($cid == -1) {
+      my $msg = "Could not find channel $channel";
+      Log3($name, 4, "$name: KODI_Set: $msg");
+      return $msg;
+    }
+    @args = ($cid);
+    return KODI_Set_Open($hash, 'channel', @args);
   }
   elsif($cmd eq 'openchannelid') {
     return KODI_Set_Open($hash, 'channel', @args);
@@ -1088,7 +1162,7 @@ sub KODI_Set($@)
     }
   }
   elsif($cmd eq 'connect') {
-    return KODI_Connect($hash);
+    return KODI_ForceConnect($hash);
   }
   elsif($cmd eq 'activatewindow') {
     my $name = $args[0];
@@ -1107,7 +1181,7 @@ sub KODI_Set($@)
   my $res = "Unknown argument " . $cmd . ", choose one of " . 
     "off play:all,audio,video,picture playpause:all,audio,video,picture pause:all,audio,video,picture " . 
     "prev:all,audio,video,picture next:all,audio,video,picture goto stop:all,audio,video,picture " . 
-    "open opendir openmovieid openepisodeid openchannelid addon shuffle:toggle,on,off repeat:one,all,off volumeUp:noArg volumeDown:noArg " . 
+    "open opendir openmovieid openepisodeid openchannel openchannelid addon shuffle:toggle,on,off repeat:one,all,off volumeUp:noArg volumeDown:noArg " . 
     "seek back:noArg contextmenu:noArg down:noArg home:noArg info:noArg left:noArg " . 
     "right:noArg select:noArg send exec:left,right," . 
     "up,down,pageup,pagedown,select,highlight,parentdir,parentfolder,back," . 
@@ -1391,6 +1465,7 @@ sub KODI_PlayerCommand($$$)
     }
   }
   
+  
   #we need to find out the correct player first
   my $id = KODI_CreateId($hash);
   $hash->{PendingPlayerCMDs}->{$id} = $obj;
@@ -1399,6 +1474,92 @@ sub KODI_PlayerCommand($$$)
     'id' => $id
   };
   return KODI_Call($hash,$req,1);
+}
+
+sub KODI_IsPvrEnabled($)
+{
+  my ($hash) = @_;
+  return AttrVal($hash->{NAME}, 'pvrEnabled', 1);
+}
+
+sub KODI_PvrGetProperties($) 
+{
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+  Log3($name, 4, "$name: KODI_PvrGetProperties");
+
+  return undef if not KODI_IsPvrEnabled($hash);
+  
+  my $obj  = {
+    "method" => "PVR.GetProperties",
+    "params" => { 
+      "properties" => ["available","recording","scanning"]
+    }
+  };
+  return KODI_Call($hash,$obj,1);
+}
+
+sub KODI_PvrUpdateChannels($)
+{
+  my ($hash) = @_;
+  
+  return undef if not KODI_IsPvrEnabled($hash);
+
+
+  fhem("deletereading $hash->{NAME} channel_.*", 1);
+  fhem("deletereading $hash->{NAME} channelgroup_.*", 1);
+  
+  KODI_PvrGetChannelGroups($hash, "tv");
+  KODI_PvrGetChannelGroups($hash, "radio");
+  
+  return undef;
+}
+
+sub KODI_PvrGetChannelGroups($$) 
+{
+  my ($hash,$type) = @_;
+
+  return undef if not KODI_IsPvrEnabled($hash);
+
+  my $id = KODI_CreateId($hash);
+  my $req = {
+    'method'  => 'PVR.GetChannelGroups',
+    'params' => { 'channeltype' => $type },
+    'id' => $id
+  };
+  return KODI_Call($hash,$req,1);
+}
+
+sub KODI_PvrGetChannels($$) 
+{
+  my ($hash,$channelGroupId) = @_;
+
+  return undef if not KODI_IsPvrEnabled($hash);
+
+  my $id = KODI_CreateId($hash);
+  my $req = {
+    'method'  => 'PVR.GetChannels',
+    'params' => { 'channelgroupid' => $channelGroupId + 0 },
+    'id' => $id
+  };
+  return KODI_Call($hash,$req,1);
+}
+
+sub KODI_PvrGetChannelId($$) {
+  my ($hash, $channelname) = @_;
+  my $name = $hash->{NAME};
+
+  my $cid=1;
+    
+  Log3($name, 4, "$name: KODI_PvrGetChannelId: $channelname"); 
+      
+  my $readings = $defs{$name}{READINGS};
+  foreach my $rname (sort keys %{$readings}) {
+    next if (rindex($rname, "channel_", 0) < 0);
+    my $curname = ReadingsVal($name, $rname, undef);
+    return (split /_/, $rname)[1] if ($curname eq $channelname);
+  }
+  return -1;
 }
 
 #returns 'toggle' if the argument is undef
@@ -1439,7 +1600,7 @@ sub KODI_Call($$$)
   }
   $obj->{jsonrpc} = "2.0"; #JSON RPC version has to be passed
   my $json = JSON->new->utf8(0)->encode($obj);
-  Log3($name, 4, "KODI_Call: Sending: " . $json); 
+  Log3($name, 5, "$name: KODI_Call: Sending: " . $json); 
   if($hash->{Protocol} eq 'http') {
     return KODI_HTTP_Call($hash,$json,$id);
   }
@@ -1452,7 +1613,7 @@ sub KODI_Call_raw($$$)
 {
   my ($hash,$obj,$id) = @_;
   my $name = $hash->{NAME};
-  Log3($name, 5, "KODI_Call: Sending: " . $obj); 
+  Log3($name, 5, "$name: KODI_Call: Sending: " . $obj); 
   if($hash->{Protocol} eq 'http') {
     return KODI_HTTP_Call($hash,$obj,$id);
   }
@@ -1494,6 +1655,9 @@ sub KODI_TCP_Call($$)
 sub KODI_HTTP_Call($$$) 
 {
   my ($hash,$obj,$id) = @_;
+  my $name = $hash->{NAME};
+  Log3($name, 4, "$name: KODI_HTTP_Call"); 
+
   my $uri = "http://" . $hash->{Host} . ":" . $hash->{Port} . "/jsonrpc";
   my $ret = KODI_HTTP_Request(0,$uri,undef,$obj,undef,$hash->{Username},$hash->{Password});
   return undef if(!$ret);
@@ -1666,7 +1830,14 @@ sub KODI_HTTP_Request($$@)
     is a issue of Kodi. The fix of this bug is included in future version of Kodi (> 12.2).
    
   </ul>
-  
+  <br/><br/>
+  <a name="KODIget"></a>
+  <b>Get</b>
+  <ul> 
+    <li><b>update_channels</b> -  fetches all channel groups and all channels from Kodi. The readings "channel_..." and "channelgroup_..." will be filled. Channels will also be automatically updated when the connection is established.</li>
+    <li><b>channelid [&lt;channel_name&gt;]</b> -  resolves a channel name and returns its ID. Returns -1 for unknown channels.</li>
+  </ul>
+      <br/><br/>
   <a name="KODIset"></a>
   <b>Set</b>
   <ul>
@@ -1689,6 +1860,7 @@ sub KODI_HTTP_Request($$@)
     <li><b>opendir &lt;path&gt;</b> -  Plays the content of the directory</li>
     <li><b>openmovieid &lt;path&gt;</b> -  Plays a movie by id</li>
     <li><b>openepisodeid &lt;path&gt;</b> -  Plays an episode by id</li>
+    <li><b>openchannel &lt;path&gt;</b> -  Switches to channel by name.</li>
     <li><b>openchannelid &lt;path&gt;</b> -  Switches to channel by id</li>
     <li><b>addon &lt;addonid&gt; &lt;parametername&gt; &lt;parametervalue&gt;</b> -  Executes addon with one Parameter, for example set kodi addon script.json-cec command activate</li>
     <li><b>seek &lt;hh:mm:ss&gt;</b> - seek to the specified time</li>
@@ -1810,10 +1982,6 @@ sub KODI_HTTP_Request($$@)
     <li>offMode<br/>
       Declares what should be down if the off command is executed. Possible values are <i>quit</i> (closes Kodi), <i>hibernate</i> (puts system into hibernation), 
     <i>suspend</i> (puts system into stand by), and <i>shutdown</i> (shuts down the system). Default value is <i>quit</i></li>
-  <li>fork<br/>
-      If Kodi does not run all the time it used to be the case that FHEM blocks because it cannot reach Kodi (only happened 
-    if TCP was used). If you encounter problems like FHEM not responding for a few seconds then you should set <code>attr &lt;KODI_device&gt; fork enable</code>
-    which will move the search for Kodi into a separate process.</li>
   <li>updateInterval<br/>
       The interval which is used to check if Kodi is still alive (by sending a JSON ping) and also it is used to update current player item.</li>
   <li>disable<br/>
@@ -1821,6 +1989,8 @@ sub KODI_HTTP_Request($$@)
   <li>jsonResponseReading<br/>
       When enabled then every received JSON message from Kodi will be saved into the reading <i>jsonResponse</i> so the last received message is always available.
       Also an event is triggered upon each update.</li>
+  <li>pvrEnabled<br/>
+      Defaults to 1. Disable to indicate that PVR is not available on your Kodi device. Basically meant to avoid error messages when trying to access PVR functions.</li>
   </ul>
 </ul>
 

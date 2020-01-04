@@ -1,5 +1,5 @@
 # Id ##########################################################################
-# $Id: 98_archetype.pm 15575 2017-12-09 08:08:00Z igami $
+# $Id: 98_archetype.pm 20798 2019-12-22 06:49:26Z igami $
 
 # copyright ###################################################################
 #
@@ -515,6 +515,10 @@ sub archetype_attrCheck($$$$;$) {
 
   return if(AttrVal($name, "attributesExclude", "") =~ /$attribute/);
 
+  if(AttrVal($SELF, "actual_$attribute", undef)){
+    $desired = eval($desired) if($desired =~ m/^\{.*\}$/);
+    $desired = archetype_evalSpecials($name, $desired) if($desired =~ m/%/);
+  }
 
   if($desired =~ m/^least(\((.*)\))?:(.+)/){
     my $seperator = $2 ? $2 : " ";
@@ -525,11 +529,6 @@ sub archetype_attrCheck($$$$;$) {
   elsif($desired =~ m/^undef/){
     return if(AttrVal($name, $attribute, undef));
     $desired = (split(":", $desired, 2))[1];
-  }
-
-  if($hash->{DEF} eq "derive attributes"){
-    $desired = eval($desired) if($desired =~ m/^\{.*\}$/);
-    $desired = archetype_evalSpecials($name, $desired) if($desired =~ m/%/);
   }
 
   return unless($desired);

@@ -21,7 +21,7 @@
 #     You should have received a copy of the GNU General Public License
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-# $Id: 00_MYSENSORS.pm 19314 2019-05-03 05:02:58Z Beta-User $
+# $Id: 00_MYSENSORS.pm 20188 2019-09-18 14:21:36Z Beta-User $
 #
 ##############################################
 
@@ -555,7 +555,7 @@ sub sendMessage($%) {
 sub _scheduleTimer($) {
   my ($hash) = @_;
   $hash->{outstandingAck} = 0;
-  RemoveInternalTimer($hash);
+  RemoveInternalTimer($hash,"MYSENSORS::Timer");
   my $next;
   foreach my $radioid (keys %{$hash->{messagesForRadioId}}) {
     my $msgsForId = $hash->{messagesForRadioId}->{$radioid};

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: DevIo.pm 19372 2019-05-11 15:13:59Z rudolfkoenig $
+# $Id: DevIo.pm 20174 2019-09-16 18:04:03Z rudolfkoenig $
 package main;
 
 sub DevIo_CloseDev($@);
@@ -374,6 +374,7 @@ DevIo_OpenDev($$$;$)
         timeout => $timeout,
         url     => $hash->{SSL} ? "https://$dev/" : "http://$dev/",
         NAME    => $hash->{NAME},
+        sslargs => $hash->{sslargs} ? $hash->{sslargs} : {},
         noConn2 => 1,
         callback=> sub() {
           my ($h, $err, undef) = @_;

@@ -1,5 +1,5 @@
 ###########################################
-# $Id: $
+# $Id: mysensors.template 20259 2019-09-27 11:28:15Z Beta-User $
 #
 # Comments start with #. Empty lines are ignored.
 # Syntax of one entry: name: line, one optional filter: line, zero or more par: lines,  FHEM-Commands

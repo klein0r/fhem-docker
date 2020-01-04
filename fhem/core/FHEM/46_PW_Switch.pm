@@ -22,7 +22,7 @@
 # The GNU General Public License may also be found at http://www.gnu.org/licenses/gpl-2.0.html .
 ###################################
 #
-# $Id: 46_PW_Switch.pm 18210 2019-01-11 06:05:45Z Icinger $ 
+# $Id: 46_PW_Switch.pm 20792 2019-12-20 17:32:00Z rudolfkoenig $ 
 package main;
 
 use strict;
@@ -242,7 +242,6 @@ Siehe <a href="#PW_Switch">PW_Switch</a>.
   <br>
 </ul>
 
-=end html
 =end html_DE
 =cut
 

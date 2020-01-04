@@ -27,7 +27,7 @@ FHEM/00_HMUARTLGW.pm         mgernoth             HomeMatic
 FHEM/00_HXB.pm               neubert              Sonstige Systeme
 FHEM/00_KM271.pm             physikus             Sonstiges
 FHEM/00_LIRC.pm              rudolfkoenig         Sonstiges
-FHEM/00_MAXLAN.pm            rudolfkoenig/orphan  MAX
+FHEM/00_MAXLAN.pm            Wzut		  MAX
 FHEM/00_MQTT.pm              hexenmeister         MQTT
 FHEM/00_MQTT2_CLIENT.pm      rudolfkoenig         MQTT
 FHEM/00_MQTT2_SERVER.pm      rudolfkoenig         MQTT
@@ -66,7 +66,7 @@ FHEM/10_IT.pm                dancer0705/bjoernh   InterTechno
 FHEM/10_Itach_IR             ulimaass             Sonstige Systeme
 FHEM/10_KNX.pm               andi291              KNX/EIB
 FHEM/10_KOPP_FC.pm           raspii               Sonstige Systeme
-FHEM/10_MAX.pm               rudolfkoenig/orphan  MAX
+FHEM/10_MAX.pm               Wzut		  MAX
 FHEM/10_MQTT2_DEVICE.pm      rudolfkoenig         MQTT
 FHEM/10_MQTT_BRIDGE          hexenmeister         MQTT
 FHEM/10_MQTT_DEVICE          hexenmeister         MQTT
@@ -92,7 +92,7 @@ FHEM/12_HMS.pm               rudolfkoenig         SlowRF
 FHEM/12_HProtocolGateway.pm  eisler               Sonstige Systeme
 FHEM/12_HProtocolTank.pm     eisler               Sonstige Systeme
 FHEM/13_KS300.pm             rudolfkoenig         SlowRF
-FHEM/14_CUL_MAX.pm           rudolfkoenig/orphan  MAX
+FHEM/14_CUL_MAX.pm           Wzut		  MAX
 FHEM/14_CUL_REDIRECT.pm      dancer0705/bjoernh   Sonstiges
 FHEM/14_CUL_TCM97001.pm      dancer0705/bjoernh   Sonstiges
 FHEM/14_CUL_TX.pm            rudolfkoenig         SlowRF
@@ -210,6 +210,7 @@ FHEM/36_Shelly.pm            pahenning            Sonstige Systeme
 FHEM/36_Vallox.pm            Skjall               http://forum.fhem.de/index.php/topic,71325.0.html
 FHEM/36_WMBUS.pm             kaihs                Sonstige Systeme
 FHEM/37_dash_dhcp.pm         justme1968           Sonstige Systeme
+FHEM/37_echodevice.pm        michael.winkler      Multimedia
 FHEM/37_fakeRoku.pm          justme1968           Multimedia
 FHEM/37_harmony.pm           justme1968           Multimedia
 FHEM/37_NotifyAndroidTV.pm   justme1968           Multimedia
@@ -314,9 +315,17 @@ FHEM/62_EMEM.pm              rudolfkoenig         SlowRF
 FHEM/63_EMGZ.pm              rudolfkoenig         SlowRF
 FHEM/64_ESA2000.pm           stromer-12           SlowRF
 FHEM/66_ECMD.pm              neubert              Sonstige Systeme
+FHEM/66_EseraAnalogInIout.pm pizmus               1Wire
+FHEM/66_EseraCount.pm        pizmus               1Wire
+FHEM/66_EseraDigitalInOut.pm pizmus               1Wire
+FHEM/66_EseraIButton.pm      pizmus               1Wire
+FHEM/66_EseraMulti.pm        pizmus               1Wire
+FHEM/66_EseraOneWire.pm      pizmus               1Wire
+FHEM/66_EseraTemp.pm         pizmus               1Wire
 FHEM/67_ECMDDevice.pm        neubert              Sonstige Systeme
 FHEM/70_BOTVAC.pm            vuffiraa             Sonstige Systeme
 FHEM/70_BRAVIA.pm            vuffiraa             Multimedia
+FHEM/70_CanOverEthernet.pm   delmar               Sonstige Systeme
 FHEM/70_EGPM.pm              alexus               Sonstiges
 FHEM/70_ENIGMA2.pm           loredo               Multimedia
 FHEM/70_Jabber.pm            BioS                 Unterstützende Dienste
@@ -326,6 +335,7 @@ FHEM/70_LaMetric2.pm         loredo               Multimedia
 FHEM/70_MEDIAPORTAL.pm       Reinerlein           Multimedia
 FHEM/70_NEUTRINO.pm          michael.winkler      Multimedia
 FHEM/70_ONKYO_AVR.pm         delmar               Multimedia
+FHEM/70_OctoPrint.pm         michael.winkler      Multimedia
 FHEM/70_PHTV.pm              loredo               Multimedia
 FHEM/70_PIONEERAVR.pm        50watt               Multimedia
 FHEM/70_Pushbullet.pm        fhainz               Unterstützende Dienste
@@ -336,14 +346,16 @@ FHEM/70_SamsungAV.pm         KölnSolar            Multimedia
 FHEM/70_SCIVT.pm             rudolfkoenig/orphan  Sonstiges
 FHEM/70_SISPM.pm             real-wusel           Sonstiges
 FHEM/70_SML.pm               bentele              Sonstiges
+FHEM/70_SolarEdgeAPI.pm      pizmus               Solaranlagen
 FHEM/70_STV.pm               bentele              Sonstiges
 FHEM/70_TellStick.pm         real-wusel           Sonstiges
 FHEM/70_USBWX.pm             wherzig              Sonstiges
-FHEM/70_VIERA.pm             teevau               Sonstiges
+FHEM/70_VIERA.pm             mabula               Multimedia
 FHEM/70_VolumeLink.pm        rapster              Multimedia
 FHEM/70_WINCONNECT.pm        michael.winkler      Sonstige Systeme
 FHEM/70_WS3600.pm            Josch                Sonstiges
 FHEM/70_ZoneMinder.pm        delmar               Sonstige Systeme
+FHEM/71_COE_Node.pm          delmar               Sonstige Systeme
 FHEM/71_ONKYO_AVR_ZONE.pm    delmar               Multimedia
 FHEM/71_PHILIPS_AUDIO.pm     ra666ack             Multimedia
 FHEM/71_PIONEERAVRZONE.pm    50watt               Multimedia
@@ -410,6 +422,7 @@ FHEM/88_IPWE.pm              tdressler            Sonstiges
 FHEM/88_Itach_IRDevice       ulimaass             Sonstige Systeme
 FHEM/88_Itach_Relay.pm       jeschkec             Automatisierung
 FHEM/88_LINDY_HDMI_SWITCH.pm jeschkec             Multimedia
+FHEM/88_Timer.pm             HomeAuto_User/elektron-bbs        Automatisierung
 FHEM/88_VantagePro2.pm       jeschkec             Sonstiges
 FHEM/88_WEBCOUNT.pm          jeschkec             Sonstiges
 FHEM/88_xs1Bridge.pm         HomeAuto_User        Sonstige Systeme
@@ -435,7 +448,7 @@ FHEM/94_PWM.pm               jamesgo              Heizungssteuerung/Raumklima
 FHEM/95_Alarm.pm             pahenning            Unterstützende Dienste
 FHEM/95_Astro.pm             pahenning,loredo,CoolTux            Unterstützende Dienste
 FHEM/95_Babble.pm            pahenning            Unterstützende Dienste
-FHEM/95_Dashboard.pm         DS_Starter/orphan    Frontends
+FHEM/95_Dashboard.pm         DS_Starter           Frontends
 FHEM/95_FLOORPLAN.pm         ulimaass             Frontends/FLOORPLAN
 FHEM/95_holiday.pm           rudolfkoenig         Sonstiges
 FHEM/95_PostMe.pm            pahenning            Unterstützende Dienste
@@ -477,7 +490,7 @@ FHEM/98_GAEBUS.pm            jamesgo              Heizungssteuerung/Raumklima
 FHEM/98_GEOFANCY.pm          loredo               Unterstützende Dienste
 FHEM/98_GoogleAuth.pm        betateilchen         Unterstützende Dienste
 FHEM/98_GOOGLECAST.pm        dominikkarall        Multimedia
-FHEM/98_Heating_Control.pm   igami/Beta-User      Unterstützende Dienste
+FHEM/98_Heating_Control.pm   Beta-User            Unterstützende Dienste
 FHEM/98_help.pm              betateilchen         Sonstiges
 FHEM/98_HMinfo.pm            martinp876           HomeMatic
 FHEM/98_HourCounter.pm       john                 MAX
@@ -507,7 +520,8 @@ FHEM/98_ping                 mattwire             Sonstiges
 FHEM/98_powerMap             igami                Unterstützende Dienste
 FHEM/98_QRCode.pm            Benni                Unterstützende Dienste
 FHEM/98_rain.pm              baumrasen            Sonstiges
-FHEM/98_RandomTimer.pm       igami/Beta-User      Unterstützende Dienste/Kalendermodule
+FHEM/98_RandomTimer.pm       Beta-User            Unterstützende Dienste/Kalendermodule
+FHEM/98_readingsWatcher	     Wzut		  Sonstiges
 FHEM/98_restore.pm           rudolfkoenig         Sonstiges
 FHEM/98_rssFeed.pm           Benni                Unterstützende Dienste
 FHEM/98_serviced.pm          DeeSPe               Unterstützende Dienste
@@ -529,7 +543,7 @@ FHEM/98_Verkehrsinfo.pm      martins              Unterstützende Dienste
 FHEM/98_version.pm           markusbloch          Sonstiges
 FHEM/98_vitoconnect.pm       andreas13            Heizungssteuerung/Raumklima
 FHEM/98_weblink.pm           rudolfkoenig         Frontends/FHEMWEB
-FHEM/98_WeekdayTimer.pm      igami/Beta-User      Unterstützende Dienste
+FHEM/98_WeekdayTimer.pm      Beta-User            Unterstützende Dienste
 FHEM/98_weekprofile.pm       risiko               Frontends
 FHEM/98_WOL.pm               KernSani             Unterstützende Dienste
 FHEM/98_XmlList.pm           rudolfkoenig         Automatisierung
@@ -547,7 +561,7 @@ FHEM/HMCCUConf.pm            zap                  HomeMatic
 FHEM/HMConfig.pm             martinp876           HomeMatic
 FHEM/HOMESTATEtk.pm          loredo               Automatisierung
 FHEM/HttpUtils.pm            rudolfkoenig         Automatisierung
-FHEM/MaxCommon.pm            rudolfkoenig/orphan  MAX
+FHEM/MaxCommon.pm            Wzut		  MAX
 FHEM/Meta.pm                 loredo               FHEM Development
 FHEM/msgSchema.pm            loredo               Automatisierung
 FHEM/ONKYOdb.pm              delmar               Multimedia

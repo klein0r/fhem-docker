@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 91_notify.pm 19374 2019-05-11 17:48:03Z rudolfkoenig $
+# $Id: 91_notify.pm 20827 2019-12-25 19:17:36Z rudolfkoenig $
 package main;
 
 use strict;
@@ -778,8 +778,8 @@ END
     <li>ignoreRegexp regexp<br>
         Es ist nicht immer einfach ein Regexp zu bauen, was etwas _nicht_
         matcht. Dieses Attribu hilft in diesen F&auml;llen: das Event wird
-        ignoriert, falls den angegebenen Regexp. Syntax ist gleich wie in der
-        Definition.
+        ignoriert, falls den angegebenen Regexp matcht. Syntax ist gleich wie
+        in der Definition.
         </li>
 
     <a name="readLog"></a>

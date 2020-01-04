@@ -1,4 +1,4 @@
-# $Id: 36_KeyValueProtocol.pm 13540 2017-02-27 19:31:25Z HCS $
+# $Id: 36_KeyValueProtocol.pm 20300 2019-10-03 18:47:47Z HCS $
 
 # ToDo-List
 # ---------
@@ -176,7 +176,7 @@ sub KeyValueProtocol_Parse($$) {
           $key = $newKey if ($newKey);
         }
 
-        readingsBulkUpdate($rhash, $key, $value);
+        readingsBulkUpdate($rhash, $key, $value) if ($value ne "");
       }
 
       readingsEndUpdate($rhash, 1);
@@ -241,7 +241,7 @@ sub KeyValueProtocol_Parse($$) {
     </li>
   </ul>
   <br>
-
+  
   <a name="KeyValueProtocol_Readings"></a>
   <b>Readings</b><br>
   <ul>

@@ -470,7 +470,7 @@ attribute list if you want to know if a device supports these attributes.  <br>
     overview in FHEMWEB. If not set, its value is taken from the state reading.
     If set, then every word in the argument is replaced by the value of the
     reading if such a reading for the current device exists. If the value of
-    this attribute is enclused in {}, then it is evaluated. This attribute is
+    this attribute is enclosed in {}, then it is evaluated. This attribute is
     evaluated each time a reading is updated.<br>
     The "set magic" described <a href="#set">here</a> is also applied.
     </li>
@@ -692,7 +692,8 @@ The following local attributes are used by a wider range of devices:
 <a name="attr"></a>
 <h3>attr</h3>
 <ul>
-  <code>attr [-a|-r] &lt;devspec&gt; &lt;attrname&gt; [&lt;value&gt;]</code><br>
+  <code>attr [-a] [-r] &lt;devspec&gt; &lt;attrname&gt; [&lt;value&gt;]</code>
+  <br>
 
   <br>Set an attribute for a device defined by <a href="#define">define</a>.
   The value is optional, and is set to 1 if missing.
@@ -731,6 +732,7 @@ The following local attributes are used by a wider range of devices:
     <li>See <a href="#deleteattr">deleteattr</a> to delete attributes.</li>
   </ul>
 </ul>
+<!-- attr end -->
 
 <a name="cancel"></a>
 <h3>cancel</h3>
@@ -941,7 +943,7 @@ The following local attributes are used by a wider range of devices:
 <a name="list"></a>
 <h3>list</h3>
 <ul>
-  <code>list [devspec] [value]</code><br>
+  <code>list [devspec] [value ...]</code><br>
   or<br>
   <code>list {-r|-R} devspec</code><br>
   <br><br>
@@ -951,13 +953,15 @@ The following local attributes are used by a wider range of devices:
   See the <a href="#devspec">Device specification</a> section for details on
   &lt;devspec&gt;.
   <br>
-  If value is specified, then output this property (like DEF, TYPE, etc) or
-  reading (actuator, measured-temp) for all devices from the devspec.
+  If &lt;value&gt; is specified, then output this property (internal, reading
+  or attribute) for all devices from the devspec.  &lt;value&gt; can be
+  restricted with prefix i: for internals, r: for readings and a: for
+  attributes.
   <br><br>
   Example:
-  <pre><code>  fhem> list
+  <pre><code>  fhem&gt; list
 
-  Type list <name> for detailed info.
+  Type list &lt;name&gt; for detailed info.
 
   Internal:
     global               (Internal)
@@ -988,7 +992,7 @@ The following local attributes are used by a wider range of devices:
   </code></pre>
   If specifying <code>name</code>, then a detailed status for <code>name</code>
   will be displayed, e.g.:
-  <pre><code>  fhem> list fl
+  <pre><code>  fhem&gt; list fl
 
   Internals:
     CODE       5102
@@ -1561,6 +1565,13 @@ The following local attributes are used by a wider range of devices:
     <li>httpcompress<br>
         the HttpUtils module is used by a lot of FHEM modules, and enables
         compression by default. Set httpcompress to 0 to disable this feature.
+    </li><br>
+
+    <a name="ignoreRegexp"></a>
+    <li>ignoreRegexp<br>
+        Do not log messages matching the value into the FHEM log.  Note: the
+        usual ^ and $ will be appended to the regexp, like in notify or
+        FileLog.
     </li><br>
 
     <a name="keyFileName"></a>

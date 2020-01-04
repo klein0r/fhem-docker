@@ -1,5 +1,5 @@
 
-# $Id: Color.pm 18481 2019-02-02 09:35:08Z justme1968 $
+# $Id: Color.pm 20813 2019-12-22 18:42:10Z justme1968 $
 
 package main;
 
@@ -130,7 +130,7 @@ rgb2hsv($$$) {
   my( $r, $g, $b ) = @_;
   my( $h, $s, $v );
 
-  main::Log3 undef, 1, "Color::rgb2hsv value our of range [$r,$g,$b]. should be in 0..1." if( $r > 1 || $g > 1 || $b > 1 );
+  main::Log3 undef, 1, "Color::rgb2hsv value out of range [$r,$g,$b]. should be in 0..1." if( $r > 1 || $g > 1 || $b > 1 );
   $r /= 255.0 if( $r > 1 );
   $g /= 255.0 if( $g > 1 );
   $b /= 255.0 if( $b > 1 );
@@ -164,7 +164,7 @@ sub
 hsv2rgb($$$) {
   my ( $h, $s, $v ) = @_;
 
-  main::Log3 undef, 1, "Color::hsv2rgb value our of range [$h,$s,$v]. should be in 0..1." if( $h > 1 || $s > 1 || $v > 1 );
+  main::Log3 undef, 1, "Color::hsv2rgb value out of range [$h,$s,$v]. should be in 0..1." if( $h > 1 || $s > 1 || $v > 1 );
   $h /= 356.0 if( $h > 1 );
   $s /= 100.0 if( $s > 1 );
   $v /= 100.0 if( $v > 1 );
@@ -452,6 +452,7 @@ devStateIcon($$@)
     my $s = $value;
 
     return ".*:light_question" if( !$s );
+    return ".*:light_question" if( $s =~ m/^set/i );
     return ".*:$s:toggle";
 
   } elsif( $type && $type eq "dimmer" ) {
@@ -465,9 +466,11 @@ devStateIcon($$@)
     }
 
     return ".*:light_question" if( !defined($percent) );
+    return ".*:light_question" if( $percent =~ m/^set/i );
 
-    return ".*:on:toggle" if( $percent eq "on" );
+    return ".*:off:toggle" if( $onoff && ::ReadingsVal($name,$onoff,'') =~ m/(0|off$)/i );
     return ".*:off:toggle" if( $percent eq "off" );
+    return ".*:on:toggle" if( $percent eq "on" );
 
     $percent =~ s/[^\d]//g if( $percent );
 
@@ -489,17 +492,23 @@ devStateIcon($$@)
     }
 
     return ".*:light_question" if( !defined($value) );
+    return ".*:light_question" if( $value =~ m/^set/i );
     return ".*:on:toggle" if( $value eq "on" );
     return ".*:off:toggle" if( $value eq "off" );
+
+    $value = substr($value,0,6);
 
     my $s = 'on';
     if( $pct ) {
       my $percent = ::ReadingsVal($name,$pct, undef);
       $percent = ::CommandGet("","$name $pct") if( !$percent );
+      return ".*:off:toggle" if( $onoff && ::ReadingsVal($name,$onoff,'') =~ m/(0|off$)/i );
       return ".*:off:toggle" if( $percent eq "off" );
       $percent = 100 if( $percent eq "on" );
       $s = $dim_values{int($percent/7)} if( $percent && $percent < 100 );
     }
+
+    return ".*:$s:toggle" if( $value eq "000000" ); #for rgbww in white mode
 
     return ".*:$s@#$value:toggle";
   }

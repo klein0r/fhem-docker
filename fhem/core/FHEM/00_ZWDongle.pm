@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_ZWDongle.pm 19856 2019-07-19 18:00:04Z rudolfkoenig $
+# $Id: 00_ZWDongle.pm 20092 2019-09-02 07:10:12Z rudolfkoenig $
 package main;
 
 use strict;
@@ -354,6 +354,8 @@ ZWDongle_Set($@)
      $type eq "replaceFailedNode" ||
      $type =~ m/^createNode/ ||
      $type eq "sendNIF") {
+
+    return "Usage: $type <NODENAME_or_Number>" if(!defined($a[0]));
 
     $a[0] =~ s/^UNKNOWN_//;
 

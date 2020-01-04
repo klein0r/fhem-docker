@@ -1,4 +1,4 @@
-# $Id: 98_Heating_Control.pm 19567 2019-06-07 10:25:25Z Beta-User $
+# $Id: 98_Heating_Control.pm 20678 2019-12-08 04:49:25Z Beta-User $
 ##############################################################################
 #
 #     98_Heating_Control.pm
@@ -73,7 +73,7 @@ sub Heating_Control_Get($@) {
 ########################################################################
 sub Heating_Control_Define($$){
   my ($hash, $def) = @_;
-  Log3 $hash, 3, "Heating_Control is deprecated, use WeekdayTimer instead!";
+  Log3 $hash, 1, "Heating_Control is deprecated, use WeekdayTimer instead!";
   my $ret = WeekdayTimer_Define($hash, $def);
   return $ret;
 }
@@ -136,7 +136,7 @@ sub Heating_Control_ConvertToWDT() {
     my @b = GetAllReadings($hcName);
     CommandDelete(undef,$hcName);
     CommandDefine(undef,"$hcName WeekdayTimer $definition");
-    CommandAttr(undef, "$hcName WDT_delayedExecutionDevices $windows");
+    CommandAttr(undef, "$hcName WDT_delayedExecutionDevices $windows") if defined $windows;
     CommandAttr(undef, "$hcName WDT_Group former_HC");
     foreach my $linesa  ( @a ){
        AnalyzeCommand(undef, "$linesa") unless ($linesa =~ m/^attr $hcName windowSensor/);

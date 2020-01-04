@@ -1,6 +1,6 @@
 # Modul für  I2C Temperatur- und Feuchtigkeitssensor HDC1008
 # Autor : Karsten Grüttner (schlawiano) bis 2016, Änderungen ab 2018: Gernot Hillier (yoda_gh)
-# $Id: 52_I2C_HDC1008.pm 16756 2018-05-18 19:15:41Z yoda_gh $
+# $Id: 52_I2C_HDC1008.pm 20792 2019-12-20 17:32:00Z rudolfkoenig $
 # Technische Dokumention für den Sensor befindet sich  http://www.ti.com/lit/ds/symlink/hdc1008.pdf
 
 
@@ -687,6 +687,6 @@ sub I2C_HDC1008_Attr(@)
 	</ul><br>
 </ul>
 
-=end html
+=end html_DE
 
 =cut

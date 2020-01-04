@@ -10,7 +10,7 @@
 use strict;
 use warnings;
 
-# $Id: commandref_join.pl 19539 2019-06-03 20:25:25Z rudolfkoenig $
+# $Id: commandref_join.pl 20690 2019-12-08 17:10:14Z rudolfkoenig $
 
 my $noWarnings = grep $_ eq '-noWarnings', @ARGV;
 my ($verify) = grep $_ =~ /\.pm$/ , @ARGV;
@@ -173,21 +173,6 @@ generateModuleCommandref($$;$$)
 
       } elsif(!$skip) {
         print $fh $l if($fh);
-        chkAndGenLangLinks($l, $lang, $fh);
-
-        $docCount++;
-        $hasLink = ($l =~ m/<a name="$mod"/) if(!$hasLink);
-        foreach $tag (TAGS) {
-          $tagcount{$tag} +=()= ($l =~ /<$tag>/gi);
-          $tagcount{$tag} -=()= ($l =~ /<\/$tag>/gi);
-          if($tagcount{$tag} < 0) {
-            print "*** $lang $fPath: negative tagcount for $tag, line $line\n"
-                if(!$noWarnings);
-            $tagcount{$tag} = 0;
-          }
-          $llwct{$tag} = $line if(!$tagcount{$tag});
-        }
-
         if($l =~ m,INSERT_DOC_FROM: ([^ ]+)/([^ /]+) ,) {
           my ($dir, $re) = ($1, $2);
           if(opendir(DH, $dir)) {
@@ -197,6 +182,28 @@ generateModuleCommandref($$;$$)
             closedir(DH);
           }
         }
+        chkAndGenLangLinks($l, $lang, $fh);
+
+        $docCount++;
+        next if($noWarnings);
+        $hasLink = ($l =~ m/<a name="$mod"/) if(!$hasLink);
+        foreach $tag (TAGS) {
+          if($l =~ m/<$tag ([^>]+)>/i) {
+            my $attr = $1;
+            print "*** $lang $mod line $line: $tag with attributes (apart ".
+                "from class) is not allowed\n" 
+              if($attr !~ m/class="[^"]*"/ && !$noWarnings);
+          }
+          $tagcount{$tag} +=()= ($l =~ /<$tag( [^>]+)?>/gi);
+          $tagcount{$tag} -=()= ($l =~ /<\/$tag>/gi);
+          if($tagcount{$tag} < 0) {
+            print "*** $lang $fPath: negative tagcount for $tag, line $line\n"
+                if(!$noWarnings);
+            $tagcount{$tag} = 0;
+          }
+          $llwct{$tag} = $line if(!$tagcount{$tag});
+        }
+
       }
     }
     close($modFh);
@@ -204,7 +211,8 @@ generateModuleCommandref($$;$$)
         if($dosMode);
 # TODO: add doc to each $jsfile
     print "*** $lang $fPath: No document text found\n"
-       if(!$jsFile && !$suffix && !$docCount && !$dosMode && $fPath !~ m,/99_,);
+       if(!$jsFile && !$suffix && !$docCount && !$dosMode &&
+          $fPath !~ m,/99_, && !$noWarnings);
     if(!$jsFile && $suffix && !$docCount && !$dosMode) {
       if($lang eq "DE" && $fh) {
         print $fh <<EOF;
@@ -227,5 +235,5 @@ EOF
     }
 
     print "*** $lang $fPath: =end html$suffix: ".($nrEnd>0 ? "missing":"there are too many")."\n"
-        if($nrEnd);
+        if($nrEnd && !$noWarnings);
 }

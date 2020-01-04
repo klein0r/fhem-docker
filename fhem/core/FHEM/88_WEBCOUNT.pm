@@ -2,7 +2,8 @@
 #
 #  Copyright notice
 #
-#  (c) 2011 Sacha Gloor (sacha@imp.ch)
+#  (c)  2019 Christoph Morrison <fhem@christoph-jeschke.de>
+#       2011 Sacha Gloor (sacha@imp.ch)
 #
 #  This script is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -22,7 +23,7 @@
 #  This copyright notice MUST APPEAR in all copies of the script!
 #
 ################################################################
-# $Id: 88_WEBCOUNT.pm 2076 2012-11-04 13:49:43Z rudolfkoenig $
+# $Id: 88_WEBCOUNT.pm 19919 2019-07-30 12:21:04Z jeschkec $
 
 package main;
 
@@ -33,20 +34,9 @@ use Data::Dumper;
 use LWP::UserAgent;
 use HTTP::Request;
 
-sub Log($$);
 #####################################
 
-sub 
-trim($)
-{
-        my $string = shift;
-        $string =~ s/^\s+//;
-        $string =~ s/\s+$//;
-        return $string;
-}
-
-sub
-WEBCOUNT_Initialize($)
+sub WEBCOUNT_Initialize($)
 {
   my ($hash) = @_;
   # Consumer
@@ -56,8 +46,7 @@ WEBCOUNT_Initialize($)
 
 #####################################
 
-sub
-WEBCOUNT_Define($$)
+sub WEBCOUNT_Define($$)
 {
   my ($hash, $def) = @_;
   my $name=$hash->{NAME};
@@ -83,8 +72,7 @@ WEBCOUNT_Define($$)
 
 #####################################
 
-sub
-WEBCOUNT_GetStatus($)
+sub WEBCOUNT_GetStatus($)
 {
   my ($hash) = @_;
   
@@ -143,6 +131,10 @@ WEBCOUNT_GetStatus($)
 
 
 =pod
+=item device
+=item summary    Support for Wiesemann &amp; Theis 57652 Web-Count 6x Digital
+=item summary_DE Unterstützung für Wiesemann &amp; Theis 57652 Web-Count 6x Digital
+
 =begin html
 
 <a name="WEBCOUNT"></a>

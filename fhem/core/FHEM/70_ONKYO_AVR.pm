@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: 70_ONKYO_AVR.pm 18569 2019-02-12 15:02:13Z delmar $
+# $Id: 70_ONKYO_AVR.pm 20542 2019-11-19 19:57:51Z delmar $
 package main;
 use strict;
 use warnings;
@@ -38,7 +38,6 @@ sub ONKYO_AVR_Initialize($) {
       volumeMax:slider,0,1,100
       inputs
       disable:0,1
-      model
       wakeupCmd:textField
       connectionCheck:off,30,45,60,75,90,105,120
       timeout:1,2,3,4,5
@@ -76,6 +75,7 @@ sub ONKYO_AVR_Define($$$) {
     my $infix = "ONKYO_AVR";
 
     Log3 $name, 5, "ONKYO_AVR $name: called function ONKYO_AVR_Define()";
+    delete $attr{$name}{model};
 
     eval { require XML::Simple; };
     return "Please install Perl XML::Simple to use module ONKYO_AVR"
@@ -157,6 +157,7 @@ sub ONKYO_AVR_Define($$$) {
             }
         );
     }
+
 
     return undef;
 }
@@ -1423,6 +1424,8 @@ sub ONKYO_AVR_Read($) {
         }
     }
 
+    readingsDelete( $hash, 'model' );
+
     return;
 }
 
@@ -1838,20 +1841,9 @@ sub ONKYO_AVR_Read2($$$) {
 
             # Model
             $reading = "model";
-            if (
-                defined( $hash->{helper}{receiver}{device}{$reading} )
-                && ( !defined( $hash->{READINGS}{$reading}{VAL} )
-                    || $hash->{READINGS}{$reading}{VAL} ne
-                    $hash->{helper}{receiver}{device}{$reading} )
-              )
+            if ( defined( $hash->{helper}{receiver}{device}{$reading} ))
             {
-                if ( !exists( $attr{$name}{model} )
-                    || $attr{$name}{model} ne
-                    $hash->{helper}{receiver}{device}{$reading} )
-                {
-                    readingsBulkUpdate( $hash, $reading, 
-                      $hash->{helper}{receiver}{device}{$reading} );
-                }
+                $hash->{model} = $hash->{helper}{receiver}{device}{$reading};
             }
 
             # Firmware version

@@ -1,28 +1,30 @@
-##############################################
+# $Id: 52_I2C_EMC1001.pm 20550 2019-11-20 14:56:19Z eisler $
+#####################################################################################################
 #
-# Modul for reading a EMC1001 digital temperature sensor via I2C
-# (see http://ww1.microchip.com/downloads/en/DeviceDoc/20005411A.pdf)
+#       52_I2C_EMC1001.pm
 #
-# Copyright (C) 2018 Stephan Eisler
+#       Modul for reading a EMC1001 digital temperature sensor via I2C
+#       (see http://ww1.microchip.com/downloads/en/DeviceDoc/20005411A.pdf)
 #
-#     This file is part of fhem.
+#       Copyright: Stephan Eisler
+#       Email: stephan@eisler.de
 #
-#     Fhem is free software: you can redistribute it and/or modify
-#     it under the terms of the GNU General Public License as published by
-#     the Free Software Foundation, either version 2 of the License, or
-#     (at your option) any later version.
+#       This file is part of fhem.
 #
-#     Fhem is distributed in the hope that it will be useful,
-#     but WITHOUT ANY WARRANTY; without even the implied warranty of
-#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#     GNU General Public License for more details.
+#       Fhem is free software: you can redistribute it and/or modify
+#       it under the terms of the GNU General Public License as published by
+#       the Free Software Foundation, either version 2 of the License, or
+#       (at your option) any later version.
 #
-#     You should have received a copy of the GNU General Public License
-#     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
+#       Fhem is distributed in the hope that it will be useful,
+#       but WITHOUT ANY WARRANTY; without even the implied warranty of
+#       MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#       GNU General Public License for more details.
 #
-# $Id: 52_I2C_EMC1001.pm 16082 2018-02-04 14:49:06Z eisler $
+#       You should have received a copy of the GNU General Public License
+#       along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-##############################################
+####################################################################################################
 
 package main;
 

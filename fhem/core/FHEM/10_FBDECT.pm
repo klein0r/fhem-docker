@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_FBDECT.pm 18482 2019-02-02 09:52:57Z rudolfkoenig $
+# $Id: 10_FBDECT.pm 19906 2019-07-28 17:58:01Z rudolfkoenig $
 package main;
 
 # See also https://avm.de/fileadmin/user_upload/Global/Service/Schnittstellen/AHA-HTTP-Interface.pdf
@@ -109,7 +109,7 @@ FBDECT_SetHttp($@)
 
   if($cmd =~ m/^(on|off|toggle)$/) {
     IOWrite($hash, ReadingsVal($name,"AIN",0), "setswitch$cmd");
-    my $state = ($cmd eq "toggle" ? ($hash->{state} eq "on" ? "off":"on"):$cmd);
+    my $state = ($cmd eq "toggle" ? ($hash->{STATE} eq "on" ? "off":"on"):$cmd);
     readingsSingleUpdate($hash, "state", $state, 1);
     return undef;
   }

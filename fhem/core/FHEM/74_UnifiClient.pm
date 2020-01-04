@@ -1,5 +1,5 @@
 ##############################################################################
-# $Id: 74_UnifiClient.pm 19534 2019-06-02 19:55:04Z wuehler $
+# $Id: 74_UnifiClient.pm 19989 2019-08-12 18:25:21Z wuehler $
 # 74_UnifiClient.pm
 
 # CHANGED
@@ -264,8 +264,8 @@ sub UnifiClient_Parse($$) {
 		$hash->{MODEL}=$clientRef->{oui};
         
         my $old_tx=ReadingsVal($hash->{NAME},"tx_bytes",undef);
-        my $seconds=ReadingsAge($hash->{NAME},"tx_bytes",1);
-		$seconds=0.1 if ($seconds eq 0 || ! defined $seconds);  
+        my $seconds=ReadingsAge($hash->{NAME},"tx_bytes",0);
+		$seconds=0.1 if (! defined $seconds || $seconds < 0.1);  
         my $tx_used=0;
         if (defined $old_tx && defined $clientRef->{tx_bytes}){
             $tx_used=($clientRef->{tx_bytes})-($old_tx);

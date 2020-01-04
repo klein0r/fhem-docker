@@ -21,7 +21,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 73_NUKIBridge.pm 16973 2018-07-11 10:48:36Z CoolTux $
+# $Id: 73_NUKIBridge.pm 20027 2019-08-20 07:20:44Z CoolTux $
 #
 ###############################################################################
 
@@ -46,7 +46,7 @@ use JSON;
 
 use HttpUtils;
 
-my $version     = "0.6.3";
+my $version     = "0.6.4";
 my $bridgeapi   = "1.6";
 
 
@@ -681,6 +681,8 @@ sub NUKIBridge_getCallbackList($) {
 
     
     my $decode_json = NUKIBridge_CallBlocking($hash,"callback/list",undef);
+    return
+      unless ( ref($decode_json) eq 'HASH' );
     
     Log3 $name, 4, "NUKIBridge ($name) - Callback data is collected and processed";
     

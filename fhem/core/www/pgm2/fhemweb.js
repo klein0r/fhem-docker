@@ -1,6 +1,6 @@
 "use strict";
 var FW_version={};
-FW_version["fhemweb.js"] = "$Id: fhemweb.js 19890 2019-07-23 14:57:21Z rudolfkoenig $";
+FW_version["fhemweb.js"] = "$Id: fhemweb.js 20554 2019-11-20 20:53:04Z rudolfkoenig $";
 
 var FW_serverGenerated;
 var FW_serverFirstMsg = (new Date()).getTime()/1000;
@@ -36,7 +36,7 @@ var FW_widgets = {
   textField:         { createFn:FW_createTextField },
   textFieldNL:       { createFn:FW_createTextField, second:true },
   "textField-long":  { createFn:FW_createTextField, second:true },
-  "textFieldNL-long":{ createFn:FW_createTextField, second:true }
+  bitfield:          { createFn:FW_createBitfield },
 };
 
 window.onbeforeunload = function(e)
@@ -349,6 +349,8 @@ FW_getHelp(dev, fn)
   if(FW_helpData)
     return fn(FW_helpData);
   FW_cmd(FW_root+"?cmd=help "+dev+"&XHR=1", function(data) {
+    if(data.match(/^<html>No help found/)) // for our german only friends
+      return FW_getHelp(dev+" DE", fn);
     FW_helpData = data;
     return fn(FW_helpData);
   });
@@ -982,7 +984,7 @@ FW_treeMenu()
       $(el).find("div>div").css("background-image", "url('"+FW_arrowDown+"')");
     } else {
       $(el).closest("table").find("tr[data-mTree^="+tgt+"]")
-        .hide().addClass("closed");
+        .hide().filter('[data-nxt]').addClass("closed").removeClass("open");
       $(el).find("div>div").css("background-image", "url('"+FW_arrowRight+"')");
     }
     $(el).toggleClass("closed");
@@ -1460,7 +1462,8 @@ FW_createSelect(elName, devName, vArr, currVal, set, params, cmd)
   var vHash = {};
   for(var j=1; j < vArr.length; j++) {
     var o = document.createElement('option');
-    o.text = o.value = vArr[j].replace(/#/g," ");
+    if(!vArr[j].match(/&#[0-9a-f]{1,4};/i))
+      o.text = o.value = vArr[j].replace(/#/g," ");
     vHash[vArr[j]] = 1;
     newEl.options[j-1] = o;
   }
@@ -1828,6 +1831,62 @@ FW_createMultiple(elName, devName, vArr, currVal, set, params, cmd)
   return newEl;
 }
 
+function
+FW_createBitfield(elName, devName, vArr, currVal, set, params, cmd)
+{
+  if(vArr[0] != "bitfield")
+    return undefined;
+  if(elName)
+    elName = elName.replace(/[^A-Z0-9_]/ig, '_');
+  var lName = Math.random().toString(36).substr(2);
+  var fieldSize = (vArr.length > 1 ? parseInt(vArr[1]) : 8);
+  var bitMask   = (vArr.length > 2 ? parseInt(vArr[2]) : 4294967295);
+  var html = '<div style="display:inline-block" tabindex="0">'+
+             (elName ? '<input type="hidden" name="'+elName+'">' : '')+
+             '<table id="'+lName+'_bitfield">';
+  for(var fs=fieldSize; fs>0; ) {
+    html += '<tr><td>Bit '+fs+'</td><td>';
+    for(var i1=0; i1<8 && fs>0; i1++, fs--)
+      html += '<input type="checkbox" value="'+fs+'" title="'+fs+'">';
+    html += '</td></tr>\n';
+  }
+  html += '</table></div>';
+  var newEl = $(html).get(0);
+
+  newEl.activateFn = function() {
+    var bm = bitMask;
+    for(var i1=1; i1<=fieldSize; i1++) {
+      $('#'+lName+'_bitfield input[value='+i1+']')
+        .prop("disabled", (bm%2 == 0));
+      bm = parseInt(bm/2);
+    }
+
+    $("#"+lName+"_bitfield input").change(function(){
+      var total = 0;
+      $("#"+lName+"_bitfield input").each(function(){
+        if($(this).is(":checked")) {
+          var sv = parseInt($(this).attr("value"))-1, thisVal=1;
+          while(sv) { thisVal *= 2; sv--; } // << works on signed 32bit values
+          total += thisVal;
+        }
+      });
+      if(cmd)
+        cmd(total);
+      if(elName)
+        $("[name="+elName+"]").val(total);
+    });
+  }
+
+  newEl.setValueFn = function(arg) {
+    var total = parseInt(arg);
+    for(var i1=1; i1<=fieldSize; i1++) {
+      $('#'+lName+'_bitfield input[value='+i1+']')
+        .prop("checked", (total%2 == 1));
+      total = parseInt(total/2);
+    }
+  };
+  return newEl;
+}
 /*************** WIDGETS END **************/
 
 
@@ -1982,6 +2041,8 @@ FW_getSVG(emb)
       exponent, e.g. 0.0625.</li>
   <li>select,&lt;val1&gt;,&lt;val2&gt;,... - show a dropdown with all values.
       <b>NOTE</b>: this is also the fallback, if no modifier is found.</li>
+  <li>bitfield,&lt;size&gt;&lt;mask&gt; - show a table of checkboxes (8 per
+      line) to set single bits. Default for size is 8 and for mask 2^32-1</li>
 
 =end html
 
@@ -2012,6 +2073,10 @@ FW_getSVG(emb)
   <li>select,&lt;val1&gt;,&lt;val2&gt;,... - zeigt ein HTML select mit allen
       Werten. <b>Achtung</b>: so ein Widget wird auch dann angezeigt, falls
       kein passender Modifier gefunden wurde.</li>
+  <li>bitfield,&lt;size&gt;,&lt;mask&gt; - zeigt eine Tabelle von
+      Kontrollk&auml;stchen (8 pro Zeile), um einzelne Bits setzen zu koennen.
+      Die Voreinstellung fuer size ist 8 und fuer mask 2^32-1.</li>
+
 
 =end html_DE
 

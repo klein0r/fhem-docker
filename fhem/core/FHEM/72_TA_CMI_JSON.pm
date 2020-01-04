@@ -32,7 +32,7 @@
 # * https://forum.fhem.de/index.php/topic,41439.0.html (previous discussions)
 # * https://forum.fhem.de/index.php/topic,13534.45.html (previous discussions)
 #
-# $Id: 72_TA_CMI_JSON.pm 19896 2019-07-24 18:45:04Z delmar $
+# $Id: 72_TA_CMI_JSON.pm 20097 2019-09-03 20:49:17Z delmar $
 #
 ##############################################################################
 
@@ -174,6 +174,7 @@ sub TA_CMI_JSON_ParseHttpResponse {
 
     my $canDevice = TA_CMI_JSON_extractDeviceName($keyValues->{Header_Device});
     $hash->{CAN_DEVICE} = $canDevice;
+    $hash->{model} = $canDevice;
     $hash->{CMI_API_VERSION} = TA_CMI_JSON_extractVersion($keyValues->{Header_Version});
     CommandDeleteReading(undef, "$name error");
 

@@ -1,5 +1,5 @@
 
-# $Id: 30_LIGHTIFY.pm 13672 2017-03-11 23:20:19Z justme1968 $
+# $Id: 30_LIGHTIFY.pm 20856 2019-12-30 22:05:43Z justme1968 $
 
 package main;
 
@@ -51,7 +51,7 @@ LIGHTIFY_Initialize($)
   $hash->{Clients}  = ":HUEDevice:";
 
   $hash->{DefFn}    = "LIGHTIFY_Define";
-  $hash->{NOTIFYDEV} = "global";
+  $hash->{RenameFn} = "LIGHTIFY_Rename";
   $hash->{NotifyFn} = "LIGHTIFY_Notify";
   $hash->{UndefFn}  = "LIGHTIFY_Undefine";
   $hash->{SetFn}    = "LIGHTIFY_Set";
@@ -80,6 +80,8 @@ LIGHTIFY_Define($$)
 
   $hash->{INTERVAL} = 60;
 
+  $hash->{NOTIFYDEV} = "global";
+
   if( $init_done ) {
     LIGHTIFY_Disconnect($hash);
     LIGHTIFY_Connect($hash);
@@ -91,7 +93,18 @@ LIGHTIFY_Define($$)
 
   return undef;
 }
-
+sub
+LIGHTIFY_Rename($$$)
+{
+  my ($new,$old) = @_;
+ 
+  foreach my $chash ( values %{$modules{HUEDevice}{defptr}} ) {
+    next if( !$chash->{IODev} );
+    next if( $chash->{IODev}{NAME} ne $new );
+ 
+    HUEDevice_IODevChanged($chash, $old, $new);
+  }
+}
 sub
 LIGHTIFY_Notify($$)
 {
@@ -974,6 +987,7 @@ LIGHTIFY_Read($)
 1;
 
 =pod
+=item tag protocol:zigbee
 =item summary    module for the osram lightify gateway
 =item summary_DE Modul f&uuml;r das Osram LIGHTFY Gateway
 =begin html

@@ -1,10 +1,10 @@
-# $Id: 12_HProtocolTank.pm 18596 2019-02-14 13:14:54Z eisler $
+# $Id: 12_HProtocolTank.pm 20548 2019-11-20 14:38:02Z eisler $
 ####################################################################################################
 #
 #	12_HProtocolTank.pm
 #
 #	Copyright: Stephan Eisler
-#	Email: fhem.dev@hausautomatisierung.co
+#	Email: stephan@eisler.de 
 #
 #	This file is part of fhem.
 #

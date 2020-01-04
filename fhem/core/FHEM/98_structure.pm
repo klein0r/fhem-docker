@@ -1,4 +1,4 @@
-# $Id: 98_structure.pm 19809 2019-07-09 20:56:14Z rudolfkoenig $
+# $Id: 98_structure.pm 20453 2019-11-04 12:25:04Z rudolfkoenig $
 ##############################################################################
 #
 #     98_structure.pm
@@ -341,13 +341,12 @@ CommandAddStruct($)
   }
 
   foreach my $d (devspec2array($a[0])) {
-    $hash->{".memberHash"}{$d} = 1;
     $hash->{DEF} .= " $d";
+    CommandAttr($cl, "$d $hash->{ATTR} $hash->{NAME}");
   }
 
-  @a = ( "set", $hash->{NAME}, $hash->{ATTR}, $hash->{NAME} );
-  structure_Attr(@a);
-  delete $hash->{".cachedHelp"};
+  addStructChange("addstruct", $name, $param);
+  structure_setDevs($hash);
   return undef;
 }
 
@@ -369,14 +368,13 @@ CommandDelStruct($)
   }
 
   foreach my $d (devspec2array($a[0])) {
-    delete($hash->{".memberHash"}{$d});
     $hash->{DEF} =~ s/\b$d\b//g;
+    CommandDeleteAttr($cl, "$d $hash->{ATTR}");
   }
   $hash->{DEF} =~ s/  / /g;
 
-  @a = ( "del", $hash->{NAME}, $hash->{ATTR} );
-  structure_Attr(@a);
-  delete $hash->{".cachedHelp"};
+  addStructChange("delstruct", $name, $param);
+  structure_setDevs($hash);
   return undef;
 }
 
@@ -391,8 +389,11 @@ structure_Set($@)
   my %pars;
 
   # see Forum # 28623 for .cachedHelp
-  return $hash->{".cachedHelp"}
-        if(@list > 1 && $list[1] eq "?" && $hash->{".cachedHelp"});
+  if(@list > 1 && $list[1] eq "?") {
+    return $hash->{".cachedHelp"} if($hash->{".cachedHelp"});
+  } elsif(IsDisabled($me) =~ m/1|2/) {
+    return undef;
+  }
 
   my @devList = @{$hash->{".memberList"}};
   if(@list > 1 && $list[$#list] eq "reverse") {
@@ -478,8 +479,12 @@ structure_Set($@)
         $ret .= $sret;
       }
       if($list[1] eq "?") {
-        $sret =~ s/.*one of //;
-        map { $pars{$_} = 1 } split(" ", $sret);
+        if(!defined($sret)) {
+          Log 1, "$me: 'set $d ?' returned undef";
+        } else {
+          $sret =~ s/.*one of //;
+          map { $pars{$_} = 1 } split(" ", $sret);
+        }
       }
     }
   }

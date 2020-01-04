@@ -27,7 +27,7 @@
 #
 #  Homepage:  http://fhem.de
 #
-# $Id: fhem.pl 19805 2019-07-09 09:44:07Z rudolfkoenig $
+# $Id: fhem.pl 20827 2019-12-25 19:17:36Z rudolfkoenig $
 
 
 use strict;
@@ -51,6 +51,8 @@ sub AnalyzePerlCommand($$;$);
 sub AssignIoPort($;$);
 sub AttrVal($$$);
 sub AttrNum($$$;$);
+sub Authorized($$$;$);
+sub Authenticate($$);
 sub CallFn(@);
 sub CallInstanceFn(@);
 sub CheckDuplicate($$@);
@@ -278,7 +280,7 @@ use constant {
 };
 
 $selectTimestamp = gettimeofday();
-$cvsid = '$Id: fhem.pl 19805 2019-07-09 09:44:07Z rudolfkoenig $';
+$cvsid = '$Id: fhem.pl 20827 2019-12-25 19:17:36Z rudolfkoenig $';
 
 my $AttrList = "alias comment:textField-long eventMap:textField-long ".
                "group room suppressReading userReadings:textField-long ".
@@ -301,6 +303,7 @@ my @cmdList;                    # Remaining commands in a chain. Used by sleep
 my %sleepers;                   # list of sleepers
 my %delayedShutdowns;           # definitions needing delayed shutdown
 my %fuuidHash;                  # for duplicate checking
+my $ignoreRegexp;               # for Log filtering
 
 $init_done = 0;
 $lastDefChange = 0;
@@ -336,6 +339,7 @@ my @globalAttrList = qw(
   genericDisplayType:switch,outlet,light,blind,speaker,thermostat
   holiday2we
   httpcompress:0,1
+  ignoreRegexp
   keyFileName
   language:EN,DE
   lastinclude
@@ -400,33 +404,35 @@ my %ra = (
 %cmds = (
   "?"       => { ReplacedBy => "help" },
   "attr"    => { Fn=>"CommandAttr",
-           Hlp=>"<devspec> <attrname> [<attrval>],set attribute for <devspec>"},
+           Hlp=>"[-a] [-r] <devspec> <attrname> [<attrval>],".
+                "set attribute for <devspec>"},
   "cancel"  => { Fn=>"CommandCancel",
            Hlp=>"[<id> [quiet]],list sleepers, cancel sleeper with <id>" },
   "createlog"=> { ModuleName => "autocreate" },
   "define"  => { Fn=>"CommandDefine",
-           Hlp=>"<name> <type> <options>,define a device" },
+           Hlp=>"[option] <name> <type> <options>,define a device" },
   "defmod"  => { Fn=>"CommandDefMod",
-           Hlp=>"<name> <type> <options>,define or modify a device" },
+           Hlp=>"[-temporary] <name> <type> <options>,".
+                "define or modify a device" },
   "deleteattr" => { Fn=>"CommandDeleteAttr",
            Hlp=>"<devspec> [<attrname>],delete attribute for <devspec>" },
   "deletereading" => { Fn=>"CommandDeleteReading",
-            Hlp=>"<devspec> [<attrname>],delete user defined reading for ".
+            Hlp=>"<devspec> [<readingname>],delete user defined reading for ".
                  "<devspec>" },
   "delete"  => { Fn=>"CommandDelete",
             Hlp=>"<devspec>,delete the corresponding definition(s)"},
   "displayattr"=> { Fn=>"CommandDisplayAttr",
             Hlp=>"<devspec> [attrname],display attributes" },
   "get"     => { Fn=>"CommandGet",
-            Hlp=>"<devspec> <type dependent>,request data from <devspec>" },
+            Hlp=>"<devspec> <type-specific>,request data from <devspec>" },
   "include" => { Fn=>"CommandInclude",
-            Hlp=>"<filename>,read the commands from <filenname>" },
+            Hlp=>"<filename>,read the commands from <filename>" },
   "iowrite" => { Fn=>"CommandIOWrite",
             Hlp=>"<iodev> <data>,write raw data with iodev" },
   "list"    => { Fn=>"CommandList",
-            Hlp=>"[-r] [devspec],list definitions and status info" },
+            Hlp=>"[-r] [devspec] [value],list definitions and status info" },
   "modify"  => { Fn=>"CommandModify",
-            Hlp=>"device <options>,modify the definition (e.g. at, notify)" },
+            Hlp=>"device <type-dependent-options>,modify the definition" },
   "quit"    => { Fn=>"CommandQuit",
             ClientFilter => "telnet",
             Hlp=>",end the client session" },
@@ -434,7 +440,7 @@ my %ra = (
             ClientFilter => "telnet",
             Hlp=>",end the client session" },
   "reload"  => { Fn=>"CommandReload",
-            Hlp=>"<module-name>,reload the given module (e.g. 99_PRIV)" },
+            Hlp=>"<module>,reload the given module (e.g. 99_PRIV)" },
   "rename"  => { Fn=>"CommandRename",
             Hlp=>"<old> <new>,rename a definition" },
   "rereadcfg"  => { Fn=>"CommandRereadCfg",
@@ -444,25 +450,27 @@ my %ra = (
   "save"    => { Fn=>"CommandSave",
             Hlp=>"[configfile],write the configfile and the statefile" },
   "set"     => { Fn=>"CommandSet",
-            Hlp=>"<devspec> <type dependent>,transmit code for <devspec>" },
+            Hlp=>"<devspec> <type-specific>,transmit code for <devspec>" },
   "setreading" => { Fn=>"CommandSetReading",
             Hlp=>"<devspec> <reading> <value>,set reading for <devspec>" },
   "setstate"=> { Fn=>"CommandSetstate",
             Hlp=>"<devspec> <state>,set the state shown in the command list" },
   "setuuid" => { Fn=>"CommandSetuuid", Hlp=>"" },
   "setdefaultattr" => { Fn=>"CommandDefaultAttr",
-            Hlp=>"<attrname> <attrvalue>,set attr for following definitions" },
+            Hlp=>"[<attrname> [<attrvalue>]],".
+                "set attr for following definitions" },
   "shutdown"=> { Fn=>"CommandShutdown",
             Hlp=>"[restart|exitValue],terminate the server" },
   "sleep"  => { Fn=>"CommandSleep",
-            Hlp=>"<sec> [<id>] [quiet],sleep for sec, 3 decimal places" },
+            Hlp=>"<sec|timespec|regex> [<id>] [quiet],".
+                "sleep for sec, 3 decimal places" },
   "trigger" => { Fn=>"CommandTrigger",
             Hlp=>"<devspec> <state>,trigger notify command" },
   "update" => {
-            Hlp => "[<fileName>|all|check|force] ".
+            Hlp => "[<fileName>|all|check|checktime|force] ".
                                       "[http://.../controlfile],update FHEM" },
   "updatefhem" => { ReplacedBy => "update" },
-  "usb"     => { ModuleName => "autocreate" },
+  "usb"     => { ModuleName => "autocreate" }
 );
 
 ###################################################
@@ -847,7 +855,7 @@ IsDummy($)
 {
   my $devname = shift;
 
-  return 1 if(defined($attr{$devname}) && defined($attr{$devname}{dummy}));
+  return 1 if(defined($attr{$devname}) && $attr{$devname}{dummy});
   return 0;
 }
 
@@ -963,6 +971,7 @@ Log3($$$)
     return if($loglevel > $attr{global}{verbose});
 
   }
+  return if($ignoreRegexp && $text =~ m/^$ignoreRegexp$/);
 
   my ($seconds, $microseconds) = gettimeofday();
   my @t = localtime($seconds);
@@ -1246,10 +1255,7 @@ devspec2array($;$$)
 
   return "" if(!defined($name));
   if(defined($defs{$name})) {
-    if($cl && !Authorized($cl, "devicename", $name)) {
-      Log 4, "Forbidden device $name";
-      return "";
-    }
+    return "" if($cl && !Authorized($cl, "devicename", $name));
 
     # FHEM2FHEM LOG mode fake device, avoid local set/attr/etc operations on it
     return "FHEM2FHEM_FAKE_$name" if($defs{$name}{FAKEDEVICE});
@@ -1335,7 +1341,7 @@ devspec2array($;$$)
     push @ret,@res;
   }
   return $name if(!@ret && !$isAttr);
-  @ret = grep { Authorized($cl, "devicename", $_) } @ret if($cl);
+  @ret = grep { Authorized($cl, "devicename", $_, 1) } @ret if($cl);
   return @ret;
 }
 
@@ -2496,7 +2502,7 @@ CommandList($$)
     for my $d (sort { my $x=$modules{$defs{$a}{TYPE}}{ORDER}.$defs{$a}{TYPE} cmp
                             $modules{$defs{$b}{TYPE}}{ORDER}.$defs{$b}{TYPE};
                          $x=($a cmp $b) if($x == 0); $x; } keys %defs) {
-      next if(IsIgnored($d) || ($cl && !Authorized($cl,"devicename",$d)));
+      next if(IsIgnored($d) || ($cl && !Authorized($cl, "devicename", $d, 1)));
       my $t = $defs{$d}{TYPE};
       $str .= "\n$t:\n" if($t ne $lt);
       $str .= sprintf("  %-20s (%s)\n", $d, $defs{$d}{STATE});
@@ -2509,6 +2515,7 @@ CommandList($$)
     my @list = devspec2array($arg[0],$cl);
     if($arg[1]) {
       foreach my $sdev (@list) { # Show a Hash-Entry or Reading for each device
+        next if(!$defs{$sdev});
 
         my $first = 1;
         foreach  my $n (@arg[1..@arg-1]) {
@@ -2519,34 +2526,31 @@ CommandList($$)
             $n = $2;
           }    
 
-          if($defs{$sdev}) {
-            if(defined($defs{$sdev}{$n}) && (!$fType || $fType eq "i:")) {
-              my $val = $defs{$sdev}{$n};
-              if(ref($val) eq 'HASH') {
-                $val = ($val->{NAME} ? $val->{NAME} : # ???
-                        join(" ", map { "$_=$val->{$_}" } sort keys %{$val}));
-              }
-              $str .= sprintf("%-20s %*s   %*s %s\n", $first?$sdev:'',
-                        $arg[2]?19:0, '', $arg[2]?-15:0, $arg[2]?$n:'', $val);
-
-            } elsif($defs{$sdev}{READINGS} &&
-                    defined($defs{$sdev}{READINGS}{$n})
-                    && (!$fType || $fType eq "r:")) {
-              $str .= sprintf("%-20s %s   %*s %s\n", $first?$sdev:'',
-                      $defs{$sdev}{READINGS}{$n}{TIME},
-                      $arg[2]?-15:0, $arg[2]?$n:'', 
-                      $defs{$sdev}{READINGS}{$n}{VAL});
-
-            } elsif($attr{$sdev} && 
-                    defined($attr{$sdev}{$n})
-                    && (!$fType || $fType eq "a:")) {
-              $str .= sprintf("%-20s %*s   %*s %s\n", $first?$sdev:'',
-                        $arg[2]?19:0, '', $arg[2]?-15:0, $arg[2]?$n:'',
-                        $attr{$sdev}{$n});
-
+          if(defined($defs{$sdev}{$n}) && (!$fType || $fType eq "i:")) {
+            my $val = $defs{$sdev}{$n};
+            if(ref($val) eq 'HASH') {
+              $val = ($val->{NAME} ? $val->{NAME} : # ???
+                      join(" ", map { "$_=$val->{$_}" } sort keys %{$val}));
             }
+            $str .= sprintf("%-20s %*s   %*s %s\n", ($first++==1)?$sdev:'',
+                      $arg[2]?19:0, '', $arg[2]?-15:0, $arg[2]?$n:'', $val);
+
+          } elsif($defs{$sdev}{READINGS} &&
+                  defined($defs{$sdev}{READINGS}{$n})
+                  && (!$fType || $fType eq "r:")) {
+            $str .= sprintf("%-20s %s   %*s %s\n", ($first++==1)?$sdev:'',
+                    $defs{$sdev}{READINGS}{$n}{TIME},
+                    $arg[2]?-15:0, $arg[2]?$n:'', 
+                    $defs{$sdev}{READINGS}{$n}{VAL});
+
+          } elsif($attr{$sdev} && 
+                  defined($attr{$sdev}{$n})
+                  && (!$fType || $fType eq "a:")) {
+            $str .= sprintf("%-20s %*s   %*s %s\n",($first++==1)?$sdev:'',
+                      $arg[2]?19:0, '', $arg[2]?-15:0, $arg[2]?$n:'',
+                      $attr{$sdev}{$n});
+
           }
-          $first = 0;
         }
       }
 
@@ -2751,6 +2755,7 @@ GlobalAttr($$$$)
     return "The global attribute $name cannot be deleted" if($noDel{$name});
     $featurelevel = 5.9 if($name eq "featurelevel");
     $haveInet6    = 0   if($name eq "useInet6"); # IPv6
+    $ignoreRegexp = 0   if($name eq "ignoreRegexp"); 
     return undef;
   }
 
@@ -2844,6 +2849,11 @@ GlobalAttr($$$$)
     } else {
       $haveInet6 = 0;
     }
+  }
+  elsif($name eq "ignoreRegexp") {
+    eval { "Hallo" =~ m/^$val$/ };
+    return $@ if($@);
+    $ignoreRegexp = $val;
   }
 
   return undef;
@@ -4683,8 +4693,10 @@ readingsEndUpdate($$)
         Log 1, $value;
         $result= $value;
       } elsif(!defined($value)) {
-        $cmdFromAnalyze = $perlCode; # For the __WARN__ sub
-        warn("$name userReadings $reading evaluated to undef");
+        if(AttrVal("global", "verbose", 3) >= 5) { #102868
+          $cmdFromAnalyze = $perlCode; # For the __WARN__ sub
+          warn("$name userReadings $reading evaluated to undef");
+        }
         next;
       } elsif($modifier eq "none") {
         $result= $value;
@@ -4870,9 +4882,9 @@ readingsBulkUpdate($$$@)
         $ts= $readings->{".ts"};
       } else {
         require "TimeSeries.pm";
-        $ts= TimeSeries->new( { method => $method, 
-                                autoreset => $duration,
-                                holdTime => $holdTime } );
+        $ts = TimeSeries->new( { method => $method, 
+                  autoreset=>(looks_like_number($duration) ? $duration:undef),
+                  holdTime =>(looks_like_number($holdTime) ? $holdTime:undef)});
         $readings->{".ts"}= $ts;
         # access from command line:
         # { $defs{"myClient"}{READINGS}{"myValue"}{".ts"}{max} }
@@ -5200,7 +5212,7 @@ json2nameValue($;$$)
     return (undef, $in);
   }
 
-  $in = $1 if($in =~ m/^{(.*)}$/s);
+  $in = $1 if($in =~ m/^\s*{(.*)}\s*$/s);
 
   my $err;
   while($in =~ m/^\s*"([^"]+)"\s*:\s*(.*)$/s) {
@@ -5556,9 +5568,9 @@ Each($$;$)      # can be used e.g. in at, Forum #40022
 # Return 1 if Authorized, else 0
 # Note: AuthorizeFn's returning 1 are not stackable.
 sub
-Authorized($$$)
+Authorized($$$;$)
 {
-  my ($cl, $type, $arg) = @_;
+  my ($cl, $type, $arg, $silent) = @_;
 
   return 1 if(!$init_done || !$cl || !$cl->{SNAME}); # Safeguarding
   RefreshAuthList() if($auth_refresh);
@@ -5566,8 +5578,8 @@ Authorized($$$)
   my $verbose = AttrVal($sname, "verbose", 1); # Speedup?
 
   foreach my $a (@authorize) {
-    my $r = CallFn($a, "AuthorizeFn", $defs{$a}, $cl, $type, $arg);
-    if($verbose >= 4) {
+    my $r = CallFn($a, "AuthorizeFn", $defs{$a}, $cl, $type, $arg, $silent);
+    if($verbose >= 4 && !$silent) {
       Log3 $sname, 4, "authorize $sname/$type/$arg: $a returned ".
           ($r == 0 ? "dont care" : $r == 1 ? "allowed" : "prohibited");
     }
@@ -5729,11 +5741,14 @@ getPawList($)
   my ($d) = @_;
   my $h = $defs{$d};
   my @dob;
+  my $daw = ReadingsVal($d, ".associatedWith", ""); # 103095
   foreach my $dn (sort keys %defs) {
     next if(!$dn || $dn eq $d);
     my $dh = $defs{$dn};
     if(($dh->{DEF} && $dh->{DEF} =~ m/\b$d\b/) ||
-       ($h->{DEF}  && $h->{DEF}  =~ m/\b$dn\b/)) {
+       (ReadingsVal($dn, ".associatedWith", "") =~ m/\b$d\b/) ||
+       ($h->{DEF}  && $h->{DEF}  =~ m/\b$dn\b/) ||
+       $daw =~ m/\b$dn\b/) {
       push(@dob, $dn);
     }
   }
@@ -5790,10 +5805,10 @@ computeAlignTime($$@)
   return ("timeSpec: $tmErr", undef) if($alErr);
 
   my $now = int(gettimeofday());
-  my $alTime = ($alHr*60+$alMin)*60+$alSec-fhemTzOffset($now);
+  my $alTime = ($alHr*60+$alMin)*60+$alSec;
   my $step = ($hr*60+$min)*60+$sec;
   my $ttime = ($triggertime ? int($triggertime) : $now);
-  my $off = ($ttime % 86400) - 86400;
+  my $off = (($ttime+fhemTzOffset($now)) % 86400) - 86400;
   while($off < $alTime) {
     $off += $step;
   }

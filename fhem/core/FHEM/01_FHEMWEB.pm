@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 01_FHEMWEB.pm 19878 2019-07-21 10:26:47Z rudolfkoenig $
+# $Id: 01_FHEMWEB.pm 20818 2019-12-23 20:12:15Z rudolfkoenig $
 package main;
 
 use strict;
@@ -70,7 +70,7 @@ use vars qw($FW_sp);      # stylesheetPrefix
 # global variables, also used by 97_GROUP/95_VIEW/95_FLOORPLAN
 use vars qw(%FW_types);   # device types,
 use vars qw($FW_RET);     # Returned data (html)
-use vars qw($FW_RETTYPE); # image/png or the like
+use vars qw($FW_RETTYPE); # image/png or the like. Note: also as my below!
 use vars qw($FW_wname);   # Web instance
 use vars qw($FW_subdir);  # Sub-path in URL, used by FLOORPLAN/weblink
 use vars qw(%FW_pos);     # scroll position
@@ -89,6 +89,7 @@ use vars qw(%FW_visibleDeviceHash);
 use vars qw(@FW_httpheader); # HTTP header, line by line
 use vars qw(%FW_httpheader); # HTTP header, as hash
 use vars qw($FW_userAgent); # user agent string
+use vars qw($FW_addJs);     # Only for helper like AttrTemplate
 
 $FW_formmethod = "post";
 
@@ -106,7 +107,7 @@ my %FW_id2inform;
 my $FW_data;       # Filecontent from browser when editing a file
 my %FW_icons;      # List of icons
 my @FW_iconDirs;   # Directory search order for icons
-my $FW_RETTYPE;    # image/png or the like
+my $FW_RETTYPE;    # image/png or the like: Note: also as use vars above!
 my %FW_rooms;      # hash of all rooms
 my %FW_extraRooms; # hash of extra rooms
 my @FW_roomsArr;   # ordered list of rooms
@@ -185,7 +186,7 @@ FHEMWEB_Initialize($)
     ploteditor:always,onClick,never
     plotfork:1,0
     plotmode:gnuplot-scroll,gnuplot-scroll-svg,SVG
-    plotEmbed:0,1
+    plotEmbed:2,1,0
     plotsize
     plotWeekStartDay:0,1,2,3,4,5,6
     nrAxis
@@ -319,6 +320,7 @@ FW_Undef($$)
     %FW_visibleDeviceHash = FW_visibleDevices();
     delete($logInform{$hash->{NAME}});
   }
+  delete $FW_svgData{$hash->{NAME}};
   return $ret;
 }
 
@@ -379,10 +381,12 @@ FW_Read($$)
 
     # $op: 0=>Continuation, 1=>Text, 2=>Binary, 8=>Close, 9=>Ping, 10=>Pong
     if($op == 8) {
+      # Close, Normal, empty mask. #104718
+      TcpServer_WriteBlocking($hash, pack("CCn",0x88,0x2,1000));
       TcpServer_Close($hash, 1);
       return;
 
-    } elsif($op == 9) {
+    } elsif($op == 9) { # Ping
       return addToWritebuffer($hash, chr(0x8A).chr(0)); # Pong
 
     }
@@ -544,7 +548,8 @@ FW_Read($$)
 
   $arg = "" if(!defined($arg));
   Log3 $FW_wname, 4, "$name $method $arg; BUFLEN:".length($hash->{BUF});
-  my $pf = AttrVal($FW_wname, "plotfork", 0);
+  my $pf = AttrVal($FW_wname, "plotfork", undef);
+  $pf = 1 if(!defined($pf) && AttrVal($FW_wname, "plotEmbed", 0) == 2);
   if($pf) {   # 0 disables
     # Process SVG rendering as a parallel process
     my $p = $data{FWEXT};
@@ -623,6 +628,7 @@ FW_finishRead($$$)
     FW_closeConn($hash);
     TcpServer_Close($hash, 1);
   } 
+  $FW_RET="";
 }
 
 sub
@@ -927,7 +933,7 @@ FW_answerCall($)
   # FHEMWEB extensions (FLOORPLOAN, SVG_WriteGplot, etc)
   my $FW_contentFunc;
   if(defined($data{FWEXT})) {
-    foreach my $k (sort keys %{$data{FWEXT}}) {
+    foreach my $k (reverse sort keys %{$data{FWEXT}}) {
       my $h = $data{FWEXT}{$k};
       next if($arg !~ m/^$k/);
       $FW_contentFunc = $h->{CONTENTFUNC};
@@ -1062,6 +1068,7 @@ FW_answerCall($)
     my $n = $_; $n =~ s+.*/++; $n =~ s/.js$//; $n =~ s/fhem_//; $n .= "Param";
     FW_pO sprintf($jsTemplate, AttrVal($FW_wname, $n, ""), "$FW_ME/$_");
   } @jsList;
+  FW_pO $FW_addJs if($FW_addJs);
 
   ########################
   # FW Extensions
@@ -1154,7 +1161,7 @@ FW_dataAttr()
     my ($p, $default) = @_;
     my $val = AttrVal($FW_wname,$p, $default);
     $val =~ s/&/&amp;/g;
-    $val =~ s/'/&quot;/g;
+    $val =~ s/'/&#39;/g;
     return "data-$p='$val' ";
   }
 
@@ -1252,7 +1259,7 @@ FW_updateHashes()
   %FW_types = ();  # Needed for type sorting
 
   my $hre = AttrVal($FW_wname, "hiddenroomRegexp", "");
-  foreach my $d (keys %defs ) {
+  foreach my $d (devspec2array(".*", $FW_chash)) {
     next if(IsIgnored($d));
 
     foreach my $r (split(",", AttrVal($d, "room", "Unsorted"))) {
@@ -1450,7 +1457,7 @@ FW_doDetail($)
       my %extPage = ();
 
       if( $show eq 'iconOnly' ) {
-        my ($allSets, $cmdlist, $txt) = FW_devState($d, $FW_room, \%extPage);
+        my ($allSets, $cmdlist, $txt) = FW_devState($d, "", \%extPage);
         FW_pO "<div informId='$d'".
                 ($FW_tp?"":" style='float:right'").">$txt</div>";
 
@@ -1473,7 +1480,7 @@ FW_doDetail($)
         FW_pO "<div $style id=\"ddtable\" class='makeTable wide'>";
         FW_pO "<span class='mkTitle'>DeviceOverview</span>";
         FW_pO "<table class=\"block wide\">";
-        FW_makeDeviceLine($d,1,\%extPage,$nameDisplay,\%usuallyAtEnd);
+        FW_makeDeviceLine($d,-1,\%extPage,$nameDisplay,\%usuallyAtEnd);
         FW_pO "</table></div>";
       }
     }
@@ -1793,7 +1800,7 @@ FW_makeDeviceLine($$$$$)
     }
   }
 
-  my ($allSets, $cmdlist, $txt) = FW_devState($d, $rf, $extPage);
+  my ($allSets, $cmdlist, $txt) = FW_devState($d, $row==-1 ? "":$rf, $extPage);
   if($cmdlist) {
     my $cl2 = $cmdlist; $cl2 =~ s/ [^:]*//g; $cl2 =~ s/:/ /g;  # Forum #74053
     $allSets = "$allSets $cl2";
@@ -1996,6 +2003,7 @@ FW_showRoom()
   my ($idx,$svgIdx) = (1,1);
   @atEnds =  sort { $sortIndex{$a} cmp $sortIndex{$b} } @atEnds;
   $FW_svgData{$FW_cname} = { FW_RET=>$FW_RET, RES=>\%res, ATENDS=>\@atEnds };
+  my $svgDataUsed = 1;
   foreach my $d (@atEnds) {
     no strict "refs";
     my $fn = $modules{$defs{$d}{TYPE}}{FW_summaryFn};
@@ -2007,11 +2015,13 @@ FW_showRoom()
         return "$FW_cname,$d,".
                encode_base64(&{$fn}($FW_wname,$d,$FW_room,\%extPage),'');
       }, undef, "FW_svgCollect");
+      $svgDataUsed++;
     } else {
       $res{$d} = &{$fn}($FW_wname,$d,$FW_room,\%extPage);
     }
     use strict "refs";
   }
+  delete($FW_svgData{$FW_cname}) if(!$svgDataUsed);
   return FW_svgDone(\%res, \@atEnds, undef);
 }
 
@@ -2037,7 +2047,7 @@ FW_svgCollect($)
   my $h = $FW_svgData{$cname};
   my ($res, $atEnds) = ($h->{RES}, $h->{ATENDS});
   $res->{$d} = decode_base64($enc);
-  return if(int(keys %{$res}) != int(@{$atEnds}));
+  return if(!defined($atEnds) || int(keys %{$res}) != int(@{$atEnds}));
   $FW_RET = $h->{FW_RET};
   delete($FW_svgData{$cname});
   FW_svgDone($res, $atEnds, 1);
@@ -3191,7 +3201,7 @@ FW_devState($$@)
     $cmdList = "desiredTemperature" if(!$cmdList);
 
   } else {
-    my $html;
+    my $html = "";
     foreach my $state (split("\n", $state)) {
       $txt = $state;
       my ($icon, $isHtml);
@@ -3271,7 +3281,7 @@ FW_devState($$@)
        $extPage = \%hash;
     }
     no strict "refs";
-    my $newtxt = &{$sfn}($FW_wname, $d, $FW_room, $extPage);
+    my $newtxt = &{$sfn}($FW_wname, $d, $rf ? $FW_room : "", $extPage);
     use strict "refs";
     $txt = $newtxt if(defined($newtxt)); # As specified
   }
@@ -3658,10 +3668,10 @@ FW_show($$)
         <ul>
         Space separated list of regexp:icon-name:cmd triples, icon-name and cmd
         may be empty.<br>
-        If the state of the device matches regexp, then icon-name will be
+        If the STATE of the device matches regexp, then icon-name will be
         displayed as the status icon in the room, and (if specified) clicking
-        on the icon executes cmd.  If fhem cannot find icon-name, then the
-        status text will be displayed. 
+        on the icon executes cmd.  If FHEM cannot find icon-name, then the
+        STATE text will be displayed. 
         Example:<br>
         <ul>
         attr lamp devStateIcon on:closed off:open<br>
@@ -3944,9 +3954,11 @@ FW_show($$)
 
     <a name="plotEmbed"></a>
     <li>plotEmbed<br>
-        If set (to 1), SVG plots will be rendered as part of &lt;embed&gt;
+        If set to 1, SVG plots will be rendered as part of &lt;embed&gt;
         tags, as in the past this was the only way to display SVG.  Setting
         plotEmbed to 0 (the default) will render SVG in-place.<br>
+        Setting plotEmbed to 2 will load the SVG via JavaScript, in order to
+        enable parallelization without the embed tag.
     </li><br>
 
     <a name="plotfork"></a>
@@ -4398,10 +4410,10 @@ FW_show($$)
         Leerzeichen getrennte Auflistung von regexp:icon-name:cmd
         Dreierp&auml;rchen, icon-name und cmd d&uuml;rfen leer sein.<br>
 
-        Wenn der Zustand des Ger&auml;tes mit der regexp &uuml;bereinstimmt,
+        Wenn STATE des Ger&auml;tes mit der regexp &uuml;bereinstimmt,
         wird als icon-name das entsprechende Status Icon angezeigt, und (falls
         definiert), l&ouml;st ein Klick auf das Icon das entsprechende cmd aus.
-        Wenn fhem icon-name nicht finden kann, wird der Status als Text
+        Wenn FHEM icon-name nicht finden kann, wird STATE als Text
         angezeigt. 
         Beispiel:<br>
         <ul>
@@ -4681,11 +4693,13 @@ FW_show($$)
         </li><br>
 
     <a name="plotEmbed"></a>
-    <li>plotEmbed 0<br>
-        Falls gesetzt (auf 1), dann werden SVG Grafiken mit &lt;embed&gt; Tags
+    <li>plotEmbed<br>
+        Falls 1, dann werden SVG Grafiken mit &lt;embed&gt; Tags
         gerendert, da auf &auml;lteren Browsern das die einzige
         M&ouml;glichkeit war, SVG dastellen zu k&ouml;nnen. Falls 0 (die
         Voreinstellung), dann werden die SVG Grafiken "in-place" gezeichnet.
+        Falls 2, dann werden die Grafiken per JavaScript nachgeladen, um eine
+        Parallelisierung auch ohne embed Tags zu erm&ouml;glichen.
     </li><br>
 
     <a name="plotfork"></a>

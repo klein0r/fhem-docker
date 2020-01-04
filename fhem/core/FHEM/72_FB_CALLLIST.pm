@@ -1,4 +1,4 @@
-# $Id: 72_FB_CALLLIST.pm 18181 2019-01-08 12:46:07Z markusbloch $
+# $Id: 72_FB_CALLLIST.pm 20355 2019-10-13 18:46:20Z markusbloch $
 ##############################################################################
 #
 #     72_FB_CALLLIST.pm
@@ -227,8 +227,12 @@ sub FB_CALLLIST_Set($@)
 {
     my ($hash, $name, $cmd, $value) = @_;
 
-    my $usage = "Unknown argument $cmd, choose one of clear:noArg";
+    my @list = FB_CALLLIST_getAllItemLines($hash);
+    
+    my $index_list = join(",", (1..@list));
+    my $usage = "Unknown argument $cmd, choose one of clear:noArg removeItem:$index_list";
 
+    
     if($cmd eq "clear")
     {
         delete($hash->{helper}{DATA});
@@ -240,6 +244,18 @@ sub FB_CALLLIST_Set($@)
         FB_CALLLIST_updateFhemWebClients($hash);
 
         # Delete stored list
+        FB_CALLLIST_saveList($hash);
+    }
+    elsif($cmd eq "removeItem" and defined($value) and $value =~ /^\d+$/)
+    {
+        my $item = $list[$value - 1];
+        
+        return $usage unless(defined($item));
+        
+        FB_CALLLIST_deleteItem($hash, $item->{index});
+        
+        FB_CALLLIST_createReadings($hash);
+        
         FB_CALLLIST_saveList($hash);
     }
     else
@@ -1557,6 +1573,7 @@ sub FB_CALLLIST_strftime(@)
   <b>Set</b><br>
   <ul>
   <li><b>clear</b> - clears the list completely</li>
+  <li><b>removeItem &lt;index&gt;</b> - removes a specific item from the list (row number)</li>
   </ul>
   <br>
 
@@ -1851,6 +1868,7 @@ sub FB_CALLLIST_strftime(@)
   <b>Set-Kommandos</b><br>
   <ul>
   <li><b>clear</b> - l&ouml;scht die gesamte Anrufliste</li>
+  <li><b>removeItem &lt;index&gt;</b> - l&ouml;scht eine spezifische Zeile aus der Anrufliste (Zeilennummer)</li>
   </ul>
   <br>
 

@@ -1,4 +1,4 @@
-# $Id: 73_GasCalculator.pm 16602 2018-04-13 17:58:19Z Sailor $
+# $Id: 73_GasCalculator.pm 20577 2019-11-25 13:10:23Z Sailor $
 ########################################################################################################################
 #
 #     73_GasCalculator.pm
@@ -656,7 +656,7 @@ sub GasCalculator_Notify($$)
 		if ($GasCountReadingTimestampDelta != 0)
 		{
 			### Calculate DV (Volume difference) of previous and current value / [cubic]
-			my $GasCountReadingValueDelta = sprintf('%.3f', ($GasCountReadingValueCurrent - $GasCountReadingValuePrevious));
+			my $GasCountReadingValueDelta = sprintf('%.3f', ($GasCountReadingValueCurrent )) - sprintf('%.3f', ($GasCountReadingValuePrevious));
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCountReadingValueDelta                : " . $GasCountReadingValueDelta . " " . $attr{$GasCalcName}{Volume};
 
 			### Calculate Current Power P = DV/Dt[cubic/s] * GaszValue * GasNominalHeatingValue[kWh/cubic] * 3600[s/h] / SiPrefixPowerFactor

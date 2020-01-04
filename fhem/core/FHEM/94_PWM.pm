@@ -34,9 +34,10 @@
 # 05.02.18 GA fix typo overallHeatingSwitchThresholdTemup
 # 19.11.18 GA add support for attribute maxOffTime
 # 05.03.19 GA fix reading maxOffTimeCalculation was set but not used
+# 30.12.19 GA fix access to ReadingsVal via $name (reported by stromer-12)
 
 ##############################################
-# $Id: 94_PWM.pm 18796 2019-03-05 15:09:18Z jamesgo $
+# $Id: 94_PWM.pm 20853 2019-12-30 11:15:41Z jamesgo $
 
 
 # module for PWM (Pulse Width Modulation) calculation
@@ -901,7 +902,7 @@ PWM_CalcRoom(@)
       # ----------------
       # check if maxOffTime protection is activated (attribute maxOffTimeIdlePeriod is set)
 
-      if ($maxOffTimeApply > 0 and ReadingsVal($hash, "maxOffTimeCalculation", "off") eq "on") {
+      if ($maxOffTimeApply > 0 and ReadingsVal($name, "maxOffTimeCalculation", "off") eq "on") {
 
         ## wz > 2:00
         if ($maxOffTimeAct >= $maxOffTime) {

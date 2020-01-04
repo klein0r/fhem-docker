@@ -1,4 +1,4 @@
-# $Id: 44_S7_AWrite.pm 15539 2017-12-01 21:52:13Z charlie71 $
+# $Id: 44_S7_AWrite.pm 20792 2019-12-20 17:32:00Z rudolfkoenig $
 ##############################################
 package main;
 
@@ -744,6 +744,8 @@ Note: the required memory area (start &ndash; start + datatypelength) need to be
 <li>value &hellip; an numeric value</li>
 </ul>
 </ul>
-</ul>=end html_DE
+</ul>
+
+=end html_DE
 
 =cut

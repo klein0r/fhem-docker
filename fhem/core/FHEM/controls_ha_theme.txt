@@ -10,10 +10,10 @@ UPD 2017-08-17_20:17:57 2727 www/images/hausautomatisierung_com/plug.svg
 UPD 2017-08-17_20:17:57 3199 www/images/hausautomatisierung_com/on.svg
 UPD 2017-08-17_20:17:57 6250 www/images/hausautomatisierung_com/router.svg
 UPD 2017-08-17_20:17:57 2398 www/images/hausautomatisierung_com/doorhandle.svg
-UPD 2019-05-15_08:23:27 33483 www/pgm2/hausautomatisierung_comstyle.css
-UPD 2019-05-15_08:23:27 4943 www/pgm2/hausautomatisierung_comfloorplanstyle.css
+UPD 2019-08-09_14:58:50 35535 www/pgm2/hausautomatisierung_comstyle.css
+UPD 2019-08-09_14:58:50 6074 www/pgm2/hausautomatisierung_comfloorplanstyle.css
 UPD 2019-05-15_08:23:27 2996 www/pgm2/hausautomatisierung_comsvg_defs.svg
-UPD 2019-05-15_08:23:27 7748 www/pgm2/hausautomatisierung_com.js
+UPD 2019-08-09_14:58:50 10183 www/pgm2/hausautomatisierung_com.js
 UPD 2018-01-30_20:22:38 5011 www/pgm2/hausautomatisierung_comsvg_style.css
 UPD 2017-07-04_22:17:20 20144 www/hausautomatisierung-com/images/haus_automatisierung.png
 UPD 2017-07-04_22:17:20 81828 www/hausautomatisierung-com/images/bg_wrapper.jpg

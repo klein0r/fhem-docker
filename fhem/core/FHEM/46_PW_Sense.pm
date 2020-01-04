@@ -22,7 +22,7 @@
 # The GNU General Public License may also be found at http://www.gnu.org/licenses/gpl-2.0.html .
 ###################################
 #
-# $Id: 46_PW_Sense.pm 18210 2019-01-11 06:05:45Z Icinger $ 
+# $Id: 46_PW_Sense.pm 20792 2019-12-20 17:32:00Z rudolfkoenig $ 
 package main;
 
 use strict;
@@ -199,7 +199,6 @@ See <a href="#PW_Sense">PW_Sense</a>.
   </ul>
 </ul>
 
-=end html
 =end html_DE
 =cut
 

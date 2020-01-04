@@ -1,5 +1,5 @@
 ﻿##############################################
-# $Id: 98_todoist.pm 19172 2019-04-13 12:33:34Z marvin78 $
+# $Id: 98_todoist.pm 20509 2019-11-14 10:21:34Z marvin78 $
 
 
 package main;
@@ -17,7 +17,7 @@ eval "use Date::Parse;1" or $missingModule .= "Date::Parse ";
 
 #######################
 # Global variables
-my $version = "1.2.0.8";
+my $version = "1.2.4";
 
 my $srandUsed;
 
@@ -322,18 +322,18 @@ sub todoist_UpdateTask($$$) {
       Log3 $name,5, "$name: hash: ".Dumper($hash);
       
       ## complete a task
-      if ($type eq "complete") {
+      #if ($type eq "complete") {
 
         # variables for the commands parameter
-        $tType = "item_complete";
-        %args = (
-          ids => '['.$taskId.']',
-        );
-        Log3 $name,5, "$name: Args: ".Dumper(%args);
-        $method="POST";
-      }
+       # $tType = "item_complete";
+       # %args = (
+       #   ids => '['.$taskId.']',
+       # );
+       # Log3 $name,5, "$name: Args: ".Dumper(%args);
+       # $method="POST";
+      #}
       ## close a task
-      elsif ($type eq "close") {
+      if ($type eq "close" || $type eq "complete") {
 
         # variables for the commands parameter
         $tType = "item_close";
@@ -364,11 +364,11 @@ sub todoist_UpdateTask($$$) {
         ## change title
         $args{'content'} = $h->{"title"} if($h->{'title'});
         ## change dueDate
-        $args{'date_string'} = $h->{"dueDate"} if($h->{'dueDate'});
-        $args{'date_string'} = "" if ($h->{'dueDate'} && $h->{'dueDate'} =~ /(null|none|nix|leer|del)/);
+        $args{'due'}{'string'} = $h->{"dueDate"} if($h->{'dueDate'});
+        $args{'due'}{'string'} = "" if ($h->{'dueDate'} && $h->{'dueDate'} =~ /(null|none|nix|leer|del)/);
         ## change dueDate (if someone uses due_date in stead of dueDate)
-        $args{'date_string'} = $h->{"due_date"} if ($h->{'due_date'});
-        $args{'date_string'} = "" if ($h->{'dueDate'} && $h->{'due_date'} =~ /(null|none|nix|leer|del)/);
+        $args{'due'}{'string'} = $h->{"due_date"} if ($h->{'due_date'});
+        $args{'due'}{'string'} = "" if ($h->{'due_date'} && $h->{'due_date'} =~ /(null|none|nix|leer|del)/);
         ## change priority
         $args{'priority'} = int($h->{"priority"}) if ($h->{"priority"});
         ## Who is responsible for the task
@@ -421,7 +421,7 @@ sub todoist_UpdateTask($$$) {
       elsif ($type eq "delete") {
         $tType = "item_delete";
         %args = (
-          ids => '['.$taskId.']',
+          id => $taskId,
         );
         $method="POST";
       }
@@ -443,7 +443,7 @@ sub todoist_UpdateTask($$$) {
       Log3 $name,4, "todoist ($name): JSON sent to todoist API: ".Dumper($data);
       
       $param = {
-        url        => "https://todoist.com/api/v7/sync",
+        url        => "https://api.todoist.com/sync/v8/sync",
         data       => $data,
         tTitle     => $title,
         method     => $method,
@@ -522,6 +522,7 @@ sub todoist_CreateTask($$) {
           token                => $pwd,
         };
         
+        
         ## check for dueDate as Parameter or part of title - push to hash
         if (!$tmp[1] && $h->{"dueDate"}) { ## parameter
           $data->{'date_string'} = $h->{"dueDate"};
@@ -567,7 +568,7 @@ sub todoist_CreateTask($$) {
       
         
         $param = {
-          url        => "https://todoist.com/api/v7/items/add",
+          url        => "https://todoist.com/sync/v8/items/add",
           data       => $data,
           tTitle     => $title,
           method     => "POST",
@@ -734,10 +735,10 @@ sub todoist_GetTasks($;$) {
       };
       
       # set url for API access
-      my $url = "https://todoist.com/api/v7/projects/get_data";
+      my $url = "https://todoist.com/sync/v8/projects/get_data";
       ## check if we get also the completed Tasks
       if ($completed == 1) {
-        $url = "https://todoist.com/api/v7/completed/get_all";
+        $url = "https://todoist.com/sync/v8/completed/get_all";
         $data->{'limit'}=50;
       }
       
@@ -943,10 +944,10 @@ sub todoist_GetTasksCallback($$$){
           }
           
           ## set due_date if present
-          if (defined($task->{due_date_utc}) && $task->{due_date_utc} ne 'null') {
+          if (defined($task->{due}) && $task->{due_date_utc} ne 'null') {
             ## if there is a task with due date, we create a new reading
-            readingsBulkUpdate($hash, "Task_".$t."_dueDate",FmtDateTime(str2time($task->{due_date_utc})));
-            $hash->{helper}{"DUE_DATE"}{$taskID}=FmtDateTime(str2time($task->{due_date_utc}));
+            readingsBulkUpdate($hash, "Task_".$t."_dueDate",FmtDateTime(str2time($task->{due}{date})));
+            $hash->{helper}{"DUE_DATE"}{$taskID}=FmtDateTime(str2time($task->{due}{date}));
           }
           
           ## set responsible_uid if present
@@ -1038,7 +1039,7 @@ sub todoist_GetUsers($) {
       Log3 $name,5, "$name: hash: ".Dumper($hash);
       
       $param = {
-        url        => "https://todoist.com/api/v7/sync",
+        url        => "https://todoist.com/sync/v8/sync",
         data       => $data,
         timeout    => 7,
         method     => "POST",
@@ -1177,7 +1178,7 @@ sub todoist_GetProjects($) {
       Log3 $name,5, "$name: hash: ".Dumper($hash);
       
       $param = {
-        url        => "https://todoist.com/api/v7/sync",
+        url        => "https://todoist.com/sync/v8/sync",
         data       => $data,
         timeout    => 7,
         method     => "POST",
@@ -1922,8 +1923,10 @@ sub todoist_Html(;$$$) {
   
   my $r=0;
   
+  my $width = 95;
+  
   my $count = @devs;
-  my $width = 95/$count;
+  $width = $width/$count if ($count>=1);
   
   # refresh request? don't return everything
   if (!$refreshGet) {

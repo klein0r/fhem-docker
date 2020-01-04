@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_MAX.pm 16847 2018-06-10 18:42:19Z rudolfkoenig $
+# $Id: 10_MAX.pm 20434 2019-11-01 08:25:59Z rudolfkoenig $
 # Written by Matthias Gehre, M.Gehre@gmx.de, 2012-2013
 #
 package main;
@@ -220,7 +220,10 @@ MAX_ParseWeekProfile(@) {
       $hours[$j] = ($time_prof[$j] / 60 % 24);
       $minutes[$j] = ($time_prof[$j]%60);
       #if 00:00 reached, last point in profile was found
-      last if(int($hours[$j])==0 && int($minutes[$j])==0 );
+      if (int($hours[$j]) == 0 && int($minutes[$j]) == 0) {
+        $hours[$j] = 24;
+        last;
+      }
     }
     my $time_prof_str = "00:00";
     my $temp_prof_str;
@@ -502,12 +505,12 @@ MAX_Set($@)
         }
         my ($hour, $min);
         if($j + 1 == @controlpoints) {
-          $hour = 0; $min = 0;
+          $hour = 24; $min = 0;
         } else {
           ($hour, $min) = ($controlpoints[$j+1] =~ /^(\d{1,2}):(\d{1,2})$/);
         }
         my $temperature = $controlpoints[$j];
-        return "Invalid time: $controlpoints[$j+1]" if(!defined($hour) || !defined($min) || $hour > 23 || $min > 59);
+        return "Invalid time: $controlpoints[$j+1]" if(!defined($hour) || !defined($min) || $hour > 24 || $min > 59 || ($hour == 24 && $min > 0));
         return "Invalid temperature (Must be one of: off|on|5|5.5|6|6.5..30)" if(!validTemperature($temperature));
         $temperature = MAX_ParseTemperature($temperature); #replace "on" and "off" by their values
         $newWeekprofilePart .= sprintf("%04x", (int($temperature*2) << 9) | int(($hour * 60 + $min)/5));
@@ -659,7 +662,7 @@ MAX_Parse($$)
     my $dstsetting = vec($bits2, 3, 1); #is automatically switching to DST activated
     my $langateway = vec($bits2, 4, 1); #??
     my $panel = vec($bits2, 5, 1); #1 if the heating thermostat is locked for manually setting the temperature at the device
-    my $rferror = vec($bits2, 6, 1); #communication with link partner (what does that mean?)
+    my $rferror = vec($bits2, 6, 1); #communication with link partner - if device is not accessible over the air from the cube
     my $batterylow = vec($bits2, 7, 1); #1 if battery is low
 
     my $untilStr = defined($until3) ? MAX_ParseDateTime($until1,$until2,$until3)->{str} : "";
@@ -686,6 +689,8 @@ MAX_Parse($$)
     readingsBulkUpdate($shash, "mode", $ctrl_modes[$mode] );
     readingsBulkUpdate($shash, "battery", $batterylow ? "low" : "ok");
     readingsBulkUpdate($shash, "batteryState", $batterylow ? "low" : "ok"); # Forum #87575
+    readingsBulkUpdate($shash, "panel", $panel ? "locked" : "unlocked");
+    readingsBulkUpdate($shash, "rferror", $rferror ? "1" : "0");
     #The formatting of desiredTemperature must match with in MAX_Set:$templist
     #Sometime we get an MAX_Parse MAX,1,ThermostatState,01090d,180000000000, where desiredTemperature is 0 - ignore it
     readingsBulkUpdate($shash, "desiredTemperature", MAX_SerializeTemperature($desiredTemperature)) if($desiredTemperature != 0);
@@ -715,7 +720,7 @@ MAX_Parse($$)
       my $dstsetting = vec($bits2, 3, 1); #is automatically switching to DST activated
       my $langateway = vec($bits2, 4, 1); #??
       my $panel = vec($bits2, 5, 1); #1 if the heating thermostat is locked for manually setting the temperature at the device
-      my $rferror = vec($bits2, 6, 1); #communication with link partner (what does that mean?)
+      my $rferror = vec($bits2, 6, 1); #communication with link partner - if device is not accessible over the air from the cube
       my $batterylow = vec($bits2, 7, 1); #1 if battery is low
 
       my $untilStr = "";
@@ -733,6 +738,8 @@ MAX_Parse($$)
       readingsBulkUpdate($shash, "mode", $ctrl_modes[$mode] );
       readingsBulkUpdate($shash, "battery", $batterylow ? "low" : "ok");
       readingsBulkUpdate($shash, "batteryState", $batterylow ? "low" : "ok"); # Forum #87575
+      readingsBulkUpdate($shash, "panel", $panel ? "locked" : "unlocked");
+      readingsBulkUpdate($shash, "rferror", $rferror ? "1" : "0");
       readingsBulkUpdate($shash, "displayActualTemperature", ($displayActualTemperature) ? 1 : 0);
     } else {
       Log3 $hash, 2, "Invalid $msgtype packet"
@@ -762,6 +769,7 @@ MAX_Parse($$)
 
     readingsBulkUpdate($shash, "battery", $batterylow ? "low" : "ok");
     readingsBulkUpdate($shash, "batteryState", $batterylow ? "low" : "ok"); # Forum #87575
+    readingsBulkUpdate($shash, "rferror", $rferror ? "1" : "0");
     readingsBulkUpdate($shash,"onoff",$isopen);
 
   }elsif($msgtype eq "PushButtonState") {
@@ -775,6 +783,7 @@ MAX_Parse($$)
     readingsBulkUpdate($shash, "batteryState", $batterylow ? "low" : "ok"); # Forum #87575
     readingsBulkUpdate($shash, "onoff", $onoff);
     readingsBulkUpdate($shash, "connection", $gateway);
+    readingsBulkUpdate($shash, "rferror", $rferror ? "1" : "0");
 
   } elsif(grep /^$msgtype$/, ("HeatingThermostatConfig", "WallThermostatConfig")) {
     readingsBulkUpdate($shash, "ecoTemperature", MAX_SerializeTemperature($args[0]));

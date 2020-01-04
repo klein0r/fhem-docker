@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_dummy.pm 19585 2019-06-09 08:04:48Z rudolfkoenig $
+# $Id: 98_dummy.pm 20665 2019-12-06 11:05:35Z rudolfkoenig $
 package main;
 
 use strict;
@@ -63,7 +63,6 @@ dummy_Set($@)
     }
   };
   return if($doRet);
-  
 
   my $v = join(" ", @a);
   Log3 $name, 4, "dummy set $name $v";

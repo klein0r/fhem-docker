@@ -1,4 +1,4 @@
-# $Id: WMBus.pm 19247 2019-04-23 19:15:51Z kaihs $
+# $Id: WMBus.pm 20586 2019-11-25 18:30:30Z kaihs $
 
 package WMBus;
 
@@ -11,6 +11,8 @@ eval "use Crypt::Mode::CBC"; # cpan -i Crypt::Mode::CBC
 my $hasCBC = ($@)?0:1;
 eval "use Crypt::Mode::CTR"; # cpan -i Crypt::Mode::CTR
 my $hasCTR = ($@)?0:1;
+eval "use Digest::CMAC"; # cpan -i Digest::CMAC
+my $hasCMAC = ($@)?0:1;
 
 require Exporter;
 my @ISA = qw(Exporter);
@@ -45,7 +47,7 @@ use constant {
   CI_TL_4 => 0x8a,    # Transport layer from device, 4 Bytes
   CI_TL_12 => 0x8b,   # Transport layer from device, 12 Bytes
   CI_ELL_2 => 0x8c,   # Extended Link Layer, 2 Bytes
-  CI_ELL_6 => 0x8e,   # Extended Link Layer, 6 Bytes
+  CI_ELL_10 => 0x8e,  # Extended Link Layer, 10 Bytes
   CI_ELL_8 => 0x8d,   # Extended Link Layer, 8 Bytes (see https://www.telit.com/wp-content/uploads/2017/09/Telit_Wireless_M-bus_2013_Part4_User_Guide_r14.pdf, 2.3.4)
   CI_ELL_16 => 0x8f,  # Extended Link Layer, 16 Bytes (see https://www.telit.com/wp-content/uploads/2017/09/Telit_Wireless_M-bus_2013_Part4_User_Guide_r14.pdf, 2.3.4)
   CI_AFL => 0x90,     # Authentification and Fragmentation Layer, variable size
@@ -106,6 +108,13 @@ use constant {
   # see http://www.st.com/content/ccc/resource/technical/document/application_note/3f/fb/35/5a/25/4e/41/ba/DM00233038.pdf/files/DM00233038.pdf/jcr:content/translations/en.DM00233038.pdf
   FRAME_TYPE_A => 'A',
   FRAME_TYPE_B => 'B',
+  
+  # content type (CC bits of configuration field)
+  # stored in $self->{cw_parts}{content}
+  CONTENT_STANDARD => 0b00, #  Standard data message with unsigned variable meter data
+  CONTENT_STATIC   => 0b10, #  Static message (consists of parameter, OBIS definitions and other data points
+                            #  which are not frequently changed – see also 4.3.2.4).
+
   
 };
 
@@ -191,7 +200,19 @@ sub valueCalcHex($$) {
   my $value = shift;
   my $dataBlock = shift;
 
-  return sprintf("%x", $value);
+  return unpack("H*", $value);
+}
+
+sub valueCalcAscii($$) {
+  my $value = shift;
+  my $dataBlock = shift;
+
+  my $result = unpack('a*',$value);
+  
+  # replace non printable chars 
+  $result =~ s/[\x00-\x1f\x7f-\xff]/?/g;
+  
+  return $result;
 }
 
 sub valueCalcu($$) {
@@ -451,7 +472,7 @@ my %VIFInfo = (
     type         => 0b01111000,
     bias         => 0,
     unit         => '',
-    calcFunc     => \&valueCalcNumeric,
+    calcFunc     => \&valueCalcAscii,
   },
   VIF_OWNER_NO =>  {                          # Eigentumsnummer (used by Easymeter even though the standard allows this only for writing to a slave)
     typeMask     => 0b01111111,
@@ -554,7 +575,7 @@ my %VIFInfo_FD = (
     type         => 0b00001001,
     bias         => 0,
     unit         => '',
-    calcFunc     => \&valueCalcNumeric,
+    calcFunc     => \&valueCalcAscii,
   },
   VIF_MANUFACTURER  => {                  #  Manufacturer (as in fixed header)
     typeMask     => 0b01111111,
@@ -604,6 +625,57 @@ my %VIFInfo_FD = (
     unit         => '',
     calcFunc     => \&valueCalcNumeric,
   },
+  
+
+  VIF_CUSTOMER_LOCATION => {                    #  Customer location
+    typeMask     => 0b01111111,
+    expMask      => 0b00000000,
+    type         => 0b00010000,
+    bias         => 0,
+    unit         => '',
+    calcFunc     => \&valueCalcHex
+  },
+  VIF_CUSTOMER_CUSTOMER => {                    #  Customer
+    typeMask     => 0b01111111,
+    expMask      => 0b00000000,
+    type         => 0b00010001,
+    bias         => 0,
+    unit         => '',
+    calcFunc     => \&valueCalcHex
+  },
+  VIF_ACCESS_CODE_USER => {                    #  Access code user
+    typeMask     => 0b01111111,
+    expMask      => 0b00000000,
+    type         => 0b00010010,
+    bias         => 0,
+    unit         => '',
+    calcFunc     => \&valueCalcHex
+  },
+  VIF_ACCESS_CODE_OPERATOR => {                #  Access code operator
+    typeMask     => 0b01111111,
+    expMask      => 0b00000000,
+    type         => 0b00010011,
+    bias         => 0,
+    unit         => '',
+    calcFunc     => \&valueCalcHex
+  },
+  VIF_ACCESS_CODE_SYSTEM_OPERATOR => {        #  Access code system operator
+    typeMask     => 0b01111111,
+    expMask      => 0b00000000,
+    type         => 0b00010100,
+    bias         => 0,
+    unit         => '',
+    calcFunc     => \&valueCalcHex
+  },
+  VIF_PASSWORD => {                           #  Password
+    typeMask     => 0b01111111,
+    expMask      => 0b00000000,
+    type         => 0b00010110,
+    bias         => 0,
+    unit         => '',
+    calcFunc     => \&valueCalcHex
+  },
+ 
   VIF_ERROR_FLAGS => {                    #  Error flags (binary)
     typeMask     => 0b01111111,
     expMask      => 0b00000000,
@@ -958,6 +1030,9 @@ my %VIFInfo_ESY = (
     unit         => 'W',
     calcFunc     => \&valueCalcNumeric,
   },
+);
+
+my %VIFInfo_ESY2 = (
   VIF_ELECTRIC_POWER_PHASE_NO => {
     typeMask     => 0b01111110,
     expMask      => 0b00000000,
@@ -1197,6 +1272,7 @@ sub getCRCsize {
 
 sub decodeConfigword($) {
   my $self = shift;
+
   
   #printf("cw: %01x %01x\n", $self->{cw_1}, $self->{cw_2});
   $self->{cw_parts}{mode}             = ($self->{cw_2} & 0b00011111);
@@ -1209,10 +1285,13 @@ sub decodeConfigword($) {
     $self->{cw_parts}{content}          = ($self->{cw_1} & 0b00001100) >> 2;
     $self->{cw_parts}{repeated_access}  = ($self->{cw_1} & 0b00000010) >> 1;
     $self->{cw_parts}{hops}             = ($self->{cw_1} & 0b00000001);
-  } #elsif ($self->{cw_parts}{mode} == 7) {
-    # ToDo: wo kommt das dritte Byte her?
-  #  $self->{cw_parts}{mode}             = $self->{cw} & 0b0000111100000000 >> 8;
-  #}
+  } elsif ($self->{cw_parts}{mode} == 7) {
+    # configword ist 3 Bytes lang
+    $self->{cw_parts}{key_id}           = ($self->{cw_3} & 0b00001111);
+    $self->{cw_parts}{dynamic_key}      = ($self->{cw_3} & 0b01110000) >> 4;
+    $self->{cw_parts}{content}          = ($self->{cw_2} & 0b11000000) >> 6;
+    $self->{cw_parts}{encrypted_blocks} = ($self->{cw_1} & 0b11110000) >> 4;
+  }
 }
 
 sub decodeBCD($$$) {
@@ -1247,7 +1326,8 @@ sub findVIF($$$) {
       #printf "vifType $vifType VIF $vif typeMask $vifInfoRef->{$vifType}{typeMask} type $vifInfoRef->{$vifType}{type}\n"; 
     
       if (($vif & $vifInfoRef->{$vifType}{typeMask}) == $vifInfoRef->{$vifType}{type}) {
-        #printf " match vifType $vifType\n"; 
+        #printf " match vif %02x vifType %s\n", $vif, $vifType; 
+        $dataBlockRef->{vif} = $vif;
         
         $bias = $vifInfoRef->{$vifType}{bias};
         $dataBlockRef->{exponent} = $vif & $vifInfoRef->{$vifType}{expMask};
@@ -1309,6 +1389,9 @@ sub decodeValueInformationBlock($$$) {
     $vif = unpack('C', substr($vib,$offset++,1));
     $isExtension = $vif & VIF_EXTENSION_BIT;
     #printf("vif: %x isExtension %d\n", $vif, $isExtension);
+    if ($isExtension) {
+      $dataBlockRef->{vif} = $vif;
+    }
     
     # Is this an extension?
     last EXTENSION if (!$isExtension);
@@ -1340,8 +1423,10 @@ sub decodeValueInformationBlock($$$) {
       if ($self->{manufacturer} eq 'ESY') {
         # Easymeter
         $vif = unpack('C', substr($vib,$offset++,1));
+        #printf("ESY VIF %x\n", $vif);
         $vifInfoRef = \%VIFInfo_ESY;
       } elsif ($self->{manufacturer} eq 'KAM') {
+        # Kamstrup
         $vif = unpack('C', substr($vib,$offset++,1));
         $vifInfoRef = \%VIFInfo_KAM;       
       } else {
@@ -1357,7 +1442,8 @@ sub decodeValueInformationBlock($$$) {
       #print "other extension\n";
       $dataBlockExt = {};
       if ($self->{manufacturer} eq 'ESY') {
-        $vifInfoRef = \%VIFInfo_ESY;
+        #print "ESY\n";
+        $vifInfoRef = \%VIFInfo_ESY2;
         $dataBlockExt->{value} = unpack('C',substr($vib,2,1)) * 100;
       } else {
         $dataBlockExt->{value} = $vif;
@@ -1380,7 +1466,7 @@ sub decodeValueInformationBlock($$$) {
       # Plaintext VIF
       $offset = $self->decodePlaintext($vib, $dataBlockRef, $offset);
     } elsif (findVIF($vif, $vifInfoRef, $dataBlockRef) == 0) {
-      $dataBlockRef->{errormsg} = "unknown VIF " . sprintf("%x", $vifExtension) . " at offset " . ($offset-1);
+      $dataBlockRef->{errormsg} = "unknown VIFE " . sprintf("%x", $vifExtension) . " at offset " . ($offset-1);
       $dataBlockRef->{errorcode} = ERR_UNKNOWN_VIFE;    
     }
   }
@@ -1415,8 +1501,10 @@ sub decodeDataInformationBlock($$$) {
   my $storageNo = ($dif & 0b01000000) >> 6;
   my $functionField = ($dif & 0b00110000) >> 4;
   my $df = $dif & 0b00001111;
+  
+  $dataBlockRef->{dif} = $dif;
 
-  #printf("dif %x storage %d\n", $dif, $storageNo);
+  #printf("dif %02x storage %d\n", $dif, $storageNo);
   
   EXTENSION: while ($isExtension) {
     $dif = unpack('C', substr($dib,$offset,1));
@@ -1499,6 +1587,8 @@ sub decodePayload($$) {
     $offset += $self->decodeDataRecordHeader(substr($payload,$offset), $dataBlock);
     #printf("No. %d, type %x at offset %d\n", $dataBlockNo, $dataBlock->{dataField}, $offset-1);
     
+    # DIF_INT are _signed_ values
+    
     if ($dataBlock->{dataField} == DIF_NONE or $dataBlock->{dataField} == DIF_READOUT) {
       $dataBlockNo--;
       $offset++;
@@ -1518,24 +1608,28 @@ sub decodePayload($$) {
       $value = $self->decodeBCD(12, substr($payload,$offset,6));
       $offset += 6;
     } elsif ($dataBlock->{dataField} == DIF_INT8) {
-      $value = unpack('C', substr($payload, $offset, 1));
+      $value = unpack('c', substr($payload, $offset, 1));
       $offset += 1;
     } elsif ($dataBlock->{dataField} == DIF_INT16) {
-      $value = unpack('v', substr($payload, $offset, 2));
+      $value = unpack('s<', substr($payload, $offset, 2));
       $offset += 2;
     } elsif ($dataBlock->{dataField} == DIF_INT24) {
       my @bytes = unpack('CCC', substr($payload, $offset, 3));
       $offset += 3;
       $value = $bytes[0] + $bytes[1] << 8 + $bytes[2] << 16;
+      # two's complement
+      $value = ~$value + 1;
     } elsif ($dataBlock->{dataField} == DIF_INT32) {
-      $value = unpack('V', substr($payload, $offset, 4));
+      $value = unpack('l<', substr($payload, $offset, 4));
       $offset += 4;
     } elsif ($dataBlock->{dataField} == DIF_INT48) {
       my @words = unpack('vvv', substr($payload, $offset, 6));
       $value = $words[0] + ($words[1] << 16) + ($words[2] << 32);
+      # two's complement
+      $value = ~$value + 1;
       $offset += 6;
     } elsif ($dataBlock->{dataField} == DIF_INT64) {
-      $value = unpack('Q<', substr($payload, $offset, 8));
+      $value = unpack('q<', substr($payload, $offset, 8));
       $offset += 8;
     } elsif ($dataBlock->{dataField} == DIF_FLOAT32) {
       #not allowed according to wmbus standard, Qundis seems to use it nevertheless
@@ -1552,19 +1646,11 @@ sub decodePayload($$) {
           #print "VALUE: " . $value . "\n";
         } else {
           #  ASCII string with LVAR characters
-          $value = unpack('a*',substr($payload, $offset, $lvar));
+          $value = valueCalcAscii(substr($payload, $offset, $lvar), $dataBlock);
           
-          # check if value only contains printable chars 
-          if(($value =~ tr/\x20-\x7d//c) == 0) {
-          
-            if ($self->{manufacturer} eq 'ESY') {
-              # Easymeter stores the string backwards!
-              $value = reverse($value);
-            }
-          } else {
-            $self->{errormsg} = "Non printable ASCII in LVAR";
-            $self->{errorcode} = ERR_UNKNOWN_DATAFIELD;
-            return 0;
+          if ($self->{manufacturer} eq 'ESY') {
+            # Easymeter stores the string backwards!
+            $value = reverse($value);
           }
         }
         $offset += $lvar;
@@ -1603,12 +1689,13 @@ sub decodePayload($$) {
     
     my $VIFExtensions = $dataBlock->{VIFExtensions};
     for my $VIFExtension (@$VIFExtensions) {
-      $dataBlock->{extension} = $VIFExtension->{unit};
+      $dataBlock->{extension_unit} = $VIFExtension->{unit};
+      #printf("extension unit %s\n", $dataBlock->{extension_unit});
       if (defined $VIFExtension->{calcFunc}) {
         #printf("Extension value %d, valueFactor %d\n", $VIFExtension->{value}, $VIFExtension->{valueFactor});
-        $dataBlock->{extension} .= ", " . $VIFExtension->{calcFunc}->($VIFExtension->{value}, $dataBlock); 
+        $dataBlock->{extension_value} = $VIFExtension->{calcFunc}->($VIFExtension->{value}, $dataBlock); 
       } elsif (defined $VIFExtension->{value}) {
-        $dataBlock->{extension} .= ", " . sprintf("%x",$VIFExtension->{value});
+        $dataBlock->{extension_value} = sprintf("%x",$VIFExtension->{value});
       } else {
         #$dataBlock->{extension} = "";
       }
@@ -1622,7 +1709,7 @@ sub decodePayload($$) {
   return 1;
 }
 
-sub decrypt($) {
+sub decrypt_mode5($) {
   my $self = shift;
   my $encrypted = shift;
   my $padding = 2;
@@ -1647,105 +1734,55 @@ sub decrypt($) {
 sub decrypt_mode7($) {
   my $self = shift;
   my $encrypted = shift;
+  my $padding = 2;
+  my $identno;
+  
+  # generate dynamic key
+  my $cmac = Digest::CMAC->new($self->{aeskey});
+  #my $cmac = Digest::CMAC->new(pack("H*",'000102030405060708090A0B0C0D0E0F'));
+  
+  # The calculation of Kenc and Kmac for the meter:
+  # Kenc = CMAC(MK, 0x00 ||C[7..0] ||C[15..8] ||C[23..16] ||C[31..24] ||ID_0||ID_1||ID_2||ID_3||0x07||0x07||0x07||0x07||0x07||0x07||0x07)
+  # Where C[7..0] is the LSB and C[31..24] is the MSB (Big Endian) of the counter AFL.MCR.C from meter to other (gateway).
+  
+  $cmac->add(pack("H*", "00"));
+  
+  #$self->{afl}{mcr} = pack("H*", "b30a0000");
+  $cmac->add($self->{afl}{mcr});
+  #print "MCR " . unpack("H*", $self->{afl}{mcr}) . "\n";
+  if (exists($self->{meter_id_raw})) {
+    $identno =  $self->{meter_id_raw};
+  } else {
+    $identno = $self->{afield_identno};  
+  }
+  #print "identno " . unpack("H*", $identno) . "\n";
+  $cmac->add($identno);
+  $cmac->add(pack("H*", "07070707070707"));
+  #$cmac->add(pack("H*",'7856341207070707070707'));
+  
+  
+  
+  my $key = $cmac->digest;
+  
+  #printf("Dynamic key %s\n", $cmac->hexdigest);
   
   # see 9.2.4, page 59      
   my $initVector = '';
   for (1..16) {
     $initVector .= pack('C',0x00);
   }
-  my $cipher = Crypt::Mode::CBC->new('AES', 2);
-  return $cipher->decrypt($encrypted, $self->{aeskey}, $initVector);
+  if (length($encrypted)%16 == 0) {
+    # no padding if data length is multiple of blocksize
+    $padding = 0;
+  } else {
+    $padding = 2;
+  }  
+  
+  #$encrypted = pack("H*","9058475F4BC91DF878B80A1B0F98B629024AAC727942BFC549233C0140829B93");
+  #print unpack("H*", $encrypted) . "\n";
+  my $cipher = Crypt::Mode::CBC->new('AES', $padding);
+  return $cipher->decrypt($encrypted, $key, $initVector);
 }
-
-# Generate MAC of data
-#
-# Parameter 1: private key as byte string, 16bytes
-# Parameter 2: data fro which mac should be calculated in hexadecimal format, len variable
-# Parameter 3: length of MAC to be generated in bytes
-#
-# Returns: MAC in hexadecimal format
-#
-# This function currently supports data with lentgh of less then 16bytes,
-# MAC for longer data is untested but specified
-#
-# copied from 10_EnOcean.pm
-sub generateMAC($$$$) {
-  my $self = shift;
-	my $private_key = $_[0];
-	my $data = $_[1];
-	my $cmac_len = $_[2];
-
-	#print "Calculating MAC for data $data\n";
-
-	# Pack data to 16byte byte string, padd with 10..0 binary
-	my $data_expanded = pack('H32', $data.'80');
-
-	#print "Exp. data  ".unpack('H32', $data_expanded)."\n";
-
-	# Constants according to specification
-	my $const_zero = pack('H32','00');
-	my $const_rb = pack('H32', '00000000000000000000000000000087');
-
-	# Encrypt zero data with private key to get L
-	my $cipher = Crypt::Rijndael->new($private_key);
-  my $l = $cipher->encrypt($const_zero);
-	#print "L          ".unpack('H32', $l)."\n";
-	#print "L          ".unpack('B128', $l)."\n";
-
-	# Expand L to 128bit string
-	my $l_bit = unpack('B128', $l);
-
-	# K1 and K2 stored as 128bit string
-	my $k1_bit;
-	my $k2_bit;
-
-	# K1 and K2 as binary
-	my $k1;
-	my $k2;
-
-	# Store L << 1 in K1
-	$l_bit =~ /^.(.{127})/;
-	$k1_bit = $1.'0';
-	$k1 = pack('B128', $k1_bit);
-
-	# If MSB of L == 1, K1 = K1 XOR const_Rb
-	if($l_bit =~ m/^1/) {
-		#print "MSB of L is set\n";
-		$k1 = $k1 ^ $const_rb;
-		$k1_bit = unpack('B128', $k1);
-	} else {
-		#print "MSB of L is unset\n";
-	}
-
-	# Store K1 << 1 in K2
-	$k1_bit =~ /^.(.{127})/;
-	$k2_bit = $1.'0';
-	$k2 = pack('B128', $k2_bit);
-
-	# If MSB of K1 == 1, K2 = K2 XOR const_Rb
-	if($k1_bit =~ m/^1/) {
-		#print "MSB of K1 is set\n";
-		$k2 = $k2 ^ $const_rb;
-	} else {
-		#print "MSB of K1 is unset\n";
-	}
-
-	# XOR data with K2
-	$data_expanded ^= $k2;
-
-	# Encrypt data
-	my $cmac = $cipher->encrypt($data_expanded);
-
-	#print "CMAC ".unpack('H32', $cmac)."\n";
-
-	# Extract specified len of MAC
-	my $cmac_pattern = '^(.{'.($cmac_len * 2).'})';
-	unpack('H32', $cmac) =~ /$cmac_pattern/;
-
-	# Return MAC in hexadecimal format
-	return uc($1);
-}
-
 
 sub decodeAFL($$) {
   my $self = shift;
@@ -1766,16 +1803,18 @@ sub decodeAFL($$) {
   if ($self->{afl}{fcl_mclp}) {
     # AFL Message Control Field (AFL.MCL)
     $self->{afl}{mcl} = unpack('C', substr($afl, $offset, 1));
+    #printf "AFL MCL %01x\n", $self->{afl}{mcl};
     $offset += 1;
     $self->{afl}{mcl_mlmp} = ($self->{afl}{mcl} & 0b01000000) != 0; 
     $self->{afl}{mcl_mcmp} = ($self->{afl}{mcl} & 0b00100000) != 0; 
     $self->{afl}{mcl_kimp} = ($self->{afl}{mcl} & 0b00010000) != 0; 
-    $self->{afl}{mcl_at}   = ($self->{afl}{mcl} & 0b00001111); 
+    $self->{afl}{mcl_at}   = ($self->{afl}{mcl} & 0b00001100) >> 2; 
+    $self->{afl}{mcl_ato}  = ($self->{afl}{mcl} & 0b00000011); 
   }
   if ($self->{afl}{fcl_mcrp}) {
     # AFL Message Counter Field (AFL.MCR)
-    $self->{afl}{mcr} = unpack('V', substr($afl, $offset));
-    #printf "AFL MC %08x\n", $self->{afl}{mcr};
+    #$self->{afl}{mcr} = unpack('N', substr($afl, $offset));
+    $self->{afl}{mcr} = substr($afl, $offset, 4);
     $offset += 4;
   }
   if ($self->{afl}{fcl_mlp}) {
@@ -1783,23 +1822,16 @@ sub decodeAFL($$) {
     $self->{afl}{ml} = unpack('v', substr($afl, $offset));
     $offset += 2;
   }
-  if ($self->{afl}{fcl_macp}) {
-    # AFL MAC Field (AFL.MCL)
-    # The length of the MAC field depends on the selected option AFL.MCL.AT indicated by the
-    # AFL.MCL field.
+  if ($self->{afl}{mcl_at} == 1) {
+    # CMAC-AES128 (see 9.3.1)
     my $mac_len = 0;
-    if ($self->{afl}{mcl_at} == 4) {
-      $mac_len = 4;
-      $self->{afl}{mac} = unpack('N', substr($afl, $offset, $mac_len));
-    } elsif ($self->{afl}{mcl_at} == 5) { 
+    if ($self->{afl}{mcl_ato} == 1) {
       $mac_len = 8;
       $self->{afl}{mac} = (unpack('N', substr($afl, $offset, 4))) << 32 | ((unpack('N', substr($afl, $offset+4, 4))));
-    } elsif ($self->{afl}{mcl_at} == 6) { 
-      $mac_len = 12;
-    } elsif ($self->{afl}{mcl_at} == 7) { 
-      $mac_len = 16;
+      #printf "AFL MAC %8x\n", $self->{afl}{mac};
+    } else {
+      # reserved
     }
-    #printf "AFL MAC %16x\n", $self->{afl}{mac};
     $offset += $mac_len;
   }
   if ($self->{afl}{fcl_kip}) {
@@ -1813,6 +1845,59 @@ sub decodeAFL($$) {
   return $offset;
 }
 
+sub decodeCompactFrame($$)
+{
+  my $self = shift;
+  my $compact = shift;
+  my $applicationlayer = "";
+
+  # VIF depends on the resolution of the volume register
+  # 13 = 3 decimals
+  # 14 = 2 decimals
+  # 15 = 1 decimal
+  # 16 = 0 decimals
+  # functionField part of DIF is also variable, at least for temperatures
+  # all in all that would be 4 * 4 (for vif) * 4 * 4 (for dif) * 3 (type of telegram) combinations (768)
+  # for now only search for those that are documented or habe been observed in real telegrams
+  for my $vif  ("13","14","15","16") { 
+    #printf("compact frame $vif\n");
+    if ($self->{format_signature} == $self->calcCRC(pack("H*", "02FF20" . "04$vif" . "44$vif"))) {
+      # Info, Volume, Target Volume
+      # convert into full frame
+      $applicationlayer =   pack("H*", "02FF20") . substr($compact, 5, 2) # Info
+                          . pack("H*", "04$vif") . substr($compact,7,4) # volume
+                          . pack("H*", "44$vif") . substr($compact,11,4); # target volume 
+      last;
+    } elsif ($self->{format_signature} == $self->calcCRC(pack("H*", "02FF20" . "04$vif" . "523B"))) {
+      # Info, Volume, Max flow
+      # convert into full frame
+      $applicationlayer =   pack("H*", "02FF20") . substr($compact, 5, 2) # Info
+                          . pack("H*", "04$vif") . substr($compact,7,4) # volume
+                          . pack("H*", "523B") . substr($compact,11,2); # max flow 
+      last;
+    } elsif ($self->{format_signature} == $self->calcCRC(pack("H*", "02FF20" . "04$vif" . "44$vif" . "615B" . "6167"))) {
+      # Info, Volume, Max flow, min flow temp, max external temp
+      # convert into full frame
+      $applicationlayer =   pack("H*", "02FF20") . substr($compact, 5, 2) # Info
+                          . pack("H*", "04$vif") . substr($compact,7,4) # volume
+                          . pack("H*", "44$vif") . substr($compact,11,4) # target volume 
+                          . pack("H*", "615B") . substr($compact,15,1) # flow temp 
+                          . pack("H*", "6167") . substr($compact,16,1); # external temp
+      last;
+    } elsif ($self->{format_signature} == $self->calcCRC(pack("H*", "02FF20" . "04$vif" . "44$vif" . "615B" . "5167"))) {
+      # Info, Volume, Max flow, min flow temp, max external temp
+      # convert into full frame
+      $applicationlayer =   pack("H*", "02FF20") . substr($compact, 5, 2) # Info
+                          . pack("H*", "04$vif") . substr($compact,7,4) # volume
+                          . pack("H*", "44$vif") . substr($compact,11,4) # target volume 
+                          . pack("H*", "615B") . substr($compact,15,1) # flow temp 
+                          . pack("H*", "5167") . substr($compact,16,1); # external temp
+      last;
+    }
+  }
+  return $applicationlayer;
+}
+
 sub decodeApplicationLayer($) {
   my $self = shift;
   my $applicationlayer = $self->{applicationlayer};
@@ -1820,6 +1905,7 @@ sub decodeApplicationLayer($) {
   
   #print unpack("H*", $applicationlayer) . "\n";
   
+  $self->{isEncrypted} = 0;
   if ($self->{errorcode} != ERR_NO_ERROR) {
     # CRC check failed
     return 0;
@@ -1827,15 +1913,22 @@ sub decodeApplicationLayer($) {
   $self->{cifield} = unpack('C', $applicationlayer);
 
   my $offset = 1;
+  my $has_ell = 1;
 
   if ($self->{cifield} == CI_ELL_2) {
     # Extended Link Layer
     ($self->{ell}{cc}, $self->{ell}{access_no}) = unpack('CC', substr($applicationlayer,$offset));
     $offset += 2;
-  } elsif ($self->{cifield} == CI_ELL_6) {
-    # Extended Link Layer
+  } elsif ($self->{cifield} == CI_ELL_10) {
+    # Extended Link Layer (long)
     ($self->{ell}{cc}, $self->{ell}{access_no}) = unpack('CC', substr($applicationlayer,$offset));
-    $offset += 6;
+    $offset += 2;
+    $self->{ell}{manufacturer} = substr($applicationlayer,$offset, 2);
+    $offset += 2;
+    $self->{ell}{identno} = substr($applicationlayer,$offset, 4);
+    $offset += 4;
+    ($self->{ell}{version},$self->{ell}{device}) = unpack('CC', substr($applicationlayer,$offset));
+    $offset += 2;
   } elsif ($self->{cifield} == CI_ELL_8) {
     # Extended Link Layer, payload CRC is part of (encrypted) payload
     ($self->{ell}{cc}, $self->{ell}{access_no}, $self->{ell}{session_number}) = unpack('CCV', substr($applicationlayer, $offset));
@@ -1844,9 +1937,11 @@ sub decodeApplicationLayer($) {
     # Extended Link Layer
     ($self->{ell}{cc}, $self->{ell}{access_no}, $self->{ell}{m2}, $self->{ell}{a2}, $self->{ell}{session_number}) = unpack('CCvC6V', substr($applicationlayer,$offset));
     $offset += 14;
+  } else {
+    $has_ell = 0;
   }
   
-  if (exists($self->{ell})) {
+  if (exists($self->{ell}{session_number})) {
     $self->{ell}{session_number_enc} = $self->{ell}{session_number} >> 29;
     $self->{ell}{session_number_time} = ($self->{ell}{session_number} & 0b0001111111111111111111111111111) >> 4;
     $self->{ell}{session_number_session} = $self->{ell}{session_number} & 0b1111;
@@ -1920,29 +2015,33 @@ sub decodeApplicationLayer($) {
   # initialize some fields
   $self->{cw_1} = 0;
   $self->{cw_2} = 0;
+  $self->{cw_3} = 0;
   $self->{status} = 0;
   $self->{statusstring} = "";
   $self->{access_no} = 0;
   $self->{sent_from_master} = 0;
-  $self->{isEncrypted} = 0;
   
   #printf("CI Field %02x\n", $self->{cifield});
   
+  # Config Word ist normalerweise 2 Bytes lang, nur bei encryption mode 7 drei Bytes
+  # erstmal drei Bytes auslesen, aber den Offset nur um 2 Bytes erhöhen
+  
   if ($self->{cifield} == CI_RESP_4 || $self->{cifield} == CI_RESP_SML_4) {
     # Short header
-    ($self->{access_no}, $self->{status}, $self->{cw_1}, $self->{cw_2}) = unpack('CCCC', substr($applicationlayer,$offset));
+    ($self->{access_no}, $self->{status}, $self->{cw_1}, $self->{cw_2}, $self->{cw_3}) = unpack('CCCCC', substr($applicationlayer,$offset));
     #printf("Short header access_no %x\n", $self->{access_no});
     $offset += 4;
   } elsif ($self->{cifield} == CI_RESP_12 || $self->{cifield} == CI_RESP_SML_12) {
     # Long header
-    ($self->{meter_id}, $self->{meter_man}, $self->{meter_vers}, $self->{meter_dev}, $self->{access_no}, $self->{status}, $self->{cw_1}, $self->{cw_2}) 
-      = unpack('VvCCCCCC', substr($applicationlayer,$offset)); 
-    $self->{meter_id} = sprintf("%08d", $self->{meter_id});  
+    $self->{meter_id_raw} = substr($applicationlayer,$offset,4);
+    ($self->{meter_man}, $self->{meter_vers}, $self->{meter_dev}, $self->{access_no}, $self->{status}, $self->{cw_1}, $self->{cw_2}, $self->{cw_3}) 
+      = unpack('vCCCCCCC', substr($applicationlayer,$offset+4)); 
+    $self->{meter_id} = sprintf("%08d", unpack('V', $self->{meter_id_raw}));  
     $self->{meter_devtypestring} =  $validDeviceTypes{$self->{meter_dev}} || 'unknown'; 
     $self->{meter_manufacturer} = uc($self->manId2ascii($self->{meter_man}));
     #printf("Long header access_no %x\n", $self->{access_no});
     $offset += 12;
-  } elsif ($self->{cifield} == CI_RESP_0) {
+  } elsif ($self->{cifield} == CI_RESP_0 || $self->{cifield} == 0x30) {
     # no header
     #print "No header\n";
 
@@ -1952,33 +2051,13 @@ sub decodeApplicationLayer($) {
     $offset += 2;
     $self->{full_frame_payload_crc} = unpack("v", substr($applicationlayer, $offset, 2));
     $offset += 2;
-    if ($self->{format_signature} == $self->calcCRC(pack("H*", "02FF20" . "0413" . "4413"))) {
-      # Info, Volume, Target Volume
-      # convert into full frame
-      $applicationlayer =   pack("H*", "02FF20") . substr($applicationlayer, 5, 2) # Info
-                          . pack("H*", "0413") . substr($applicationlayer,7,4) # volume
-                          . pack("H*", "4413") . substr($applicationlayer,11,4); # target volume 
-      $offset = 0;
-    } elsif ($self->{format_signature} == $self->calcCRC(pack("H*", "02FF20" . "0413" . "523B"))) {
-      # Info, Volume, Max flow
-      # convert into full frame
-      $applicationlayer =   pack("H*", "02FF20") . substr($applicationlayer, 5, 2) # Info
-                          . pack("H*", "0413") . substr($applicationlayer,7,4) # volume
-                          . pack("H*", "523B") . substr($applicationlayer,11,2); # max flow 
-      $offset = 0;
-    } elsif ($self->{format_signature} == $self->calcCRC(pack("H*", "02FF20" . "0413" . "4413" . "615B" . "6167"))) {
-      # Info, Volume, Max flow, flow temp, external temp
-      # convert into full frame
-      $applicationlayer =   pack("H*", "02FF20") . substr($applicationlayer, 5, 2) # Info
-                          . pack("H*", "0413") . substr($applicationlayer,7,4) # volume
-                          . pack("H*", "4413") . substr($applicationlayer,11,4) # target volume 
-                          . pack("H*", "615B") . substr($applicationlayer,15,1) # flow temp 
-                          . pack("H*", "6167") . substr($applicationlayer,16,1); # external temp
-      $offset = 0;
-    } else {
+    $applicationlayer = $self->decodeCompactFrame($applicationlayer);
+    if ($applicationlayer eq "") {
       $self->{errormsg} = 'Unknown Kamstrup compact frame format';
       $self->{errorcode} = ERR_UNKNOWN_COMPACT_FORMAT;
       return 0;
+    } else {
+      $offset = 0;
     }
     if ($self->{full_frame_payload_crc} != $self->calcCRC($applicationlayer)) {
       $self->{errormsg} = 'Kamstrup compact frame format payload CRC error';
@@ -2012,7 +2091,7 @@ sub decodeApplicationLayer($) {
       $self->{decrypted} = 1;
     }
     $payload = substr($applicationlayer, $offset);
-  } elsif ($self->{cw_parts}{mode} == 5) {
+  } elsif ($self->{cw_parts}{mode} == 5 || $self->{cw_parts}{mode} == 7) {
     # data is encrypted with AES 128, dynamic init vector
     # decrypt data before further processing
     $self->{isEncrypted} = 1;
@@ -2020,24 +2099,42 @@ sub decodeApplicationLayer($) {
 
     if ($self->{aeskey}) { 
       if ($hasCBC) {
+        # payload can be only partially encrypted.
+        # decrypt only the encrypted part
         my $encrypted_length = $self->{cw_parts}{encrypted_blocks} * 16;
-        #printf("encrypted payload %s\n", unpack("H*", substr($applicationlayer,$offset, $encrypted_length)));
-        eval {
-          $payload = $self->decrypt(substr($applicationlayer, $offset, $encrypted_length)) 
-            . substr($applicationlayer, $offset+$encrypted_length);
-        };
+        if ($self->{cw_parts}{mode} == 5) {
+          #printf("encrypted payload %s\n", unpack("H*", substr($applicationlayer,$offset, $encrypted_length)));
+          eval {
+            $payload = $self->decrypt_mode5(substr($applicationlayer, $offset, $encrypted_length)); 
+          };
+        } else {
+          # mode 7
+          if ($hasCMAC) {
+            $offset++; # account for codeword byte 3
+            #printf("encrypted payload %s\n", unpack("H*", substr($applicationlayer,$offset, $encrypted_length)));
+            eval {
+              $payload = $self->decrypt_mode7(substr($applicationlayer, $offset, $encrypted_length)); 
+            }
+          } else {
+            $self->{errormsg} = 'Digest::CMAC is not installed, please install it (sudo cpan -i Digest::CMAC)';
+            $self->{errorcode} = ERR_CIPHER_NOT_INSTALLED;
+            return 0;          
+          }
+        }
         if ($@) {
           #fatal decryption error occurred
-          $self->{errormsg} = "fatal decryption error: $@";
+          $self->{errormsg} = "fatal decryption error for mode " . $self->{cw_parts}{mode} . ": $@";
           $self->{errorcode} = ERR_DECRYPTION_FAILED;
           return 0;
         }
+        # add unencrypted payload 
+        $payload .= substr($applicationlayer, $offset+$encrypted_length);
         #printf("decrypted payload %s\n", unpack("H*", $payload));
         if (unpack('n', $payload) == 0x2f2f) {
           $self->{decrypted} = 1;
         } else {
           # Decryption verification failed
-          $self->{errormsg} = 'Decryption failed, wrong key?';
+          $self->{errormsg} = sprintf('Decryption mode %d failed, wrong key?', $self->{cw_parts}{mode});
           $self->{errorcode} = ERR_DECRYPTION_FAILED;
           #printf("%x\n", unpack('n', $payload));
           return 0;
@@ -2052,7 +2149,6 @@ sub decodeApplicationLayer($) {
       $self->{errorcode} = ERR_NO_AESKEY;
       return 0;
     }
-
   } else {
     # error, encryption mode not implemented
     $self->{errormsg} = sprintf('Encryption mode %x not implemented', $self->{cw_parts}{mode});
@@ -2077,6 +2173,7 @@ sub decodeLinkLayer($$)
 {
   my $self = shift;
   my $linklayer = shift;
+  #print "decodeLinkLayer\n";
 
   if (length($linklayer) < TL_BLOCK_SIZE + $self->{crc_size}) {
     $self->{errormsg} = "link layer too short";
@@ -2085,12 +2182,14 @@ sub decodeLinkLayer($$)
   }
   ($self->{lfield}, $self->{cfield}, $self->{mfield}) = unpack('CCv', $linklayer);
   $self->{afield} = substr($linklayer,4,6);
+  $self->{afield_identno} = substr($self->{afield}, 0, 4);
   $self->{afield_id} = sprintf("%08d", $self->decodeBCD(8,substr($linklayer,4,4)));
   ($self->{afield_ver}, $self->{afield_type}) = unpack('CC', substr($linklayer,8,2));
   
   #printf("lfield %d\n", $self->{lfield});
 
   if ($self->{frame_type} eq FRAME_TYPE_A) {
+    #print "FRAME TYPE A\n";
     if ($self->{crc_size} > 0) {
       $self->{crc0} = unpack('n', substr($linklayer,TL_BLOCK_SIZE, $self->{crc_size}));
     
@@ -2110,8 +2209,9 @@ sub decodeLinkLayer($$)
     $self->{datablocks}++ if $self->{datalen} % LL_BLOCK_SIZE != 0;
     $self->{msglen} = TL_BLOCK_SIZE + $self->{crc_size} + $self->{datalen} + $self->{datablocks} * $self->{crc_size};
       
-    #printf("calc len %d, actual %d\n", $self->{msglen}, length($self->{msg}));
+    #printf("calc len %d, actual %d crc_size %d\n", $self->{msglen}, length($self->{msg}), $self->{crc_size});
     $self->{applicationlayer} = $self->removeCRC(substr($self->{msg},TL_BLOCK_SIZE + $self->{crc_size}));
+    return 0 if $self->{errorcode};
   
   } else {
     # FRAME TYPE B
@@ -2119,6 +2219,7 @@ sub decodeLinkLayer($$)
     # first contains the header (TL_BLOCK), L field and trailing crc
     # L field is included in crc calculation
     # each following block contains only data and trailing crc
+    #print "FRAME TYPE B\n";
     if (length($self->{msg}) < $self->{lfield}) {
       $self->{errormsg} = "message too short, expected " . $self->{lfield} . ", got " . length($self->{msg}) . " bytes";
       $self->{errorcode} = ERR_MSG_TOO_SHORT;
@@ -2326,6 +2427,64 @@ sub parseApplicationLayer($)
   $self->{errormsg} = '';
   $self->{errorcode} = ERR_NO_ERROR;
   return $self->decodeApplicationLayer();
+}
+
+sub dumpResult($)
+{
+  my $self = shift;
+
+  if ($self->{linkLayerOk}) {
+      printf("Manufacturer %x %s\n", $self->{mfield}, $self->{manufacturer});
+      printf("IdentNumber %s\n", $self->{afield_id});
+      printf("Version %d\n", $self->{afield_ver});
+      printf("Type %x %s\n", $self->{afield_type}, $self->{typestring});
+      printf("IsEncrypted %d\n", $self->{isEncrypted});
+      
+      printf("Status: %x %s\n", $self->{status}, $self->{statusstring});
+      if ($self->{cw_parts}{mode} == 5) {
+        print "Codeword:\n";
+        print "bidirectional: ". $self->{cw_parts}{bidirectional} . "\n";
+        print "accessability: ". $self->{cw_parts}{accessability} . "\n";
+        print "synchronous: $self->{cw_parts}{synchronous}\n";
+        print "mode: $self->{cw_parts}{mode}\n";
+        print "encrypted_blocks: $self->{cw_parts}{encrypted_blocks}\n";
+        print "content: $self->{cw_parts}{content}\n";
+        print "hops: $self->{cw_parts}{hops}\n";
+      }
+  }  
+  
+  if ($self->{errorcode} == ERR_NO_ERROR) {
+    if ($self->{cifield} == CI_RESP_12) { 
+      printf("Meter Id %d\n", $self->{meter_id});
+      printf("Meter Manufacturer %x %s\n", $self->{meter_man}, $self->manId2ascii($self->{meter_man}));
+      printf("Meter Version %d\n", $self->{meter_vers});
+      printf("Meter Dev %x %s\n", $self->{meter_dev}, $self->type2string($self->{meter_dev}));
+      printf("Access No %d\n", $self->{access_no});
+      printf("Status %x\n", $self->{status});
+    }
+    
+    my $dataBlocks = $self->{datablocks};
+    my $dataBlock;
+    
+    for $dataBlock ( @$dataBlocks ) {
+      #if ( $dataBlock->{type} eq "MANUFACTURER SPECIFIC") {
+      #  print $dataBlock->{number} . " " . $dataBlock->{type} . "\n";
+      #} else {
+        print $dataBlock->{number} . ". StorageNo " . $dataBlock->{storageNo} . " " ;
+        print $dataBlock->{functionFieldText} . " ";
+        print $dataBlock->{type} . " " . $dataBlock->{value} . " " . $dataBlock->{unit};
+        if ($dataBlock->{errormsg}) {
+          print "(" . $dataBlock->{errormsg} . ")";
+        }
+        if (defined($dataBlock->{extension_unit})) {
+          print " [" . $dataBlock->{extension_unit} . ", " . $dataBlock->{extension_value} . "]";
+        }
+        print "\n";
+      #}
+    }  
+  } else {
+    printf("Error %d: %s\n", $self->{errorcode}, $self->{errormsg});
+  }
 }
 
 1;

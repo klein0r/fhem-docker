@@ -1,5 +1,5 @@
 ﻿###############################################################
-# $Id: 70_JSONMETER.pm 16716 2018-05-10 07:25:20Z tupol $
+# $Id: 70_JSONMETER.pm 20819 2019-12-23 23:07:57Z tupol $
 #
 #  70_JSONMETER.pm 
 #
@@ -208,7 +208,7 @@ JSONMETER_Define($$)
   #Reset temporary values
   $hash->{fhem}{jsonInterpreter} = "";
 
-  $hash->{fhem}{modulVersion} = '$Date: 2018-05-10 07:25:20 +0000 (Thu, 10 May 2018) $';
+  $hash->{fhem}{modulVersion} = '$Date: 2019-12-24 00:07:57 +0100 (Tue, 24 Dec 2019) $';
  
  return undef;
 } #end JSONMETER_Define
@@ -916,11 +916,10 @@ JSONMETER_doStatisticDeltaSingle ($$$$$$)
 1;
 
 =pod
-=begin html
-
-=item device
 =item summary reads OBIS data from measurement devices
 =item summary_DE liest OBIS Daten von Messgeräten
+=item device
+=begin html
 
 <a name="JSONMETER"></a>
 <h3>JSONMETER</h3>
