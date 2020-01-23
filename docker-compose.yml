@@ -63,6 +63,8 @@ services:
         environment:
             - MYSQL_ROOT_PASSWORD=KQW8JgZEDb4CpSMaz
             - MYSQL_DATABASE=fhem
+            - MYSQL_USER=fhemuser
+            - MYSQL_PASSWORD=2jRHnEi3WuNSQAcX7
         networks:
             - fhem-network
 
