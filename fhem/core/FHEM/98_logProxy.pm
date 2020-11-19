@@ -1,4 +1,4 @@
-# $Id: 98_logProxy.pm 17587 2018-10-22 07:18:30Z justme1968 $
+# $Id: 98_logProxy.pm 21142 2020-02-07 20:15:22Z justme1968 $
 ##############################################################################
 #
 #     This file is part of fhem.
@@ -1060,7 +1060,7 @@ logProxy_Get($@)
       $fld[1] = join( ':', @fld[1..@fld-1]);
       #my $fromsec = SVG_time_to_sec($from);
       #my $tosec   = SVG_time_to_sec($to);
-      my ($r,$min,$max,$last,$xmin,$xmax) = eval $fld[1];
+      my ($r,$min,$max,$last,$xmin,$xmax,$avg,$sum) = eval $fld[1];
       if( $@ ) {
         Log3 $hash->{NAME}, 1, "$hash->{NAME}: $fld[1]: $@";
         next;
@@ -1071,6 +1071,8 @@ logProxy_Get($@)
       $data{"currval$j"} = $last;
       $data{"xmin$j"} = $xmin;
       $data{"xmax$j"} = $xmax;
+      $data{"avg$j"} = $avg;
+      $data{"sum$j"} = $sum;
 
       $ret .= $r;
       $ret .= "#$a[$i]\n";

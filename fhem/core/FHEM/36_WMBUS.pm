@@ -1,7 +1,7 @@
 #
 #  kaihs@FHEM_Forum (forum.fhem.de)
 #
-# $Id: 36_WMBUS.pm 20084 2019-08-31 16:54:50Z kaihs $
+# $Id: 36_WMBUS.pm 21163 2020-02-09 18:41:03Z kaihs $
 #
 # 
 

@@ -2,7 +2,7 @@
 #
 # ControlPoint.pm
 #
-# $Id: ControlPoint.pm 18187 2019-01-08 22:01:47Z Reinerlein $
+# $Id: ControlPoint.pm 22400 2020-07-14 17:54:36Z Reinerlein $
 #
 # Now (in this version) part of Fhem.
 #
@@ -35,6 +35,7 @@ use IO::Select;
 use HTTP::Daemon;
 use HTTP::Headers;
 use LWP::UserAgent;
+use Time::HiRes qw(usleep gettimeofday);
 use UPnP::Common;
 
 use     vars qw($VERSION @ISA);
@@ -111,7 +112,11 @@ sub new {
 	$reuseport = 0 if (!defined($reuseport));
 
 	# Create the socket on which search requests go out
-    $self->{_searchSocket} = IO::Socket::INET->new(Proto => 'udp', LocalPort => $searchPort) || carp("Error creating search socket: $!\n");
+    $self->{_searchSocket} = IO::Socket::INET->new(Proto => 'udp',
+													Reuse => 1,
+													ReuseAddr => 1,
+													ReusePort => (defined(&ReusePort) ? 1 : 0),
+													LocalPort => $searchPort) || carp("Error creating search socket: $!\n");
 	setsockopt($self->{_searchSocket}, 
 			   IP_LEVEL,
 			   IP_MULTICAST_TTL,
@@ -120,9 +125,13 @@ sub new {
 
 	# Create the socket on which we'll listen for events to which we are
 	# subscribed.
-    $self->{_subscriptionSocket} = HTTP::Daemon->new(LocalPort => $subscriptionPort, Reuse=>1, Listen=>20) || carp("Error creating subscription socket: $!\n");
+    $self->{_subscriptionSocket} = HTTP::Daemon->new(LocalPort => $subscriptionPort, 
+														Reuse=>1,
+														ReuseAddr => 1,
+														ReusePort => (defined(&ReusePort) ? 1 : 0),
+														Listen=>20) || carp("Error creating subscription socket: $!\n");
 	$self->{_subscriptionURL} = $args{SubscriptionURL} || DEFAULT_SUBSCRIPTION_URL;
-	$self->{_subscriptionPort} = $self->{_subscriptionSocket}->sockport();;
+	$self->{_subscriptionPort} = $self->{_subscriptionSocket}->sockport();
 
 	# Create the socket on which we'll listen for SSDP Notifications.
 	# First try with ReusePort (if given as parameter)...
@@ -130,16 +139,18 @@ sub new {
 		$self->{_ssdpMulticastSocket} = IO::Socket::INET->new(
 														 Proto => 'udp',
 														 Reuse => 1,
-														 ReusePort => $reuseport,
+														 ReuseAddr => 1,
+														 ReusePort => (defined(&ReusePort) ? 1 : 0),
 														 LocalPort => SSDP_PORT) ||
-		croak("Error creating SSDP multicast listen socket: $!\n");
+		croak("Error creating SSDP multicast listen socket (1): $!\n");
 	};
-	if ($@ =~ /Your vendor has not defined Socket macro SO_REUSEPORT/i) {
+	if ($@ =~ /Your vendor has not defined Socket macro/i) {
 		$self->{_ssdpMulticastSocket} = IO::Socket::INET->new(
 														 Proto => 'udp',
 														 Reuse => 1,
+														 ReuseAddr => 1,
 														 LocalPort => SSDP_PORT) ||
-		croak("Error creating SSDP multicast listen socket: $!\n");
+		croak("Error creating SSDP multicast listen socket (2): $!\n");
 	} elsif($@) {
 		# Weiterwerfen...
 		croak($@);
@@ -447,13 +458,19 @@ sub _receiveSearchResponse {
 		# Bad header
 		return;
 	}
+	
+	my ($seconds, $microseconds) = gettimeofday();
+	my @t = localtime($seconds);
+	my $tim = sprintf("%04d.%02d.%02d %02d:%02d:%02d.%03d", $t[5]+1900,$t[4]+1,$t[3], $t[2],$t[1],$t[0], $microseconds / 1000);
+	
+    print $tim.' 5: ControlPoint: Receive Search-Response: "'.$buf.'"'."\n" if ($LogLevel >= 5);
 
         # Basic check to see if the response is actually for a search
         my $found = 0;
         foreach my $searchkey (keys %{$self->{_activeSearches}}) {
             my $search = $self->{_activeSearches}->{$searchkey};
             if ($search->{_type} && $buf =~ $search->{_type}) {
-            	print 'xxxx.xx.xx xx:xx:xx 5: ControlPoint: Accepted Search-Response: "'.$buf.'"'."\n" if ($LogLevel >= 5);
+            	print "$tim 5: ControlPoint: Accept Search-Response...\n" if ($LogLevel >= 5);
                 $found = 1;
                 last;
             }
@@ -471,7 +488,7 @@ sub _receiveSearchResponse {
         }
 
         if (! $found) {
-            print 'xxxx.xx.xx xx:xx:xx 5: ControlPoint: Unknown Search-Response: "'.$buf.'"'."\n" if ($LogLevel >= 5);
+            print "$tim 5: ControlPoint: Unknown Search-Response...\n" if ($LogLevel >= 5);
             return;
         } 
 
@@ -778,7 +795,7 @@ sub subscribe {
 		$request->header('Callback', '<' . $cp->subscriptionURL . '>');
 		$request->header('Timeout', 
 						 'Second-' . defined($timeout) ?  $timeout : 'infinite');
-		my $ua = LWP::UserAgent->new(timeout => 20);
+		my $ua = LWP::UserAgent->new(timeout => 5);
 		my $response = $ua->request($request);
 
 		if ($response->is_success) {
@@ -816,7 +833,7 @@ sub unsubscribe {
 	my $request = HTTP::Request->new('UNSUBSCRIBE', 
 									 "$url");
 	$request->header('SID', $subscription->SID);
-	my $ua = LWP::UserAgent->new(timeout => 20);
+	my $ua = LWP::UserAgent->new(timeout => 5);
 	my $response = $ua->request($request);
 	
 	if ($response->is_success) {
@@ -1127,21 +1144,24 @@ sub renew {
 	$request->header('Timeout', 
 					 'Second-' . defined($timeout) ? $timeout : 'infinite');
 
-	my $ua = LWP::UserAgent->new(timeout => 20);
+	my $ua = LWP::UserAgent->new(timeout => 5);
 	my $response = $ua->request($request);
 
 	if ($response->is_success) {
-		$timeout = $response->header('Timeout');
-		if ($timeout =~ /^Second-(\d+)$/) {
-			$timeout = $1;
+		if ($response->code == 200) {
+			$timeout = $response->header('Timeout');
+			if ($timeout =~ /^Second-(\d+)$/) {
+				$timeout = $1;
+			}
+	
+			$self->{_timeout} = $timeout;
+			$self->{_startTime} = Time::HiRes::time();
+		} else {
+			carp("Renewal of subscription successful but answered with error: " . $response->code . " " . $response->message);
 		}
-
-		$self->{_timeout} = $timeout;
-		$self->{_startTime} = Time::HiRes::time();
 	}
 	else {
-		carp("Renewal of subscription failed with error: " . 
-			 $response->code . " " . $response->message);
+		carp("Renewal of subscription failed with error: " . $response->code . " " . $response->message);
 	}
 	
 	return $self;

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_TCM.pm 19607 2019-06-13 08:06:53Z klaus.schauer $
+# $Id: 00_TCM.pm 22616 2020-08-17 16:09:25Z klaus.schauer $
 
 # This modules handles the communication with a TCM 120 or TCM 310 / TCM 400J /
 # TCM 515 EnOcean transceiver chip. As the protocols are radically different,
@@ -11,12 +11,8 @@
 package main;
 use strict;
 use warnings;
+use DevIo;
 use Time::HiRes qw(gettimeofday usleep);
-if( $^O =~ /Win/ ) {
-  require Win32::SerialPort;
-} else {
-  require Device::SerialPort;
-}
 sub TCM_Read($);
 sub TCM_ReadAnswer($$);
 sub TCM_Ready($);
@@ -28,7 +24,6 @@ sub TCM_CSUM($);
 
 sub TCM_Initialize($) {
   my ($hash) = @_;
-  require "$attr{global}{modpath}/FHEM/DevIo.pm";
 
 # Provider
   $hash->{ReadFn}  = "TCM_Read";
@@ -237,7 +232,7 @@ sub TCM_Fingerprint($$) {
 sub TCM_Write($$$$) {
   # Input is header and data (HEX), without CRC
   my ($hash, $shash, $header, $msg) = @_;
-  return if (!exists($hash->{helper}{init_done}) && $hash != $shash);
+  #return if (!exists($hash->{helper}{init_done}) && $hash != $shash);
   # return if (!defined($header));
   my $name = $hash->{NAME};
   my $bstring;

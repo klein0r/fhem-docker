@@ -195,7 +195,7 @@ source override values set in the configuration file.
 <a name="command"></a>
 <h3>FHEM command types</h3>
 <ul>
-There are three types of commands: "fhem" commands (described in this
+There are three types of commands: "FHEM" commands (described in this
 document), shell commands (they must be enclosed in double quotes ") and perl
 expressions (enclosed in curly brackets {}). shell commands or perl expressions
 are needed for complex <a href="#at">at</a> or <a href="#notify">notify</a>
@@ -251,6 +251,8 @@ href="#notify">notify</a> FHEM commands.<br>
 A line ending with \ will be concatenated with the next one, so long lines
 (e.g. multiple perl commands) can be split in multiple lines. Some web fronteds
 (e.g. webpgm2) make editing of multiline commands transparent for you (i.e. there is no need for \) .<br>
+Note: mixing command types (FHEM/shell/perl) on one line is not supported, even
+if it might work in some cases.
 <br>
 </ul>
 <!-- command end - diese Zeile nicht entfernen! -->
@@ -820,6 +822,8 @@ The following local attributes are used by a wider range of devices:
   or all attributes for a device (if no &lt;attrname&gt; is defined).
   See the <a href="#devspec">Device specification</a> section for details on
   &lt;devspec&gt;.<br>
+  &lt;attrname&gt; is in fact a regexp, complemented with ^ and $ as usual, so
+  a range of attributes can be deleted with one command.<br>
   After deleting the attribute, the global event "DELETEATTR" will be generated.
   <br>
 
@@ -1277,12 +1281,14 @@ The following local attributes are used by a wider range of devices:
 <a name="setreading"></a>
 <h3>setreading</h3>
 <ul>
-  <code>setreading &lt;devspec&gt; &lt;reading&gt; &lt;value&gt;</code>
+  <code>setreading &lt;devspec&gt; [YYYY-MM-DD HH:MM:SS] &lt;reading&gt;
+        &lt;value&gt;</code>
   <br><br>
   Set the reading &lt;reading&gt; for the device <code>&lt;name&gt;</code> to
   &lt;value&gt; without sending out commands to the device, but triggering
   events and eventMap/stateFormat transformations as usual. See the set
-  command documentation for replacement description.
+  command documentation for replacement description.<br>
+  If the timespec is omitted (default) the current time will be used.
   <br><br>
   Examples:
   <ul>
@@ -1310,6 +1316,10 @@ The following local attributes are used by a wider range of devices:
   <ul>
     setstate lamp on
   </ul>
+  Note: this command is also used to store the readings in the statefile, in
+  this case the timestamp will preceed the value. As a side-effect there is no
+  way to save a state correctly if it starts with a timestamp in the YYYY-MM-DD
+  HH:MM:SS form.
 </ul>
 <!-- setstate end -->
 
@@ -1370,7 +1380,7 @@ The following local attributes are used by a wider range of devices:
   &lt;regex&gt;. The delay can be given<ul>
   <li>in seconds, with millisecond accuracy, as you can specify decimal places,
   </li>
-  <li>as a timespec (HH:MM or HH::MM::SS or {perlfunc})</li>
+  <li>as a timespec (HH:MM or HH:MM:SS or {perlfunc})</li>
   <li>or as a regex (devicename or devicename:event)</li></ul><br>
 
   A sleep with an &lt;id&gt; will replace a sleep with the same &lt;id&gt;
@@ -1426,6 +1436,13 @@ The following local attributes are used by a wider range of devices:
 
   <b>Get</b><ul>N/A</ul><br>
 
+  <b>Internals</b>
+    <a name="init_errors"></a>
+    <li>init_errors<br>
+      contains configuration errors and security issues collected at FHEM
+      startup.
+    </li><br>
+
   <b>Attributes</b>
   <ul>
     <a name="altitude"></a>
@@ -1454,7 +1471,8 @@ The following local attributes are used by a wider range of devices:
     <li>autosave<br>
         enable some modules to automatically trigger save after a configuration
         change, e.g. after a new device was created. Default is 1 (true), you
-        can deactivate this feature by setting the value to 0.
+        can deactivate this feature by setting the value to 0. Configration
+        errors at startup automatically deactivate this value.
     </li>
 
     <a name="backupcmd"></a>
@@ -1503,7 +1521,8 @@ The following local attributes are used by a wider range of devices:
     <a name="blockingCallMax"></a>
     <li>blockingCallMax<br>
         Limit the number of parallel running processes started by the
-        BlockingCall FHEM helper routine. Useful on limited hardware.
+        BlockingCall FHEM helper routine. Useful on limited hardware, default
+        is 32. If the limit is reached, further calls are delayed.
     </li><br>
 
     <a name="configfile"></a>
@@ -1520,6 +1539,20 @@ The following local attributes are used by a wider range of devices:
         at the beginning, and the module documentation is loaded from FHEM
         dynamically.
     </li><br>
+
+    <a name="globaldisableFeatures"></a>
+    <li>disableFeatures <values><br>
+        comma separated list of values. Currently following values are
+        recognized:
+        <ul>
+          <li>attrTemplate: to avoid loading the AttrTemplates (which currently
+            consumes about 1MB of memory and needs some seconds to load on a
+            slow hardware)</li>
+          <li>securityCheck: to avoid checking if each Server port is secured
+            by password. May make sense to avoid warnings, if you know it
+            better.</li><br>
+        </ul>
+        </li>
 
     <a name="dnsHostsFile"></a>
     <li>dnsHostsFile<br>
@@ -1647,9 +1680,8 @@ The following local attributes are used by a wider range of devices:
     <li>motd<br>
         Message Of The Day. Displayed on the homescreen of the FHEMWEB package,
         or directly after the telnet logon, before displaying the fhem> prompt.
-        SecurityCheck is setting motd if it is not defined upon startup, to
-        avoid this set the motd value to none.  motd is also used to show
-        collected error messages upon FHEM start.
+        In addition, the content of the internal value init_errors will be
+        displayed. To avoid displaying messages set its value to none.
     </li><br>
 
     <a name="mseclog"></a>
@@ -1774,6 +1806,7 @@ The following local attributes are used by a wider range of devices:
     undefined device.</li>
     <li>MODIFIED &lt;defspec&gt;</br> after a device modification.</li>
     <li>UPDATE</br> after an update is completed.</li>
+    <li>CANNOT_FORK</br>if BlockingCall encounters this problem.</li>
   </ul>
 
 
@@ -1798,7 +1831,7 @@ The following local attributes are used by a wider range of devices:
       { `ls /etc` }<br>
       { Log 1, "Hello" }<br>
     </ul>
-    <br>
+    </li><br>
 
   <li>
     Perl expressions are separated by ;, in FHEM oneliners they have to
@@ -1806,7 +1839,7 @@ The following local attributes are used by a wider range of devices:
     <ul>
       { my $a = 1+1;; Log 1, "Hello $a" }
     </ul>
-    <br>
+    </li><br>
 
   <li>To use FHEM commands from the perl expression, use the function fhem(),
     which takes a string argument, this string will be evaluated as a FHEM
@@ -1818,8 +1851,7 @@ The following local attributes are used by a wider range of devices:
     Note: if this function returns a value, it will also be logged into the
     global FHEM log. Use 1 as a second argument to disable this logging, this
     makes sense when obtainig some values via FHEM "get...".
-    <br>
-    <br>
+    </li><br>
 
   <li>Notify can be used to store macros for manual execution. Use the <a
     href="#trigger">trigger</a> command to execute the macro:<br>
@@ -1829,7 +1861,7 @@ The following local attributes are used by a wider range of devices:
       define MacroWithArg notify MyMacro { Log 1, "Hello %"}<br>
       trigger MyMacro MyArg<br>
     </ul>
-    <br>
+    </li><br>
 
 
   <li>To make date and time handling easier, the variables $sec, $min, $hour,
@@ -1850,20 +1882,12 @@ The following local attributes are used by a wider range of devices:
     </ul>
     $we is equivalent to calling IsWe(), which optionally takes the arguments
     "today", "yesterday", "tomorrow", MM-DD or YYYY-MM-DD. Note: for everything
-    else "today" is assumed without an error message.<br>
-    <br>
+    else "today" is assumed without an error message.
+    </li><br>
 
   <li>
-    The following helper functions are defined in 99_Util.pm (which will
-    be loaded automatically, as every module with prefix 99):
-    <ul>
-      <li>min(a,b), max(a,b)</li>
-      <li>time_str2num("YYYY-MM-DD HH:MM:SS") returns a numerical value,
-          which makes computation of time differences easier</li>
-      <li>abstime2rel("HH:MM:SS") converts an absolute time to a relative one
-          </li>
-    </ul>
-    </li>
+    All helper functions defined in <a href="#Utils">99_Utils.pm</a><br>
+    </li><br>
 
   <li>
     To access the device states/attributes, use the following functions:
@@ -1939,7 +1963,7 @@ The following local attributes are used by a wider range of devices:
         Round id to &lt;round&gt; devimal places (optional parameter).
         </li><br>
       </ul>
-
+      </li><br>
 
   <li>
     By using the 99_SUNRISE_EL.pm module, you have access to the following
@@ -1951,9 +1975,8 @@ The following local attributes are used by a wider range of devices:
     </ul>
     offset is in seconds, and the format of min/max is "HH:MM" or "HH:MM:SS".
     isday returns 1 if the sun is visible, and 0 else.
-    </li>
+    </li><br>
 
-  <br>
   <br>
 <!-- perl end - diese Zeile nicht entfernen! -->
 

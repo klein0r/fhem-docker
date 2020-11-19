@@ -2,7 +2,7 @@
 #
 # BOSEST.pm (c) by Dominik Karall, 2016-2017
 # dominik karall at gmail dot com
-# $Id: 98_BOSEST.pm 18548 2019-02-09 22:01:52Z dominik $
+# $Id: 98_BOSEST.pm 21773 2020-04-25 17:30:30Z dominik $
 #
 # FHEM module to communicate with BOSE SoundTouch system
 # API as defined in BOSE SoundTouchAPI_WebServices_v1.0.1.pdf
@@ -389,7 +389,7 @@ sub BOSEST_Set($@) {
     my $list = "on:noArg off:noArg power:noArg play:noArg ".
                 "playPause:noArg ".
                 "mute:on,off,toggle recent source:".$hash->{helper}{supportedSourcesCmds}.
-                "shuffle:on,off repeat:all,one,off ".
+                " shuffle:on,off repeat:all,one,off ".
                 "nextTrack:noArg prevTrack:noArg playTrack speak speakOff ".
                 "playEverywhere:noArg stopPlayEverywhere:noArg createZone addToZone removeFromZone ".
                 "clock:enable,disable ".

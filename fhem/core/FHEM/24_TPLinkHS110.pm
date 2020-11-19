@@ -1,7 +1,7 @@
 ################################################################
-# $Id: 24_TPLinkHS110.pm 19532 2019-06-02 06:38:05Z vk $
+# $Id: 24_TPLinkHS110.pm 21645 2020-04-12 09:11:23Z vk $
 #
-#  Release 2019-05-31 SendCommand2
+#  Release 2020-04-12
 #
 #  Copyright notice
 #
@@ -175,7 +175,7 @@ sub TPLinkHS110_Get($$) {
 	my $errmsg;
 	my $data;
 
-	my $command = '{"system":{"get_sysinfo":{}}}';
+	my $command = '{"system":{"get_sysinfo":{}},"time":{"get_time":{}}}';
 	($errmsg, $data) = TPLinkHS110_SendCommand($hash, $command);
 	if (defined($errmsg)) {
 		Log3 $hash, 1, "TPLinkHS110: $name Get failed - " . $errmsg; # JV
@@ -206,6 +206,17 @@ sub TPLinkHS110_Get($$) {
 			}
 			$key = $hwMap{$hw_ver}{'system'}{'get_sysinfo'}{$key}{'name'}
 		}
+				
+		# next_action
+		if ($key eq "next_action") {
+			if ($sysinfoValue->{'type'} eq "1" ) {
+				# e.g. 12:34 on
+				$sysinfoValue = sprintf("%02i:%02i %s",int($sysinfoValue->{'schd_sec'} / 60 / 60),int($sysinfoValue->{'schd_sec'} / 60 % 60),($sysinfoValue->{'action'} eq "1" ? ' on' : " off" ));
+			} else {
+				$sysinfoValue = "-None-";
+			}
+		}
+		
 		readingsBulkUpdate($hash, $key, $sysinfoValue);
 	}
 	if ($json->{'system'}->{'get_sysinfo'}->{'relay_state'} == 0) {
@@ -214,6 +225,17 @@ sub TPLinkHS110_Get($$) {
 	if ($json->{'system'}->{'get_sysinfo'}->{'relay_state'} == 1) {
 		readingsBulkUpdate($hash, "state", "on");
 	}
+	
+	# Get Time
+	my $remotetime = $json->{'time'}->{'get_time'}->{'year'}."-";
+	$remotetime .= $json->{'time'}->{'get_time'}->{'month'}."-";
+	$remotetime .= $json->{'time'}->{'get_time'}->{'mday'}. " ";
+	$remotetime .= $json->{'time'}->{'get_time'}->{'hour'}.":";
+	$remotetime .= $json->{'time'}->{'get_time'}->{'min'}.":";
+	$remotetime .= $json->{'time'}->{'get_time'}->{'sec'};
+
+	readingsBulkUpdate($hash, "time", $remotetime);
+
 	# If the device is a HS110, get realtime data:
 	#  if ( 1 == 0 ) {
 	if ($json->{'system'}->{'get_sysinfo'}->{'model'} eq "HS110(EU)" or $json->{'system'}->{'get_sysinfo'}->{'model'} eq "HS110(UK)") {
@@ -239,7 +261,7 @@ sub TPLinkHS110_Get($$) {
 			return;
 		}
 		else {
-			Log3 $hash, 2, "TPLinkHS110: $name Realtime data updated";
+			Log3 $hash, 3, "TPLinkHS110: $name Realtime data updated";
 		}
 
 		my %emeterReadings = ();
@@ -263,7 +285,6 @@ sub TPLinkHS110_Get($$) {
 		}
 
 		Log3 $hash, 3, "TPLinkHS110: $name Device is an HS110. Got extra realtime data: $emeterReadings{'power'} Watt, $emeterReadings{'voltage'} Volt, $emeterReadings{'current'} Ampere";
-
 
 		# Get Daily Stats
 		$command = '{"emeter":{"get_daystat":{"month":' . $mon . ',"year":' . $year . '}}}';
@@ -302,7 +323,7 @@ sub TPLinkHS110_Get($$) {
 			if ($hw_ver eq "1.0") {readingsBulkUpdate($hash, "monthly_total", $total);}
 			if ($hw_ver eq "2.0") {readingsBulkUpdate($hash, "monthly_total", $total * 0.001);}
 			if ($count) {readingsBulkUpdate($hash, "daily_average", $total / $count)};
-			Log3 $hash, 2, "TPLinkHS110: $name Daystat updated";
+			Log3 $hash, 3, "TPLinkHS110: $name Daystat updated";
 		}
 		else {
 			Log3 $hash, 1, "TPLinkHS110: $name Error updating daystat. Success: " . $success . ", json: " . $json;
@@ -515,6 +536,17 @@ sub hwMapping {
 	$hwMap{'2.0'}{'emeter'}{'get_realtime'}{'err_code'}{'name'} = 'err_code';
 	$hwMap{'2.0'}{'emeter'}{'get_realtime'}{'err_code'}{'factor'} = 1;
 
+	$hwMap{'4.0'}{'emeter'}{'get_realtime'}{'power_mw'}{'name'} = 'power';
+	$hwMap{'4.0'}{'emeter'}{'get_realtime'}{'power_mw'}{'factor'} = 0.001;
+	$hwMap{'4.0'}{'emeter'}{'get_realtime'}{'voltage_mv'}{'name'} = 'voltage';
+	$hwMap{'4.0'}{'emeter'}{'get_realtime'}{'voltage_mv'}{'factor'} = 0.001;
+	$hwMap{'4.0'}{'emeter'}{'get_realtime'}{'current_ma'}{'name'} = 'current';
+	$hwMap{'4.0'}{'emeter'}{'get_realtime'}{'current_ma'}{'factor'} = 0.001;
+	$hwMap{'4.0'}{'emeter'}{'get_realtime'}{'total_wh'}{'name'} = 'total';
+	$hwMap{'4.0'}{'emeter'}{'get_realtime'}{'total_wh'}{'factor'} = 0.001;
+	$hwMap{'4.0'}{'emeter'}{'get_realtime'}{'err_code'}{'name'} = 'err_code';
+	$hwMap{'4.0'}{'emeter'}{'get_realtime'}{'err_code'}{'factor'} = 1;
+	
 	return %hwMap;
 }
 

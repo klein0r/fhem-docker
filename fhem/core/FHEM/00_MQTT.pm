@@ -21,7 +21,7 @@
 #     You should have received a copy of the GNU General Public License
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-# $Id: 00_MQTT.pm 18719 2019-02-24 20:20:51Z hexenmeister $
+# $Id: 00_MQTT.pm 22046 2020-05-27 21:59:44Z hexenmeister $
 #
 ##############################################
 
@@ -40,11 +40,11 @@ my @clients = qw(
   MQTT_BRIDGE
 );
 
+use DevIo;
+
 sub MQTT_Initialize($) {
 
   my $hash = shift @_;
-
-  require "$main::attr{global}{modpath}/FHEM/DevIo.pm";
 
   # Provider
   $hash->{Clients} = join (':',@clients);
@@ -441,6 +441,7 @@ sub Start($) {
     }
   } else {
     $hash->{".cinitmark"} = 1;
+    $hash->{".reconnectmark"} = 1;
   }
    
   DevIo_CloseDev($hash);
@@ -449,6 +450,8 @@ sub Start($) {
 
 sub Stop($) {
   my $hash = shift;
+
+  $hash->{".reconnectmark"} = 0;
   
   my $cstate=ReadingsVal($hash->{NAME},"connection","");
   if($cstate eq "disconnected" || $cstate eq "timed-out") {
@@ -459,6 +462,7 @@ sub Stop($) {
   DevIo_CloseDev($hash);
   RemoveInternalTimer($hash);
   readingsSingleUpdate($hash,"connection","disconnected",1);
+  readingsSingleUpdate($hash,"state","disconnected",1);
 }
 
 sub Ready($) {
@@ -481,12 +485,14 @@ sub Init($) {
   send_connect($hash);
   readingsSingleUpdate($hash,"connection","connecting",1);
   $hash->{ping_received}=1;
+  $hash->{".reconnectmark"} = 1;
   Timer($hash);
   return undef;
 }
 
 sub Timer($) {
   my $hash = shift;
+  #Log3($hash->{NAME},1,">>> timer ");
   RemoveInternalTimer($hash);
   unless ($hash->{ping_received}) {
     onTimeout($hash);
@@ -494,6 +500,15 @@ sub Timer($) {
     GP_ForallClients($hash,\&notify_client_connection_timeout);
   }
   $hash->{ping_received} = 0;
+
+  #Log3($hash->{NAME},1,">>> reconnect mark: ".$hash->{".reconnectmark"});
+  #Log3($hash->{NAME},1,">>> state: ".ReadingsVal($hash->{NAME}, "state", ""));
+  if($hash->{".reconnectmark"} eq 1) {
+    if(ReadingsVal($hash->{NAME}, "state", "") eq "disconnected") {
+      #Log3($hash->{NAME},1,">>> reconnect ");
+      Start($hash);
+    }
+  }
   InternalTimer(gettimeofday()+$hash->{timeout}, "MQTT::Timer", $hash, 0);
   send_ping($hash);
 }
@@ -528,8 +543,8 @@ sub Read {
         my $topic = $mqtt->topic();
         GP_ForallClients($hash,sub {
           my $client = shift;
-          Log3($client->{NAME},5,"publish received for $topic, ".$mqtt->message());
           if (grep { $topic =~ $_ } @{$client->{subscribeExpr}}) {
+            Log3($client->{NAME},5,"publish received for $topic, ".$mqtt->message());
             readingsSingleUpdate($client,"transmission-state","incoming publish received",1);
             my $fn = $modules{$defs{$client->{NAME}}{TYPE}}{OnMessageFn};
             if($fn) {

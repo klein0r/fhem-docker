@@ -1,5 +1,5 @@
 
-FW_version["fhemweb_colorpicker.js"] = "$Id: fhemweb_colorpicker.js 20581 2019-11-25 14:15:52Z justme1968 $";
+FW_version["fhemweb_colorpicker.js"] = "$Id: fhemweb_colorpicker.js 23068 2020-11-01 16:15:57Z justme1968 $";
 
 //TODO: realtime picker
 //
@@ -33,6 +33,10 @@ FW_colorpickerCreate(elName, devName, vArr, currVal, set, params, cmd)
     var color = params[0];
     if( mode == 'CT' )
       color = colorpicker_ct2rgb(color);
+    else if( mode == 'BRI' ) {
+      color = parseInt(255 * color / vArr[4]);
+      color = colorpicker_rgb2hex(color,color,color);
+    } 
 
     var newEl = $('<div informID="###" style="width:32px;height:19px;border:1px solid #fff;border-radius:8px;background-color:#'+color+'" >').get(0);
     $(newEl).click(function(arg) { cmd(params[0]) });

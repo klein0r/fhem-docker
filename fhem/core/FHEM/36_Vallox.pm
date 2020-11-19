@@ -1,11 +1,11 @@
 ###############################################################
-# $Id: 36_Vallox.pm 19519 2019-06-01 12:50:13Z Skjall $
+# $Id: 36_Vallox.pm 21377 2020-03-08 12:18:37Z Skjall $
 #
 # @File 36_Vallox.pm
 #
 # @Author Skjall
 # @Created 21.07.2016 10:18:23
-# @Version 1.6.1
+# @Version 1.6.2
 #
 #  The modul reads and writes parameters via RS485 from and to a Vallox
 #  ventilation bus.
@@ -1734,7 +1734,7 @@ sub Vallox_Set($@) {
     {
 
         # TODO: Integrate get before set;
-        if ($hash->{ "MR_" . $Vallox_multiReadingTable_realcmd{$cmd} } ) {
+        if (!$hash->{ "MR_" . $Vallox_multiReadingTable_realcmd{$cmd} } ) {
             return
                 "Vallox: Internal "
               . $Vallox_multiReadingTable_realcmd{$cmd}
@@ -1745,11 +1745,11 @@ sub Vallox_Set($@) {
               . " first!";
         }
 
-        $arg = Vallox_ReplaceBit(
+        $arg = sprintf("%02x", oct("0b".Vallox_ReplaceBit(
             $hash,
             $hash->{ "MR_" . $Vallox_multiReadingTable_realcmd{$cmd} },
             $Vallox_multiReadingTable_digit{$cmd}, $arg
-        );
+        )));
         $cmd = $Vallox_multiReadingTable_realcmd{$cmd};
     }
 

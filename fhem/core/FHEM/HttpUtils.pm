@@ -1,5 +1,5 @@
 ##############################################
-# $Id: HttpUtils.pm 20800 2019-12-22 09:13:49Z moises $
+# $Id: HttpUtils.pm 22917 2020-10-05 14:37:58Z rudolfkoenig $
 package main;
 
 use strict;
@@ -429,6 +429,11 @@ HttpUtils_Connect($)
             delete($selectlist{$hash});
 
             RemoveInternalTimer(\%timerHash);
+            if(!$hash->{conn}) {
+              Log 1, "ERROR in HttpUtils: directWriteFn called without conn.";
+              map { Log 1, "   $_=$hash->{$_}" } sort keys %{$hash};
+              return;
+            }
             my $packed = getsockopt($hash->{conn}, SOL_SOCKET, SO_ERROR);
             my $errno = unpack("I",$packed);
             if($errno) {
@@ -643,7 +648,7 @@ HttpUtils_Connect2($)
     $data = $hdr.(defined($data) ? $data:"");
     $hash->{directWriteFn} = sub($) { # Nonblocking write
       my $ret = syswrite $hash->{conn}, $data;
-      if($ret <= 0) {
+      if(!defined($ret) || $ret <= 0) {
         return if($! == EAGAIN);
         my $err = $!;
         RemoveInternalTimer(\%timerHash);
@@ -683,17 +688,22 @@ HttpUtils_DataComplete($)
   if(!defined($hl)) {
     return 0 if($hash->{buf} !~ m/^(.*?)\r?\n\r?\n(.*)$/s);
     my ($hdr, $data) = ($1, $2);
-    if($hdr =~ m/Transfer-Encoding:\s*chunked/si) {
+    if($hdr =~ m/Transfer-Encoding:\s*chunked/i) {
       $hash->{httpheader} = $hdr;
       $hash->{httpdata} = "";
       $hash->{buf} = $data;
       $hash->{httpdatalen} = -1;
 
-    } elsif($hdr =~ m/Content-Length:\s*(\d+)/si) {
+    } elsif($hdr =~ m/Content-Length:\s*(\d+)/i) {
       $hash->{httpdatalen} = $1;
       $hash->{httpheader} = $hdr;
       $hash->{httpdata} = $data;
       $hash->{buf} = "";
+
+    } elsif($hdr =~ m/Upgrade:\s*websocket/i) {
+      $hash->{httpdatalen} = 0;
+      $hash->{httpheader} = $hdr;
+      $hash->{httpdata} = $hash->{buf} = "";
 
     } else {
       $hash->{httpdatalen} = -2;
@@ -862,8 +872,8 @@ HttpUtils_ParseAnswer($)
       return ("$hash->{displayurl}: Too many redirects", "");
 
     } else {
-      my $ra;
-      map { $ra=$1 if($_ =~ m/Location:\s*(\S+)$/) } @header;
+      my $ra="";
+      map { $ra=$1 if($_ =~ m/^Location:\s*(\S+)\s*$/i) } @header;
       $ra = "/$ra" if($ra !~ m/^http/ && $ra !~ m/^\//);
       $hash->{url} = ($ra =~ m/^http/) ? $ra: $hash->{addr}.$ra;
       Log3 $hash, $hash->{loglevel}, "HttpUtils $hash->{displayurl}: ".

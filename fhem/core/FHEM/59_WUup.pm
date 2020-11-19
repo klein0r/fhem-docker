@@ -1,4 +1,4 @@
-# $Id: 59_WUup.pm 19804 2019-07-09 08:28:57Z mahowi $
+# $Id: 59_WUup.pm 21699 2020-04-16 07:40:18Z mahowi $
 ################################################################################
 #    59_WUup.pm
 #
@@ -24,26 +24,43 @@
 #
 ################################################################################
 
-package main;
+package FHEM::WUup;    ## no critic ( RequireFilenameMatchesPackage )
 
 use strict;
 use warnings;
+use 5.010;
 use Time::HiRes qw(gettimeofday);
-use HttpUtils;
+use POSIX qw(strftime);
 use UConv;
 use FHEM::Meta;
+use GPUtils qw(GP_Import GP_Export);
 
-my $version = "0.9.12";
+## Import der FHEM Funktionen
+#-- Run before package compilation
+BEGIN {
+    # Import from main context
+    GP_Import(
+        qw( attr
+            AttrVal
+            CommandDeleteReading
+            defs
+            HttpUtils_NonblockingGet
+            init_done
+            InternalTimer
+            IsDisabled
+            Log3
+            readingFnAttributes
+            readingsBeginUpdate
+            readingsBulkUpdate
+            readingsEndUpdate
+            readingsSingleUpdate
+            ReadingsVal
+            RemoveInternalTimer )
+    );
+}
 
-# Declare functions
-sub WUup_Initialize($);
-sub WUup_Define($$$);
-sub WUup_Undef($$);
-sub WUup_Set($@);
-sub WUup_Attr(@);
-sub WUup_stateRequestTimer($);
-sub WUup_send($);
-sub WUup_receive($);
+#-- Export to main context with different name
+GP_Export(qw( Initialize ));
 
 ################################################################################
 #
@@ -51,299 +68,269 @@ sub WUup_receive($);
 #
 ################################################################################
 
-sub WUup_Initialize($) {
+sub Initialize {
     my ($hash) = @_;
 
-    $hash->{DefFn}   = "WUup_Define";
-    $hash->{UndefFn} = "WUup_Undef";
-    $hash->{SetFn}   = "WUup_Set";
-    $hash->{AttrFn}  = "WUup_Attr";
+    $hash->{DefFn}   = \&Define;
+    $hash->{UndefFn} = \&Undef;
+    $hash->{SetFn}   = \&Set;
+    $hash->{AttrFn}  = \&Attr;
     $hash->{AttrList} =
-        "disable:1 "
-      . "disabledForIntervals "
-      . "interval "
-      . "unit_windspeed:km/h,m/s "
-      . "unit_solarradiation:W/m²,lux "
-      . "round "
-      . "wubaromin wudailyrainin wudewptf wuhumidity wurainin wusoilmoisture "
-      . "wusoiltempf wusolarradiation wutempf wuUV wuwinddir wuwinddir_avg2m "
-      . "wuwindgustdir wuwindgustdir_10m wuwindgustmph wuwindgustmph_10m "
-      . "wuwindspdmph_avg2m wuwindspeedmph wuAqPM2.5 wuAqPM10 "
-      . $readingFnAttributes;
-    $hash->{VERSION} = $version;
+          'disable:1,0 '
+        . 'disabledForIntervals '
+        . 'interval '
+        . 'unit_windspeed:km/h,m/s '
+        . 'unit_solarradiation:W/m²,lux '
+        . 'round '
+        . 'wubaromin wudailyrainin wudewptf wuhumidity wurainin '
+        . 'wusoilmoisture wusoiltempf wusolarradiation wutempf wuUV '
+        . 'wuwinddir wuwinddir_avg2m wuwindgustdir wuwindgustdir_10m '
+        . 'wuwindgustmph wuwindgustmph_10m wuwindspdmph_avg2m wuwindspeedmph '
+        . 'wuAqPM2.5 wuAqPM10 '
+        . $readingFnAttributes;
 
     return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
-sub WUup_Define($$$) {
-    my ( $hash, $def ) = @_;
+sub Define {
+    my $hash = shift;
+    my $def  = shift;
 
     return $@ unless ( FHEM::Meta::SetInternals($hash) );
+    
+    ## no critic ( ProhibitComplexVersion )
+    use version 0.77; our $VERSION = version->new( FHEM::Meta::Get( $hash, 'version' ) )->normal;
+    ## use critic
 
-    my @a = split( "[ \t][ \t]*", $def );
+    my @param = split( "[ \t][ \t]*", $def );
 
-    return "syntax: define <name> WUup <stationID> <password>"
-      if ( int(@a) != 4 );
+    return q{syntax: define <name> WUup <stationID> <password>}
+        if ( int(@param) != 4 );
 
     my $name = $hash->{NAME};
 
-    $hash->{VERSION}  = $version;
+    $hash->{VERSION}  = $VERSION;
     $hash->{INTERVAL} = 300;
 
-    $hash->{helper}{stationid}    = $a[2];
-    $hash->{helper}{password}     = $a[3];
+    $hash->{helper}{stationid}    = $param[2];
+    $hash->{helper}{password}     = $param[3];
     $hash->{helper}{softwaretype} = 'FHEM';
     $hash->{helper}{url} =
-"https://weatherstation.wunderground.com/weatherstation/updateweatherstation.php";
+        'https://weatherstation.wunderground.com/weatherstation/updateweatherstation.php';
     $hash->{helper}{url_rf} =
-"https://rtupdate.wunderground.com/weatherstation/updateweatherstation.php";
+        'https://rtupdate.wunderground.com/weatherstation/updateweatherstation.php';
 
-    readingsSingleUpdate( $hash, "state", "defined", 1 );
-
-    $attr{$name}{room} = "Weather" if ( !defined( $attr{$name}{room} ) );
-    $attr{$name}{unit_windspeed} = "km/h"
-      if ( !defined( $attr{$name}{unit_windspeed} ) );
-    $attr{$name}{unit_solarradiation} = "lux"
-      if ( !defined( $attr{$name}{unit_solarradiation} ) );
-    $attr{$name}{round} = 4 if ( !defined( $attr{$name}{round} ) );
+    readingsSingleUpdate( $hash, 'state', 'defined', 1 );
 
     RemoveInternalTimer($hash);
 
-    if ($init_done) {
-        WUup_stateRequestTimer($hash);
-    }
-    else {
-        InternalTimer( gettimeofday(), "WUup_stateRequestTimer", $hash, 0 );
-    }
+    $init_done
+        ? &stateRequestTimer($hash)
+        : InternalTimer( gettimeofday(), \&stateRequestTimer, $hash, 0 );
 
-    Log3 $name, 3, "WUup ($name): defined";
+    Log3( $name, 3, qq{WUup ($name): defined} );
 
-    return undef;
+    return;
 }
 
-sub WUup_Undef($$) {
-    my ( $hash, $arg ) = @_;
+sub Undef {
+    my $hash = shift;
     RemoveInternalTimer($hash);
-    return undef;
+    return;
 }
 
-sub WUup_Set($@) {
-    my ( $hash, $name, $cmd, @args ) = @_;
+sub Set {
+    my $hash = shift;
+    my $name = shift;
+    my $cmd  = shift // return qq{set $name needs at least one argument};
 
-    return "\"set $name\" needs at least one argument" unless ( defined($cmd) );
-
-    if ( $cmd eq "update" ) {
-        WUup_stateRequestTimer($hash);
-    }
-    else {
-        return "Unknown argument $cmd, choose one of update:noArg";
-    }
+    return &stateRequestTimer($hash) if ( $cmd eq 'update' );
+    return qq{Unknown argument $cmd, choose one of update:noArg};
 }
 
-sub WUup_Attr(@) {
-    my ( $cmd, $name, $attrName, $attrVal ) = @_;
-    my $hash = $defs{$name};
+sub Attr {
+    my $cmd      = shift;
+    my $name     = shift;
+    my $attrName = shift;
+    my $attrVal  = shift;
+    my $hash     = $defs{$name};
 
-    if ( $attrName eq "disable" ) {
-        if ( $cmd eq "set" and $attrVal eq "1" ) {
-            readingsSingleUpdate( $hash, "state", "disabled", 1 );
-            Log3 $name, 3, "WUup ($name) - disabled";
+    if ( $attrName eq 'disable' ) {
+        if ( $cmd eq 'set' and $attrVal == 1 ) {
+            readingsSingleUpdate( $hash, 'state', 'disabled', 1 );
+            Log3( $name, 3, qq{WUup ($name) - disabled} );
         }
-
-        elsif ( $cmd eq "del" ) {
-            readingsSingleUpdate( $hash, "state", "active", 1 );
-            Log3 $name, 3, "WUup ($name) - enabled";
-        }
-    }
-
-    if ( $attrName eq "disabledForIntervals" ) {
-        if ( $cmd eq "set" ) {
-            readingsSingleUpdate( $hash, "state", "unknown", 1 );
-            Log3 $name, 3, "WUup ($name) - disabledForIntervals";
-        }
-
-        elsif ( $cmd eq "del" ) {
-            readingsSingleUpdate( $hash, "state", "active", 1 );
-            Log3 $name, 3, "WUup ($name) - enabled";
+        elsif ( $cmd eq 'del' ) {
+            readingsSingleUpdate( $hash, 'state', 'active', 1 );
+            Log3( $name, 3, qq{WUup ($name) - enabled} );
         }
     }
 
-    if ( $attrName eq "interval" ) {
-        if ( $cmd eq "set" ) {
+    if ( $attrName eq 'disabledForIntervals' ) {
+        if ( $cmd eq 'set' ) {
+            readingsSingleUpdate( $hash, 'state', 'unknown', 1 );
+            Log3( $name, 3, qq{WUup ($name) - disabledForIntervals} );
+        }
+        elsif ( $cmd eq 'del' ) {
+            readingsSingleUpdate( $hash, 'state', 'active', 1 );
+            Log3( $name, 3, qq{WUup ($name) - enabled} );
+        }
+    }
+
+    if ( $attrName eq 'interval' ) {
+        if ( $cmd eq 'set' ) {
             if ( $attrVal < 3 ) {
-                Log3 $name, 1,
-"WUup ($name) - interval too small, please use something >= 3 (sec), default is 300 (sec).";
+                Log3( $name, 1,
+                    qq{WUup ($name) - interval too small, please use something >= 3 (sec), default is 300 (sec).}
+                );
                 return
-"interval too small, please use something >= 3 (sec), default is 300 (sec)";
+                    qq{interval too small, please use something >= 3 (sec), default is 300 (sec)};
             }
             else {
                 $hash->{INTERVAL} = $attrVal;
-                Log3 $name, 4, "WUup ($name) - set interval to $attrVal";
+                Log3( $name, 4, qq{WUup ($name) - set interval to $attrVal} );
             }
         }
-
-        elsif ( $cmd eq "del" ) {
+        elsif ( $cmd eq 'del' ) {
             $hash->{INTERVAL} = 300;
-            Log3 $name, 4, "WUup ($name) - set interval to default";
+            Log3( $name, 4, qq{WUup ($name) - set interval to default} );
         }
     }
 
-    return undef;
+    return;
 }
 
-sub WUup_stateRequestTimer($) {
+sub stateRequestTimer {
     my ($hash) = @_;
     my $name = $hash->{NAME};
 
     if ( !IsDisabled($name) ) {
-        readingsSingleUpdate( $hash, "state", "active", 1 )
-          if (
-            (
-                   ReadingsVal( $name, "state", 0 ) eq "defined"
-                or ReadingsVal( $name, "state", 0 ) eq "disabled"
-                or ReadingsVal( $name, "state", 0 ) eq "Unknown"
+        readingsSingleUpdate( $hash, 'state', 'active', 1 )
+            if (
+            (      ReadingsVal( $name, 'state', 0 ) eq 'defined'
+                or ReadingsVal( $name, 'state', 0 ) eq 'disabled'
+                or ReadingsVal( $name, 'state', 0 ) eq 'Unknown'
             )
-          );
+            );
 
-        WUup_send($hash);
+        sendtowu($hash);
 
     }
     else {
-        readingsSingleUpdate( $hash, "state", "disabled", 1 );
+        readingsSingleUpdate( $hash, 'state', 'disabled', 1 );
     }
 
     InternalTimer( gettimeofday() + $hash->{INTERVAL},
-        "WUup_stateRequestTimer", $hash, 1 );
+        \&stateRequestTimer, $hash, 1 );
 
-    Log3 $name, 5,
-      "Sub WUup_stateRequestTimer ($name) - Request Timer is called";
+    Log3( $name, 5,
+        qq{Sub stateRequestTimer ($name) - Request Timer is called} );
+
+    return;
 }
 
-sub WUup_send($) {
-    my ($hash)  = @_;
-    my $name    = $hash->{NAME};
-    my $version = $hash->{VERSION};
-    my $url     = "";
-    if ( $hash->{INTERVAL} < 300 ) {
-        $url = $hash->{helper}{url_rf};
-    }
-    else {
-        $url = $hash->{helper}{url};
-    }
-    $url .= "?ID=" . $hash->{helper}{stationid};
-    $url .= "&PASSWORD=" . $hash->{helper}{password};
+sub sendtowu {
+    my ($hash) = @_;
+    my $name   = $hash->{NAME};
+    my $ver    = $hash->{VERSION};
+    my $url    = $hash->{INTERVAL} < 300
+               ? $hash->{helper}{url_rf}
+               : $hash->{helper}{url};
+    $url       .= "?ID=$hash->{helper}{stationid}";
+    $url       .= "&PASSWORD=$hash->{helper}{password}";
+    
     my $datestring = strftime "%F+%T", gmtime;
-    $datestring =~ s/:/%3A/g;
-    $url .= "&dateutc=" . $datestring;
+    $datestring    =~ s{:}{%3A}gxms;
 
-    $attr{$name}{unit_windspeed} = "km/h"
-      if ( !defined( $attr{$name}{unit_windspeed} ) );
-
-    $attr{$name}{unit_solarradiation} = "lux"
-      if ( !defined( $attr{$name}{unit_solarradiation} ) );
-
-    $attr{$name}{round} = 4 if ( !defined( $attr{$name}{round} ) );
+    $url .= "&dateutc=$datestring";
 
     my ( $data, $d, $r, $o );
-    my $a   = $attr{$name};
-    my $rnd = $attr{$name}{round};
+    my $a                   = $attr{$name};
+    my $unit_windspeed      = AttrVal( $name, 'unit_windspeed', 'km/h' );
+    my $unit_solarradiation = AttrVal( $name, 'unit_solarradiation', 'lux' );
+    my $rnd                 = AttrVal( $name, 'round', 4 );
+    
     while ( my ( $key, $value ) = each(%$a) ) {
         next if substr( $key, 0, 2 ) ne 'wu';
         $key = substr( $key, 2, length($key) - 2 );
         ( $d, $r, $o ) = split( ":", $value );
+        
         if ( defined($r) ) {
-            $o = ( defined($o) ) ? $o : 0;
+            $o //= 0;
             $value = ReadingsVal( $d, $r, 0 ) + $o;
         }
-        if ( $key =~ /\w+f$/ ) {
-            $value = UConv::c2f( $value, $rnd );
-        }
-        elsif ( $key =~ /\w+mph.*/ ) {
 
-            if ( $attr{$name}{unit_windspeed} eq "m/s" ) {
-                Log3 $name, 5, "WUup ($name) - windspeed unit is m/s";
-                $value =
-                  UConv::kph2mph( ( UConv::mps2kph( $value, $rnd ) ), $rnd );
-            }
-            else {
-                Log3 $name, 5, "WUup ($name) - windspeed unit is km/h";
-                $value = UConv::kph2mph( $value, $rnd );
-            }
-        }
-        elsif ( $key eq "baromin" ) {
-            $value = UConv::hpa2inhg( $value, $rnd );
-        }
-        elsif ( $key =~ /.*rainin$/ ) {
-            $value = UConv::mm2in( $value, $rnd );
-        }
-        elsif ( $key eq "solarradiation" ) {
+        my $mph_metric =
+            $key =~ m{\w+mph [^\n]*}xms && $unit_windspeed eq 'm/s';
+        my $lux_radiation =
+            $key eq 'solarradiation'    && $unit_solarradiation eq 'lux';
 
-            if ( $attr{$name}{unit_solarradiation} eq "lux" ) {
-                Log3 $name, 5, "WUup ($name) - solarradiation unit is lux";
-                $value = ( $value / 126.7 );
-            }
-            else {
-                Log3 $name, 5, "WUup ($name) - solarradiation unit is W/m²";
-            }
-        }
+        $value = $key =~ m{\w+f \z}xms       ? UConv::c2f( $value, $rnd )
+               : $key =~ m{\w+mph [^\n]*}xms ? UConv::kph2mph( $value, $rnd )
+               : $key eq 'baromin'           ? UConv::hpa2inhg( $value, $rnd )
+               : $key =~ m{rainin \z}xms     ? UConv::mm2in( $value, $rnd )
+               : $mph_metric                 ? UConv::kph2mph( ( UConv::mps2kph( $value, $rnd ) ), $rnd )
+               : $lux_radiation              ? UConv::lux2wpsm( $value, $rnd )
+               : $value;
+
         $data .= "&$key=$value";
     }
 
     readingsBeginUpdate($hash);
+    
     if ( defined($data) ) {
-        readingsBulkUpdate( $hash, "data", $data );
-        Log3 $name, 4, "WUup ($name) - data sent: $data";
+        readingsBulkUpdate( $hash, 'data', $data );
+        Log3( $name, 4, qq{WUup ($name) - data sent: $data} );
         $url .= $data;
-        $url .= "&softwaretype=" . $hash->{helper}{softwaretype};
-        $url .= "&action=updateraw";
+        $url .= "&softwaretype=$hash->{helper}{softwaretype}";
+        $url .= '&action=updateraw';
+        
         if ( $hash->{INTERVAL} < 300 ) {
-            $url .= "&realtime=1&rtfreq=" . $hash->{INTERVAL};
+            $url .= "&realtime=1&rtfreq=$hash->{INTERVAL}";
         }
+        
         my $param = {
-            url     => $url,
-            timeout => 6,
-            hash    => $hash,
-            method  => "GET",
-            header =>
-              "agent: FHEM-WUup/$version\r\nUser-Agent: FHEM-WUup/$version",
-            callback => \&WUup_receive
+            url      => $url,
+            timeout  => 6,
+            hash     => $hash,
+            method   => 'GET',
+            header   => "agent: FHEM-WUup/$ver\r\nUser-Agent: FHEM-WUup/$ver",
+            callback => \&receive
         };
 
-        Log3 $name, 5, "WUup ($name) - full URL: $url";
+        Log3( $name, 5, qq{WUup ($name) - full URL: $url} );
         HttpUtils_NonblockingGet($param);
-
-        #        my $response = GetFileFromURL($url);
-        #        readingsBulkUpdate( $hash, "response", $response );
-        #        Log3 $name, 4, "WUup ($name) - server response: $response";
     }
     else {
         CommandDeleteReading( undef, "$name data" );
         CommandDeleteReading( undef, "$name response" );
-        Log3 $name, 3, "WUup ($name) - no data";
-        readingsBulkUpdate( $hash, "state", "defined" );
-
+        Log3( $name, 3, qq{WUup ($name) - no data} );
+        readingsBulkUpdate( $hash, 'state', 'defined' );
     }
     readingsEndUpdate( $hash, 1 );
 
     return;
 }
 
-sub WUup_receive($) {
-    my ( $param, $err, $data ) = @_;
-    my $hash = $param->{hash};
-    my $name = $hash->{NAME};
+sub receive {
+    my $param = shift;
+    my $err   = shift;
+    my $data  = shift;
+    my $hash  = $param->{hash};
+    my $name  = $hash->{NAME};
 
-    if ( $err ne "" ) {
-        Log3 $name, 3,
-          "WUup ($name) - error while requesting " . $param->{url} . " - $err";
-        readingsSingleUpdate( $hash, "state",    "ERROR", undef );
-        readingsSingleUpdate( $hash, "response", $err,    undef );
+    if ( $err ne q{} ) {
+        Log3( $name, 3,
+            qq{WUup ($name) - error while requesting $param->{url} - $err} );
+        readingsSingleUpdate( $hash, 'state',    'ERROR', undef );
+        readingsSingleUpdate( $hash, 'response', $err,    undef );
     }
-    elsif ( $data ne "" ) {
-        Log3 $name, 4, "WUup ($name) - server response: $data";
-        readingsSingleUpdate( $hash, "state",    "active", undef );
-        readingsSingleUpdate( $hash, "response", $data,    undef );
+    elsif ( $data ne q{} ) {
+        Log3( $name, 4, qq{WUup ($name) - server response: $data} );
+        readingsSingleUpdate( $hash, 'state',    'active', undef );
+        readingsSingleUpdate( $hash, 'response', $data,    undef );
     }
+    return;
 }
 
 1;
@@ -351,33 +338,6 @@ sub WUup_receive($) {
 ################################################################################
 #
 # Documentation
-#
-################################################################################
-#
-# Changelog:
-#
-# 2017-01-23 initial release
-# 2017-02-10 added german docu
-# 2017-02-22 fixed bug when module cannot get reenabled after disabling
-#            added disabledForIntervals
-#            changed attribute WUInterval to interval
-#            default interval 300
-# 2017-02-23 added attribute unit_windspeed
-#            converted units rounded to 4 decimal places
-# 2017-03-16 implemented non-blocking mode
-# 2017-08-16 integrated RapidFire mode (thanks to Scooty66)
-# 2017-10-10 added windspdmph_avg2m, winddir_avg2m, windgustmph_10m,
-#            windgustdir_10m (thanks to Aeroschmelz for reminding me)
-#            timeout raised to 6s, fixed state error (thanks to mumpitzstuff)
-# 2017-10-16 fixed attributes
-# 2017-10-19 added set-command "update"
-# 2018-03-19 solarradiation calculated from lux to W/m² (thanks to dieter114)
-# 2018-04-10 added attribute round
-# 2018-04-13 added AqPM2.5 and AqPM10
-# 2018-08-15 added attribute unit_solarradiation
-# 2019-07-04 replaced link to API documentation
-# 2019-07-05 add Meta support
-# 2019-07-09 add WIKI to Meta data
 #
 ################################################################################
 
@@ -435,7 +395,7 @@ sub WUup_receive($) {
         <li><b>disable</b> - disables the module</li>
         <li><b><a href="#disabledForIntervals">disabledForIntervals</a></b></li>
         <li><b>unit_windspeed</b> - change the units of your windspeed readings (m/s or km/h)</li>
-        <li><b>unit_solarradiation</b> - change the units of your solarradiation readings (lux or W/m&sup2;)</li>
+        <li><b>unit_solarradiation</b> - change the units of your solarradiation readings (lux or W/m²)</li>
         <li><b>round</b> - round values to this number of decimals for calculation (default 4)</li>
         <li><b>wu....</b> - Attribute name corresponding to 
 <a href="https://feedback.weather.com/customer/en/portal/articles/2924682-pws-upload-protocol?b_id=17298">parameter name from api.</a> 
@@ -447,29 +407,29 @@ sub WUup_receive($) {
             network as parameter "tempf" (which indicates current temperature)
             <br/>
             Units get converted to angloamerican system automatically 
-            (&deg;C -> &deg;F; km/h(m/s) -> mph; mm -> in; hPa -> inHg)<br/><br/>
+            (°C -> °F; km/h(m/s) -> mph; mm -> in; hPa -> inHg)<br/><br/>
         <u>The following information is supported:</u>
         <ul>
-            <li>winddir - instantaneous wind direction (0-360) [&deg;]</li>
+            <li>winddir - instantaneous wind direction (0-360) [°]</li>
             <li>windspeedmph - instantaneous wind speed ·[mph]</li>
             <li>windgustmph - current wind gust, using software specific time period [mph]</li>
-            <li>windgustdir - current wind direction, using software specific time period [&deg;]</li>
+            <li>windgustdir - current wind direction, using software specific time period [°]</li>
             <li>windspdmph_avg2m  - 2 minute average wind speed [mph]</li>
-            <li>winddir_avg2m - 2 minute average wind direction [&deg;]</li>
+            <li>winddir_avg2m - 2 minute average wind direction [°]</li>
             <li>windgustmph_10m - past 10 minutes wind gust [mph]</li>
-            <li>windgustdir_10m - past 10 minutes wind gust direction [&deg;]</li>
-            <li>humidity - outdoor humidity (0-100) [&#37;]</li>
-            <li>dewptf- outdoor dewpoint [F]</li>
-            <li>tempf - outdoor temperature [F]</li>
+            <li>windgustdir_10m - past 10 minutes wind gust direction [°]</li>
+            <li>humidity - outdoor humidity (0-100) [%]</li>
+            <li>dewptf- outdoor dewpoint [°F]</li>
+            <li>tempf - outdoor temperature [°F]</li>
             <li>rainin - rain over the past hour -- the accumulated rainfall in the past 60 min [in]</li>
             <li>dailyrainin - rain so far today in local time [in]</li>
             <li>baromin - barometric pressure [inHg]</li>
-            <li>soiltempf - soil temperature [F]</li>
-            <li>soilmoisture - soil moisture [&#37;]</li>
-            <li>solarradiation - solar radiation[W/m&sup2;]</li>
+            <li>soiltempf - soil temperature [°F]</li>
+            <li>soilmoisture - soil moisture [%]</li>
+            <li>solarradiation - solar radiation[W/m²]</li>
             <li>UV - [index]</li>
-            <li>AqPM2.5 - PM2.5 mass [&micro;g/m&sup3;]</li>
-            <li>AqPM10 - PM10 mass [&micro;g/m&sup3;]</li>
+            <li>AqPM2.5 - PM2.5 mass [µg/m³]</li>
+            <li>AqPM10 - PM10 mass [µg/m³]</li>
         </ul>
         </li>
     </ul>
@@ -540,40 +500,40 @@ sub WUup_receive($) {
         <li><b>unit_windspeed</b> - gibt die Einheit der Readings für die
         Windgeschwindigkeiten an (m/s oder km/h)</li>
         <li><b>unit_solarradiation</b> - gibt die Einheit der Readings für die
-        Sonneneinstrahlung an (lux oder W/m&sup2;)</li>
+        Sonneneinstrahlung an (lux oder W/m²)</li>
         <li><b>round</b> - Anzahl der Nachkommastellen zur Berechnung (Standard 4)</li>
         <li><b>wu....</b> - Attributname entsprechend dem 
 <a href="https://feedback.weather.com/customer/en/portal/articles/2924682-pws-upload-protocol?b_id=17298">Parameternamen aus der API.</a><br />
-        Jedes dieser Attribute enth&auml;lt Informationen &uuml;ber zu sendende Wetterdaten
+        Jedes dieser Attribute enthält Informationen über zu sendende Wetterdaten
         im Format <code>sensorName:readingName</code>.<br/>
         Beispiel: <code>attr WUup wutempf outside:temperature</code> definiert
-        das Attribut wutempf und sendet das Reading "temperature" vom Ger&auml;t "outside" als Parameter "tempf" 
+        das Attribut wutempf und sendet das Reading "temperature" vom Gerät "outside" als Parameter "tempf" 
         (welches die aktuelle Temperatur angibt).
         <br />
         Einheiten werden automatisch ins anglo-amerikanische System umgerechnet. 
-        (&deg;C -> &deg;F; km/h(m/s) -> mph; mm -> in; hPa -> inHg)<br/><br/>
-        <u>Unterst&uuml;tzte Angaben</u>
+        (°C -> °;F; km/h(m/s) -> mph; mm -> in; hPa -> inHg)<br/><br/>
+        <u>Unterstützte Angaben</u>
         <ul>
-            <li>winddir - momentane Windrichtung (0-360) [&deg;]</li>
+            <li>winddir - momentane Windrichtung (0-360) [°]</li>
             <li>windspeedmph - momentane Windgeschwindigkeit [mph]</li>
-            <li>windgustmph - aktuelle B&ouml;e, mit Software-spezifischem Zeitraum [mph]</li>
-            <li>windgustdir - aktuelle B&ouml;enrichtung, mit Software-spezifischer Zeitraum [&deg;]</li>
+            <li>windgustmph - aktuelle Böe, mit Software-spezifischem Zeitraum [mph]</li>
+            <li>windgustdir - aktuelle Böenrichtung, mit Software-spezifischer Zeitraum [°]</li>
             <li>windspdmph_avg2m - durchschnittliche Windgeschwindigkeit innerhalb 2 Minuten [mph]</li>
-            <li>winddir_avg2m - durchschnittliche Windrichtung innerhalb 2 Minuten [&deg;]</li>
-            <li>windgustmph_10m - B&ouml;en der vergangenen 10 Minuten [mph]</li>
-            <li>windgustdir_10m - Richtung der B&ouml;en der letzten 10 Minuten [&deg;]</li>
-            <li>humidity - Luftfeuchtigkeit im Freien (0-100) [&#37;]</li>
-            <li>dewptf- Taupunkt im Freien [F]</li>
-            <li>tempf - Au&szlig;entemperatur [F]</li>
+            <li>winddir_avg2m - durchschnittliche Windrichtung innerhalb 2 Minuten [°]</li>
+            <li>windgustmph_10m - Böen der vergangenen 10 Minuten [mph]</li>
+            <li>windgustdir_10m - Richtung der Böen der letzten 10 Minuten [°]</li>
+            <li>humidity - Luftfeuchtigkeit im Freien (0-100) [%]</li>
+            <li>dewptf- Taupunkt im Freien [°F]</li>
+            <li>tempf - Außentemperatur [°F]</li>
             <li>rainin - Regen in der vergangenen Stunde [in]</li>
             <li>dailyrainin - Regenmenge bisher heute [in]</li>
             <li>baromin - barometrischer Druck [inHg]</li>
-            <li>soiltempf - Bodentemperatur [F]</li>
-            <li>soilmoisture - Bodenfeuchtigkeit [&#37;]</li>
-            <li>solarradiation - Sonneneinstrahlung [W/m&sup2;]</li>
+            <li>soiltempf - Bodentemperatur [°F]</li>
+            <li>soilmoisture - Bodenfeuchtigkeit [%]</li>
+            <li>solarradiation - Sonneneinstrahlung [W/m²]</li>
             <li>UV - [Index]</li>
-            <li>AqPM2.5 - Feinstaub PM2,5 [&micro;g/m&sup3;]</li>
-            <li>AqPM10 - Feinstaub PM10 [&micro;g/m&sup3;]</li>
+            <li>AqPM2.5 - Feinstaub PM2,5 [µg/m³]</li>
+            <li>AqPM10 - Feinstaub PM10 [µg/m³]</li>
         </ul>
         </li>
     </ul>
@@ -591,7 +551,7 @@ sub WUup_receive($) {
     <ul>
         <li>Die komplette API-Beschreibung findet sich 
 <a href="https://feedback.weather.com/customer/en/portal/articles/2924682-pws-upload-protocol?b_id=17298">hier</a></li>
-        <li>Viel Spa&szlig;!</li><br/>
+        <li>Viel Spaß!</li><br/>
     </ul>
 
 </ul>
@@ -611,7 +571,7 @@ sub WUup_receive($) {
   "license": [
     "gpl_2"
   ],
-  "version": "v0.9.12",
+  "version": "v0.10.1",
   "release_status": "stable",
   "author": [
     "Manfred Winter <mahowi@gmail.com>"
@@ -633,10 +593,10 @@ sub WUup_receive($) {
       "requires": {
         "FHEM": 0,
         "FHEM::Meta": 0,
-        "HttpUtils": 0,
         "UConv": 0,
+        "POSIX": 0,
         "Time::HiRes": 0,
-        "perl": 5.014
+        "perl": 5.010
       },
       "recommends": {
       },
@@ -648,8 +608,17 @@ sub WUup_receive($) {
     "x_wiki" : {
       "title" : "Wetter und Wettervorhersagen - Eigene Wetterdaten hochladen",
       "web" : "https://wiki.fhem.de/wiki/Wetter_und_Wettervorhersagen#Eigene_Wetterdaten_hochladen"
+     },
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/fhem/WUup.git",
+      "web": "https://github.com/mahowi/WUup/blob/master/FHEM/59_WUup.pm",
+      "x_branch": "master",
+      "x_filepath": "FHEM/",
+      "x_raw": "https://raw.githubusercontent.com/mahowi/WUup/master/FHEM/59_WUup.pm"
      }
-  }
+  },
+  "x_support_status": "supported"
 }
 =end :application/json;q=META.json
 

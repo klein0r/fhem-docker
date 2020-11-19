@@ -1,4 +1,4 @@
-﻿# $Id: 71_YAMAHA_MC.pm 20829 2019-12-25 20:47:37Z Leugi $
+﻿# $Id: 71_YAMAHA_MC.pm 21225 2020-02-18 20:53:21Z Leugi $
 ##############################################################################
 #
 #     71_YAMAHA_MC.pm
@@ -60,6 +60,7 @@ sub YAMAHA_MC_GetStatus($;$);
 sub YAMAHA_MC_ResetTimer($;$);
 sub YAMAHA_MC_Get($@);
 sub YAMAHA_MC_Define($$);
+sub YAMAHA_MC_Notify($$);
 sub YAMAHA_MC_Attr(@);
 sub YAMAHA_MC_Undefine($$);
 sub YAMAHA_MC_UpdateLists($;$);
@@ -287,14 +288,18 @@ sub YAMAHA_MC_Define($$)    # only called when defined, not on reload.
     $hash->{UdpClientPort} = $data{YAMAHA_MC_UDPCLIENTPORTSTART};
     $data{YAMAHA_MC_UDPCLIENTPORTSTART}++;
 
-    if ( AttrVal( $name, "eventProcessing", 0 ) ) {
-        Log3 $hash->{NAME}, 2, "$hash->{TYPE}: $hash->{NAME} event Processing enabled ";
+    $hash->{NOTIFYDEV} = "global";
 
-        #open UDP Client for incoming events
-        YAMAHA_MC_OpenUDPConn($hash);
-    }
-    else {
-        Log3 $hash->{NAME}, 2, "$hash->{TYPE}: $hash->{NAME} event Processing disabled ";
+    if ($init_done) { 
+		if ( AttrVal( $name, "eventProcessing", 0 ) ) {
+			Log3 $hash->{NAME}, 2, "$hash->{TYPE}: $hash->{NAME} event Processing enabled ";
+
+			#open UDP Client for incoming events
+			YAMAHA_MC_OpenUDPConn($hash);
+		}
+		else {
+			Log3 $hash->{NAME}, 2, "$hash->{TYPE}: $hash->{NAME} event Processing disabled ";
+		}
     }
 
     # if an update interval was given which is greater than zero, use it.
@@ -321,11 +326,11 @@ sub YAMAHA_MC_Define($$)    # only called when defined, not on reload.
     if ( defined( $a[6] ) ) {
         unless ( defined( $hash->{helper}{SELECTED_ZONE} ) ) { $hash->{helper}{SELECTED_ZONE} = $a[6]; }
         $hash->{ZONE} = $a[6];
-        Log3 $hash->{NAME}, 1, "$hash->{TYPE}: $hash->{NAME} Setting selected zone to " . $a[6];
+        Log3 $hash->{NAME}, 3, "$hash->{TYPE}: $hash->{NAME} Setting selected zone to " . $a[6];
     }
     else {
         $hash->{ZONE} = "main";
-        Log3 $hash->{NAME}, 1, "$hash->{TYPE}: $hash->{NAME} no zone defined in device using main ";
+        Log3 $hash->{NAME}, 3, "$hash->{TYPE}: $hash->{NAME} no zone defined in device using main ";
     }
 
     # create empty CMD Queue
@@ -361,30 +366,32 @@ sub YAMAHA_MC_Define($$)    # only called when defined, not on reload.
 
     readingsSingleUpdate( $hash, 'state', 'opened', 1 );
 
-    my $DLNAsearch = AttrVal( $hash->{NAME}, "DLNAsearch", "on" );
+    if ($init_done) { 
+		my $DLNAsearch = AttrVal( $hash->{NAME}, "DLNAsearch", "on" );
 
-    readingsSingleUpdate( $hash, "DLNARenderer", "unknown", 1 );
-    readingsSingleUpdate( $hash, 'MediaServer',  'unknown', 1 );
+		readingsSingleUpdate( $hash, "DLNARenderer", "unknown", 1 );
+		readingsSingleUpdate( $hash, 'MediaServer',  'unknown', 1 );
 
-    if ( $DLNAsearch eq "on" ) {
+		if ( $DLNAsearch eq "on" ) {
 
-        YAMAHA_MC_setupControlpoint($hash);
-        YAMAHA_MC_setupMediaRenderer($hash);
+			YAMAHA_MC_setupControlpoint($hash);
+			YAMAHA_MC_setupMediaRenderer($hash);
 
-        Log3 $hash->{NAME}, 2, "$type: $name  DLNAsearch turned $DLNAsearch setting timer for getting devices in 150Secs";
-        InternalTimer( gettimeofday() + 120, 'YAMAHA_MC_getNetworkStatus',    $hash, 0 );
-        InternalTimer( gettimeofday() + 150, 'YAMAHA_MC_DiscoverDLNAProcess', $hash, 0 );
+			Log3 $hash->{NAME}, 2, "$type: $name  DLNAsearch turned $DLNAsearch setting timer for getting devices in 150Secs";
+			InternalTimer( gettimeofday() + 120, 'YAMAHA_MC_getNetworkStatus',    $hash, 0 );
+			InternalTimer( gettimeofday() + 150, 'YAMAHA_MC_DiscoverDLNAProcess', $hash, 0 );
+		}
+		else {
+
+			Log3 $name, 1, "$type: $name  - DLNASearch turned $DLNAsearch";
+			Log3 $name, 1, "$type: $name  - starting InternalTimer YAMAHA_MC_DiscoverDLNAProcess anyway once in 150Secs";
+
+			YAMAHA_MC_setupControlpoint($hash);
+			YAMAHA_MC_setupMediaRenderer($hash);
+			InternalTimer( gettimeofday() + 150, 'YAMAHA_MC_DiscoverDLNAProcess', $hash, 0 );
+		}
     }
-    else {
-
-        Log3 $name, 1, "$type: $name  - DLNASearch turned $DLNAsearch";
-        Log3 $name, 1, "$type: $name  - starting InternalTimer YAMAHA_MC_DiscoverDLNAProcess anyway once in 150Secs";
-
-        YAMAHA_MC_setupControlpoint($hash);
-        YAMAHA_MC_setupMediaRenderer($hash);
-        InternalTimer( gettimeofday() + 150, 'YAMAHA_MC_DiscoverDLNAProcess', $hash, 0 );
-    }
-
+	
     Log3 $hash->{NAME}, 1, "$type: $name  opened device $name -> host:$hash->{HOST}:" . "$hash->{PORT}" . " $hash->{OFF_INTERVAL}" . " $hash->{ON_INTERVAL}" . " $hash->{ZONE}";
 
     # start the status update timer in one second
@@ -392,6 +399,62 @@ sub YAMAHA_MC_Define($$)    # only called when defined, not on reload.
     YAMAHA_MC_ResetTimer( $hash, 1 );
 
     return undef;
+}
+
+# ------------------------------------------------------------------------------
+# YAMAHA_MC_Notify
+# ------------------------------------------------------------------------------
+
+sub YAMAHA_MC_Notify($$)
+{
+	my ($hash, $dev_hash) = @_;
+	my $ownName = $hash->{NAME}; # own name / hash
+ 
+	return "" if(IsDisabled($ownName)); # Return without any further action if the module is disabled
+ 
+	my $devName = $dev_hash->{NAME}; # Device that created the events
+	my $events = deviceEvents($dev_hash, 1);
+	my $name = $hash->{NAME}; 
+
+	if($devName eq "global" && grep(m/^INITIALIZED|REREADCFG$/, @{$events}))
+	{
+	
+	    #Event PRocessing
+		if ( AttrVal( $name, "eventProcessing", 0 ) ) {
+			Log3 $hash->{NAME}, 2, "$hash->{TYPE}: $hash->{NAME} event Processing enabled ";
+
+			#open UDP Client for incoming events
+			YAMAHA_MC_OpenUDPConn($hash);
+		}
+		else {
+			Log3 $hash->{NAME}, 2, "$hash->{TYPE}: $hash->{NAME} event Processing disabled ";
+		}
+		
+	    # DLNA Search
+		 my $DLNAsearch = AttrVal( $hash->{NAME}, "DLNAsearch", "on" );
+
+		readingsSingleUpdate( $hash, "DLNARenderer", "unknown", 1 );
+		readingsSingleUpdate( $hash, 'MediaServer',  'unknown', 1 );
+
+		if ( $DLNAsearch eq "on" ) {
+
+			YAMAHA_MC_setupControlpoint($hash);
+			YAMAHA_MC_setupMediaRenderer($hash);
+
+			Log3 $hash->{NAME}, 2, "$hash->{TYPE}: $name  DLNAsearch turned $DLNAsearch setting timer for getting devices in 150Secs";
+			InternalTimer( gettimeofday() + 120, 'YAMAHA_MC_getNetworkStatus',    $hash, 0 );
+			InternalTimer( gettimeofday() + 150, 'YAMAHA_MC_DiscoverDLNAProcess', $hash, 0 );
+		}
+		else {
+
+			Log3 $name, 1, "$hash->{TYPE}: $name  - DLNASearch turned $DLNAsearch";
+			Log3 $name, 1, "$hash->{TYPE}: $name  - starting InternalTimer YAMAHA_MC_DiscoverDLNAProcess anyway once in 150Secs";
+
+			YAMAHA_MC_setupControlpoint($hash);
+			YAMAHA_MC_setupMediaRenderer($hash);
+			InternalTimer( gettimeofday() + 150, 'YAMAHA_MC_DiscoverDLNAProcess', $hash, 0 );
+		}
+	}
 }
 
 # ------------------------------------------------------------------------------
@@ -1346,7 +1409,9 @@ sub YAMAHA_MC_SpeakFile($$)    # only called when defined, not on reload.
 
         # Deleting tts File
         Log3 $name, 4, "$name YAMAHA_MC_SpeakFile try delete tts file $originalSearchfilename : $ret";
-        $ret .= qx(timeout 2 sudo id && sudo rm -f $originalSearchfilename || rm -f $originalSearchfilename );
+		if ( $originalSearchfilename !~ /keep/ ) {
+          $ret .= qx(timeout 2 sudo id && sudo rm -f $originalSearchfilename || rm -f $originalSearchfilename );
+		}  
         Log3 $name, 4, "$name YAMAHA_MC_SpeakFile delete tts file $originalSearchfilename : $ret";
 
         if ( ( defined($URILink) ) and ( defined( $hash->{helper}{MediaRendererDLNA} ) ) ) {
@@ -2695,7 +2760,9 @@ sub YAMAHA_MC_HandleCmdQueue($$$) {
                 Log3 $name, 4, " $type ($name) - YAMAHA_MC_HandleCmdQueue: API Version cut to $shortAPI URL before $url";
 
                 #api version setzen durch korrekte Version des Devices
-                $url =~ s/v1/v$shortAPI/g;
+                #$url =~ s/(/v1/)/(/v$shortAPI/)/g;
+				$url =~ s|/v1/|/v$shortAPI/|g;
+				
 
                 Log3 $name, 4, "$type ($name) - YAMAHA_MC_HandleCmdQueue: cmd=$reqCmd starte httpRequest replaced url => $url";
 
@@ -4284,7 +4351,8 @@ sub YAMAHA_MC_httpRequestDirect($$@) {
     Log3 $name, 4, " $type ($name) - YAMAHA_MC_httpRequestDirect: API Version cut to $shortAPI URL before $url";
 
     #api version setzen durch korrekte Version des Devices
-    $url =~ s/v1/v$shortAPI/g;
+    #$url =~ s/(/v1/)/(/v$shortAPI/)/g;
+	$url =~ s|/v1/|/v$shortAPI/|g;
 
     Log3 $name, 4, "$type ($name) - YAMAHA_MC_httpRequestDirect: cmd=$cmd starte httpRequest replaced url => $url";
 

@@ -2,11 +2,11 @@
 #
 #  88_HMCCUCHN.pm
 #
-#  $Id: 88_HMCCUCHN.pm 20414 2019-10-27 16:49:53Z zap $
+#  $Id: 88_HMCCUCHN.pm 21452 2020-03-19 13:16:06Z zap $
 #
-#  Version 4.3.009
+#  Version 4.3.011
 #
-#  (c) 2019 zap (zap01 <at> t-online <dot> de)
+#  (c) 2020 zap (zap01 <at> t-online <dot> de)
 #
 ######################################################################
 #  Client device for Homematic channels.
@@ -116,7 +116,7 @@ sub HMCCUCHN_Define ($@)
 		# CCU not ready during FHEM start
 		if (!defined ($hmccu_hash) || $hmccu_hash->{ccustate} ne 'active') {
 			Log3 $name, 2, "HMCCUCHN: [$devname] Cannot detect IO device, maybe CCU not ready. Trying later ...";
-			readingsSingleUpdate ($hash, "state", "Pending", 1);
+#			readingsSingleUpdate ($hash, "state", "Pending", 1);
 			$hash->{ccudevstate} = 'pending';
 			return undef;
 		}
@@ -155,7 +155,7 @@ sub HMCCUCHN_InitDevice ($$) {
 	$dev_hash->{ccuname} = $dn;
 	$dev_hash->{ccutype} = $dt;
 
-	readingsSingleUpdate ($dev_hash, "state", "Initialized", 1);
+#	readingsSingleUpdate ($dev_hash, "state", "Initialized", 1);
 	$dev_hash->{ccudevstate} = 'active';
 	
 	return 0;
@@ -259,7 +259,7 @@ sub HMCCUCHN_Set ($@)
 		return HMCCU_SetError ($hash, $usage) if (scalar (keys %dpval) < 1);
 
 		$rc = HMCCU_SetMultipleDatapoints ($hash, \%dpval);
-		return HMCCU_SetError ($hash, min(0, $rc));
+		return HMCCU_SetError ($hash, HMCCU_Min(0, $rc));
 	}
 	elsif ($opt eq 'control') {
 		return HMCCU_SetError ($hash, -14) if ($cd eq '');
@@ -272,7 +272,7 @@ sub HMCCUCHN_Set ($@)
 		$rc = HMCCU_SetMultipleDatapoints ($hash,
 			{ "001.$ccuif.$ccuaddr.$cd" => HMCCU_Substitute ($objvalue, $statevals, 1, undef, '') }
 		);
-		return HMCCU_SetError ($hash, min(0, $rc));
+		return HMCCU_SetError ($hash, HMCCU_Min(0, $rc));
 	}
 	elsif ($opt =~ /^($hash->{statevals})$/) {
 		my $cmd = $1;
@@ -287,7 +287,7 @@ sub HMCCUCHN_Set ($@)
 		$rc = HMCCU_SetMultipleDatapoints ($hash,
 			{ "001.$ccuif.$ccuaddr.$sd" => HMCCU_Substitute ($objvalue, $statevals, 1, undef, '') }
 		);
-		return HMCCU_SetError ($hash, min(0, $rc));
+		return HMCCU_SetError ($hash, HMCCU_Min(0, $rc));
 	}
 	elsif ($opt eq 'toggle') {
 		return HMCCU_SetError ($hash, -15) if ($statevals eq '' || !exists($hash->{statevals}));
@@ -322,7 +322,7 @@ sub HMCCUCHN_Set ($@)
 		$rc = HMCCU_SetMultipleDatapoints ($hash,
 			{ "001.$objname" => HMCCU_Substitute ($objvalue, $statevals, 1, undef, '') }
 		);
-		return HMCCU_SetError ($hash, min(0, $rc));
+		return HMCCU_SetError ($hash, HMCCU_Min(0, $rc));
 	}
 	elsif ($opt eq 'pct' || $opt eq 'up' || $opt eq 'down') {
 		return HMCCU_SetError ($hash, "Can't find LEVEL datapoint for device type $ccutype")
@@ -366,11 +366,11 @@ sub HMCCUCHN_Set ($@)
 			return HMCCU_SetError ($hash, $rc, $result) if ($rc < 0);
 			
 			# Set level
-			my $objvalue = min(max($result+$delta,0),100);
+			my $objvalue = HMCCU_Min(HMCCU_Max($result+$delta,0),100);
 			$rc = HMCCU_SetMultipleDatapoints ($hash, { "001.$objname" => $objvalue });
 		}
 		
-		return HMCCU_SetError ($hash, min(0, $rc));
+		return HMCCU_SetError ($hash, HMCCU_Min(0, $rc));
 	}
 	elsif ($opt eq 'on-for-timer' || $opt eq 'on-till') {
 		return HMCCU_SetError ($hash, -15) if ($statevals eq '' || !exists($hash->{statevals}));
@@ -395,7 +395,7 @@ sub HMCCUCHN_Set ($@)
 			"001.$ccuif.$ccuaddr.ON_TIME" => $timespec,
 			"002.$ccuif.$ccuaddr.$sd" => HMCCU_Substitute ("on", $statevals, 1, undef, '')
 		});
-		return HMCCU_SetError ($hash, min(0, $rc));
+		return HMCCU_SetError ($hash, HMCCU_Min(0, $rc));
 	}
 	elsif ($opt eq 'clear') {
 		my $rnexp = shift @$a;
@@ -412,7 +412,7 @@ sub HMCCUCHN_Set ($@)
 			($ccuobj, undef) = HMCCU_SplitChnAddr ($ccuaddr);
 		}
 		($rc, $result) = HMCCU_RPCRequest ($hash, "putParamset", $ccuobj, "MASTER", $h);
-		return HMCCU_SetError ($hash, min(0, $rc));
+		return HMCCU_SetError ($hash, HMCCU_Min(0, $rc));
 	}
 	elsif ($opt eq 'rpcparameter') {
 		return HMCCU_SetError ($hash, "Usage: set $name rpcparameter [MASTER|VALUES] {parameter}={value} [...]")
@@ -430,7 +430,7 @@ sub HMCCUCHN_Set ($@)
 			return HMCCU_SetError ($hash, "Key must be MASTER or VALUES");
 		}
 		
-		return HMCCU_SetError ($hash, min(0, $rc));
+		return HMCCU_SetError ($hash, HMCCU_Min(0, $rc));
 	}
 	elsif ($opt eq 'defaults') {
 		$rc = HMCCU_SetDefaults ($hash);

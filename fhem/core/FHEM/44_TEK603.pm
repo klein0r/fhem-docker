@@ -1,4 +1,4 @@
-# $Id: 44_TEK603.pm 20547 2019-11-20 14:37:30Z eisler $
+# $Id: 44_TEK603.pm 22613 2020-08-16 09:12:36Z eisler $
 ####################################################################################################
 #
 #	44_TEK603.pm
@@ -27,29 +27,19 @@ package main;
 
 use strict;
 use warnings;
+use DevIo;
 
 use Digest::CRC; # libdigest-crc-perl
 
-sub TEK603_Initialize($);
-sub TEK603_define($$);
-sub TEK603_doInit($);
-sub TEK603_undef($$);
-sub TEK603_ready($);
-sub TEK603_read($);
-sub TEK603_reconnect($);
-
-
 sub TEK603_Initialize($) {
 	my ($hash) = @_;
-
-	require $attr{global}{modpath} . '/FHEM/DevIo.pm';
 
 	$hash->{ReadFn}		= 'TEK603_read';
 	$hash->{ReadyFn}	= 'TEK603_ready';
 	$hash->{DefFn}		= 'TEK603_define';
 	$hash->{UndefFn}	= 'TEK603_undef';
 
-	$hash->{AttrList}	= 'do_not_notify:0,1 dummy:1,0 loglevel:0,1,2,3,4,5,6 ' .
+	$hash->{AttrList}	= 'do_not_notify:0,1 dummy:1,0 disable:1,0 loglevel:0,1,2,3,4,5,6 ' .
 				   $readingFnAttributes;
 }
 
@@ -91,6 +81,8 @@ sub TEK603_doInit($) {
 	my $po = $hash->{USBDev};
 	my $dev = $hash->{DeviceName};
 	my $name = $hash->{NAME};
+
+	return if (IsDisabled($name));
 
 	# Wenn / enthalten ist ist es kein ser2net-Device, daher initialisieren
 	if ($dev =~ m/\//)
@@ -137,20 +129,34 @@ sub TEK603_undef($$) {
 }
 
 
-sub TEK603_ready($) {
+sub TEK603_ready() {
 	my ($hash) = @_;
-
+	my $name = $hash->{NAME};
+	return if (IsDisabled($name));
 	return DevIo_OpenDev($hash, 1, 'TEK603_doInit') if($hash->{STATE} eq 'disconnected');
 
 	# This is relevant for windows/USB only
+	my ($BlockingFlags, $InBytes, $OutBytes, $ErrorFlags);
 	my $po = $hash->{USBDev};
-	my ($BlockingFlags, $InBytes, $OutBytes, $ErrorFlags) = $po->status;
-	return ($InBytes > 0);
+
+	if ($po) {
+		($BlockingFlags, $InBytes, $OutBytes, $ErrorFlags) = $po->status;
+		return ($InBytes > 0);
+	}
+
+	# Someone set us up the bomb
+	Log3($hash->{NAME}, 1, qq[Can't read from $hash->{DeviceName}]);
+
+	# disable device
+	Log3($hash->{NAME}, 1, qq[Disabled device due read errors]);
+	CommandAttr(undef, $hash->{NAME} . ' disable 1');
+	return;
 }
 
 sub TEK603_read($) {
 	my ($hash) = @_;
 	my $name = $hash->{NAME};
+	return if (IsDisabled($name));
 
 	my $buf = DevIo_SimpleRead($hash);
 	return '' if(!defined($buf));

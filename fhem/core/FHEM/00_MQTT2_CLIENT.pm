@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_MQTT2_CLIENT.pm 20184 2019-09-17 16:25:01Z rudolfkoenig $
+# $Id: 00_MQTT2_CLIENT.pm 22936 2020-10-07 14:54:17Z rudolfkoenig $
 package main;
 
 use strict;
@@ -10,6 +10,7 @@ sub MQTT2_CLIENT_Read($@);
 sub MQTT2_CLIENT_Write($$$);
 sub MQTT2_CLIENT_Undef($@);
 sub MQTT2_CLIENT_doPublish($@);
+sub MQTT2_CLIENT_Disco($;$$);
 
 # See also:
 # http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html
@@ -40,6 +41,8 @@ MQTT2_CLIENT_Initialize($)
     clientId
     disable:1,0
     disabledForIntervals
+    disconnectAfter
+    ignoreRegexp
     lwt
     lwtRetain
     keepaliveTimeout
@@ -47,6 +50,7 @@ MQTT2_CLIENT_Initialize($)
     msgBeforeDisconnect
     mqttVersion:3.1.1,3.1
     privacy:0,1
+    qosMaxQueueLength
     rawEvents
     subscriptions
     SSL
@@ -54,7 +58,7 @@ MQTT2_CLIENT_Initialize($)
     username
   );
   use warnings 'qw';
-  $hash->{AttrList} = join(" ", @attrList);
+  $hash->{AttrList} = join(" ", @attrList)." ".$readingFnAttributes;
 }
 
 #####################################
@@ -84,6 +88,7 @@ MQTT2_CLIENT_connect($)
   my $disco = (ReadingsVal($hash->{NAME}, "state", "") eq "disconnected");
   $hash->{connecting} = 1 if($disco && !$hash->{connecting});
   $hash->{nextOpenDelay} = 5;
+  $hash->{BUF}="";
   return DevIo_OpenDev($hash, $disco, "MQTT2_CLIENT_doinit", sub(){})
                 if($hash->{connecting});
 }
@@ -98,6 +103,7 @@ MQTT2_CLIENT_doinit($)
   if($hash->{connecting} == 1) {
     my $usr = AttrVal($name, "username", "");
     my ($err, $pwd) = getKeyValue($name);
+    $pwd = undef if($usr eq "");
     if($err) {
       Log 1, "ERROR: $err";
       return;
@@ -125,11 +131,12 @@ MQTT2_CLIENT_doinit($)
       pack("C",0x10).
       MQTT2_CLIENT_calcRemainingLength(length($msg)).$msg, 1, 1); # Forum #92946
     RemoveInternalTimer($hash);
+    $hash->{waitingForConnack} = 1;
     if($keepalive) {
       InternalTimer(gettimeofday()+$keepalive,"MQTT2_CLIENT_keepalive",$hash,0);
     }
 
-  ############################## SUBSCRIBE
+  ############################## SUBSCRIBE & RESEND Non-Acked
   } elsif($hash->{connecting} == 2) {
     my $s = AttrVal($name, "subscriptions", "#");
     if($s eq "setByTheProgram") {
@@ -144,7 +151,30 @@ MQTT2_CLIENT_doinit($)
       MQTT2_CLIENT_calcRemainingLength(length($msg)).$msg, 0, 1);
     $hash->{connecting} = 3;
 
+
+  } elsif($hash->{connecting} == 3) {
+    my $onc = AttrVal($name, "msgAfterConnect", "");
+    delete($hash->{connecting});
+    MQTT2_CLIENT_doPublish($hash, $2, $3, $1, 1)
+      if($onc && $onc =~ m/^(-r\s)?([^\s]*)\s*(.*)$/);
+
+    if($hash->{qosQueue} && @{$hash->{qosQueue}}) {
+      my $pa = $hash->{qosQueue};
+      $hash->{qosQueue} = [];
+      for(my $i1=0; $i1<@{$pa}; $i1++) {
+        my $r = $pa->[$i1];
+        MQTT2_CLIENT_doPublish($hash, $r->[0], $r->[1], $r->[2], 0);
+      }
+    }
+    if($hash->{sendHash}) {
+      map { MQTT2_CLIENT_doPublish($hash,$_->[1],$_->[2],$_->[3]) }
+                @{$hash->{sendHash}};
+      delete($hash->{sendHash});
+    } 
+    MQTT2_CLIENT_updateDisconnectTimer($hash);
+
   }
+
   return undef;
 }
 
@@ -153,10 +183,13 @@ MQTT2_CLIENT_keepalive($)
 {
   my ($hash) = @_;
   my $name = $hash->{NAME};
+  if($hash->{waitingForConnack}) {
+    Log3 $name, 2, "$hash->{NAME}: No CONNACK, disconnecting";
+    return  MQTT2_CLIENT_Disco($hash);
+  }
   if($hash->{waitingForPingRespSince}) {
     Log3 $name, 2, "$hash->{NAME}: No PINGRESP for last PINGREQ (".
             "at $hash->{waitingForPingRespSince}), disconnecting";
-    delete $hash->{waitingForPingRespSince};
     return  MQTT2_CLIENT_Disco($hash);
   }
   my $keepalive = AttrVal($name, "keepaliveTimeout", 30);
@@ -176,18 +209,49 @@ MQTT2_CLIENT_Undef($@)
 }
 
 sub
-MQTT2_CLIENT_Disco($;$)
+MQTT2_CLIENT_Disco($;$$)
 {
-  my ($hash, $isUndef) = @_;
+  my ($hash, $isUndef, $noMsg) = @_;
   RemoveInternalTimer($hash);
   $hash->{connecting} = 1 if(!$isUndef);
-  my $ond = AttrVal($hash->{NAME}, "msgBeforeDisconnect", "");
-  MQTT2_CLIENT_doPublish($hash, $2, $3, $1, 1)
-        if($ond && $ond =~ m/^(-r\s)?([^\s]*)\s*(.*)$/);
-  MQTT2_CLIENT_send($hash, pack("C",0xE0).pack("C",0), 1); # DISCONNECT
+  if(!$noMsg) {
+    my $ond = AttrVal($hash->{NAME}, "msgBeforeDisconnect", "");
+    MQTT2_CLIENT_doPublish($hash, $2, $3, $1, 1)
+          if($ond && $ond =~ m/^(-r\s)?([^\s]*)\s*(.*)$/);
+    MQTT2_CLIENT_send($hash, pack("C",0xE0).pack("C",0), 1); # DISCONNECT
+  }
   $isUndef ? DevIo_CloseDev($hash) : DevIo_Disconnected($hash);
+  delete($hash->{BUF});
+
+  if($hash->{disconnectTimerHash}) {
+    RemoveInternalTimer($hash->{disconnectTimerHash});
+    delete($hash->{disconnectTimerHash});
+  }
+
+  delete $hash->{waitingForConnack};
+  delete $hash->{waitingForPingRespSince};
+
+  readingsSingleUpdate($hash, "state", "disconnected", 1);
 }
 
+sub
+MQTT2_CLIENT_updateDisconnectTimer($)
+{
+  my ($hash) = @_;
+  return if(!$hash->{FD} || $hash->{connecting});
+  if($hash->{disconnectTimerHash}) {
+    RemoveInternalTimer($hash->{disconnectTimerHash});
+    delete($hash->{disconnectTimerHash});
+    delete($hash->{disconnectAt});
+  }
+  my $to = AttrVal($hash->{NAME}, "disconnectAfter", 0);
+  return if(!$to);
+  $to += time();
+  $hash->{disconnectAt} = FmtDateTime($to);
+  $hash->{disconnectTimerHash} = { h=>$hash };
+  InternalTimer($to, sub{ MQTT2_CLIENT_Disco($_[0]->{h},1) },
+        $hash->{disconnectTimerHash}, 0);
+}
 
 sub
 MQTT2_CLIENT_Delete($@)
@@ -207,8 +271,16 @@ MQTT2_CLIENT_Attr(@)
     $hash->{SSL} = $param[0] ? $param[0] : 1;
   }
 
+  if($type eq "set" && $attrName eq "ignoreRegexp") {
+    my $re = join(" ",@param);
+    return "bad $devName ignoreRegexp: $re" if($re eq "1" || $re =~ m/^\*/);
+    eval { "Hallo" =~ m/$re/ };
+    return "bad $devName ignoreRegexp: $re: $@" if($@);
+  }
+
   if($attrName eq "clientId") {
-    $hash->{clientId} = $param[0];
+    delete($hash->{clientId});
+    $hash->{clientId} = $param[0] if($type eq "set");
   }
 
   if($attrName eq "sslargs") {
@@ -224,19 +296,43 @@ MQTT2_CLIENT_Attr(@)
     delete($hash->{authError});
     MQTT2_CLIENT_Disco($hash);
   }
+
+  if($attrName eq "qosMaxQueueLength") {
+    if($type eq "set" && $param[0] ne "0") {
+      return "qosMaxQueueLength must be an integer" if($param[0] !~ m/^\d+$/);
+      $hash->{qosMaxQueueLength} = $param[0];
+      $hash->{qosQueue} = [];
+      $hash->{qosCnt} = 0;
+    } else {
+      delete $hash->{qosQueue};
+      delete $hash->{qosMaxQueueLength};
+    }
+  }
+
+  if($attrName eq "disconnectAfter") {
+    $hash->{devioLoglevel} = ($type eq "set" ? 5 : 0);
+    return undef if(!$init_done);
+    InternalTimer(0, sub {
+      MQTT2_CLIENT_updateDisconnectTimer($hash);
+      MQTT2_CLIENT_connect($hash)
+        if(!$hash->{FD} && ($type ne "set" || $param[0] eq "0"));
+    }, undef, 0);
+  }
+
   return undef;
-} 
+}
 
 sub
 MQTT2_CLIENT_Set($@)
 {
   my ($hash, @a) = @_;
-  my %sets = ( password=>2, publish=>2 );
+  my %sets = ( password=>2, publish=>2, connect=>0, disconnect=>0 );
   my $name = $hash->{NAME};
   shift(@a);
 
-  return "Unknown argument ?, choose one of ".join(" ", keys %sets)
-        if(!$a[0] || !$sets{$a[0]});
+  return "Unknown argument ?, choose one of ".
+        join(" ", map { $sets{$_} ? $_ : "$_:noArg" } keys %sets)
+        if(!$a[0] || !defined($sets{$a[0]}));
 
   if($a[0] eq "publish") {
     shift(@a);
@@ -248,6 +344,7 @@ MQTT2_CLIENT_Set($@)
     return "Usage: set $name publish -r topic [value]" if(@a < 1);
     my $tp = shift(@a);
     my $val = join(" ", @a);
+    readingsSingleUpdate($hash, "lastPublish", "$tp:$val", 1);
     MQTT2_CLIENT_doPublish($hash, $tp, $val, $retain);
 
   } elsif($a[0] eq "password") {
@@ -255,6 +352,12 @@ MQTT2_CLIENT_Set($@)
     delete($hash->{authError});
     setKeyValue($name, $a[1]); # will delete, if argument is empty
     MQTT2_CLIENT_Disco($hash) if($init_done);
+
+  } elsif($a[0] eq "connect") {
+    MQTT2_CLIENT_connect($hash) if(!$hash->{FD});
+
+  } elsif($a[0] eq "disconnect") {
+    MQTT2_CLIENT_Disco($hash, 1) if($hash->{FD});
 
   }
   return undef;
@@ -291,7 +394,7 @@ MQTT2_CLIENT_Read($@)
   if(!$reread) {
     my $buf = DevIo_SimpleRead($hash);
     if(!defined($buf)) {
-      MQTT2_CLIENT_Disco($hash);
+      MQTT2_CLIENT_Disco($hash,0,1);
       return "";
     }
     $hash->{BUF} .= $buf;
@@ -300,7 +403,7 @@ MQTT2_CLIENT_Read($@)
   my ($tlen, $off) = MQTT2_CLIENT_getRemainingLength($hash);
   if($tlen < 0 || $tlen+$off<=0) {
     Log3 $name, 1, "Bogus data from $name, closing connection";
-    MQTT2_CLIENT_Disco($hash);
+    MQTT2_CLIENT_Disco($hash,0,1);
     return;
   }
   return if(length($hash->{BUF}) < $tlen+$off);
@@ -322,6 +425,7 @@ MQTT2_CLIENT_Read($@)
 
   ####################################
   if($cpt eq "CONNACK")  {
+    delete($hash->{waitingForConnack});
     my $rc = ord(substr($pl,1,1));
     if($rc == 0) {
       MQTT2_CLIENT_doinit($hash);
@@ -335,14 +439,12 @@ MQTT2_CLIENT_Read($@)
       MQTT2_CLIENT_Disco($hash);
       return;
     }
-  } elsif($cpt eq "PUBACK")   { # ignore it
-  } elsif($cpt eq "SUBACK")   {
-    if($hash->{connecting}) {
-      delete($hash->{connecting});
-      my $onc = AttrVal($name, "msgAfterConnect", "");
-      MQTT2_CLIENT_doPublish($hash, $2, $3, $1, 1)
-        if($onc && $onc =~ m/^(-r\s)?([^\s]*)\s*(.*)$/);
-    }
+
+  } elsif($cpt eq "PUBACK") { 
+    shift(@{$hash->{qosQueue}}) if($hash->{qosQueue});
+
+  } elsif($cpt eq "SUBACK") {
+    MQTT2_CLIENT_doinit($hash) if($hash->{connecting});
 
   } elsif($cpt eq "PINGRESP") {
     delete($hash->{waitingForPingRespSince});
@@ -358,9 +460,14 @@ MQTT2_CLIENT_Read($@)
     }
     $val = substr($pl, $off);
     MQTT2_CLIENT_send($hash, pack("CCnC*", 0x40, 2, $pid)) if($qos); # PUBACK
+    MQTT2_CLIENT_updateDisconnectTimer($hash);
 
     if(!IsDisabled($name)) {
       $val = "" if(!defined($val));
+
+      my $ir = AttrVal($name, "ignoreRegexp", undef);
+      next if(defined($ir) && "$tp:$val" =~ m/$ir/);
+
       my $ac = AttrVal($name, "autocreate", "no");
       $ac = $ac eq "1" ? "simple" : ($ac eq "0" ? "no" : $ac); # backward comp.
 
@@ -376,11 +483,15 @@ MQTT2_CLIENT_Read($@)
     Log 1, "M2: Unhandled packet $cpt, disconneting $name";
     MQTT2_CLIENT_Disco($hash);
   }
-  return MQTT2_CLIENT_Read($hash, 1);
+
+  # Allow some IO inbetween, for overloaded systems
+  InternalTimer(0, sub{ MQTT2_CLIENT_Read($_[0],1)}, $hash,0)
+        if(length($hash->{BUF}) > 0);
 }
 
 ######################################
 # send topic to client if its subscriptions matches the topic
+
 sub
 MQTT2_CLIENT_doPublish($@)
 {
@@ -388,10 +499,35 @@ MQTT2_CLIENT_doPublish($@)
   my $name = $hash->{NAME};
   return if(IsDisabled($name));
   $val = "" if(!defined($val));
-  my $msg = pack("C", $retain ? 0x31:0x30).
-            MQTT2_CLIENT_calcRemainingLength(2+length($topic)+length($val)).
+
+  if((!$hash->{FD} || $hash->{connecting}) &&
+        AttrVal($name, "disconnectAfter", undef)) {
+    $hash->{sendHash} = [] if(!defined($hash->{sendHash}));
+    push(@{$hash->{sendHash}}, \@_);
+    MQTT2_CLIENT_connect($hash) if(!$hash->{connecting});
+    return;
+  }
+  MQTT2_CLIENT_updateDisconnectTimer($hash);
+
+  if(!$hash->{FD}) {
+    Log3 $name, 4, "$name: publish to $topic while not connected";
+    return;
+  }
+
+  my $hdr = 0x30;
+  my $pi = "";
+  $hdr += 1 if($retain);
+  if(defined($hash->{qosQueue}) &&
+     @{$hash->{qosQueue}} < $hash->{qosMaxQueueLength}) {
+    $hdr += 2; # QoS:1
+    push(@{$hash->{qosQueue}}, [$topic,$val,$retain]);
+    $pi = pack("n",1+($hash->{qosCnt}++%65535)); # Packet Identifier, if QoS > 0
+  }
+  my $msg = pack("C", $hdr).
+            MQTT2_CLIENT_calcRemainingLength(2+length($topic)+length($val)+
+                                length($pi)).
             pack("n", length($topic)).
-            $topic.$val;
+            $topic.$pi.$val;
   MQTT2_CLIENT_send($hash, $msg, $immediate)
 }
 
@@ -414,7 +550,7 @@ MQTT2_CLIENT_send($$;$$)
   if($immediate) {
     DevIo_SimpleWrite($hash, $msg, 0);
   } else {
-    addToWritebuffer($hash, $msg);
+    addToWritebuffer($hash, $msg, undef, 1); # nolimit
   }
 }
 
@@ -488,7 +624,6 @@ MQTT2_CLIENT_getStr($$)
 1;
 
 =pod
-=item helper
 =item summary    Connection to an external MQTT server
 =item summary_DE Verbindung zu einem externen MQTT Server
 =begin html
@@ -525,6 +660,11 @@ MQTT2_CLIENT_getStr($$)
     <li>password &lt;password&gt; value<br>
       set the password, which is stored in the FHEM/FhemUtils/uniqueID file.
       If the argument is empty, the password will be deleted.
+      </li><br>
+    <li>connect<br>
+        disconnect<br>
+      manually connect or disconnect to the MQTT server.  Needed for some
+      strange embedded server.
       </li>
   </ul>
   <br>
@@ -537,7 +677,7 @@ MQTT2_CLIENT_getStr($$)
   <b>Attributes</b>
   <ul>
 
-    <a name="autocreate"></a>
+    <a name="MQTT_CLIENTautocreate"></a>
     <li>autocreate [no|simple|complex]<br>
       if set to simple/complex, at least one MQTT2_DEVICE will be created, and
       its readingsList will be expanded upon reception of published messages.
@@ -550,10 +690,12 @@ MQTT2_CLIENT_getStr($$)
       json2nameValue($EVENT, 'SENSOR_', $JSONMAP). Which one is better depends
       on the attached devices and on the personal taste, and it is only
       relevant for json payload. For non-json payload there is no difference
-      between simple and complex.
+      between simple and complex.<br>
+      Default is no, as in absence of an MQTT2_DEVICE with a bridgeRegexp
+      attribute it is not really useful.
       </li></br>
 
-    <a name="clientId"></a>
+    <a name="MQTT_CLIENTclientId"></a>
     <li>clientId &lt;name&gt;<br>
       set the MQTT clientId. If not set, the name of the MQTT2_CLIENT instance
       is used, after deleting everything outside 0-9a-zA-Z
@@ -564,65 +706,84 @@ MQTT2_CLIENT_getStr($$)
       disable dispatching of messages.
       </li><br>
 
-    <a name="lwt"></a>
+    <a name="MQTT2_CLIENTdisconnectAfter"></a>
+    <li>disconnectAfter &lt;seconds&gt;<br>
+      if set, the connection will be closed after &lt;seconds&gt; of
+      inactivity, and will be automatically reopened when sending a command.
+      </li>
+
+    <a name="MQTT2_CLIENTignoreRegexp"></a>
+    <li>ignoreRegexp<br>
+      if $topic:$message matches ignoreRegexp, then it will be silently ignored.
+      </li>
+
+    <a name="MQTT_CLIENTlwt"></a>
     <li>lwt &lt;topic&gt; &lt;message&gt; <br>
       set the LWT (last will and testament) topic and message, default is empty.
       </li></br>
 
-    <a name="keepaliveTimeout"></a>
+    <a name="MQTT_CLIENTkeepaliveTimeout"></a>
     <li>keepaliveTimeout &lt;seconds;&gt;<br>
       number of seconds for sending keepalive messages, 0 disables it.
       The broker will disconnect, if there were no messages for
       1.5 * keepaliveTimeout seconds.
       </li></br>
 
-    <a name="lwtRetain"></a>
+    <a name="MQTT_CLIENTlwtRetain"></a>
     <li>lwtRetain<br>
       if set, the lwt retain flag is set
       </li></br>
 
-    <a name="mqttVersion"></a>
+    <a name="MQTT_CLIENTmqttVersion"></a>
     <li>mqttVersion 3.1,3.1.1<br>
       set the MQTT protocol version in the CONNECT header, default is 3.1
       </li></br>
 
-    <a name="msgAfterConnect"></a>
+    <a name="MQTT_CLIENTmsgAfterConnect"></a>
     <li>msgAfterConnect [-r] topic message<br>
       publish the topic after each connect or reconnect.<br>
       If the optional -r is specified, then the publish sets the retain flag.
       </li></br>
 
-    <a name="msgBeforeDisconnect"></a>
+    <a name="MQTT_CLIENTmsgBeforeDisconnect"></a>
     <li>msgBeforeDisconnect [-r] topic message<br>
       publish the topic bofore each disconnect.<br>
       If the optional -r is specified, then the publish sets the retain flag.
       </li></br>
 
-    <a name="rawEvents"></a>
+    <a name="MQTT_CLIENTqosMaxQueueLength"></a>
+    <li>qosMaxQueueLength &lt;number&gt;<br>
+      if set to a nonzero value, messages are published with QoS=1, and are
+      kept in a memory-only buffer until acknowledged by the server.
+      If there is no connection to the server, up to &lt;number&gt; messages
+      are queued, and resent when the connection is esablished.
+      </li></br>
+      
+    <a name="MQTT_CLIENTrawEvents"></a>
     <li>rawEvents &lt;topic-regexp&gt;<br>
       send all messages as events attributed to this MQTT2_CLIENT instance.
       Should only be used, if there is no MQTT2_DEVICE to process the topic.
       </li><br>
 
-    <a name="subscriptions"></a>
+    <a name="MQTT_CLIENTsubscriptions"></a>
     <li>subscriptions &lt;subscriptions&gt;<br>
       space separated list of MQTT subscriptions, default is #<br>
       Note: if the value is the literal setByTheProgram, then the value sent by
       the client (e.g. MQTT_GENERIC_BRIDGE) is used.
       </li><br>
 
-    <a name="SSL"></a>
+    <a name="MQTT_CLIENTSSL"></a>
     <li>SSL<br>
       Enable SSL (i.e. TLS)
       </li><br>
 
-    <a name="sslargs"></a>
+    <a name="MQTT_CLIENTsslargs"></a>
     <li>sslargs<br>
       a list of space separated tuples of key:value, where key is one of the
       possible options documented in perldoc IO::Socket::SSL
       </li><br>
 
-    <a name="username"></a>
+    <a name="MQTT_CLIENTusername"></a>
     <li>username &lt;username&gt;<br>
       set the username. The password is set via the set command, and is stored
       separately, see above.

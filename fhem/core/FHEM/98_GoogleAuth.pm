@@ -1,4 +1,4 @@
-# $Id: 98_GoogleAuth.pm 13155 2017-01-20 16:01:24Z betateilchen $
+# $Id: 98_GoogleAuth.pm 21562 2020-03-31 18:53:47Z betateilchen $
 
 # License & technical informations
 =for comment
@@ -82,7 +82,7 @@ use URI::Escape;
 use Crypt::URandom qw( urandom );
 
 
-sub GoogleAuth_Initialize($) {
+sub GoogleAuth_Initialize {
   my ($hash) = @_;
 
   $hash->{DefFn}        = "GoogleAuth_Define";
@@ -98,7 +98,7 @@ sub GoogleAuth_Initialize($) {
                       "$readingFnAttributes";
 }
 
-sub GoogleAuth_Define($$) {
+sub GoogleAuth_Define {
   my ($hash, $def) = @_;
   my $name = $hash->{NAME};
   my @a = split("[ \t][ \t]*", $def);
@@ -106,15 +106,15 @@ sub GoogleAuth_Define($$) {
 
   Log3($hash,4,"googleAuth $name: defined");
   readingsSingleUpdate($hash,'state','defined',1);
-  return undef;
+  return;
 }
 
-sub GoogleAuth_Delete($$) {
+sub GoogleAuth_Delete {
   my ($hash,$name) = @_;
   setKeyValue("googleAuth$name",undef);
 }
 
-sub GoogleAuth_Set($$@) {
+sub GoogleAuth_Set {
   my ($hash, $name, $cmd, @args) = @_;
   my $usage = "Unknown argument, choose one of new:noArg revoke:noArg";
 
@@ -133,10 +133,10 @@ sub GoogleAuth_Set($$@) {
   } else { 
     return $usage 
   }
-  return undef;
+  return;
 }
 
-sub GoogleAuth_Get($$@) {
+sub GoogleAuth_Get {
   my ($hash, $name, $cmd, $given_token) = @_;
   my $usage = "Unknown argument, choose one of check";
 
@@ -167,7 +167,7 @@ sub GoogleAuth_Get($$@) {
   return $usage;
 }
 
-sub GoogleAuth_Detail($@) {
+sub GoogleAuth_Detail {
   my ($FW_wname, $name, $room, $pageHash) = @_;
   my $qr_url = _ga_make_url($name);
   my $secret_base32 = getKeyValue("googleAuth$name"); # read from fhem keystore
@@ -188,20 +188,20 @@ sub GoogleAuth_Detail($@) {
 
 
 # helper functions
-sub _ga_make_url($) {
+sub _ga_make_url {
   my ($name)        = @_;
   my $label         = AttrVal($name,'ga_labelName',"FHEM Authentication $name");
      $label        =~ s/\s/\%20/g;
   my $qrsize        = AttrVal($name,'ga_qrSize','200x200');
   my $secret_base32 = getKeyValue("googleAuth$name");
-  return undef unless defined($secret_base32);
+  return unless defined($secret_base32);
   my $url           = "otpauth://totp/$label?secret=$secret_base32&issuer=FHEM";
   my $qr_url        = "https://chart.googleapis.com/chart?cht=qr&chs=$qrsize"."&chl=";
      $qr_url       .= uri_escape($url);
   return $qr_url;
 }
 
-sub _ga_make_token_6($) {
+sub _ga_make_token_6 {
   my $token = shift;
   while (length $token < 6) {
     $token = "0$token";
@@ -209,7 +209,7 @@ sub _ga_make_token_6($) {
   return $token;
 }
 
-sub gAuth($$) {
+sub gAuth {
   my($name,$token) = @_;
   return CommandGet(undef,"$name check $token");
 }

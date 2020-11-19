@@ -1,15 +1,15 @@
-# $Id: 98_count.pm 18543 2019-02-09 12:13:20Z betateilchen $
+# $Id: 98_count.pm 21551 2020-03-31 11:01:06Z betateilchen $
 
 package main;
 use strict;
 use warnings;
 
-sub count_Initialize($$) {
+sub count_Initialize {
   $cmds{count} = {  Fn => "CommandCount",
                       Hlp=>"[filter],count devices"};
 }
 
-sub CommandCount($$)
+sub CommandCount
 {
   my ($cl, $param) = @_;
   my $str = "";

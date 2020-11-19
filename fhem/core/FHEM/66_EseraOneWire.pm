@@ -1,6 +1,6 @@
 ################################################################################
 #
-# $Id: 66_EseraOneWire.pm 20592 2019-11-25 20:56:33Z pizmus $
+# $Id: 66_EseraOneWire.pm 22509 2020-08-01 10:15:39Z pizmus $
 #
 # 66_EseraOneWire.pm
 #
@@ -30,6 +30,7 @@
 #  66_EseraTemp
 #  66_EseraCount
 #  66_EseraIButton
+#  66_EseraShutter
 #
 # For Esera 1-wire controllers with serial/USB interface please check the
 # commandref.
@@ -82,13 +83,15 @@ EseraOneWire_Initialize($)
                       $readingFnAttributes;
 
 
-  $hash->{Clients} = ":EseraDigitalInOut:EseraTemp:EseraMulti:EseraAnalogInOut:EseraIButton:EseraCount:";
-  $hash->{MatchList} = { "1:EseraDigitalInOut" => "^DS2408|^11220|^11228|^11229|^11216|^SYS1|^SYS2",
+  $hash->{Clients} = ":EseraDigitalInOut:EseraTemp:EseraMulti:EseraAnalogInOut:EseraIButton:EseraCount:EseraShutter:";
+  $hash->{MatchList} = { "1:EseraDigitalInOut" => "^DS2408|^11220|^11233|^11228|^11229|^11216|^SYS1|^SYS2",
                          "2:EseraTemp" => "^DS1820",
-                         "3:EseraMulti" => "^DS2438|^11121|^11132|^11134|^11135",
+                         "3:EseraMulti" => "^DS2438|^11121|^11132|^11133|^11134|^11135",
                          "4:EseraAnalogInOut" => "^SYS3",
                          "5:EseraIButton" => "^DS2401",
-			 "6:EseraCount" => "^DS2423"};
+			 "6:EseraCount" => "^DS2423",
+                         "7:EseraShutter" => "^11231|^11209",
+                         "8:EseraDimmer" => "^11221|^11222"};
 }
 
 sub
@@ -122,7 +125,7 @@ EseraOneWire_Define($$)
   $hash->{DeviceName} = $dev;
 
   $hash->{KAL_PERIOD} = 60;
-  $hash->{RECOMMENDED_FW} = 12027;
+  $hash->{RECOMMENDED_FW} = 12029;
   $hash->{DEFAULT_POLLTIME} = 5;
   $hash->{DEFAULT_DATATIME} = 10;
 
@@ -1041,7 +1044,7 @@ EseraOneWire_Read($)
       }
       else
       {
-        Log3 $name, 5, "EseraOneWire ($name) - readings ignored because controller is not initialized (2)";
+        Log3 $name, 5, "EseraOneWire ($name) - readings ignored because controller is not initialized (3)";
       }
     }
     elsif ($ascii =~ m/^1_SYS(\d+)/)
@@ -1052,7 +1055,7 @@ EseraOneWire_Read($)
       }
       else
       {
-        Log3 $name, 5, "EseraOneWire ($name) - readings ignored because controller is not initialized (2)";
+        Log3 $name, 5, "EseraOneWire ($name) - readings ignored because controller is not initialized (4)";
       }
     }
     else
@@ -2084,7 +2087,7 @@ EseraOneWire_processKalMessage($)
   supports serial connections as well, for controllers with serial/USB <br>
   interface. It is tested with EseraStation 200.<br>
   <br>
-  Tested with Esera controller firmware version 12027.<br>
+  Tested with Esera controller firmware version 12029.<br>
   <br>
   <a name="EseraOneWire_Define"></a>
   <b>Define</b>
@@ -2185,7 +2188,7 @@ EseraOneWire_processKalMessage($)
     </li>
   </ul>
   <br>
-  <a name="EseraDigitalInOut_Readings"></a>
+  <a name="EseraOneWire_Readings"></a>
   <b>Readings</b>
   <ul>
     <li>state &ndash; possible values are:
@@ -2200,14 +2203,14 @@ EseraOneWire_processKalMessage($)
     </li>
   </ul>
   <br>
-  <a name="EseraDigitalInOut_Attributes"></a>
+  <a name="EseraOneWire_Attributes"></a>
   <b>Attributes</b>
   <ul>
     <li>pollTime &ndash; POLLTIME setting of the controller, see controller manual, default: 5</li>
     <li>dataTime &ndash; DATATIME setting of the controller, see controller manual, default: 10</li>
   </ul>
   <br>
-  <a name="EseraDigitalInOut_Events"></a>
+  <a name="EseraOneWire_Events"></a>
   <b>Events</b>
   <ul>
     <li><code>CONNECTED</code> &ndash; from DevIo</li>

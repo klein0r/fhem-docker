@@ -56,14 +56,21 @@ embed { margin-bottom: 10px; }
 select { -webkit-appearance: none; -moz-appearance: none; appearance: none; background-color: transparent; }
 
 #content { max-width: 1000px; }
+#content .motd { background: #e56524; border-bottom: 3px #fff solid; border-top: 3px #fff solid; color: #fff; font-size: 16px !important; font-weight: 700; padding: 10px; margin-top: 20px; }
+#content .motd:before { content: 'MOTD: '; }
+#content .motd a { color: #1d3d5f; }
 #content .get, #content .set, #content .attr { float: left; }
+#content > pre { background: white; color: #676f7a; padding: 5px; }
 #content pre { font-family: 'Source Code Pro', monospace !important; white-space: pre-wrap; }
 #content pre.CodeMirror-line { white-space: pre; }
 #content pre.log { background: #000; padding: 10px; }
+#content > pre { background: #fff; padding: 10px; }
+#content div.col1 { line-height: 29px; }
 #content .roomoverview .icon { margin-right: 5px; vertical-align: middle; }
-#content .roomoverview .first-table-column { width: 25%; border-right: 2px #e56524 solid; line-height: 29px; }
+#content .roomoverview td.first-table-column { width: 25%; border-right: 2px #e56524 solid; line-height: 29px; }
 #content .modCmdinput[type="submit"] { border: 1px #e56524 solid; border-radius: 0; color: #e56524; padding: 1px 10px; background: transparent; font-size: 16px; }
-#content .makeTable { clear: left; display: inline; float: left; width: 100%; font-size: 16px !important; text-transform: uppercase; letter-spacing: 10px; overflow-x: scroll; }
+#content .makeTable { clear: left; display: inline; float: left; width: 100%; overflow-x: scroll; }
+#content .makeTable .mkTitle { font-size: 16px !important; text-transform: uppercase; letter-spacing: 10px; }
 #content .makeTable caption { text-transform: uppercase; font-size: 16px !important; letter-spacing: 10px; margin: 10px 0; }
 #content .makeTable .first-table-column { width: 25%; border-right: 2px #e56524 solid; }
 #content .makeTable .first-table-column img.icon { vertical-align: middle; width: 32px; height: 32px; }
@@ -82,9 +89,10 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; back
 #content .colorpicker_hue .slider { background: url(../jscolor/hue_background.svg); background-size: 150px; }
 #content .dval > table { margin-bottom: 10px; }
 #content .dval > table .downText { line-height: 24px; font-family: 'Source Code Pro', monospace !important; }
-#content .dval input { border: 1px #e56524 solid; border-radius: 0; color: #e56524; padding: 1px 10px; background: transparent; font-size: 16px; }
+#content .dval input[type=submit] { border: 1px #e56524 solid; border-radius: 0; color: #e56524; padding: 1px 10px; background: transparent; font-size: 16px; }
+#content table.FileLog div.dval a > div.dval { text-align: right; margin-right: 5px; }
 #content .makeSelect { background: #fff; border-left: 5px #e56524 solid; border-right: 5px #e56524 solid; box-sizing: border-box; clear: left; color: #676f7a; display: inline; float: left; padding: 5px; width: 100%; }
-#content .makeSelect .downText { line-height: 24px; font-family: 'Source Code Pro', monospace !important; }
+#content .makeSelect .downText { margin-left: 5px; line-height: 24px; font-family: 'Source Code Pro', monospace !important; }
 #content .makeSelect select { background-image: linear-gradient(45deg, transparent 50%, gray 50%), linear-gradient(135deg, gray 50%, transparent 50%), linear-gradient(to right, #ccc, #ccc); background-position: calc(100% - 20px) calc(0.5em), calc(100% - 15px) calc(0.5em), calc(100% - 2.5em) 0.2em; background-size: 5px 5px, 5px 5px, 1px 0.9em; background-repeat: no-repeat; border: 1px #e56524 solid; border-radius: 0; color: #e56524; font-size: 16px; line-height: 20px; height: 24px; margin-left: 5px; margin-right: 5px; padding: 0 20px 0 10px; min-width: 200px; }
 #content .makeSelect input[type="submit"] { border: 1px #e56524 solid; border-radius: 0; color: #e56524; padding: 1px 10px; background: transparent; font-size: 16px; height: 24px; }
 #content .makeSelect input[type="text"] { border: 1px #e56524 solid; color: #555; background: transparent; font-size: 16px; height: 20px; margin-left: 5px; margin-right: 5px; }
@@ -92,9 +100,9 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; back
 #content .makeSelect + .makeTable { margin-top: 10px; }
 #content .makeSelect .slider { width: 250px; height: 22px; margin-left: 5px; margin-right: 5px; }
 #content .makeSelect .slider .handle { height: 22px; line-height: 22px; }
-#content > table { width: 100%; }
-#content table { border-collapse: collapse; max-width: 1000px; }
+#content table { width: 100%; border-collapse: collapse; max-width: 1000px; }
 #content table th { font-weight: bold; color: #676f7a; padding: 10px 2px; border-bottom: 1px #676f7a solid; }
+#content table.roomoverview { margin-bottom: 20px; }
 #content table.wide, #content table.roomoverview { width: 100%; }
 #content table.wide tr.column, #content table.roomoverview tr.column { /* one item */ /* two items */ /* three items */ /* four items */ }
 #content table.wide tr.column table.column, #content table.roomoverview tr.column table.column { width: 100%; }
@@ -109,18 +117,18 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; back
 #content table.block.readings .changed { color: #e56524; }
 #content table.block.readings .changed:after { content: ' !!!'; }
 #content table .no-background { background: none !important; }
-#content table.block td:nth-child(1) { white-space: nowrap; }
 #content table.block tr.odd { background: #f5f6f9; }
 #content table.internals td:nth-child(1), #content table.attributes td:nth-child(1), #content table.readings td:nth-child(1), #content table.assoc td:nth-child(1) { width: 20%; }
 #content table.internals td:nth-child(2), #content table.attributes td:nth-child(2), #content table.readings td:nth-child(2), #content table.assoc td:nth-child(2) { word-break: break-all; }
 #content table tr.odd > td, #content table tr.even > td { padding: 5px; }
-#content table .ex { max-width: 1000px; white-space: normal; }
+#content table .ex { max-width: 1000px; white-space: pre; }
 #content table input + select, #content table select + select { margin-left: 10px; }
 #content #pedit { margin-bottom: 10px; text-transform: uppercase; font-size: 16px; letter-spacing: 10px; }
 #content #pedit > * { text-transform: none; font-size: 13px; letter-spacing: normal; }
 #content #pedit .plotEditor select.svgSrc, #content #pedit .plotEditor select.set { border: 1px #e56524 solid; border-radius: 0; color: #e56524; }
 #content .SVGlabel { background: #f5f6f9; padding: 5px; }
 #content .SVGplot { background: #f5f6f9; padding: 10px; }
+#content #svgmarker { color: gray; }
 #content .odd .SVGplot, #content .even .SVGplot { background: none !important; }
 #content .devType { font-size: 16px !important; text-transform: uppercase; letter-spacing: 10px; margin-top: 10px; }
 #content .devType a { color: #fff; }
@@ -138,19 +146,19 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; back
 #content #devSpecHelp ul { list-style-type: square; margin-left: 20px; }
 #content #devSpecHelp ul li { margin: 10px 0; }
 #content #devSpecHelp table td { padding: 5px; }
-#content #ZWHelp { font-size: 13px !important; text-transform: none !important; letter-spacing: normal !important; background: #fff; color: #676f7a; padding: 5px; box-sizing: border-box; }
-#content #ZWHelp.makeTable.help:empty { display: none; }
 #content div.img { width: 100%; background: #fff; padding: 5px; box-sizing: border-box; text-align: center; margin-top: 10px; margin-bottom: 10px; }
 #content .CodeMirror { max-width: 1000px; }
-#content #edit input[type="submit"].psc { border: 1px #e56524 solid; border-radius: 0; color: #e56524; font-size: 16px; margin: 10px; background: transparent; min-width: 200px; }
+#content #edit input[type="submit"].psc { border: 1px #e56524 solid; border-radius: 0; color: #e56524; padding: 1px 10px; background: transparent; font-size: 16px; margin: 10px; min-width: 200px; }
 #content div.fileList { font-size: 16px !important; text-transform: uppercase; letter-spacing: 10px; }
 #content > form { margin-top: 10px; background: #fff; color: #676f7a; border-left: 5px #e56524 solid; border-right: 5px #e56524 solid; box-sizing: border-box; padding: 5px; }
-#content > form > .saveName { border: 1px #e56524 solid; color: #555; background: #fff; font-size: 16px; height: 20px; margin-left: 5px; margin-right: 5px; float: right; }
+#content > form > .saveName { border: 1px #e56524 solid; color: #555; background: transparent; font-size: 16px; height: 20px; margin-left: 5px; margin-right: 5px; float: right; }
 #content > form > input[name="saveAs"] { float: right; }
 #content > form > input[name="save"], #content > form > input[name="saveAs"] { border: 1px #e56524 solid; border-radius: 0; color: #e56524; padding: 1px 10px; background: transparent; font-size: 16px; height: 24px; }
 
 #content .abstract-table { margin: 10px 0; }
 #content .abstract-table th { font-weight: bold; color: #676f7a; padding: 10px 2px; border-bottom: 1px #676f7a solid; }
+#content #ZWHelp { font-size: 13px !important; text-transform: none !important; letter-spacing: normal !important; background: #fff; color: #676f7a; padding: 5px; box-sizing: border-box; }
+#content #ZWHelp.makeTable.help:empty { display: none; }
 #content .fbcalllist.header td { font-weight: bold; color: #676f7a; padding: 10px 2px; border-bottom: 1px #676f7a solid; }
 #content .rc_body { margin-top: 10px; }
 #content div[id^=weekprofile] { background: #fff; padding: 5px; }
@@ -161,13 +169,15 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; back
 #content table.calendar tr:nth-child(2n) { background: #f5f6f9; }
 #content a#pdisp { background: #00000061; color: #e56524; border: 1px #e56524 solid; padding: 2px 10px; display: inline-block; margin-top: 10px; line-height: 20px; margin-right: 10px; margin-bottom: 10px; vertical-align: top; }
 #content #fhemsearch { color: #676f7a; margin-top: 10px; background: #fff; border-left: 5px #e56524 solid; border-right: 5px #e56524 solid; box-sizing: border-box; padding: 5px; }
-#content #fhemsearch > input[type="text"] { border: 1px #e56524 solid; color: #555; background: #fff; font-size: 16px; height: 20px; margin-left: 5px; margin-right: 5px; }
+#content #fhemsearch > input[type="text"] { border: 1px #e56524 solid; color: #555; background: transparent; font-size: 16px; height: 20px; margin-left: 5px; margin-right: 5px; }
 #content .remotecontrol .rc_body { border: 1px #e56524 solid; background: #676f7a; margin-bottom: 10px; }
 #content .remotecontrol .rc_body .rc_button { padding: 5px; }
 #content #dashboardtoolbar td { padding: 5px; }
 #content #dashboardtoolbar button { border: 1px #e56524 solid; border-radius: 0; color: #e56524; font-size: 16px; margin: 5px; background: transparent; }
-#content #fpmenu input[type=submit] { border: 1px #e56524 solid; border-radius: 0; color: #e56524; font-size: 16px; margin: 5px; background: transparent; }
+#content #fpmenu input[type=submit] { border: 1px #e56524 solid; border-radius: 0; color: #e56524; padding: 1px 10px; background: transparent; font-size: 16px; }
 #content #fpmenu input[type="text"] { border: 1px #e56524 solid; color: #555; background: transparent; font-size: 16px; height: 20px; margin-left: 5px; margin-right: 5px; }
+
+#content > button#eventReset, #content > button#addRegexpPart { border: 1px #e56524 solid; border-radius: 0; color: #e56524; padding: 1px 10px; background: transparent; font-size: 16px; }
 
 #console { bottom: 0; overflow: auto; white-space: nowrap; position: absolute; top: 2em; width: 100%; }
 
@@ -255,6 +265,7 @@ textarea#console { white-space: normal; margin-top: 10px; margin-bottom: 10px; b
 #menuScrollArea { height: 100%; top: 0; left: 0; overflow: auto; position: relative; width: 300px; }
 
 #haToolbar { color: #676f7a; font-family: 'Source Code Pro', monospace !important; background-color: #fff; position: fixed; box-sizing: border-box; padding: 5px 15px; bottom: 0; left: 20px; min-width: 260px; border: 1px #e56524 dashed; border-bottom: none; line-height: 25px; }
+#haToolbar .toHdr { cursor: pointer; }
 
 svg { width: 32px; height: 32px; vertical-align: middle; }
 svg text.title { text-transform: none !important; letter-spacing: 2px !important; }
@@ -263,7 +274,7 @@ svg.on, svg.FS20_on { fill: #e56524 !important; }
 
 #ZWDongleNrSVG { background: #f5f6f9; margin-bottom: 10px; margin-top: 10px; border-left: 5px #e56524 solid; border-right: 5px #e56524 solid; box-sizing: border-box; width: 1000px !important; }
 
-svg.zw_nr { fill: transparent !important; }
+svg.zw_nr { fill: transparent !important; height: auto; width: auto; }
 svg.zw_nr text { fill: #e56524; }
 svg.zw_nr .col_link { color: #e56524; stroke: #e56524; }
 svg.zw_nr .zwMargin { stroke: transparent; color: transparent; }

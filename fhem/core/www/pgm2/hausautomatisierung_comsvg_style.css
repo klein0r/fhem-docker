@@ -22,7 +22,7 @@ svg .background { fill: #000; }
 svg circle#svgmarker { color: #278727; opacity: 0.5; }
 svg path.SVGplot { stroke: black; fill: none; }
 svg rect.SVGplot { stroke: black; fill: none; }
-svg polyline.SVGplot { fill: none; }
+svg polyline.SVGplot { stroke: gray; fill: none; }
 svg .border { stroke: #e56524; fill: #fff; }
 svg .vgrid { stroke: gray; stroke-dasharray: 2, 6; }
 svg .hgrid { stroke: gray; stroke-dasharray: 2, 6; }
@@ -31,122 +31,122 @@ svg text { stroke: none !important; fill: #676f7a; font-size: 11px; }
 svg text.title { fill: #676f7a; font-size: 16px; text-transform: uppercase; letter-spacing: 10px; }
 svg text.legend { cursor: pointer; }
 
-.SVGplot.l0 { stroke: #215A94; }
+.SVGplot.l0 { stroke: #7293cb; }
 
-.SVGplot.l1 { stroke: #18986E; }
+.SVGplot.l1 { stroke: #ff974c; }
 
-.SVGplot.l2 { stroke: #913100; }
+.SVGplot.l2 { stroke: #84ba5b; }
 
-.SVGplot.l3 { stroke: #915700; }
+.SVGplot.l3 { stroke: #d35e60; }
 
-.SVGplot.l4 { stroke: #07325E; }
+.SVGplot.l4 { stroke: #808585; }
 
-.SVGplot.l5 { stroke: #006141; }
+.SVGplot.l5 { stroke: #9067a7; }
 
-.SVGplot.l6 { stroke: #FFA77A; }
+.SVGplot.l6 { stroke: #995959; }
 
-.SVGplot.l7 { stroke: #5F8AB6; }
+.SVGplot.l7 { stroke: #ccc210; }
 
-.SVGplot.l8 { stroke: #59B99A; }
+.SVGplot.l8 { stroke: #d43c9e; }
 
-.SVGplot.l0fill { stroke: #215A94; fill: url(#gr_0); }
+.SVGplot.l0fill { stroke: #7293cb; fill: rgba(114, 147, 203, 0.3); }
 
-.SVGplot.l1fill { stroke: #18986E; fill: url(#gr_1); }
+.SVGplot.l1fill { stroke: #ff974c; fill: rgba(255, 151, 76, 0.3); }
 
-.SVGplot.l2fill { stroke: #913100; fill: url(#gr_2); }
+.SVGplot.l2fill { stroke: #84ba5b; fill: rgba(132, 186, 91, 0.3); }
 
-.SVGplot.l3fill { stroke: #915700; fill: url(#gr_3); }
+.SVGplot.l3fill { stroke: #d35e60; fill: rgba(211, 94, 96, 0.3); }
 
-.SVGplot.l4fill { stroke: #07325E; fill: url(#gr_4); }
+.SVGplot.l4fill { stroke: #808585; fill: rgba(128, 133, 133, 0.3); }
 
-.SVGplot.l5fill { stroke: #006141; fill: url(#gr_5); }
+.SVGplot.l5fill { stroke: #9067a7; fill: rgba(144, 103, 167, 0.3); }
 
-.SVGplot.l6fill { stroke: #FFA77A; fill: url(#gr_6); }
+.SVGplot.l6fill { stroke: #995959; fill: rgba(153, 89, 89, 0.3); }
 
-.SVGplot.l7fill { stroke: #5F8AB6; fill: url(#gr_7); }
+.SVGplot.l7fill { stroke: #ccc210; fill: rgba(204, 194, 16, 0.3); }
 
-.SVGplot.l8fill { stroke: #59B99A; fill: url(#gr_8); }
+.SVGplot.l8fill { stroke: #d43c9e; fill: rgba(212, 60, 158, 0.3); }
 
-.SVGplot.l0dot { stroke: #215A94; stroke-dasharray: 2,4; }
+.SVGplot.l0dot { stroke: #7293cb; stroke-dasharray: 2,4; }
 
-.SVGplot.l1dot { stroke: #18986E; stroke-dasharray: 2,4; }
+.SVGplot.l1dot { stroke: #ff974c; stroke-dasharray: 2,4; }
 
-.SVGplot.l2dot { stroke: #913100; stroke-dasharray: 2,4; }
+.SVGplot.l2dot { stroke: #84ba5b; stroke-dasharray: 2,4; }
 
-.SVGplot.l3dot { stroke: #915700; stroke-dasharray: 2,4; }
+.SVGplot.l3dot { stroke: #d35e60; stroke-dasharray: 2,4; }
 
-.SVGplot.l4dot { stroke: #07325E; stroke-dasharray: 2,4; }
+.SVGplot.l4dot { stroke: #808585; stroke-dasharray: 2,4; }
 
-.SVGplot.l5dot { stroke: #006141; stroke-dasharray: 2,4; }
+.SVGplot.l5dot { stroke: #9067a7; stroke-dasharray: 2,4; }
 
-.SVGplot.l6dot { stroke: #FFA77A; stroke-dasharray: 2,4; }
+.SVGplot.l6dot { stroke: #995959; stroke-dasharray: 2,4; }
 
-.SVGplot.l7dot { stroke: #5F8AB6; stroke-dasharray: 2,4; }
+.SVGplot.l7dot { stroke: #ccc210; stroke-dasharray: 2,4; }
 
-.SVGplot.l8dot { stroke: #59B99A; stroke-dasharray: 2,4; }
+.SVGplot.l8dot { stroke: #d43c9e; stroke-dasharray: 2,4; }
 
-.SVGplot.l0fill_stripe { stroke: #215A94; fill: url(#gr0_stripe); }
+.SVGplot.l0fill_stripe { stroke: #7293cb; fill: url(#gr0_stripe); }
 
-.SVGplot.l1fill_stripe { stroke: #18986E; fill: url(#gr1_stripe); }
+.SVGplot.l1fill_stripe { stroke: #ff974c; fill: url(#gr1_stripe); }
 
-.SVGplot.l0fill_gyr { stroke: #215A94; fill: url(#gr0_gyr); }
+.SVGplot.l0fill_gyr { stroke: #7293cb; fill: url(#gr0_gyr); }
 
-text.SVGplot.l0 { stroke: none; fill: #215A94; }
+text.SVGplot.l0 { stroke: none; fill: #7293cb; }
 
-text.SVGplot.l1 { stroke: none; fill: #18986E; }
+text.SVGplot.l1 { stroke: none; fill: #ff974c; }
 
-text.SVGplot.l2 { stroke: none; fill: #913100; }
+text.SVGplot.l2 { stroke: none; fill: #84ba5b; }
 
-text.SVGplot.l3 { stroke: none; fill: #915700; }
+text.SVGplot.l3 { stroke: none; fill: #d35e60; }
 
-text.SVGplot.l4 { stroke: none; fill: #07325E; }
+text.SVGplot.l4 { stroke: none; fill: #808585; }
 
-text.SVGplot.l5 { stroke: none; fill: #006141; }
+text.SVGplot.l5 { stroke: none; fill: #9067a7; }
 
-text.SVGplot.l6 { stroke: none; fill: #FFA77A; }
+text.SVGplot.l6 { stroke: none; fill: #995959; }
 
-text.SVGplot.l7 { stroke: none; fill: #5F8AB6; }
+text.SVGplot.l7 { stroke: none; fill: #ccc210; }
 
-text.SVGplot.l8 { stroke: none; fill: #59B99A; }
+text.SVGplot.l8 { stroke: none; fill: #d43c9e; }
 
-text.SVGplot.l0fill { stroke: none; fill: #215A94; }
+text.SVGplot.l0fill { stroke: none; fill: #7293cb; }
 
-text.SVGplot.l1fill { stroke: none; fill: #18986E; }
+text.SVGplot.l1fill { stroke: none; fill: #ff974c; }
 
-text.SVGplot.l2fill { stroke: none; fill: #913100; }
+text.SVGplot.l2fill { stroke: none; fill: #84ba5b; }
 
-text.SVGplot.l3fill { stroke: none; fill: #915700; }
+text.SVGplot.l3fill { stroke: none; fill: #d35e60; }
 
-text.SVGplot.l4fill { stroke: none; fill: #07325E; }
+text.SVGplot.l4fill { stroke: none; fill: #808585; }
 
-text.SVGplot.l5fill { stroke: none; fill: #006141; }
+text.SVGplot.l5fill { stroke: none; fill: #9067a7; }
 
-text.SVGplot.l6fill { stroke: none; fill: #FFA77A; }
+text.SVGplot.l6fill { stroke: none; fill: #995959; }
 
-text.SVGplot.l7fill { stroke: none; fill: #5F8AB6; }
+text.SVGplot.l7fill { stroke: none; fill: #ccc210; }
 
-text.SVGplot.l8fill { stroke: none; fill: #59B99A; }
+text.SVGplot.l8fill { stroke: none; fill: #d43c9e; }
 
-text.SVGplot.l0dot { stroke: none; fill: #215A94; }
+text.SVGplot.l0dot { stroke: none; fill: #7293cb; }
 
-text.SVGplot.l1dot { stroke: none; fill: #18986E; }
+text.SVGplot.l1dot { stroke: none; fill: #ff974c; }
 
-text.SVGplot.l2dot { stroke: none; fill: #913100; }
+text.SVGplot.l2dot { stroke: none; fill: #84ba5b; }
 
-text.SVGplot.l3dot { stroke: none; fill: #915700; }
+text.SVGplot.l3dot { stroke: none; fill: #d35e60; }
 
-text.SVGplot.l4dot { stroke: none; fill: #07325E; }
+text.SVGplot.l4dot { stroke: none; fill: #808585; }
 
-text.SVGplot.l5dot { stroke: none; fill: #006141; }
+text.SVGplot.l5dot { stroke: none; fill: #9067a7; }
 
-text.SVGplot.l6dot { stroke: none; fill: #FFA77A; }
+text.SVGplot.l6dot { stroke: none; fill: #995959; }
 
-text.SVGplot.l7dot { stroke: none; fill: #5F8AB6; }
+text.SVGplot.l7dot { stroke: none; fill: #ccc210; }
 
-text.SVGplot.l8dot { stroke: none; fill: #59B99A; }
+text.SVGplot.l8dot { stroke: none; fill: #d43c9e; }
 
-text.SVGplot.l0fill_stripe { stroke: none; fill: #215A94; }
+text.SVGplot.l0fill_stripe { stroke: none; fill: #7293cb; }
 
-text.SVGplot.l1fill_stripe { stroke: none; fill: #18986E; }
+text.SVGplot.l1fill_stripe { stroke: none; fill: #ff974c; }
 
-text.SVGplot.l0fill_gyr { stroke: none; fill: #215A94; }
+text.SVGplot.l0fill_gyr { stroke: none; fill: #7293cb; }

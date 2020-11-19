@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 90_SIGNALduino_un.pm 20749 2019-12-14 22:35:00Z Sidey $
+# $Id: 90_SIGNALduino_un.pm 22410 2020-07-16 20:10:41Z Sidey $
 #
 # The file is part of the SIGNALduino project
 # see http://www.fhemwiki.de/wiki/SIGNALduino to support debugging of unknown signal data
@@ -23,7 +23,7 @@ SIGNALduino_un_Initialize($)
   my ($hash) = @_;
 
 
-  $hash->{Match}     = '^[u]\d+#.*';
+  $hash->{Match}     = '^[u]\d+(?:.\d)?#.*';
   $hash->{DefFn}     = "SIGNALduino_un_Define";
   $hash->{UndefFn}   = "SIGNALduino_un_Undef";
   $hash->{AttrFn}    = "SIGNALduino_un_Attr";
@@ -102,7 +102,7 @@ SIGNALduino_un_Parse($$)
 	my $bitData= unpack("B$blen", pack("H$hlen", $rawData)); 
 	Log3 $hash, 4, "$name converted to bits: $bitData";
 		
-	if ($protocol == "21" && length($bitData)>=32)  ##Einhell doorshutter
+	if ($protocol == 21 && length($bitData)>=32)  ##Einhell doorshutter
 	{
 		Log3 $hash, 4, "$name / Einhell doorshutter received";
 		
@@ -115,7 +115,7 @@ SIGNALduino_un_Parse($$)
 		
  	    
 		Log3 $hash, 4, "$name found doorshutter from Einhell. id=$id, channel=$channel, direction=$dir";
-	} elsif ($protocol == "23" && length($bitData)>=32)  ##Perl Sensor
+	} elsif ($protocol == 23 && length($bitData)>=32)  ##Perl Sensor
 	{
 		my $SensorTyp = "perl NC-7367?";
 		my $id = oct ("0b".substr($bitData,4,4));  
@@ -182,6 +182,8 @@ SIGNALduino_un_Parse($$)
 		$bitDataInvert =~ tr/01/10/; 			# invert message and check if it is possible to deocde now
 		my $rawDataInvert = SIGNALduino_b2h($bitDataInvert);
 		
+		my $seconds = ReadingsAge($name, "state", 0);
+
 		readingsBeginUpdate($hash);
 		readingsBulkUpdate($hash, "state", $rawData,0);
 		readingsBulkUpdate($hash, "bitMsg", $bitData);
@@ -191,6 +193,7 @@ SIGNALduino_un_Parse($$)
 		readingsBulkUpdate($hash, "hexMsg_invert", $rawDataInvert);
 		readingsBulkUpdate($hash, "hexCount_or_nibble", $hexcount);
 		readingsBulkUpdate($hash, "lastInputDev", $ioname);
+		readingsBulkUpdate($hash, "past_seconds", $seconds);
 		readingsEndUpdate($hash, 1); 		# Notify is done by Dispatch
 		
 		### Example Logfile ###

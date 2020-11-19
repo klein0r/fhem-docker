@@ -36,7 +36,7 @@
 #
 # Discussed in FHEM Forum: https://forum.fhem.de/index.php/topic,43110.0.html
 #
-# $Id: 02_FTUISRV.pm 14077 2017-04-22 21:24:14Z viegener $
+# $Id: 02_FTUISRV.pm 22901 2020-10-02 12:23:36Z viegener $
 #
 ##############################################################################
 # 0.0 Initial version FTUIHTTPSRV
@@ -75,7 +75,7 @@
 #   doc change on ftui-if
 
 #   FIX: changed replaceSetmagic to hand over real device hash
-#   
+#   FIX: $result might be undefined in some cases for loop/if
 #   
 ################################################################
 #TODO:
@@ -852,6 +852,8 @@ sub FTUISRV_handleLoopInc( $$$$$$ ) {
 
     # Evaluate expression as command to get list of entries for loop ???
     my $result = AnalyzeCommand(undef, $expr);     
+
+    $result = "" if ( ! $result );
     
     # Identify split char ???
     

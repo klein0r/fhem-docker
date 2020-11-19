@@ -1,10 +1,9 @@
 #######################################################################
-# $Id: 95_holiday.pm 20290 2019-10-02 20:46:32Z rudolfkoenig $
+# $Id: 95_holiday.pm 21902 2020-05-09 08:18:29Z rudolfkoenig $
 package main;
 
 use strict;
 use warnings;
-use POSIX;
 
 sub holiday_refresh($;$$);
 
@@ -48,6 +47,7 @@ holiday_refresh($;$$)
   my ($name, $fordate, $showAvailable) = (@_);
   my $hash = $defs{$name};
   my $fromTimer=0;
+  my $foryeardate;
 
   return if(!$hash);           # Just deleted
 
@@ -57,16 +57,19 @@ holiday_refresh($;$$)
   if(!$fordate) {
     $fromTimer = 1;
     $fordate = sprintf("%02d-%02d", $lt[4]+1, $lt[3]);
+    $foryeardate = sprintf("%4d-%02d-%02d",$lt[5]+1900, $lt[4]+1, $lt[3]);
     @fd = @lt;
   } else {
     $fordate =~ m/^((\d{4})-)?([01]\d)-([0-3]\d)$/; # fmt is already checked
-    my ($m,$d) = ($3,$4);
+    my ($y,$m,$d) = ($2, $3,$4);
     $fordate = "$m-$d";
-    $lt[5] = $2-1900 if($2);
+    $lt[5] = $y-1900 if($y);
+    $foryeardate = $y ? "$y-$m-$d" : sprintf("%4d-%02d-%02d",$lt[5]+1900,$m,$d);
     @fd = localtime(mktime(1,1,1,$d,$m-1,$lt[5],0,0,-1));
   }
 
-  Log3 $name, 5, "holiday_refresh $name called for $fordate ($fromTimer)";
+  Log3 $name, 5,
+        "holiday_refresh $name called for $fordate/$foryeardate ($fromTimer)";
 
   my $dir = $attr{global}{modpath} . "/FHEM";
   my ($err, @holidayfile) = FileRead("$dir/$name.holiday");
@@ -106,9 +109,9 @@ holiday_refresh($;$$)
     next if($l =~ m/^\s*$/);
     my $found;
 
-    if($l =~ m/^1/) {               # Exact date: 1 MM-DD Holiday
+    if($l =~ m/^1/) {   # Exact date: 1 MM-DD Holiday (MM-DD-YYYY, Forum #93277)
       my @args = split(" ", $l, 3);
-      if($args[1] eq $fordate) {
+      if(@args == 3 && ($args[1] eq $fordate || $args[1] eq $foryeardate)) {
         $found = $args[2];
       }
 
@@ -123,14 +126,19 @@ holiday_refresh($;$$)
       # get month & day for E-sunday
       my ($Om,$Od) = western_easter(($lt[5]+1900));
       my $timex = mktime(0,0,12,$Od,$Om-1, $lt[5],0,0,-1); # gen timevalue
+      if(!defined $timex) {
+        my $dt = sprintf("%04d-%02d-%02d", $lt[5]+1900, $Om, $Od);
+        Log 1, "holiday/$name: mktime failed for $dt";
+        return "Cannot process $dt";
+      }
       $timex = $timex + $a[1]*86400; # add offset days
 
       my ($msecond, $mminute, $mhour,
           $mday, $mmonth, $myear, $mrest) = localtime($timex);
       $myear = $myear+1900;
       $mmonth = $mmonth+1;
-      #Log 1, "$name: Ostern:".sprintf("%04d-%02d-%02d", $lt[5]+1900, $Om, $Od).
-      #             " Target:".sprintf("%04d-%02d-%02d", $myear, $mmonth, $mday);
+      #Log 1,"$name:Eastern:".sprintf("%04d-%02d-%02d", $lt[5]+1900, $Om, $Od).
+      #            " Target:".sprintf("%04d-%02d-%02d", $myear, $mmonth, $mday);
 
       next if($mday != $fd[3] || $mmonth != $fd[4]+1);
       $found = $a[2];
@@ -162,7 +170,9 @@ holiday_refresh($;$$)
 
     } elsif($l =~ m/^4/) {          # Interval: 4 MM-DD MM-DD Holiday
       my @args = split(" ", $l, 4);
-      if($args[1] le $fordate && $args[2] ge $fordate) {
+      if(@args == 4 && 
+         (($args[1] le $fordate     && $args[2] ge $fordate) ||
+          ($args[1] le $foryeardate && $args[2] ge $foryeardate))) {
         $found = $args[3];
       }
 
@@ -288,7 +298,7 @@ holiday_Get($@)
 {
   my ($hash, @a) = @_;
 
-  shift(@a) if($a[1] && $a[1] eq "MM-DD" || $a[1] eq "YYYY-MM-DD");
+  shift(@a) if($a[1] && ($a[1] eq "MM-DD" || $a[1] eq "YYYY-MM-DD"));
   return "argument is missing" if(int(@a) < 2);
   my $arg;
 
@@ -406,7 +416,8 @@ holiday_FW_detailFn($$$$)
     <ul>
       <li>1<br>
           Exact date. Arguments: &lt;MM-DD&gt; &lt;holiday-name&gt;<br>
-          Exampe: 1 12-24 Christmas
+          Exampe: 1 12-24 Christmas<br>
+          MM-DD can also be written as YYYY-MM-DD.
           </li>
       <li>2<br>
           Easter-dependent date. Arguments: &lt;day-offset&gt;
@@ -440,6 +451,7 @@ holiday_FW_detailFn($$$$)
             4 12-20 12-31 Winter holiday<br>
             4 01-01 01-10 Winter holiday<br>
           </ul>
+          MM-DD can also be written as YYYY-MM-DD.
           </li>
       <li>5<br>
           Date relative, weekday fixed holiday. Arguments: &lt;nth&gt;
@@ -560,7 +572,8 @@ holiday_FW_detailFn($$$$)
     <ul>
       <li>1<br>
           Genaues Datum. Argument: &lt;MM-TT&gt; &lt;Feiertag-Name&gt;<br>
-          Beispiel: 1 12-24 Weihnachten
+          Beispiel: 1 12-24 Weihnachten<br>
+          MM-TT kann auch als JJJJ-MM-TT geschrieben werden.
           </li>
       <li>2<br>
           Oster-abh&auml;ngiges Datum. Argument: &lt;Tag-Offset&gt;
@@ -594,6 +607,7 @@ holiday_FW_detailFn($$$$)
             4 12-20 12-31 Winterferien<br>
             4 01-01 01-10 Winterferien<br>
           </ul>
+          MM-TT kann auch als JJJJ-MM-TT geschrieben werden.
           </li>
       <li>5<br>
           Datum relativ, Wochentags ein fester Urlaubstag/Feiertag. Argument:

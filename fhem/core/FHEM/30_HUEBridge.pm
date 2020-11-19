@@ -1,5 +1,5 @@
 
-# $Id: 30_HUEBridge.pm 20856 2019-12-30 22:05:43Z justme1968 $
+# $Id: 30_HUEBridge.pm 21366 2020-03-06 12:01:05Z justme1968 $
 
 # "Hue Personal Wireless Lighting" is a trademark owned by Koninklijke Philips Electronics N.V.,
 # see www.meethue.com for more information.
@@ -19,6 +19,15 @@ use Data::Dumper;
 use HttpUtils;
 
 use IO::Socket::INET;
+
+sub
+HUEBridge_loadHUEDevice()
+{
+  if( !$modules{HUEDevice}{LOADED} ) {
+    my $ret = CommandReload( undef, "31_HUEDevice" );
+    Log3 undef, 1, $ret if( $ret );
+  }
+}
 
 sub HUEBridge_Initialize($)
 {
@@ -40,6 +49,8 @@ sub HUEBridge_Initialize($)
   $hash->{AttrList} = "key disable:1 disabledForIntervals createGroupReadings:1,0 httpUtils:1,0 noshutdown:1,0 pollDevices:1,2,0 queryAfterSet:1,0 $readingFnAttributes";
 
   #$hash->{isDiscoverable} = { ssdp => {'hue-bridgeid' => '/.*/'}, upnp => {} };
+
+  HUEBridge_loadHUEDevice();
 
   return FHEM::Meta::InitMod( __FILE__, $hash );
 }
@@ -96,36 +107,57 @@ HUEBridge_Read($)
           Log3 $name, 5, "$name: websocket data: ". Dumper $obj;
         } else {
           Log3 $name, 2, "$name: unhandled websocket text $data";
+        }
 
+        my $code;
+        my $id = $obj->{id};
+        $code = $name ."-". $id if( $obj->{r} eq 'lights' );
+        $code = $name ."-S". $id if( $obj->{r} eq 'sensors' );
+        $code = $name ."-G". $id if( $obj->{r} eq 'groups' );
+        $code = $name ."-G". $obj->{gid} if( $obj->{r} eq 'scenes' && $obj->{gid} );
+        if( !$code ) {
+          Log3 $name, 5, "$name: ignoring event: $data";
+          return;
         }
 
         if( $obj->{t} eq 'event' && $obj->{e} eq 'changed' ) {
-          my $code;
-          my $id = $obj->{id};
-          $code = $name ."-". $id if( $obj->{r} eq 'lights' );
-          $code = $name ."-S". $id if( $obj->{r} eq 'sensors' );
-          $code = $name ."-G". $id if( $obj->{r} eq 'groups' );
-          if( !$code ) {
-            Log3 $name, 5, "$name: ignoring event: $code";
-            return;
-          }
-
-          my $chash = $modules{HUEDevice}{defptr}{$code};
-          #Log 1, $chash;
-          if( defined($chash) ) {
-            HUEDevice_Parse($chash,$obj);
+          if( my $chash = $modules{HUEDevice}{defptr}{$code} ) {
+            HUEDevice_Parse($chash, $obj);
             HUEBridge_updateGroups($hash, $chash->{ID}) if( !$chash->{helper}{devtype} );
+
+          } elsif( HUEDevice_moveToBridge( $obj->{uniqueid}, $name, $obj->{id} ) ) {
+            if( my $chash = $modules{HUEDevice}{defptr}{$code} ) {
+              HUEDevice_Parse($chash, $obj);
+            }
+
           } else {
             Log3 $name, 4, "$name: message for unknown device received: $code";
           }
 
         } elsif( $obj->{t} eq 'event' && $obj->{e} eq 'scene-called' ) {
-          Log3 $name, 5, "$name: todo: handle websocket scene-called $data";
-          # trigger scene event ?
+          if( my $chash = $modules{HUEDevice}{defptr}{$code} ) {
+            #HUEDevice_Parse($chash, $obj);
+            HUEDevice_Parse($chash, { state => { scene => $obj->{scid} } } );
+            #readingsSingleUpdate($hash, 'scene',  $obj->{scid}, 1 );
+          }
 
         } elsif( $obj->{t} eq 'event' && $obj->{e} eq 'added' ) {
           Log3 $name, 5, "$name: websocket add: $data";
-          HUEBridge_Autocreate($hash);
+          if( !HUEDevice_moveToBridge( $obj->{uniqueid}, $name, $obj->{id} ) ) {
+            HUEBridge_Autocreate($hash);
+          }
+
+          if( my $chash = $modules{HUEDevice}{defptr}{$code} ) {
+            if( $obj->{r} eq 'lights' ) {
+              $obj = $obj->{light};
+            } elsif( $obj->{r} eq 'sensors' ) {
+              $obj = $obj->{sensor};
+            } elsif( $obj->{r} eq 'goups' ) {
+              $obj = $obj->{group};
+            }
+
+            HUEDevice_Parse($chash, $obj);
+          }
 
         } elsif( $obj->{t} eq 'event' && $obj->{e} eq 'deleted' ) {
           Log3 $name, 5, "$name: todo: handle websocket delete $data";
@@ -635,8 +667,8 @@ HUEBridge_Set($@)
     return "$arg is not a hue light number" if( $arg !~ m/^\d+$/ );
 
     my $code = $name ."-". $arg;
-    if( defined($modules{HUEDevice}{defptr}{$code}) ) {
-      CommandDelete( undef, "$modules{HUEDevice}{defptr}{$code}{NAME}" );
+    if( my $chash = $modules{HUEDevice}{defptr}{$code} ) {
+      CommandDelete( undef, "$chash->{NAME}" );
       CommandSave(undef,undef) if( AttrVal( "autocreate", "autosave", 1 ) );
     }
 
@@ -674,8 +706,8 @@ HUEBridge_Set($@)
     }
 
     my $code = $name ."-G". $arg;
-    if( defined($modules{HUEDevice}{defptr}{$code}) ) {
-      CommandDelete( undef, "$modules{HUEDevice}{defptr}{$code}{NAME}" );
+    if( my $chash = $modules{HUEDevice}{defptr}{$code} ) {
+      CommandDelete( undef, "$chash->{NAME}" );
       CommandSave(undef,undef) if( AttrVal( "autocreate", "autosave", 1 ) );
     }
 
@@ -767,7 +799,7 @@ HUEBridge_Set($@)
 
   } elsif($cmd eq 'createrule' || $cmd eq 'updaterule') {
     return "usage: createrule <name> <conditions&actions json>" if( $cmd eq 'createrule' && @args < 2 );
-    return "usage: updaterule <id> <conditions&actions json>" if( $cmd eq 'updaterule' && @args != 2 );
+    return "usage: updaterule <id> <conditions&actions json>" if( $cmd eq 'updaterule' && @args < 2 );
 
     $args[@args-1] = '
 {  "name":"Wall Switch Rule",
@@ -777,7 +809,7 @@ HUEBridge_Set($@)
    "actions":[
         {"address":"/groups/0/action","method":"PUT", "body":{"scene":"S3"}}
 ]}' if( 0 || !$args[@args-1] );
-    my $json = $args[@args-1];
+    my $json = join( ' ', @args[1..@args-1]);
     my $obj = eval { JSON->new->utf8(0)->decode($json) };
     if( $@ ) {
       Log3 $name, 2, "$name: json error: $@ in $json";
@@ -798,10 +830,10 @@ HUEBridge_Set($@)
     return undef;
 
   } elsif($cmd eq 'updateschedule') {
-    return "usage: updateschedule <id> <attributes json>" if( @args != 2 );
+    return "usage: $cmd <id> <attributes json>" if( @args < 2 );
     return "$arg is not a hue schedule number" if( $arg !~ m/^\d+$/ );
 
-    my $json = $args[@args-1];
+    my $json = join( ' ', @args[1..@args-1]);
     my $obj = eval { JSON->new->utf8(0)->decode($json) };
     if( $@ ) {
       Log3 $name, 2, "$name: json error: $@ in $json";
@@ -876,8 +908,8 @@ HUEBridge_Set($@)
     }
 
     my $code = $name ."-S". $arg;
-    if( defined($modules{HUEDevice}{defptr}{$code}) ) {
-      CommandDelete( undef, "$modules{HUEDevice}{defptr}{$code}{NAME}" );
+    if( my $chash = $modules{HUEDevice}{defptr}{$code} ) {
+      CommandDelete( undef, "$chash->{NAME}" );
       CommandSave(undef,undef) if( AttrVal( "autocreate", "autosave", 1 ) );
     }
 
@@ -1023,9 +1055,9 @@ HUEBridge_Get($@)
       $ret .= "\n";
     }
     if( $arg && $arg eq 'detail' ) {
-      $ret = sprintf( "%2s  %-25s %-15s %-25s %s\n", "ID", "NAME", "FHEM", "TYPE", "DETAIL" ) .$ret if( $ret ); 
+      $ret = sprintf( "%2s  %-25s %-15s %-25s %s\n", "ID", "NAME", "FHEM", "TYPE", "DETAIL" ) .$ret if( $ret );
     } else {
-      $ret = sprintf( "%2s  %-25s %-15s %-25s\n", "ID", "NAME", "FHEM", "TYPE" ) .$ret if( $ret ); 
+      $ret = sprintf( "%2s  %-25s %-15s %-25s\n", "ID", "NAME", "FHEM", "TYPE" ) .$ret if( $ret );
     }
     return $ret;
 
@@ -1059,7 +1091,7 @@ HUEBridge_Get($@)
     my $ret = "";
     foreach my $key ( sort {$result->{$a}{name} cmp $result->{$b}{name}} keys %{$result} ) {
       $ret .= sprintf( "%-20s %-25s %-10s", $key, $result->{$key}{name}, $result->{$key}{type} );
-      $ret .= sprintf( "%i %i %i %-40s %-20s", $result->{$key}{recycle}, $result->{$key}{locked},$result->{$key}{version}, $result->{$key}{owner}, $result->{$key}{lastupdated}?$result->{$key}{lastupdated}:'' ) if( $arg && $arg eq 'detail' );
+      $ret .= sprintf( " %i %i %i %-40s %-20s", $result->{$key}{recycle}, $result->{$key}{locked},$result->{$key}{version}, $result->{$key}{owner}, $result->{$key}{lastupdated}?$result->{$key}{lastupdated}:'' ) if( $arg && $arg eq 'detail' );
       my $lights = "";
       $lights = join( ",", @{$result->{$key}{lights}} ) if( $result->{$key}{lights} );
       my $group = HUEbridge_groupOfLights($hash,$lights);
@@ -1075,7 +1107,7 @@ HUEBridge_Get($@)
     }
     if( $ret ) {
       my $header = sprintf( "%-20s %-25s %-10s", "ID", "NAME", "TYPE" );
-      $header .= sprintf( "%s %s %s %-40s %-20s", "R", "L", "V", "OWNER", "LAST UPDATE" ) if( $arg && $arg eq 'detail' );
+      $header .= sprintf( " %s %s %s %-40s %-20s", "R", "L", "V", "OWNER", "LAST UPDATE" ) if( $arg && $arg eq 'detail' );
       $header .= sprintf( " %s\n", "LIGHTS" );
       $ret = $header . $ret;
     }
@@ -1169,9 +1201,9 @@ HUEBridge_Get($@)
     my $ret = "";
     foreach my $key ( sort {$a<=>$b} keys %{$result} ) {
       my $code = $name ."-". $key;
-      my $fhem_name ="";
+      my $fhem_name = '';
       $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
-      $ret .= sprintf( "%2i: %-25s %-15s %s", $key, $result->{$key}{name}, $fhem_name );
+      $ret .= sprintf( "%2i: %-25s %-15s ", $key, $result->{$key}{name}, $fhem_name );
       if( !$result->{$key}{config} || !$result->{$key}{config}{startup} ) {
         $ret .= "not supported";
       } else {
@@ -1280,6 +1312,7 @@ HUEBridge_updateGroups($$)
     my ($hue,$sat,$bri);
     foreach my $light ( split(',', $chash->{lights}) ) {
       next if( !$light );
+      next if( !defined($modules{HUEDevice}{defptr}{"$name-$light"}) );
       my $current = $modules{HUEDevice}{defptr}{"$name-$light"}{helper};
       next if( !$current );
       #next if( !$current->{on} );
@@ -1585,11 +1618,12 @@ HUEBridge_ProcessResponse($$)
 
             } elsif( $l[1] eq 'groups' && $l[3] eq 'action' ) {
               my $code = $name ."-G". $l[2];
-              my $d = $modules{HUEDevice}{defptr}{$code};
-              if( my $lights = $d->{lights} ) {
-                foreach my $light ( split(',', $lights) ) {
-                  $json{$light}->{state}->{$l[4]} = $success->{$key};
-                  $successes++;
+              if( my $chash = $modules{HUEDevice}{defptr}{$code} ) {
+                if( my $lights = $chash->{lights} ) {
+                  foreach my $light ( split(',', $lights) ) {
+                    $json{$light}->{state}->{$l[4]} = $success->{$key};
+                    $successes++;
+                  }
                 }
               }
             }
@@ -1870,10 +1904,9 @@ HUEBridge_dispatch($$$;$)
           my $sensors = $json->{sensors};
           foreach my $id ( keys %{$sensors} ) {
             my $code = $name ."-S". $id;
-            my $chash = $modules{HUEDevice}{defptr}{$code};
 
-            if( defined($chash) ) {
-              HUEDevice_Parse($chash,$sensors->{$id});
+            if( my $chash = $modules{HUEDevice}{defptr}{$code} ) {
+              HUEDevice_Parse($chash, $sensors->{$id});
             } else {
               Log3 $name, 4, "$name: message for unknown sensor received: $code";
             }
@@ -1884,10 +1917,9 @@ HUEBridge_dispatch($$$;$)
           my $groups = $json->{groups};
           foreach my $id ( keys %{$groups} ) {
             my $code = $name ."-G". $id;
-            my $chash = $modules{HUEDevice}{defptr}{$code};
 
-            if( defined($chash) ) {
-              HUEDevice_Parse($chash,$groups->{$id});
+            if( my $chash = $modules{HUEDevice}{defptr}{$code} ) {
+              HUEDevice_Parse($chash, $groups->{$id});
             } else {
               Log3 $name, 2, "$name: message for unknown group received: $code";
             }
@@ -1903,16 +1935,19 @@ HUEBridge_dispatch($$$;$)
         my $lights = $json;
         foreach my $id ( keys %{$lights} ) {
           my $code = $name ."-". $id;
-          my $chash;
-          $chash = $modules{HUEDevice}{defptr}{$code} if( defined($modules{HUEDevice}{defptr}{$code}) );
 
-          if( defined($chash) ) {
-            if( HUEDevice_Parse($chash,$lights->{$id}) ) {
+          if( my $chash = $modules{HUEDevice}{defptr}{$code} ) {
+            if( HUEDevice_Parse($chash, $lights->{$id}) ) {
               $changed .= "," if( $changed );
               $changed .= $chash->{ID};
             }
+
+          } elsif( HUEDevice_moveToBridge( $lights->{$id}{uniqueid}, $name, $id ) ) {
+            HUEDevice_Parse($hash, $lights->{$id});
+
           } else {
-            Log3 $name, 2, "$name: message for unknown device received: $code";
+            Log3 $name, 3, "$name: message for unknown device received: $code";
+
           }
         }
         HUEBridge_updateGroups($hash, $changed) if( $changed );
@@ -1926,12 +1961,12 @@ HUEBridge_dispatch($$$;$)
 
       }
 
-    } elsif( $type =~ m/^lights\/(\d*)$/ ) {
-      if( HUEDevice_Parse($param->{chash},$json) ) {
+    } elsif( $type =~ m/^lights\/(\d+)$/ ) {
+      if( HUEDevice_Parse($param->{chash}, $json) ) {
         HUEBridge_updateGroups($hash, $param->{chash}{ID});
       }
 
-    } elsif( $type =~ m/^lights\/(\d*)\/bridgeupdatestate$/ ) { 
+    } elsif( $type =~ m/^lights\/(\d+)\/bridgeupdatestate$/ ) {
       # only for https://github.com/bwssytems/ha-bridge
       # see https://forum.fhem.de/index.php/topic,11020.msg961555.html#msg961555
       if( $queryAfterSet ) {
@@ -1945,13 +1980,13 @@ HUEBridge_dispatch($$$;$)
         }
       }
 
-    } elsif( $type =~ m/^groups\/(\d*)$/ ) {
-      HUEDevice_Parse($param->{chash},$json);
+    } elsif( $type =~ m/^groups\/(\d+)$/ ) {
+      HUEDevice_Parse($param->{chash}, $json);
 
-    } elsif( $type =~ m/^sensors\/(\d*)$/ ) {
-      HUEDevice_Parse($param->{chash},$json);
+    } elsif( $type =~ m/^sensors\/(\d+)$/ ) {
+      HUEDevice_Parse($param->{chash}, $json);
 
-    } elsif( $type =~ m/^lights\/(\d*)\/state$/ ) {
+    } elsif( $type =~ m/^lights\/(\d+)\/state$/ ) {
       if( $queryAfterSet ) {
         my $chash = $param->{chash};
         if( $chash->{helper}->{update_timeout} ) {
@@ -1963,7 +1998,8 @@ HUEBridge_dispatch($$$;$)
         }
       }
 
-    } elsif( $type =~ m/^groups\/(\d*)\/action$/ ) {
+    } elsif( $type =~ m/^groups\/(\d+)\/action$/
+             || $type =~ m/^groups\/(\d+)\/scenes\/(\d+)\/recall$/ ) {
       my $chash = $param->{chash};
       if( $chash->{helper}->{update_timeout} ) {
         RemoveInternalTimer($chash);

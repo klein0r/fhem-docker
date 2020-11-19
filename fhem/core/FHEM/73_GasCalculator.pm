@@ -1,4 +1,4 @@
-# $Id: 73_GasCalculator.pm 20577 2019-11-25 13:10:23Z Sailor $
+# $Id: 73_GasCalculator.pm 21392 2020-03-09 09:37:30Z Sailor $
 ########################################################################################################################
 #
 #     73_GasCalculator.pm
@@ -75,6 +75,7 @@ sub GasCalculator_Initialize($)
 								  "SiPrefixPower:W,kW,MW,GW " .
 								  "Volume:m&#179;,ft&#179; " .
 								  "Currency:&#8364;,&#163;,&#36; " .
+								  "DecimalPlace:3,4,5,6,7 " .
 								   $readingFnAttributes;
 }
 ####END####### Initialize module ###############################################################################END#####
@@ -115,7 +116,22 @@ sub GasCalculator_Define($$$)
 	{
                                                      $hash->{system}{SiPrefixPowerFactor} = 1;
 	}
+
+	### Convert Decimal Places 
+	if(defined($attr{$hash}{DecimalPlace})) {
+		$hash->{system}{DecimalPlace} = "%." . $attr{$hash}{DecimalPlace} . "f";
 	
+	}
+	else {
+		$hash->{system}{DecimalPlace} = "%.3f";
+	}
+	
+	### For debugging purpose only
+	Log3 $name, 5, $name. " : GasCalculator - RegEx                             : " . $RegEx;
+	
+	### Defining notify trigger
+	notifyRegexpChanged($hash, $RegEx);
+
 	### Writing log entry
 	Log3 $name, 5, $name. " : GasCalculator - Starting to define module";
 
@@ -166,13 +182,23 @@ sub GasCalculator_Attr(@)
 		elsif ($a[3] eq "GW") {$hash->{system}{SiPrefixPowerFactor} = 1000000000 ;}
 		else                  {$hash->{system}{SiPrefixPowerFactor} = 1          ;}
 	}
-
+	
+	### Convert Decimal Places 
+	elsif ($a[2] eq "DecimalPlace") {
+		if (($a[3] >= 3) && ($a[3] <= 8)) {
+			$hash->{system}{DecimalPlace} = "%." . $a[3] . "f";
+		}
+		else {
+			$hash->{system}{DecimalPlace} = "%.3f";
+		}
+	}
+	
 	return undef;
 }
 ####END####### Handle attributes after changes via fhem GUI ####################################################END#####
 
 
-###START###### Manipulate reading after "set" command by fhem #################################################START####
+###START###### Manipulate reading after "get" command by fhem #################################################START####
 sub GasCalculator_Get($@)
 {
 	my ( $hash, @a ) = @_;
@@ -180,38 +206,48 @@ sub GasCalculator_Get($@)
 	### If not enough arguments have been provided
 	if ( @a < 2 )
 	{
-		return "\"get GasCalculator\" needs at least one argument";
+		return "\"set GasCalculator\" needs at least one argument";
 	}
 		
 	my $GasCalcName = shift @a;
 	my $reading  = shift @a;
-	my $value; 
+	my $value = join(" ", @a);
 	my $ReturnMessage;
+	my @cList;
 
-	if(!defined($GasCalculator_gets{$reading})) 
-	{
-		my @cList = keys %GasCalculator_sets;
-		return "Unknown argument $reading, choose one of " . join(" ", @cList);
+	### Create Log entries for debugging
+	Log3 $GasCalcName, 5, $GasCalcName. "_Get - reading         : " . $reading;
+	Log3 $GasCalcName, 5, $GasCalcName. "_Get - value           : " . $value;
 
-		### Create Log entries for debugging
-		Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - get list: " . join(" ", @cList);
+	
+	if(defined($hash->{READINGS})) {
+		push(@cList, " "); 
+		push(@cList, keys(%{$hash->{READINGS}}));
 	}
+	else {
+		push(@cList, " "); 
+	}
+
+	### Create Log entries for debugging
+	Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - set list: " . join(" ", @cList);
+
+	return "Unknown argument $reading, choose one of " . join(" ", @cList) if $reading eq '?';	
 	
 	if ( $reading ne "?")
 	{
-		### Create Log entries for debugging
-		Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - get " . $reading . " with value: " . $value;
-		
 		### Write current value
 		$value = ReadingsVal($GasCalcName,  $reading, undef);
-		
+
+		### Create Log entries for debugging
+		Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - get " . $reading . " with value: " . $value;
+	
 		### Create ReturnMessage
 		$ReturnMessage = $value;
 	}
 	
 	return($ReturnMessage);
 }
-####END####### Manipulate reading after "set" command by fhem ##################################################END#####
+####END####### Manipulate reading after "get" command by fhem ##################################################END#####
 
 ###START###### Manipulate reading after "set" command by fhem #################################################START####
 sub GasCalculator_Set($@)
@@ -228,17 +264,65 @@ sub GasCalculator_Set($@)
 	my $reading  = shift @a;
 	my $value = join(" ", @a);
 	my $ReturnMessage;
+	my @cList;
 
-	if(!defined($GasCalculator_sets{$reading})) 
-	{
-		my @cList = keys %GasCalculator_sets;
-		return "Unknown argument $reading, choose one of " . join(" ", @cList);
+	### Create Log entries for debugging
+	Log3 $GasCalcName, 5, $GasCalcName. "_Set - reading         : " . $reading;
+	Log3 $GasCalcName, 5, $GasCalcName. "_Set - value           : " . $value;
 
-		### Create Log entries for debugging
-		Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - set list: " . join(" ", @cList);
-	}
 	
-	if ( $reading ne "?")
+	if(defined($hash->{READINGS})) {
+		push(@cList, "SyncCounter"); 
+		push(@cList, keys(%{$hash->{READINGS}}));
+	}
+	else {
+		push(@cList, "SyncCounter"); 
+	}
+
+	### Create Log entries for debugging
+	Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - set list: " . join(" ", @cList);
+
+	return "Unknown argument $reading, choose one of " . join(" ", @cList) if $reading eq '?';
+
+	### If the command supposed to synchronize the CounterValues between CounterModule and CalculatorModule
+	if ($reading eq "SyncCounter") {
+		### Create Log entries for debugging
+		Log3 $GasCalcName, 5, $GasCalcName. " - Syncing Counter with :" . $value;
+		
+		### Sreach for the ReadingsName of the Current CounterValue
+		my @SearchResult = grep(/_CounterCurrent/, @cList);
+
+		### Get current CalculatorValue
+		my $CalculaterValueCurrent = ReadingsVal($GasCalcName, $SearchResult[0], 0); 
+		
+		### Get current Offset from Attribute
+		my $CounterOffsetCurrent =  AttrVal($GasCalcName, "GasCounterOffset", 0);
+
+		### Calculate CounterValue
+		my $CounterValueCurrent = $CalculaterValueCurrent - $CounterOffsetCurrent;
+		
+		### Calculate new Offset
+		my $CounterOffsetNew = $value - $CounterValueCurrent;
+
+		### Calculate Ceck
+#		my $CounterValueNew = $CounterValueCurrent + $CounterOffsetNew;
+		
+		### Create Log entries for debugging
+		Log3 $GasCalcName, 5, $GasCalcName. " - Search Result               : " . Dumper(@SearchResult);
+		Log3 $GasCalcName, 5, $GasCalcName. " - CounterValueNew      Given  : " . $value;
+		Log3 $GasCalcName, 5, $GasCalcName. " - CounterValueCurrent  Result : " . $CalculaterValueCurrent;
+		Log3 $GasCalcName, 5, $GasCalcName. " - CounterOffsetCurrent Result : " . $CounterOffsetCurrent;
+		Log3 $GasCalcName, 5, $GasCalcName. " - CounterValueCurrent  Result : " . $CounterValueCurrent;
+		Log3 $GasCalcName, 5, $GasCalcName. " - CounterOffsetNew     Result : " . $CounterOffsetNew;
+#		Log3 $GasCalcName, 5, $GasCalcName. " - CounterValueNew      Check  : " . $CounterValueNew;
+
+		### Set new Offset in Attributes
+		$attr{$GasCalcName}{GasCounterOffset} = $CounterOffsetNew;
+
+		### Create ReturnMessage
+		$ReturnMessage = $GasCalcName . " - Successfully synchromized Counter and Calculator with : " . $value . " kWh";
+	}
+	elsif ($reading ne "?")
 	{
 		### Create Log entries for debugging
 		Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - set " . $reading . " with value: " . $value;
@@ -389,6 +473,15 @@ sub GasCalculator_Notify($$)
 			Log3 $GasCalcName, 3, $GasCalcName. " : GasCalculator - The attribute room was missing and has been set to Central Heating";
 		}
 	}
+	if(!defined($attr{$GasCalcName}{DecimalPlace}))
+	{
+		### Set attribute with standard value since it is not available
+		$attr{$GasCalcName}{DecimalPlace}         = 3;
+		$GasCalcDev->{system}{DecimalPlace} = "%.3f";
+		
+		### Writing log entry
+		Log3 $GasCalcName, 3, $GasCalcName. " : GasCalculator - The attribute DecimalPlace was missing and has been set to 3";
+	}
 
 
 	### For each feedback on in the array of defined regexpression which has been changed
@@ -484,7 +577,7 @@ sub GasCalculator_Notify($$)
 		if(defined($GasCountReadingValuePrevious))
 		{
 			### Write current Volume as previous Voulume for future use in the GasCalc-Device
-			readingsSingleUpdate( $GasCalcReadingDestinationDevice, "." . $GasCalcReadingPrefix. "_PrevRead", sprintf('%.3f', ($GasCountReadingValueCurrent)),1);
+			readingsSingleUpdate( $GasCalcReadingDestinationDevice, "." . $GasCalcReadingPrefix. "_PrevRead", sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCountReadingValueCurrent)),1);
 
 			### Create Log entries for debugging
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - Previous value found. Continuing with calculations";
@@ -493,7 +586,7 @@ sub GasCalculator_Notify($$)
 		else
 		{
 			### Write current Volume as previous Voulume for future use in the GasCalc-Device
-			readingsSingleUpdate( $GasCalcReadingDestinationDevice, "." . $GasCalcReadingPrefix. "_PrevRead", sprintf('%.3f', ($GasCountReadingValueCurrent)),1);
+			readingsSingleUpdate( $GasCalcReadingDestinationDevice, "." . $GasCalcReadingPrefix. "_PrevRead", sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCountReadingValueCurrent)),1);
 
 			### Create Log entries for debugging
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - Previous value NOT found. Skipping Loop";
@@ -579,13 +672,13 @@ sub GasCalculator_Notify($$)
 			my $GasCalcPowerCurrent = ReadingsVal($GasCalcReadingDestinationDeviceName, $GasCalcReadingPrefix . "_PowerCurrent", "0");
 		
 			### Save gas pure cost of previous day, current gas Energy as first reading of day = first after midnight and reset min, max value, value counter and value sum			
-			readingsSingleUpdate( $GasCalcReadingDestinationDevice,       $GasCalcReadingPrefix . "_EnergyCostDayLast",	(sprintf('%.3f', ($GasCalcEnergyCostDayLast ))), 1);
-			readingsSingleUpdate( $GasCalcReadingDestinationDevice,       $GasCalcReadingPrefix . "_EnergyDayLast", 	(sprintf('%.3f', ($GasCalcEnergyDayLast     ))), 1);
+			readingsSingleUpdate( $GasCalcReadingDestinationDevice,       $GasCalcReadingPrefix . "_EnergyCostDayLast",	(sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyCostDayLast ))), 1);
+			readingsSingleUpdate( $GasCalcReadingDestinationDevice,       $GasCalcReadingPrefix . "_EnergyDayLast", 	(sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyDayLast     ))), 1);
 			readingsSingleUpdate( $GasCalcReadingDestinationDevice,       $GasCalcReadingPrefix . "_Vol1stDay",     	$GasCountReadingValueCurrent                   , 1);
 			readingsSingleUpdate( $GasCalcReadingDestinationDevice,       $GasCalcReadingPrefix . "_VolLastDay",    	$GasCountReadingValuePrevious                  , 1);
 			readingsSingleUpdate( $GasCalcReadingDestinationDevice, "." . $GasCalcReadingPrefix . "_PowerDaySum",   	0                                              , 1);
 			readingsSingleUpdate( $GasCalcReadingDestinationDevice, "." . $GasCalcReadingPrefix . "_PowerDayCount", 	0                                              , 1);
-			readingsSingleUpdate( $GasCalcReadingDestinationDevice,       $GasCalcReadingPrefix . "_PowerDayMin",   	(sprintf('%.3f', ($GasCalcPowerCurrent      ))), 1);
+			readingsSingleUpdate( $GasCalcReadingDestinationDevice,       $GasCalcReadingPrefix . "_PowerDayMin",   	(sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcPowerCurrent      ))), 1);
 			readingsSingleUpdate( $GasCalcReadingDestinationDevice,       $GasCalcReadingPrefix . "_PowerDayMax",   	0                                              , 1);
 			
 			### Check whether the current value is the first one after change of month
@@ -600,10 +693,10 @@ sub GasCalculator_Notify($$)
 				my $GasCalcEnergyCostMonthLast = $GasCalcEnergyMonthLast * $attr{$GasCalcName}{GasPricePerKWh};
 
 				### Save gas energy and pure cost of previous and current month 
-				readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostMonthLast", (sprintf('%.3f', ($GasCalcEnergyCostMonthLast   ))), 1);
-				readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyMonthLast",     (sprintf('%.3f', ($GasCalcEnergyMonthLast       ))), 1);
-				readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_Vol1stMonth",         (sprintf('%.3f', ($GasCountReadingValueCurrent  ))), 1);
-				readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_VolLastMonth",        (sprintf('%.3f', ($GasCountReadingValuePrevious ))), 1);
+				readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostMonthLast", (sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyCostMonthLast   ))), 1);
+				readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyMonthLast",     (sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyMonthLast       ))), 1);
+				readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_Vol1stMonth",         (sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCountReadingValueCurrent  ))), 1);
+				readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_VolLastMonth",        (sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCountReadingValuePrevious ))), 1);
 				
 				### Check whether the current value is the first one of the meter-reading month
 				if ($GasCountReadingTimestampCurrentMon eq $attr{$GasCalcName}{MonthOfAnnualReading})
@@ -621,10 +714,10 @@ sub GasCalculator_Notify($$)
 					my $GasCalcEnergyCostMeterLast = $GasCalcEnergyMeterLast * $attr{$GasCalcName}{GasPricePerKWh};
 					
 					### Save gas energy and pure cost of previous and current meter year
-					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostMeterLast", (sprintf('%.3f', ($GasCalcEnergyCostMeterLast   ))), 1);
-					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyMeterLast",     (sprintf('%.3f', ($GasCalcEnergyMeterLast       ))), 1);
-					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_Vol1stMeter",         (sprintf('%.3f', ($GasCountReadingValueCurrent  ))), 1);
-					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_VolLastMeter",        (sprintf('%.3f', ($GasCountReadingValuePrevious ))), 1);
+					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostMeterLast", (sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyCostMeterLast   ))), 1);
+					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyMeterLast",     (sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyMeterLast       ))), 1);
+					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_Vol1stMeter",         (sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCountReadingValueCurrent  ))), 1);
+					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_VolLastMeter",        (sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCountReadingValuePrevious ))), 1);
 				}
 
 				### Check whether the current value is the first one of the calendar year
@@ -639,10 +732,10 @@ sub GasCalculator_Notify($$)
 					my $GasCalcEnergyCostYearLast = $GasCalcEnergyYearLast * $attr{$GasCalcName}{GasPricePerKWh};
 
 					### Save gas energy and pure cost of previous and current calendar year
-					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostYearLast", (sprintf('%.3f', ($GasCalcEnergyCostYearLast    ))), 1);
-					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyYearLast",     (sprintf('%.3f', ($GasCalcEnergyYearLast        ))), 1);
-					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_Vol1stYear",         (sprintf('%.3f', ($GasCountReadingValueCurrent  ))), 1);
-					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_VolLastYear",        (sprintf('%.3f', ($GasCountReadingValuePrevious ))), 1);
+					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostYearLast", (sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyCostYearLast    ))), 1);
+					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyYearLast",     (sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyYearLast        ))), 1);
+					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_Vol1stYear",         (sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCountReadingValueCurrent  ))), 1);
+					readingsSingleUpdate( $GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_VolLastYear",        (sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCountReadingValuePrevious ))), 1);
 				}
 			}
 		}
@@ -656,7 +749,7 @@ sub GasCalculator_Notify($$)
 		if ($GasCountReadingTimestampDelta != 0)
 		{
 			### Calculate DV (Volume difference) of previous and current value / [cubic]
-			my $GasCountReadingValueDelta = sprintf('%.3f', ($GasCountReadingValueCurrent )) - sprintf('%.3f', ($GasCountReadingValuePrevious));
+			my $GasCountReadingValueDelta = sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCountReadingValueCurrent )) - sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCountReadingValuePrevious));
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCountReadingValueDelta                : " . $GasCountReadingValueDelta . " " . $attr{$GasCalcName}{Volume};
 
 			### Calculate Current Power P = DV/Dt[cubic/s] * GaszValue * GasNominalHeatingValue[kWh/cubic] * 3600[s/h] / SiPrefixPowerFactor
@@ -709,23 +802,23 @@ sub GasCalculator_Notify($$)
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - _______Finance________________________________________";
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - Monthly Payment                          : " . $attr{$GasCalcName}{MonthlyPayment}        . " " . $attr{$GasCalcName}{Currency};
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - Basic price per annum                    : " . $attr{$GasCalcName}{BasicPricePerAnnum}    . " " . $attr{$GasCalcName}{Currency};
-			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcEnergyCostMeter                   : " . sprintf('%.3f', ($GasCalcEnergyCostMeter)) . " " . $attr{$GasCalcName}{Currency};
-			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcReserves                          : " . sprintf('%.3f', ($GasCalcReserves))        . " " . $attr{$GasCalcName}{Currency};
+			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcEnergyCostMeter                   : " . sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyCostMeter)) . " " . $attr{$GasCalcName}{Currency};
+			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcReserves                          : " . sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcReserves))        . " " . $attr{$GasCalcName}{Currency};
 
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - _______Times__________________________________________";
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcMeterYearMonth                    : " . $GasCalcMeterYearMonth;
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - Current Month                            : " . $GasCountReadingTimestampCurrentMon;
 
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - _______Energy_________________________________________";
-			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcEnergyDay                         : " . sprintf('%.3f', ($GasCalcEnergyDay))       . " kWh";
-			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcEnergyMonth                       : " . sprintf('%.3f', ($GasCalcEnergyMonth))     . " kWh";
-			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcEnergyYear                        : " . sprintf('%.3f', ($GasCalcEnergyYear))      . " kWh";
-			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcEnergyMeter                       : " . sprintf('%.3f', ($GasCalcEnergyMeter))     . " kWh";
+			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcEnergyDay                         : " . sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyDay))       . " kWh";
+			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcEnergyMonth                       : " . sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyMonth))     . " kWh";
+			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcEnergyYear                        : " . sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyYear))      . " kWh";
+			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcEnergyMeter                       : " . sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyMeter))     . " kWh";
 
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - _______Power___________________________________________";
-			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcPowerCurrent                      : " . sprintf('%.3f', ($GasCalcPowerCurrent))    . " kW";
+			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcPowerCurrent                      : " . sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcPowerCurrent))    . " kW";
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcPowerDayMin                       : " . ReadingsVal( $GasCalcReadingDestinationDeviceName, $GasCalcReadingPrefix . "_PowerDayMin", 0) . " kW";
-			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcPowerDayAverage                   : " . sprintf('%.3f', ($GasCalcPowerDayAverage)) . " kW";
+			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcPowerDayAverage                   : " . sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcPowerDayAverage)) . " kW";
 			Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - GasCalcPowerDayMax                       : " . ReadingsVal( $GasCalcReadingDestinationDeviceName, $GasCalcReadingPrefix . "_PowerDayMax", 0) . " kW";
 			
 			###### Write readings to GasCalc device
@@ -733,22 +826,22 @@ sub GasCalculator_Notify($$)
 			readingsBeginUpdate($GasCalcReadingDestinationDevice);
 
 			### Write current mechanic meter reading
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_Meter",            sprintf('%.3f', ($GasCountReadingValueCurrent)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_Meter",            sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCountReadingValueCurrent)));
 
 			### Write consumed volume (DV) since last measurement
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, "." . $GasCalcReadingPrefix . "_LastDV",     sprintf('%.3f', ($GasCountReadingValueDelta)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, "." . $GasCalcReadingPrefix . "_LastDV",     sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCountReadingValueDelta)));
 
 			### Write timelap (Dt) since last measurement
 			readingsBulkUpdate($GasCalcReadingDestinationDevice, "." . $GasCalcReadingPrefix . "_LastDt",     sprintf('%.0f', ($GasCountReadingTimestampDelta)));
 		
 			### Write current Power = average Power over last measurement period
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_PowerCurrent",     sprintf('%.3f', ($GasCalcPowerCurrent)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_PowerCurrent",     sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcPowerCurrent)));
 			
 			### Write daily   Power = average Power since midnight
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_PowerDayAver",     sprintf('%.3f', ($GasCalcPowerDayAverage)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_PowerDayAver",     sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcPowerDayAverage)));
 			
 			### Write Power measurement sum    since midnight for average calculation
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, "." . $GasCalcReadingPrefix . "_PowerDaySum",      sprintf('%.3f', ($GasCalcPowerDaySum)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, "." . $GasCalcReadingPrefix . "_PowerDaySum",      sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcPowerDaySum)));
 			
 			### Write Power measurement counts since midnight for average calculation
 			readingsBulkUpdate($GasCalcReadingDestinationDevice, "." . $GasCalcReadingPrefix . "_PowerDayCount",    sprintf('%.0f', ($GasCalcPowerDayCount)));
@@ -760,45 +853,45 @@ sub GasCalculator_Notify($$)
 				readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_PowerDayMin",  sprintf('%.0f', ($GasCalcPowerCurrent)));
 				
 				### Create Log entries for debugging
-				Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - New daily minimum power value detected   : " . sprintf('%.3f', ($GasCalcPowerCurrent));
+				Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - New daily minimum power value detected   : " . sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcPowerCurrent));
 			}
 			
 			### Detect new daily maximum power value and write to reading
 			if (ReadingsVal($GasCalcReadingDestinationDeviceName, $GasCalcReadingPrefix . "_PowerDayMax", 0) < $GasCalcPowerCurrent)
 			{
 				### Write new maximum Power value
-				readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_PowerDayMax",  sprintf('%.3f', ($GasCalcPowerCurrent)));
+				readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_PowerDayMax",  sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcPowerCurrent)));
 				
 				### Create Log entries for debugging
-				Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - New daily maximum power value detected   : " . sprintf('%.3f', ($GasCalcPowerCurrent));
+				Log3 $GasCalcName, 5, $GasCalcName. " : GasCalculator - New daily maximum power value detected   : " . sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcPowerCurrent));
 			}
 			
 			### Write energy consumption since midnight
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyDay",        sprintf('%.3f', ($GasCalcEnergyDay)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyDay",        sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyDay)));
 			
 			### Write energy consumption since beginning of month
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyMonth",      sprintf('%.3f', ($GasCalcEnergyMonth)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyMonth",      sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyMonth)));
 
 			### Write energy consumption since beginning of year
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyYear",       sprintf('%.3f', ($GasCalcEnergyYear)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyYear",       sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyYear)));
 			
 			### Write energy consumption since last meter reading
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyMeter",      sprintf('%.3f', ($GasCalcEnergyMeter)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyMeter",      sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyMeter)));
 			
 			### Write pure energy costs since midnight
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostDay",    sprintf('%.3f', ($GasCalcEnergyCostDay)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostDay",    sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyCostDay)));
 
 			### Write pure energy costs since beginning of month
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostMonth",  sprintf('%.3f', ($GasCalcEnergyCostMonth)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostMonth",  sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyCostMonth)));
 			
 			### Write pure energy costs since beginning of calendar year
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostYear",   sprintf('%.3f', ($GasCalcEnergyCostYear)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostYear",   sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyCostYear)));
 			
 			### Write pure energy costs since beginning of year of gas meter reading
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostMeter",  sprintf('%.3f', ($GasCalcEnergyCostMeter)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_EnergyCostMeter",  sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcEnergyCostMeter)));
 
 			### Write reserves at gas provider based on monthly advance payments within year of gas meter reading
-			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_FinanceReserve",   sprintf('%.3f', ($GasCalcReserves)));
+			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_FinanceReserve",   sprintf($GasCalcDev->{system}{DecimalPlace}, ($GasCalcReserves)));
 
 			### Write months since last meter reading
 			readingsBulkUpdate($GasCalcReadingDestinationDevice, $GasCalcReadingPrefix . "_MonthMeterReading", sprintf('%.0f', ($GasCalcMeterYearMonth)));
@@ -881,8 +974,9 @@ sub GasCalculator_Notify($$)
 	<tr><td>
 		<ul>
 				The set - function sets individual values for example to correct values after power loss etc.<BR>
-				The set - function works only for readings which have been stored in the CalculatorDevice.<BR>
+				The set - function works for readings which have been stored in the CalculatorDevice and to update the Offset.<BR>
 				The Readings being stored in the Counter - Device need to be changed individially with the <code>set</code> - command.<BR>
+				The command "SyncCounter" will calculate and update the Offset. Just enter the value of your mechanical Reader.<BR>
 		</ul>
 	</td></tr>
 </table>
@@ -1456,8 +1550,9 @@ sub GasCalculator_Notify($$)
 	<tr><td>
 		<ul>
 				Die set - Funktion erlaubt individuelle Readings zu ver&auml;ndern um beispielsweise nach einem Stromausfall Werte zu korrigieren.<BR>
-				Die set - Funktion funktioniert nur f&uumlr Readings welche im CalculatorDevice gespeichert wurden.<BR>
+				Die set - Funktion funktioniert f&uumlr Readings welche im CalculatorDevice gespeichert wurden und zum update des Offsets zwischen den Z&aumlhlern.<BR>
 				Die Readings welche im Counter - Device gespeichert wurden, m&uumlssen individuell mit <code>set</code> - Befehl gesetzt werden.<BR>
+				Der Befehl "SyncCounter" errechnet und update den Offset. Hierbei einfach den Wert des mechanischen Z&aumlhlers eingeben.<BR>
 		</ul>
 	</td></tr>
 </table>

@@ -1,5 +1,5 @@
 ###########################################
-# $Id: httpmod.template 20865 2020-01-02 05:59:54Z Beta-User $
+# $Id: httpmod.template 22746 2020-09-07 23:03:22Z amenomade $
 #
 # Comments start with #. Empty lines are ignored.
 # Syntax of one entry: name: line, one optional filter: line, zero or more par: lines,  FHEM-Commands
@@ -9,7 +9,7 @@
 # If undef, the user has to specify them (the comment is shown to the user)
 
 ###########################################
-name:General_Info
+name:General_Info_httpmod.template
 filter:TYPE=HTTPMOD
 desc: Forum <a href="https://forum.fhem.de/index.php/topic,97694.0.html">link</a> for suggestions or bug reports on httpmod-template.<br>For changes and updates on this file, see <a href="https://svn.fhem.de/trac/log/trunk/fhem/FHEM/lib/AttrTemplate/httpmod.template">svn changelog</a>. In most cases, major changes will be mentionned there.
 order:00000000
@@ -32,12 +32,13 @@ attr DEVICE reading02Name SuperE10
 attr DEVICE reading02Regex <div class=\"price-type-name\">Super E10</div>[\S\s\r\n]*?<span id=\"current-price-\d+\">(\d.\d{2}</span>[\S\s\r\n]*?<sup id=\"suffix-price-\d\">[\d]+)</sup>
 attr DEVICE reading03Name SuperE5
 attr DEVICE reading03Regex <div class=\"price-type-name\">Super E5</div>[\S\s\r\n]*?<span id="current-price-\d+">(\d.\d{2}</span>[\S\s\r\n]*?<sup id=\"suffix-price-\d\">[\d]+)</sup>
-attr DEVICE readingOExpr $val =~ s/<[\d\D]+>//;;;;$val
+attr DEVICE readingOExpr $val =~ s/<[\d\D]+>//;;$val
 attr DEVICE stateFormat E5: SuperE5 € / E10: SuperE10 € / D: Diesel €
 attr DEVICE timeout 10
 attr DEVICE verbose 2
 attr DEVICE room WHICHROOM
 attr DEVICE model clever_tanken_single_station
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 #Station overview, one product, Forum: https://forum.fhem.de/index.php/topic,94640.msg873841.html#msg873841
 name:clever_tanken_multi_station
@@ -64,6 +65,53 @@ attr DEVICE readingMaxAge 10
 attr DEVICE readingMaxAgeReplacementMode delete
 attr DEVICE room WHICHROOM
 attr DEVICE model clever_tanken_multi_station
+setreading DEVICE attrTemplateVersion 20200522 or prior
+
+#Contributed by subseven & yersinia, see https://forum.fhem.de/index.php/topic,107189.msg1017754.html#msg1017754
+name:fuel_oil_check
+filter:TYPE=HTTPMOD
+desc: checks fuel oil prices via easyoil.com<br>Define a HTTPMOD device like<br>define heizoelpreis HTTPMOD https://www.esyoil.com/preisausgabe.php?pr-unloading-points=%%ENTLADESTELLEN%%&pr-product=8&pr-payment-type=2&%%ANHAENGER%%&pr-hose-length=%%SCHLAUCHLAENGE%%&pr-app=1&pr-zip=%%PLZ%%&pr-amount=%%MENGE%%&submit= 3600 <a href="https://forum.fhem.de/index.php/topic,107189.msg1017754.html#msg1017754">Source: Forum</a>
+order: 100005
+par:WHICHROOM;Actual room of the device, defaults to HTTPMOD; {AttrVal("DEVICE","room","HTTPMOD" )}
+par:INTERVAL;Actual interval for updating, defaults to hourly (3600s); {InternalVal("DEVICE","Interval",3600)}
+defmod DEVICE HTTPMOD https://www.esyoil.com/preisausgabe.php?pr-unloading-points=%%ENTLADESTELLEN%%&pr-product=8&pr-payment-type=2&%%ANHAENGER%%&pr-hose-length=%%SCHLAUCHLAENGE%%&pr-app=1&pr-zip=%%PLZ%%&pr-amount=%%MENGE%%&submit= INTERVAL
+attr DEVICE userattr reading010Name reading010OExpr reading010Regex replacement01Mode:reading,internal,text,expression,key replacement01Regex replacement01Value replacement02Mode:reading,internal,text,expression,key replacement02Regex replacement02Value replacement03Mode:reading,internal,text,expression,key replacement03Regex replacement03Value replacement04Mode:reading,internal,text,expression,key replacement04Regex replacement04Value replacement05Mode:reading,internal,text,expression,key replacement05Regex replacement05Value
+attr DEVICE enableControlSet 1
+attr DEVICE group Spritpeise
+attr DEVICE reading010Name Heizoelpreis
+attr DEVICE reading010OExpr $val =~ s/,/\./;; $val;;
+attr DEVICE reading010Regex ([\d\,]+)[\s]+€
+attr DEVICE replacement01Mode text
+attr DEVICE replacement01Regex %%PLZ%%
+attr DEVICE replacement01Value 12345
+attr DEVICE replacement02Mode text
+attr DEVICE replacement02Regex %%MENGE%%
+attr DEVICE replacement02Value 3000
+attr DEVICE replacement03Mode text
+attr DEVICE replacement03Regex %%ENTLADESTELLEN%%
+attr DEVICE replacement03Value 1
+attr DEVICE replacement04Mode text
+attr DEVICE replacement04Regex %%SCHLAUCHLAENGE%%
+attr DEVICE replacement04Value 40m
+attr DEVICE replacement05Mode text
+attr DEVICE replacement05Regex %%ANHAENGER%%
+attr DEVICE replacement05Value pr-truck-type=short_vehicle
+attr DEVICE room WHICHROOM
+attr DEVICE stateFormat {	my $price = 0.0;;\
+	$price = (AttrNum($name,"replacement02Value",0)*ReadingsNum($name,"Heizoelpreis",0))/100;;\
+	my $ret = "<div>".ReadingsTimestamp($name,"Heizoelpreis","-");;\
+	$ret .= "&nbsp;;<b><a href=\"".InternalVal($name,"displayurl","https://www.esyoil.com")."\" rel=\"noopener noreferrer\" target=\"_blank\">";;\
+	$ret .= ReadingsVal($name,"Heizoelpreis","-");;\
+	$ret .= "&euro;;</a></b>/100l";;\
+	$ret .= "&nbsp;;(".AttrVal($name,"replacement02Value","0")."l = ";;\
+	$ret .= sprintf("%.2f",$price);;\
+	$ret .= "&euro;;)</div>";;\
+	return $ret;;\
+}
+attr DEVICE webCmd reread
+attr DEVICE model fuel_oil_check
+setreading DEVICE attrTemplateVersion 20200522 or prior
+
 
 #German weather warnings from DWD, Forum: https://forum.fhem.de/index.php/topic,45176.msg905879.html#msg905879
 name:DWD_weather_warnings
@@ -75,10 +123,14 @@ par:WHICHROOM;Actual room of the device, defaults to HTTPMOD; {AttrVal("DEVICE",
 attr DEVICE enableControlSet 1
 attr DEVICE extractAllJSON 1
 attr DEVICE extractAllJSONFilter REGIONCODE
+attr DEVICE readingOExpr $val = FmtDateTime($val/1000) if $val =~ m/^[\d]+$/g && $val > 10000;;$val
 attr DEVICE readingEncode UTF-8
 attr DEVICE preProcessRegex s/warnWetter..............|\);|\t|\n|\r//g
 attr DEVICE room WHICHROOM
+attr DEVICE readingMaxAge 10
+attr DEVICE readingMaxAgeReplacementMode delete
 attr DEVICE model DWD_weather_warnings
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 #German river water levels, Wiki: https://wiki.fhem.de/wiki/Flusspegel
 name:pegelonline
@@ -95,6 +147,7 @@ attr DEVICE stateFormat {sprintf("%.0f",ReadingsVal("DEVICE","value",0))}
 attr DEVICE timeout 5
 attr DEVICE room WHICHROOM
 attr DEVICE model pegelonline
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 #Austrian weather, Forum: https://forum.fhem.de/index.php/topic,94110.msg868080.html#msg868080; enhanced by JoeALLb: https://forum.fhem.de/index.php/topic,97694.msg912164.html#msg912164
 name:ORF_weather
@@ -124,8 +177,10 @@ attr DEVICE get02Regex Sonnenaufgang um <\/span>(.*)<s[\w\W]*Sonnenuntergang um 
 attr DEVICE get02URL MAINURL
 attr DEVICE reading01Regex (?s)Temperatur.*?.*?>.*?(?<temperature>[\d,]+)&thinsp.*?Taupunkt.*?.*?>.*?(?<taupunkt>[\d,]+)&thinsp.*?Wind.*?>\n\s*(?<wind>[^<]+)\s<abbr.*?Windspitzen.*?>\n\s*(?<windspitzen>[^<]+)\s<abbr.*?Luftdruck.*?>\n\s*(?<luftdruck>[^<]+)\s<abbr.*?Luftfeuchtigkeit.*?>\n\s*(?<humidity>[^<]+)\s<abbr.*?Sonnenschein.*?>\n\s*(?<sonne>[^<]+)\s<abbr.*?Niederschlag.*?>\n\s*(?<rain>[^<\n]+).*?</p.*?(?<messwerte>Messwerte[^<\n]+)
 attr DEVICE room WHICHROOM
+attr ORF_Weather readingOExpr $val =~ s/([\d]+),([\d]+) */$1.$2/ if $val =~ m{\A[\d]+,[\d]+ *\z};;$val
 attr DEVICE stateFormat W: wind, H: humidity%rH, T: temperature°C
 attr DEVICE model ORF_weather
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 #Geschwindigkeitsüberwachung, Forum: https://forum.fhem.de/index.php/topic,90014.msg824805.html#msg824805
 name:blitzer
@@ -141,6 +196,7 @@ attr DEVICE getHeader2 Accept: */*
 attr DEVICE readingEncode utf8
 attr DEVICE room WHICHROOM
 attr DEVICE model blitzer
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 
 #homebridge-videodoorbell, Forum: https://forum.fhem.de/index.php/topic,94291.msg870289.html#msg870289
@@ -165,6 +221,7 @@ attr DEVICE set01Header06 Content-Type: application/x-www-form-urlencoded
 attr DEVICE set01NoArg 1
 attr DEVICE room WHICHROOM
 attr DEVICE model homebridge_videodoorbell
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 # Pihole Statistics, Website: https://wolf-u.li/5987/einbindung-der-pihole-statistiken-in-fhem/
 name:pihole_statistics
@@ -179,6 +236,7 @@ attr DEVICE stateFormat DNS Anfragen: dns_queries_today<br>Geblockte Seiten: ads
 attr DEVICE userReadings ads_blocked_today_formatted {round(ReadingsNum($name,"ads_percentage_today",0),0)}
 attr DEVICE room WHICHROOM
 attr DEVICE model pihole_statistics
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 # Pharmacy Emergency Service Germany, Forum: https://forum.fhem.de/index.php?topic=87234.0
 name:pharmacy_emergency_service_germany
@@ -224,6 +282,7 @@ attr DEVICE stateFormat Name, Telefon, Strasse in Plz Ort
 attr DEVICE timeout 60
 attr DEVICE room WHICHROOM
 attr DEVICE model pharmacy_emergency_service_germany
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 #################################
 #HP Printers
@@ -252,6 +311,7 @@ attr DEVICE stateFormat Modell: Model SN: Serial_Number
 attr DEVICE userReadings Memory_Usage {100-(ReadingsNum("DEVICE","Available_Memory","")/2.56)}
 attr DEVICE room WHICHROOM
 attr DEVICE model hp_printer_config
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 # Printer cartridge states
 name:hp_printer_cartridge_status
@@ -262,13 +322,13 @@ par:WHICHROOM;Actual room of the device, defaults to HTTPMOD; {AttrVal("DEVICE",
 attr DEVICE userattr reading01Name reading01XPath-Strict reading02Name reading02XPath-Strict reading03Name reading03XPath-Strict reading04Name reading04XPath-Strict reading05Name reading05XPath-Strict reading06Name reading06XPath-Strict$
 attr DEVICE httpVersion 1.1
 attr DEVICE reading01Name Cyan
-attr DEVICE reading01XPath-Strict //ccdyn:ConsumableInfo[2]/dd:ConsumablePercentageLevelRemaining/text()
+attr DEVICE reading01XPath-Strict //ccdyn:ConsumableInfo[3]/dd:ConsumablePercentageLevelRemaining/text()
 attr DEVICE reading02Name Magenta
-attr DEVICE reading02XPath-Strict //ccdyn:ConsumableInfo[3]/dd:ConsumablePercentageLevelRemaining/text()
+attr DEVICE reading02XPath-Strict //ccdyn:ConsumableInfo[2]/dd:ConsumablePercentageLevelRemaining/text()
 attr DEVICE reading03Name Yellow
 attr DEVICE reading03XPath-Strict //ccdyn:ConsumableInfo[4]/dd:ConsumablePercentageLevelRemaining/text()
 attr DEVICE reading04Name Black
-attr DEVICE reading04XPath-Strict //ccdyn:ConsumableInfo[1]/dd:ConsumablePercentageLevelRemaining/text()
+attr DEVICE reading04XPath-Strict //ccdyn:ConsumableInfo[5]/dd:ConsumablePercentageLevelRemaining/text()
 attr DEVICE reading05Name CyanCatridgeModel
 attr DEVICE reading05XPath-Strict //ccdyn:ConsumableInfo[3]/dd:ConsumableSelectibilityNumber/text()
 attr DEVICE reading06Name MagentaCatridgeModel
@@ -280,6 +340,7 @@ attr DEVICE reading08XPath-Strict //ccdyn:ConsumableInfo[5]/dd:ConsumableSelecti
 attr DEVICE stateFormat C: Cyan% M: Magenta% Y: Yellow% B: Black%
 attr DEVICE room WHICHROOM
 attr DEVICE model hp_printer_cartridge_status
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 # Printer statistics
 name:hp_printer_statistics
@@ -330,6 +391,7 @@ attr DEVICE reading51XPath-Strict //pudyn:Consumable[dd:MarkerColor='Black']/dd:
 attr DEVICE stateFormat Total: Printer_Pages_Total Monochrome: Printer_Pages_Monochrome Color: Printer_Pages_Color
 attr DEVICE room WHICHROOM
 attr DEVICE model hp_printer_statistics
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 # Printer status
 name:hp_printer_status
@@ -344,6 +406,7 @@ attr DEVICE reading01XPath-Strict //psdyn:LocString[@lang='de']/text()
 attr DEVICE stateFormat Status
 attr DEVICE room WHICHROOM
 attr DEVICE model hp_printer_status
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 
 #################################
@@ -368,6 +431,7 @@ attr DEVICE reading04Regex Ink_B.*?='([\d]+)'
 attr DEVICE stateFormat C: Cyan% M: Magenta% Y: Yellow% B: Black%
 attr DEVICE room WHICHROOM
 attr DEVICE model epson_printer_cartridge_status
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 #################################
 #Brother Printers
@@ -396,6 +460,7 @@ attr DEVICE reading05Name Status
 attr DEVICE reading05RegOpt gm
 attr DEVICE reading05Regex <th>1<\/th><td>(.*?)<
 attr DEVICE model brother_printer_cartridge_status
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 #################################
 #Brother Scanners
@@ -435,6 +500,7 @@ attr DEVICE reading12XPath-Strict //PaperJams/text()
 attr DEVICE stateFormat Pages: ScannedPagesTotal Modell: Model SN: Serial_Number
 attr DEVICE room WHICHROOM
 attr DEVICE model brother_scanner_ads_status
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 #################################
 #RESOL Solaranlage, Forum: https://forum.fhem.de/index.php/topic,86678.0.html
@@ -461,100 +527,110 @@ attr DEVICE room WHICHROOM
 attr DEVICE stateFormat Dachtemperatur: Temperatur_Sensor1 Drehzahl Pumpe: Drehzahl_Pumpe Laufzeit Heute: Tageslaufzeit
 attr DEVICE timeout 5ercent="([\d\.]+)
 attr DEVICE model resol_solar
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 #################################
 #Show updates for CUL_HM devices, Forum: https://forum.fhem.de/index.php/topic,78501.msg972144.html#msg972144
-name:CUL_HM_firmware_update_downloader
+
+#Contributed by Pfriemler & yersinia, see https://forum.fhem.de/index.php/topic,78501.msg1043080.html#msg1043080
+name:hm_fw_check_v2
 filter:TYPE=HTTPMOD
-desc: Check eQ3 homepage for available new firmware files; provides also links for direct downloads<br>Define a HTTPMOD device like <br>define eq3 HTTPMOD https://www.eq-3.de/ajax/downloads/downloads_eq3.php 604800<br><a href="https://https://forum.fhem.de/index.php/topic,78501.msg972144.html#msg972144">Source: Forum</a><br><a href="https://wiki.fhem.de/wiki/HomeMatic_Firmware_Update#Basis-Definitionen_f.C3.BCr_Device_eq3">Wiki</a>
+desc: check for homematic firmware updates; based on new link provided by Pfriemler (switch from eq-3.de to update.homematic.com)<br />Define a HTTPMOD device like <br>define hm_fw_check HTTPMOD https://update.homematic.com/firmware/api/firmware/search/DEVICE 86400<br /><a href="https://forum.fhem.de/index.php/topic,78501.msg1043080.html#msg1043080">Source: Forum</a>
 order:X_01a
-par:WHICHROOM;Actual room of the device; {AttrVal("DEVICE","room","CUL_HM" )}
-par:INTERVAL;Actual interval for updating, defaults to one week; {InternalVal("DEVICE","Interval","604800")}
-defmod DEVICE HTTPMOD https://www.eq-3.de/ajax/downloads/downloads_eq3.php INTERVAL
-attr DEVICE userattr reading01AutoNumLen reading01Format reading01Name reading01RegOpt reading01Regex reading02AutoNumLen reading02Name reading02OExpr reading02RegOpt reading02Regex readingMaxAge readingMaxAgeReplacementMode:text,reading,internal,expression,delete
-attr DEVICE alignTime 00:45
+par:WHICHROOM;Actual room of the device, defaults to HTTPMOD; {AttrVal("DEVICE","room","HTTPMOD" )}
+par:INTERVAL;Actual interval for updating, defaults to one day (86400s); {InternalVal("DEVICE","Interval",86400)}
+defmod DEVICE HTTPMOD https://update.homematic.com/firmware/api/firmware/search/\DEVICE INTERVAL
+attr DEVICE userattr reading01AutoNumLen reading01Name reading01RegOpt reading01Regex reading02AutoNumLen reading02Name reading02RegOpt reading02Regex readingMaxAge readingMaxAgeReplacementMode:text,reading,internal,expression,delete showNewFWOnly:yes,no
+attr DEVICE do_not_notify 1
 attr DEVICE enableControlSet 1
-attr DEVICE event-on-change-reading .*
-attr DEVICE event-on-update-reading LAST_ERROR,MATCHED_READINGS
-attr DEVICE httpVersion 1.1
+attr DEVICE icon hm_ccu
 attr DEVICE reading01AutoNumLen 2
-attr DEVICE reading01Format https://www.eq-3.de%s
-attr DEVICE reading01Name fw_link
+attr DEVICE reading01Name hmfw-type
 attr DEVICE reading01RegOpt g
-attr DEVICE reading01Regex (?i)<a.href="(\/downloads\/software\/firmware\/hm[^"]+)
+attr DEVICE reading01Regex (?i)"type":"((?:\w+[-]*){1,})
 attr DEVICE reading02AutoNumLen 2
-attr DEVICE reading02Name changeLog_link
-attr DEVICE reading02OExpr $val=~m/(\/downloads\/software\/firmware\/[^"]+)/?"https://www.eq-3.de".$1:"none"
+attr DEVICE reading02Name hmfw-version
 attr DEVICE reading02RegOpt g
-attr DEVICE reading02Regex (?si)(.{300})<a.href="\/downloads\/software\/firmware\/hm[^"]+
+attr DEVICE reading02Regex (?si)"version":"(\d+[.]\d+[.]\d+)
 attr DEVICE readingMaxAge 10
 attr DEVICE readingMaxAgeReplacementMode delete
-attr DEVICE requestData.* suchbegriff=&quelle=29&suchkategorie=3&themenbereich=1
 attr DEVICE room WHICHROOM
 attr DEVICE showError 1
 attr DEVICE showMatched 1
+attr DEVICE showNewFWOnly yes
 attr DEVICE stateFormat {   my $ret ="";;\
-    my $lastCheck = ReadingsTimestamp($name,"MATCHED_READINGS","???");;\
-    $ret .= '<div style="text-align:left">';;\
+    my $lastCheck = POSIX::strftime("%d.%m. %H:%M",localtime(time_str2num(ReadingsTimestamp($name,"MATCHED_READINGS","2000-01-01 00:00:00"))));;\
+	my $nextCheck = POSIX::strftime("%d.%m. %H:%M",localtime(time_str2num(InternalVal($name,"TRIGGERTIME_FMT","2000-01-01 00:00:00"))));;\
+	my $cellstyle = "padding:3pt;;border-bottom:1px dotted lightgray;;";;\
+    $ret .= '<div style="text-align:left;;">';;;;\
     $ret .= 'last <a title="eq3-downloads" href="http://www.eq-3.de/service/downloads.html">homematic</a>-fw-check => '.$lastCheck;;\
-    $ret .= '<br><br><pre>';;\
-    $ret .= "| device                  | model                   | cur_fw | new_fw | release    |<br>";;\
-    $ret .= "------------------------------------------------------------------------------------<br>";;\
+    $ret .= '<br />';;\
     my $check = ReadingsVal($name,"newFwForDevices","error => no or wrong data from eq3-server!");;\
     if($check eq "no fw-updates needed!") {\
-      $ret .= '| <b style="color:green">';;\
-      $ret .= sprintf("%-80s",$check);;\
-      $ret .= '</b> |';;\
+      $ret .= '<div style="color:limegreen;;font-weight:bold;;">';;\
+      $ret .= $check;;\
+      $ret .= '</div>';;\
     } elsif($check eq "error => no or wrong data from eq3-server!") {\
-      $ret .= '| <b style="color:red">';;\
-      $ret .= sprintf("%-80s",$check);;\
-      $ret .= '</b> |';;\
+      $ret .= '<div style="color:red;;font-weight:bold;;">';;\
+      $ret .= $check;;\
+      $ret .= '</div>';;\
     } else {\
+		$ret .= '<br /><div style="display:table;;width:100%;;">';;\
+		$ret .= '<div style="display:table-row;;">';;\
+	      $ret .= '<div style="display:table-cell;;'.$cellstyle.'width:50%;;font-weight:bold;;">device</div>';;\
+		  $ret .= '<div style="display:table-cell;;'.$cellstyle.'width:30%;;font-weight:bold;;">model</div>';;\
+		  $ret .= '<div style="display:table-cell;;'.$cellstyle.'width:10%;;font-weight:bold;;">current</div>';;\
+		  $ret .= '<div style="display:table-cell;;'.$cellstyle.'width:10%;;font-weight:bold;;">new</div>';;\
+		$ret .= '</div>';; #header\
       my @devices = split(',',$check);;\
       foreach my $devStr (@devices) {\
-        my ($dev,$md,$ofw,$idx_fw,$nfw,$date) = $devStr =~ m/^([^\s]+)\s\(([^\s]+)\s\|\sfw_(\d+\.\d+)\s=>\sfw(\d\d)_([\d\.]+)\s\|\s([^\)]+)\)$/;;\
-        my $fw_link = ReadingsVal($name,"fw_link-".$idx_fw,"???");;\
-        my $cl_link = ReadingsVal($name,"changeLog_link-".$idx_fw,"???");;\
-        $ret .= '| <a href="/fhem?detail='.$dev.'"><b>';;\
-        $ret .= sprintf("%-23s",$dev);;\
-        $ret .= '</b></a> | ';;\
-        $ret .= '<b'.(($md eq "?")?' title="missing attribute model => set device in teach mode to receive missing data" style="color:yellow"':' style="color:lightgray"').'>';;\
-        $ret .= sprintf("%-23s",$md);;\
-        $ret .= '</b> | ';;\
-        $ret .= '<b'.(($ofw eq "0.0")?' title="missing attribute firmware => set device in teach mode to receive missing data" style="color:yellow"':' style="color:lightgray"').'>';;\
-        $ret .= sprintf("%6s",$ofw);;\
-        $ret .= '</b> | ';;\
-        $ret .= '<a title="download firmware file" href="'.$fw_link.'"><b style="color:red">';;\
-        $ret .= sprintf("%6s",$nfw);;\
-        $ret .= '</b></a> | ';;\
-        $ret .= (($cl_link ne "none")?'<a title="open changeLog file" href="'.$cl_link.'"><b style="color:black">':'<b style="color:lightgray">');;\
-        $ret .= sprintf("%-10s",$date);;\
-        $ret .= (($cl_link ne "none")?'</b></a>':'</b>');;\
-        $ret .= " |<br>";;\
+        #my ($dev,$md,$idx,$ofw,$nfw) = $devStr =~ m/([^\s]+)\s[(]([^\s]+)\s[(](\d+)[)]\sofw_([\d\.]+)\s=>\snfw_([\d\.]+)/;;\
+		my ($dev,$idx) = $devStr =~ m/([^\s]+)\s[(](\d+)[)]/;;\
+		my $md = ReadingsVal($name,("hmfw-type-".$idx),"?");;\
+		my $ofw = AttrVal($dev,"firmware","?");;\
+		my $nfw = ReadingsVal($name,("hmfw-version-".$idx),"none");;\
+        my $fw_link = "https://ccu3-update.homematic.com/firmware/download?cmd=download&serial=0&product=".$md;;\
+		$ret .= '<div style="display:table-row;;">';;\
+		$ret .= '<div style="display:table-cell;;'.$cellstyle.'width:50%;;">';;\
+        $ret .= '<a href="/fhem?detail='.$dev.'" target="_blank">';;\
+		$ret .= AttrVal($dev,"alias",$dev);;\
+        $ret .= '</a></div>';;\
+		$ret .= '<div style="display:table-cell;;'.$cellstyle.'width:30%;;font-weight:bold;;color:lightgrey;;">';;\
+        $ret .= $md;;\
+        $ret .= '</div>';;\
+		$ret .= '<div style="display:table-cell;;'.$cellstyle.'width:10%;;font-weight:bold;;color:lightgrey;;">';;\
+        $ret .= $ofw;;\
+        $ret .= '</div>';;\
+		$ret .= '<div style="display:table-cell;;'.$cellstyle.'width:10%;;font-weight:bold;;color:red;;">';;\
+        $ret .= '<a title="download firmware file" href="'.$fw_link.'" rel="noopener noreferrer" target="_blank" style="color:red;;">';;\
+        $ret .= $nfw;;\
+        $ret .= '</a></div>';;\
+        $ret .= '</div>';; #row\
       }\
+	  $ret .= '</div>';; #table\
     }\
-    $ret .= '</pre></div>';;\
+	$ret .= "<br /><div style=\"text-align:left;;\">(next check: ".$nextCheck.")</div>";;\
+    $ret .= '</div>';;\
   return $ret;;\
 }
 attr DEVICE userReadings newFwForDevices:MATCHED_READINGS.* {\
   my $ret = "";;\
-  my @data;;\
+  my $newfwonly = AttrVal($name,"showNewFWOnly","yes");;\
   if (ReadingsVal($name,"UNMATCHED_READINGS","?") eq "") {\
-    my @eq3FwList = map{\
-      @data = ReadingsVal($name,"fw_link-".$_,"?") =~ m/firmware\/(.*?)_update_v([\d_]+)_(\d\d)(\d\d)(\d\d)/i;;\
-      $data[0] =~ s/_/-/g;;\
-      sprintf("%s:%s:%s.%s.%s:%s",$data[0],$data[1],$data[4],$data[3],"20".$data[2],$_);;\
-    } ReadingsVal($name,"MATCHED_READINGS","?") =~ m/fw_link-(\d\d)/g;;\
-\
-    foreach my $dev (devspec2array("TYPE=CUL_HM:FILTER=DEF=......:FILTER=subType!=(virtual|)")) {\
+    my @eq3FwList = map { \
+		sprintf(uc(ReadingsVal($name,"hmfw-type-".$_,"?")).":".ReadingsVal($name,"hmfw-version-".$_,"?").":".$_);;\
+	} ReadingsVal($name,"MATCHED_READINGS","?")=~ m/hmfw-version-(\d\d)/g;;\
+	\
+	foreach my $dev (devspec2array("TYPE=CUL_HM:FILTER=DEF=......:FILTER=subType!=(virtual|)")) {\
       my $md = AttrVal($dev,"model","?");;\
       my $v = AttrVal($dev,"firmware","0.0");;\
       my ($h,$l) = split('\.',$v);;\
-      foreach my $newFw (grep m/^${md}:/i,@eq3FwList) {\
-        my ($nh,$nl,$no,$date,$idx) = $newFw =~ m/^[^:]+:(\d+)_(\d+)_?(\d*):([^:]+):(\d\d)$/;;\
-        if(($nh > $h) || (($nh == $h) && ($nl > $l))) {\
+      foreach my $newFW (grep m/^${md}:/i,@eq3FwList) {\
+		my ($fwmd, $fwv, $idx) = $newFW =~ m/([^:]+):(\d+[.]\d+[.]\d+):(\d+)$/;;\
+		my ($fwh, $fwl) = split('\.',$fwv);;\
+		if(($newfwonly eq "no") || (($fwh > $h) || (($fwh == $h) && ($fwl > $l)))) {\
           $ret .= "," if($ret ne "");;\
-          $ret .= $dev." (".$md." | fw_".$v." => fw".$idx."_".$nh.".".$nl.($no?sprintf(".%d",$no):"")." | ".$date.")";;\
+		  $ret .= $dev." (".$idx.")";;\
         }\
       }\
     }\
@@ -564,7 +640,100 @@ attr DEVICE userReadings newFwForDevices:MATCHED_READINGS.* {\
   return ($ret eq "")?"no fw-updates needed!":$ret;;\
 }
 attr DEVICE webCmd reread
-attr DEVICE model CUL_HM_firmware_update_downloader
+attr DEVICE model homematic_fw_check_v2
+setreading DEVICE attrTemplateVersion 20200522 or prior
+
+
+#Contributed by yersinia, see https://forum.fhem.de/index.php/topic,97694.msg1045829.html#msg1045829
+name:aculfw_fw_check
+filter:TYPE=X_01d
+desc: checks a-culfw firmware updates<br />Define a HTTPMOD device like<br />define aculfw_fw_check HTTPMOD https://github.com/heliflieger/a-culfw/blob/master/CHANGELOG 86400<br /><a href="https://forum.fhem.de/index.php/topic,97694.msg1045829.html#msg1045829">Source: Forum</a>
+order: XXXXX
+par:WHICHROOM;Actual room of the device, defaults to HTTPMOD; {AttrVal("DEVICE","room","HTTPMOD" )}
+par:INTERVAL;Actual interval for updating, defaults to daily (86400s); {InternalVal("DEVICE","Interval",86400)}
+defmod DEVICE HTTPMOD https://github.com/heliflieger/a-culfw/blob/master/CHANGELOG INTERVAL
+attr DEVICE userattr reading01Name reading01Regex updatableDevicesMode:onlyUpdatable,all
+attr DEVICE do_not_notify 1
+attr DEVICE enableControlSet 1
+attr DEVICE event-on-update-reading LAST_ERROR,MATCHED_READINGS
+attr DEVICE handleRedirects 1
+attr DEVICE icon cul_usb
+attr DEVICE reading01Name latestVersion
+attr DEVICE reading01Regex \#\#\# ([\d]\.[\d]{2}\.[\d]{2})
+attr DEVICE room WHICHROOM
+attr DEVICE showError 1
+attr DEVICE showMatched 1
+attr DEVICE stateFormat {	my $ret ="";;\
+	my $lastCheck = POSIX::strftime("%d.%m. %H:%M",localtime(time_str2num(ReadingsTimestamp($name,"MATCHED_READINGS","2000-01-01 00:00:00"))));;\
+	my $nextCheck = POSIX::strftime("%d.%m. %H:%M",localtime(time_str2num(InternalVal($name,"TRIGGERTIME_FMT","2000-01-01 00:00:00"))));;\
+	my $cellstyle = "padding:3pt;;border-bottom:1px dotted lightgray;;";;\
+	$ret .= '<div style="text-align:left;;">';;\
+	$ret .= 'last <a href="https://github.com/heliflieger/a-culfw" title="aculfw" rel="noopener noreferrer" target="_blank">a-culfw</a> version check => '.$lastCheck;;\
+	$ret .= '<br />';;\
+    my $check = ReadingsVal($name,"updatableDevices","error => no or wrong data from server!");;\
+    if($check eq "no updates needed!") {\
+      $ret .= '<div style="color:limegreen;;font-weight:bold;;">';;\
+      $ret .= $check;;\
+      $ret .= '</div>';;\
+    } elsif($check eq "error => no or wrong data from server!") {\
+      $ret .= '<div style="color:limegreen;;font-weight:bold;;">';;\
+      $ret .= $check;;\
+      $ret .= '</div>';;\
+    } else {\
+      my @devices = split(',',$check);;\
+	  $ret .= '<br /><div style="display:table;;width:80%;;">';;\
+		$ret .= '<div style="display:table-row;;">';;\
+		$ret .= '<div style="display:table-cell;;'.$cellstyle.'width:60%;;font-weight:bold;;">device</div>';;\
+		  $ret .= '<div style="display:table-cell;;'.$cellstyle.'width:20%;;font-weight:bold;;">current</div>';;\
+		  $ret .= '<div style="display:table-cell;;'.$cellstyle.'width:20%;;font-weight:bold;;">new</div>';;\
+		$ret .= '</div>';; #header\
+      foreach my $devStr (@devices) {\
+        my ($dev,$old,$new) = $devStr =~ m/^([^\s]+)\s\(([^\s]+)\s\|\s([^\)]+)\)$/;;\
+		$ret .= '<div style="display:table-row;;">';;\
+			$ret .= '<div style="display:table-cell;;'.$cellstyle.'width:60%;;">';;\
+				$ret .= '<a href="/fhem?detail='.$dev.'" title="'.$dev.' ('.$old.')">';;\
+				$ret .= AttrVal($dev,"alias",$dev);;\
+				$ret .= '</a></div>';;\
+			$ret .= '<div style="display:table-cell;;'.$cellstyle.'width:20%;;font-weight:bold;;">';;\
+				$ret .= '<a href="https://github.com/heliflieger/a-culfw/releases/tag/'.$old.'" title="a-culfw '.$old.'" rel="noopener noreferrer" target="_blank" style="color:lightgray;;">';;\
+				$ret .= $old;;\
+        		$ret .= '</a></div>';;\
+			$ret .= '<div style="display:table-cell;;'.$cellstyle.'width:20%;;font-weight:bold;;">';;\
+        		$ret .= '<a href="https://github.com/heliflieger/a-culfw/releases/tag/'.$new.'" title="a-culfw '.$new.'" rel="noopener noreferrer" target="_blank" style="color:red;;">';;\
+        		$ret .= $new;;\
+        	$ret .= '</a></div>';;\
+		$ret .= '</div>';; #row\
+      }\
+	  $ret .= '</div>';; #table\
+    }\
+	$ret .= "<br /><div style=\"text-align:left;;\">(next check: ".$nextCheck.")</div>";;\
+	$ret .= '</div>';;\
+  return $ret;;\
+}
+attr DEVICE updatableDevicesMode onlyUpdatable
+attr DEVICE userReadings updatableDevices {\
+  my $ret = "";;\
+  my $updateall = AttrVal($name,"updatableDevicesMode","");;\
+  if (ReadingsVal($name,"MATCHED_READINGS","") eq "") {\
+    $ret = "error => no or wrong data from server!";;\
+  } else {\
+    my $VERSION = ReadingsVal($name,"latestVersion","unknown");;\
+    foreach my $dev (devspec2array("TYPE=CUL")) {\
+      my $version = InternalVal($dev,"VERSION","unknown");;\
+      $version =~ m/([\d]\.[\d]{2}\.[\d]{2})/;;\
+      $version = $1;;\
+      if(($updateall eq "all") || ($version ne $VERSION)) {\
+        $ret .= "," if($ret ne "");;\
+        $ret .= $dev." (".$version." | ".$VERSION.")";;\
+      }\
+    }\
+  }\
+  return ($ret eq "")?"no updates needed!":$ret;;\
+}
+attr DEVICE webCmd reread
+attr DEVICE model aculfw_fw_check
+setreading DEVICE attrTemplateVersion 20200522 or prior
+
 
 #Contributed by OdfFHEM, see https://forum.fhem.de/index.php/topic,97694.msg992348.html#msg992348
 name:tasmota_firmware_updates
@@ -587,20 +756,20 @@ attr DEVICE reading02OExpr $val =~ m/^(.{4})-(.{2})-(.{2})$/ ;; "$3.$2.$1"
 attr DEVICE reading02Regex relative-time[\w\W]*?datetime="(\d*-\d*-\d*)T\d*:\d*:\d*Z"
 attr DEVICE showError 1
 attr DEVICE showMatched 1
-attr DEVICE stateFormat {   my $ret ="";;\
+attr DEVICE stateFormat { my $ret ="";;\
     my $lastCheck = ReadingsTimestamp($name,"MATCHED_READINGS","???");;\
-    $ret .= '<div style="text-align:left">';;\
-    $ret .= 'last <a title="versions" href="'.InternalVal($name,"MainURL","unknown").'">tasmota</a>-check => '.$lastCheck;;\
+    $ret .= '<div style="text-align:left;;">';;\
+    $ret .= 'last <a title="versions" href="https://github.com/arendst/Tasmota/releases" target="_blank">tasmota</a>-check => '.$lastCheck;;\
     $ret .= '<br><br><pre>';;\
     $ret .= "| device                           | current |   new   |  released  |<br>";;\
     $ret .= "---------------------------------------------------------------------<br>";;\
     my $check = ReadingsVal($name,"updatableDevices","error => no or wrong data from server!");;\
     if($check eq "no updates needed!") {\
-      $ret .= '| <b style="color:green">';;\
+      $ret .= '| <b style="color:green;;">';;\
       $ret .= sprintf("%-65s",$check);;\
       $ret .= '</b> |';;\
     } elsif($check eq "error => no or wrong data from server!") {\
-      $ret .= '| <b style="color:'.(($new eq $old)?'black':'red').'">';;\
+      $ret .= '| <b style="color:red;;">';;\
       $ret .= sprintf("%-65s",$check);;\
       $ret .= '</b> |';;\
     } else {\
@@ -608,17 +777,18 @@ attr DEVICE stateFormat {   my $ret ="";;\
       foreach my $devStr (@devices) {\
         my ($dev,$old,$new,$date) = $devStr =~ m/^([^\s]+)\s\(([^\s]+)\s\|\s([^\s]+)\s\|\s([^\)]+)\)$/;;\
         $ret .= '| <a href="/fhem?detail='.$dev.'"><b>';;\
-        $ret .= sprintf("%-32s",$dev);;\
+        $ret .= sprintf("%-32s",AttrVal($dev,"alias",$dev));;\
         $ret .= '</b></a> | ';;\
-        $ret .= '<b style="color:lightgray">';;\
+        $ret .= '<b style="color:lightgray;;">';;\
+        $ret .= '<a href="http://'.ReadingsVal($dev,"IPAddress",ReadingsVal($dev,"INFO2_IPAddress","0.0.0.0")).'/up" target="_blank">';;\
         $ret .= sprintf("%7s",$old);;\
-        $ret .= '</b> | ';;\
+        $ret .= '</a></b> | ';;\
         $ret .= '<a href="https://github.com/arendst/Tasmota/releases/tag/v'.$new.'">';;\
-        $ret .= '<b style="color:red">';;\
+        $ret .= '<b style="color:red;;">';;\
         $ret .= sprintf("%7s",$new);;\
         $ret .= '</b></a> | ';;\
         $ret .= '<a href="https://github.com/arendst/Tasmota/releases/tag/v'.$new.'">';;\
-        $ret .= '<b style="color:black">';;\
+        $ret .= '<b style="color:black;;">';;\
         $ret .= sprintf("%-10s",$date);;\
         $ret .= '</b></a>';;\
         $ret .= " |<br>";;\
@@ -636,8 +806,8 @@ attr DEVICE userReadings updatableDevices:MATCHED_READINGS.* {\
   } else {\
     my $VERSION = ReadingsVal($name,"latestVersion","unknown");;\
     my $DATE = ReadingsVal($name,"latestDate","unknown");;\
-    foreach my $dev (devspec2array("TYPE=MQTT[2]?_[D]EVICE:FILTER=INFO1_Version!=")) {\
-      my $version = ReadingsVal($dev,"INFO1_Version","0.0.0");;\
+    foreach my $dev (devspec2array("TYPE=MQTT[2]?_[D]EVICE:FILTER=readingList~.*tele[/].*INFO.*:FILTER=Version!=,TYPE=MQTT[2]?_[D]EVICE:FILTER=readingList~.*tele[/].*INFO.*:FILTER=INFO1_Version!=")) {\
+      my $version = ReadingsVal($dev,"Version",ReadingsVal($dev,"INFO1_Version","0.0.0"));;\
       $version =~ m/([0-9.]*).*/;;\
       $version = $1;;\
       if ( AttrVal($name,"updatableDevicesMode","onlyUpdatable") eq "all" || $version ne $VERSION ) {\
@@ -651,6 +821,7 @@ attr DEVICE userReadings updatableDevices:MATCHED_READINGS.* {\
 attr DEVICE webCmd reread
 attr DEVICE room WHICHROOM
 attr DEVICE model tasmota_firmware_updates
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 #Contributed by OdfFHEM, see https://forum.fhem.de/index.php/topic,97694.msg998835.html#msg998835
 name:zigbee2mqtt_daemon_updates
@@ -738,6 +909,7 @@ attr DEVICE userReadings updatableDevices:MATCHED_READINGS.* {\
 attr DEVICE webCmd reread
 attr DEVICE room WHICHROOM
 attr DEVICE model zigbee2mqtt_daemon_updates
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 
 
@@ -814,6 +986,7 @@ attr DEVICE userReadings updatableDevices:MATCHED_READINGS.* {\
 attr DEVICE webCmd reread
 attr DEVICE room WHICHROOM
 attr DEVICE model ESPEasy_firmware_updates
+setreading DEVICE attrTemplateVersion 20200522 or prior
 
 #Contributed by yersinia, see 
 name:dnscrypt-proxy_updates
@@ -831,4 +1004,5 @@ attr DEVICE myInstalledVersion 2.0.31
 attr DEVICE room WHICHROOM
 attr DEVICE enableControlSet 1
 attr DEVICE model dnscrypt-proxy_updates
+setreading DEVICE attrTemplateVersion 20200522 or prior
 

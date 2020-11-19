@@ -32,7 +32,7 @@
 # * https://forum.fhem.de/index.php/topic,41439.0.html (previous discussions)
 # * https://forum.fhem.de/index.php/topic,13534.45.html (previous discussions)
 #
-# $Id: 72_TA_CMI_JSON.pm 20097 2019-09-03 20:49:17Z delmar $
+# $Id: 72_TA_CMI_JSON.pm 21460 2020-03-20 07:07:25Z delmar $
 #
 ##############################################################################
 
@@ -54,7 +54,9 @@ my %deviceNames = (
 my %versions = (
   1 => '1.25.2 2016-12-12',
   2 => '1.26.1 2017-02-24',
-  3 => '1.28.0 2017-11-09'
+  3 => '1.28.0 2017-11-09',
+  4 => '1.34.2 2019-04-04',
+  5 => '1.35.1 2019-07-02'
 );
 
 my %units = (
@@ -187,7 +189,7 @@ sub TA_CMI_JSON_ParseHttpResponse {
       TA_CMI_JSON_extractReadings($hash, $keyValues, 'Outputs', 'Outputs') if ($queryParams =~ /O/);
 
       if ($queryParams =~ /D/) {
-        if ($canDevice eq 'UVR16x2') {
+        if ($canDevice eq 'UVR16x2' or $canDevice eq 'RSM610' ) {
           TA_CMI_JSON_extractReadings($hash, $keyValues, 'DL-Bus', 'DL-Bus');
         } else {
           Log3 $name, 0, "TA_CMI_JSON ($name) - Reading DL-Bus input is not supported on $canDevice";

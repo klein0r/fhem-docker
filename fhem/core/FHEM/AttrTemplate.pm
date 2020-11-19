@@ -1,6 +1,32 @@
 ##############################################
-# $Id: AttrTemplate.pm 20425 2019-10-30 08:33:31Z rudolfkoenig $
+# $Id: AttrTemplate.pm 22985 2020-10-18 09:04:19Z rudolfkoenig $
 package main;
+
+# Syntax of the AttrTemplate file:
+# - empty lines are ignored
+# - lines starting with # are comments (see also desc:)
+# - lines starting with the following keywords are special, all others are
+#   regular FHEM commands
+# - name:<name> name of the template, marks the end of the previous template.
+# - filter:<devspec2array-expression>, describing the list of devices this
+#   template is applicable for. Well be executed when the set function is
+#   executed.
+# - prereq:<cond>, where cond is a perl expression, or devspec2array returning
+#   exactly one device.  Evaluated at initialization(!).
+# - par:<name>:<comment>:<perl>. if there is an additional argument in the set,
+#   name in alle commands will be replaced with it. Else <perl> will be
+#   excuted: if returns a value, name in the commands will be replaced with it,
+#   else an error message/dialog will request the user to enter a value for
+#   name.
+#   For each name starting with RADIO_, a radio select button is offered. Such
+#   parameters must defined last.
+# - desc: additional text for the "set attrTemplate help ?". If missing, the
+#   last comment before name: will be used for this purpose.
+# - farewell:<text> to be shown after the commands are executed.
+# - order:<val> sort the templates for help purposes.
+# - option:<perl> if perl code return false, skip all commands until next
+#   option (or name:)
+
 
 my %templates;
 my $initialized;
@@ -96,6 +122,7 @@ AttrTemplate_Initialize()
   $initialized = 1;
   Log 2, "AttrTemplates: got $nr entries" if($nr);
   $FW_addJs = "" if(!defined($FW_addJs));
+  return if($FW_addJs =~ m/attrTemplateHelp/);
   $FW_addJs .= << 'JSEND';
   <script type="text/javascript">
     $(document).ready(function() {
@@ -129,6 +156,14 @@ AttrTemplate_Help($)
   my $ret = "";
   $ret = $templates{$n}{desc} if($templates{$n}{desc});
   $ret .= "<br><pre>".join("\n",@{$templates{$n}{cmds}})."</pre>";
+
+  if(AttrVal("global", "showInternalValues", undef)) {
+     my @atList = grep /set\s.*\sattrTemplate\s/,@{$templates{$n}{cmds}};
+     foreach my $at (@atList) {
+       next if($at !~ m/set\s.*\sattrTemplate\s(.*?) /);
+       $ret .= "<br><b>attrTemplate $1:</b><br>".AttrTemplate_Help($1);
+     }
+  }
   return $ret;
 }
 
@@ -184,17 +219,50 @@ AttrTemplate_Set($$@)
     return join("\n", @hlp);
   }
 
+  if($entry eq "checkPar") {
+    my @ret;
+    foreach $entry (sort keys %templates) {
+      my $h = $templates{$entry};
+      for my $k (@{$h->{pars}}) {
+        my ($parname, $comment, $perl_code) = split(";",$k,3);
+        nex if(!$perl_code);
+        $perl_code =~ s/(?<!\\)DEVICE/bla/g;
+        $perl_code =~ s/\\DEVICE/DEVICE/g;
+        $cmdFromAnalyze = $perl_code;
+        my $ret = eval $perl_code;
+        push @ret,"$entry:$parname:$@" if($@);
+      }
+    }
+    return "No errors found" if (!@ret);
+    return join("\n", @ret);
+  }
+
   my $h = $templates{$entry};
   return "Unknown template_entry_name $entry" if(!$h);
 
-  my (%repl, @mComm, @mList, $missing);
+  my (@na, %repl, @mComm, @mList, $missing);
+  for(my $i1=0; $i1<@a; $i1++) { # parse parname=value form the command line
+    my $fnd;
+    for my $k (@{$h->{pars}}) {
+      my ($parname, $comment, $perl_code) = split(";",$k,3);
+      if($a[$i1] =~ m/$parname=(.*)/) {
+        $repl{$parname} = $1;
+        return "Empty parameters are not allowed" if($1 eq "");
+        $fnd=1;
+        last;
+      }
+    }
+    push(@na,$a[$i1]) if(!$fnd);
+  }
+  @a = @na;
+
   for my $k (@{$h->{pars}}) {
     my ($parname, $comment, $perl_code) = split(";",$k,3);
 
-    if(@a) {
+    next if(defined($repl{$parname}));
+
+    if(@a) { # old-style, without prefix
       $repl{$parname} = $a[0];
-      push(@mList, $parname);
-      push(@mComm, "$parname: with the $comment");
       shift(@a);
       next;
     }
@@ -203,15 +271,16 @@ AttrTemplate_Set($$@)
       $perl_code =~ s/(?<!\\)DEVICE/$name/g;
       $perl_code =~ s/\\DEVICE/DEVICE/g;
       my $ret = eval $perl_code;
-      return "Error checking template regexp: $@" if($@);
+      return "ERROR executing perl-code $perl_code for param $parname: $@ "
+                if($@);
       if(defined($ret)) {
         $repl{$parname} = $ret;
         next;
       }
     }
 
-    push(@mList, $parname);
-    push(@mComm, "$parname: with the $comment");
+    push(@mList, "$parname=...");
+    push(@mComm, "$parname= with $comment");
     $missing = 1;
   }
 
@@ -219,19 +288,36 @@ AttrTemplate_Set($$@)
     if($hash->{CL} && $hash->{CL}{TYPE} eq "FHEMWEB") {
       return
       "<html>".
-         "<input size='60' type='text' spellcheck='false' ".
-                "value='set $name attrTemplate $entry @mList'>".
-         "<br><br>Replace<br>".join("<br>",@mComm).
+         "<input type='hidden' value='set $name attrTemplate $entry'>".
+         "<p>Specify the unknown parameters for $entry:</p>".
+         "<table class='block wide'><tr>".
+         join("</tr><tr>", map { 
+           my @t=split("= with ",$_,2);
+           "<td>$t[1]</td><td>" .($t[0] =~ m/^RADIO_/ ?
+             "<input type='radio' name='s' value='$t[0]'>":
+             "<input type='text' name='$t[0]' size='20'></td>")
+         } @mComm)."</tr></table>".
         '<script>
           setTimeout(function(){
-            // TODO: fix multiple dialog calls
+            $("#FW_okDialog input[type=radio]").first().prop("checked",true);
             $("#FW_okDialog").parent().find("button").css("display","block");
             $("#FW_okDialog").parent().find(".ui-dialog-buttonpane button")
             .unbind("click").click(function(){
-              var val = encodeURIComponent($("#FW_okDialog input").val());
-              FW_cmd(FW_root+"?cmd="+val+"&XHR=1", function(resp){
-                if(resp)
-                  return FW_okDialog("<pre>"+resp+"</pre>");
+              var cmd;
+              $("#FW_okDialog input").each(function(){
+                var t=$(this).attr("type");
+                if(t=="hidden") cmd = $(this).val();
+                if(t=="text")  cmd +=" "+$(this).attr("name")+"="+$(this).val();
+                if(t=="radio") cmd +=" "+$(this).val()+"="+
+                                          ($(this).prop("checked") ? 1:0);
+              });
+              FW_cmd(FW_root+"?cmd="+encodeURIComponent(cmd)+"&XHR=1",
+              function(resp){
+                if(resp) {
+                  if(!resp.match(/^<html>[\s\S]*<\/html>/))
+                    resp = "<pre>"+resp+"</pre>";
+                  return FW_okDialog(resp);
+                }
                 location.reload()
               });
               $("#FW_okDialog").remove();
@@ -240,16 +326,18 @@ AttrTemplate_Set($$@)
        </html>';
 
     } else {
-      return "Usage: set $name attrTemplate $entry @mList\nReplace\n".
-               join("\n", @mComm);
+      return "Usage: set $name attrTemplate $entry @mList\n".
+             "Replace the ... after\n".join("\n", @mComm);
 
     }
   }
 
   my $cmdlist = join("\n",@{$h->{cmds}});
   $repl{DEVICE} = $name;
-  map { $cmdlist =~ s/(?<!\\)$_/$repl{$_}/g; } keys %repl;
-  map { $cmdlist =~ s/\\$_/$_/g; } keys %repl;
+  Log3 $name, 5, "AttrTemplate replace ".
+                        join(",", map { "$_=>$repl{$_}" } sort keys %repl);
+  map { $cmdlist =~ s/(?<!\\)$_/$repl{$_}/g; } sort keys %repl;
+  map { $cmdlist =~ s/\\$_/$_/g; } sort keys %repl;
   my $cl = $hash->{CL};
   my $cmd = "";
   my @ret;
@@ -263,7 +351,7 @@ AttrTemplate_Set($$@)
       $cmd .= $_;
       if($cmd =~ m/^option:(.*)$/s) {
         my $optVal = $1;
-        if($optVal =~ m/^{.*}$/) {
+        if($optVal =~ m/^\s*{.*}\s*$/) {
           $option = (AnalyzePerlCommand(undef, $optVal) eq "1");
 
         } else {
@@ -272,8 +360,13 @@ AttrTemplate_Set($$@)
         }
 
       } elsif($option) {
+        $cmd =~ s/##.*//; #114109
+        Log3 $name, 5, "AttrTemplate exec $cmd";
         my $r = AnalyzeCommand($cl, $cmd);
         push(@ret, $r) if($r);
+
+      } else {
+        Log3 $name, 5, "AttrTemplate skip $cmd";
 
       }
       $cmd = "";

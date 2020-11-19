@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 99_Utils.pm 18920 2019-03-16 09:58:52Z rudolfkoenig $
+# $Id: 99_Utils.pm 22524 2020-08-02 14:34:02Z rudolfkoenig $
 package main;
 
 use strict;
@@ -16,13 +16,9 @@ time_str2num($)
 {
   my ($str) = @_;
   my @a;
-  if($str) {
-    @a = split("[T: -]", $str);
-    return mktime($a[5],$a[4],$a[3],$a[2],$a[1]-1,$a[0]-1900,0,0,-1);
-  } else {
-    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
-    return mktime($sec, $min, $hour, $mday, $mon, $year, 0, 0, -1);
-  }
+  return time() if(!$str);
+  @a = split("[T: -]", $str); # 31652, 110545, 
+  return mktime($a[5],$a[4],$a[3],$a[2],$a[1]-1,$a[0]-1900,0,0,-1);
 }
 
 sub
@@ -264,6 +260,49 @@ sortTopicNum(@)
   return @sorted;
 }
 
+sub
+Svn_GetFile($$;$)
+{
+  my ($from, $to, $finishFn) = @_;
+  require HttpUtils;
+  return "Missing argument from or to" if(!$from || !$to);
+  return "Forbidden characters in from/to"
+                  if($from =~ m/\.\./ || $to =~ m/\.\./ || $to =~ m,^/,);
+  HttpUtils_NonblockingGet({
+    url=>"https://svn.fhem.de/trac/browser/trunk/fhem/$from?format=txt",
+    callback=>sub($$$){ 
+      if($_[1]) {
+        Log 1, "ERROR Svn_GetFile $from: $_[1]";
+        return;
+      }
+      if(!open(FH,">$to")) {
+        Log 1, "ERROR Svn_GetFile $to: $!";
+        return;
+      }
+      print FH $_[2];
+      close(FH);
+      Log 1, "SVN download of $from to $to finished";
+      if($finishFn) {
+        eval { &$finishFn; };
+        Log 1, $@ if($@);
+      }
+    }});
+  return "Download started, check the FHEM-log";
+}
+
+sub
+WriteFile($$)
+{
+  my ($filename, $data) = @_;
+  return "Forbidden characters in filename"
+        if($filename =~ m/\.\./ || $filename =~ m,^/,);
+  if(!open(FH,">$filename")) {
+    Log 1, "ERROR WriteFile $filename: $!";
+    return;
+  }
+  print FH $data;
+  close(FH);
+}
 
 1;
 
@@ -356,6 +395,27 @@ sortTopicNum(@)
     <li><b>sortTopicNum("asc"|"desc",&lt;list of numbers&gt;)</b><br>
       sort an array of numbers like x.x.x<br>
       (Forum #98578)
+      </li></br>
+
+    <li><b>Svn_GetFile(from, to, [finishFn])</b><br>
+      Retrieve a file diretly from the fhem.de SVN server.<br>
+      If the third (optional) parameter is set, it must be a function, which is
+      executed after the file is saved.
+      Example:
+      <ul>
+        <code>{ Svn_GetFile("contrib/86_FS10.pm", "FHEM/86_FS10.pm") }</code>
+        <code>{ Svn_GetFile("contrib/86_FS10.pm", "FHEM/86_FS10.pm", sub(){CommandReload(undef, "86_FS10")}) }</code>
+      </ul>
+      </li></br>
+
+    <li><b>WriteFile(file, content)</b><br>
+      Write a file in/below the curent directory.
+      Example:
+      <ul>
+        attr m2d readingList map:.* { WriteFile("www/images/map.png",$EVENT);; {map=>"images/map.png"} }
+        attr m2d devStateIcon { '<img src="fhem/images/map.png" style="max-width:256;;max-height:256;;">' }
+
+      </ul>
       </li></br>
 
   </ul>

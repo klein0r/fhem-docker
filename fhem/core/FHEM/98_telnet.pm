@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_telnet.pm 17529 2018-10-14 12:57:06Z rudolfkoenig $
+# $Id: 98_telnet.pm 23035 2020-10-26 20:31:42Z rudolfkoenig $
 
 # Note: this is not really a telnet server, but a TCP server with slight telnet
 # features (disable echo on password)
@@ -258,8 +258,11 @@ telnet_Read($)
     } else {
       $hash->{showPrompt} = 1;                  # Empty return
       if(!$hash->{motdDisplayed}) {
-        my $motd = $attr{global}{motd};
-        push @ret, $motd if($motd && $motd ne "none");
+        my $motd = AttrVal("global", "motd", "");
+        my $gie = $defs{global}{init_errors};
+        if($motd ne "none" && ($motd || $gie)) {
+          push @ret, "$motd\n$gie";
+        }
         $hash->{motdDisplayed} = 1;
       }
     }
@@ -289,7 +292,7 @@ telnet_Output($$$)
 {
   my ($hash,$ret,$nonl) = @_;
 
-  if($ret) {
+  if($ret && defined($hash->{CD})) {
     $ret = utf8ToLatin1($ret) if( $hash->{encoding} eq "latin1" );
     if(!$nonl) {        # AsyncOutput stuff
       $ret = "\n$ret\n$hash->{prompt} " if( $hash->{showPrompt});
@@ -317,11 +320,14 @@ telnet_Attr(@)
   my $hash = $defs{$devName};
 
   if($type eq "set" && $attrName eq "SSL") {
-    TcpServer_SetSSL($hash);
-    if($hash->{CD}) {
-      my $ret = IO::Socket::SSL->start_SSL($hash->{CD});
-      Log3 $devName, 1, "$hash->{NAME} start_SSL: $ret" if($ret);
-    }
+    InternalTimer(1, sub($) { # Wait for sslCertPrefix
+      my ($hash) = @_;
+      TcpServer_SetSSL($hash);
+      if($hash->{CD}) {
+        my $ret = IO::Socket::SSL->start_SSL($hash->{CD});
+        Log3 $devName, 1, "$hash->{NAME} start_SSL: $ret" if($ret);
+      }
+    }, $hash, 0); # Wait for sslCertPrefix
   }
 
   if(($attrName eq "allowedCommands" ||

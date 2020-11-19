@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 92_FileLog.pm 20826 2019-12-25 19:06:07Z rudolfkoenig $
+# $Id: 92_FileLog.pm 23138 2020-11-11 20:43:14Z rudolfkoenig $
 package main;
 
 use strict;
@@ -38,6 +38,7 @@ FileLog_Initialize($)
   #$hash->{DeleteFn} = "FileLog_Delete";
   $hash->{NotifyFn} = "FileLog_Log";
   $hash->{AttrFn}   = "FileLog_Attr";
+  $hash->{LogFn}    = "FileLog_DirectLog";
   # logtype is used by the frontend
   no warnings 'qw';
   my @attrList = qw(
@@ -252,6 +253,25 @@ FileLog_Switch($)
   return 0;
 }
 
+sub
+FileLog_LogTailWork($$$$)
+{
+  my ($log, $ln, $tn, $written) = @_;
+  my $fh = $log->{FH};
+  if($fh) {
+    $fh->flush;
+    # Skip sync, it costs too much HD strain, esp. on SSD
+    # $fh->sync if !($^O eq 'MSWin32'); #not implemented in Windows
+  }
+  my $owr = ReadingsVal($ln, "linesInTheFile", 0);
+  my $eot = AttrVal($ln, "eventOnThreshold", 0);
+  if($eot && ($owr+$written) % $eot == 0) {
+    readingsSingleUpdate($log, "linesInTheFile", $owr+$written, 1);
+  } else {
+    setReadingsVal($log, "linesInTheFile", $owr+$written, $tn);
+  }
+}
+
 #####################################
 sub
 FileLog_Log($$)
@@ -322,21 +342,19 @@ FileLog_Log($$)
     }
   }
   return "" if(!$written);
-
-  if($fh) {
-    $fh->flush;
-    # Skip sync, it costs too much HD strain, esp. on SSD
-    # $fh->sync if !($^O eq 'MSWin32'); #not implemented in Windows
-  }
-  my $owr = ReadingsVal($ln, "linesInTheFile", 0);
-  my $eot = AttrVal($ln, "eventOnThreshold", 0);
-  if($eot && ($owr+$written) % $eot == 0) {
-    readingsSingleUpdate($log, "linesInTheFile", $owr+$written, 1);
-  } else {
-    setReadingsVal($log, "linesInTheFile", $owr+$written, $tn);
-  }
-
+  FileLog_LogTailWork($log, $ln, $tn, $written);
   return "";
+}
+
+#####################################
+sub
+FileLog_DirectLog($$)
+{
+  my ($log, $txt) = @_;
+  FileLog_Switch($log);
+  my $fh = $log->{FH};
+  print $fh $txt,"\n";
+  FileLog_LogTailWork($log, $log->{NAME}, TimeNow(), 1);
 }
 
 ###################################
@@ -418,7 +436,7 @@ FileLog_Set($@)
     if(!FileLog_Switch($hash)) { # No rename, reopen anyway
       my $fh = $hash->{FH};
       my $cn = $hash->{currentlogfile};
-      $fh->close();
+      $fh->close() if($fh);
       if($cmd eq "clear") {
         $fh = new IO::File(">$cn");
         setReadingsVal($hash, "linesInTheFile", 0, TimeNow());
@@ -959,7 +977,7 @@ RESCAN:
 
       }
 
-      next if(!defined($val) || $val !~ m/^-?[.\d]+$/o);
+      next if(!defined($val) || $val !~ m/^-?[.0-9]+(e[-+0-9]+)?$/i);
       if($val < $min[$i]) {
         $min[$i] = $val;
         $mind[$i] = $dte;
@@ -1145,7 +1163,7 @@ FileLog_seekTo($$$$$)
       last;
     }
     if($reformatFn) { no strict; $data = &$reformatFn($data); use strict; }
-    if($data !~ m/^\d\d\d\d-\d\d-\d\d_\d\d:\d\d:\d\d /o) {
+    if($data !~ m/^\d\d\d\d-\d\d-\d\d_\d\d:\d\d:\d\d[ .]/o) {
       $next = seekBackOneLine($fh, $fh->tell);
       next;
     }
@@ -1206,7 +1224,7 @@ FileLog_sampleDataFn($$$$$)
   my $colregs = join(",", sort keys %h);
   my $example = join("<br>", grep /.+/,map { $h{$_} } sort keys %h);
 
-  $colnums = join(",", 3..$colnums);
+  $colnums = join(",", 2..$colnums);
 
   my %tickh;
   FileLog_addTics($conf->{ytics}, \%tickh);

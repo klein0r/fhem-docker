@@ -1,9 +1,10 @@
 ##############################################
-# $Id: 98_autocreate.pm 20791 2019-12-20 17:30:57Z rudolfkoenig $
+# $Id: 98_autocreate.pm 23006 2020-10-22 19:40:17Z rudolfkoenig $
 package main;
 
 use strict;
 use warnings;
+use DevIo;
 sub resolveSymLink($);
 
 # Problems:
@@ -46,7 +47,8 @@ my %flogpar = (
   "USBWX_[0-8]"
       => { GPLOT => "temp4hum6:Temp/Hum,",  FILTER => "%NAME" },
   "USBWX_ks300"
-      => { GPLOT => "temp4hum6:Temp/Hum,temp4rain10:Temp/Rain,hum6wind8:Wind/Hum,",
+      => { GPLOT => 
+                "temp4hum6:Temp/Hum,temp4rain10:Temp/Rain,hum6wind8:Wind/Hum,",
            FILTER => "%NAME:T:.*" },
 
   # HomeMatic
@@ -135,6 +137,7 @@ autocreate_Notify($$)
       $it = "^$it\$" if($featurelevel > 5.8); # Forum #80775
 
       next if($it && $name =~ m/$it/i);
+      next if($it && "$type:$name" =~ m/$it/i);
 
       my $at = AttrVal($me, "autocreateThreshold", undef);
       LoadModule($type) if( !$at );
@@ -221,7 +224,13 @@ autocreate_Notify($$)
       }
 
       my ($cmd, $ret);
-      my $hash = $defs{$name};  # Called from createlog
+      my $hash = $defs{$name};  # Called (hopefully) from createlog
+
+      if($hash && $hash->{TYPE} ne $type) {
+        Log 1, "autocreate: refusing to create $type:$name, ".
+                "as $hash->{TYPE}:$name already exists";
+        return;
+      }
 
       ####################
       if(!$hash) {
@@ -566,8 +575,6 @@ CommandUsb($$)
     return "This command is not yet supported on windows";
   }
 
-  require "$attr{global}{modpath}/FHEM/DevIo.pm";
-
   Log3 undef, 1, "usb $n starting";
   ################
   # First try to flash unflashed CULs
@@ -811,11 +818,11 @@ autocreate_Attr(@)
         This is a regexp, to ignore certain devices, e.g. the neighbours FHT.
         You can specify more than one, with usual regexp syntax, e.g.<br>
         attr autocreate ignoreTypes (CUL_HOERMANN.*|FHT_1234|CUL_WS_7)<br>
-        The word "Types" is somehow misleading, as it actually checks the
-        generated device name.<br>
+        The word "Types" is somehow misleading, as it first checks the
+        generated device name, and then the type:name pair.<br>
         <b>Note</b>: starting with featurelevel 5.8 the regexp is automatically
-        extended with ^ and $, so that it must match the whole name (same
-        procedure as in notify and FileLog).
+        extended with ^ and $, so that it must match the whole name or
+        type:name (same procedure as in notify and FileLog).
         </li><br>
 
     <a name="autocreateThreshold"></a>
@@ -978,8 +985,8 @@ autocreate_Attr(@)
         mehr als ein Ger&auml;t &uuml;ber die normale Regexp-Syntax angegeben
         werden. Beispiel:<br>
         attr autocreate ignoreTypes (CUL_HOERMANN.*|FHT_1234|CUL_WS_7)<br>
-        Das Wort "Types" ist etwas irref&uuml;hrend, da der Ger&auml;tename
-        gepr&uuml;ft wird, und nicht der Typ.<br>
+        Das Wort "Types" ist etwas irref&uuml;hrend, da erst der Ger&auml;tename
+        gepr&uuml;ft wird, und dann der Konstrukt Typ:Ger&auml;tename.<br>
         <b>Achtung</b>: ab featurelevel 5.8 wird der Regexp automatisch mit
         ^ und $ erg&auml;nzt, muss also den kompletten Namen matchen (genau wie
         bei notify und FileLog).

@@ -1,6 +1,6 @@
 ################################################################################
 #
-# $Id: 66_EseraTemp.pm 20592 2019-11-25 20:56:33Z pizmus $
+# $Id: 66_EseraTemp.pm 21700 2020-04-16 10:14:43Z pizmus $
 #
 # 66_EseraTemp.pm 
 #
@@ -176,8 +176,12 @@ EseraTemp_Parse($$)
     }
     else
     {
-      my $nameOfReading = "temperature";
-      readingsSingleUpdate($rhash, $nameOfReading, $value / 100.0, 1);
+      Log3 $rname, 5, "EseraTemp ($rname) - parse, value ".$value." readingId ".$readingId;
+      if ($readingId == 0)
+      {      
+        my $nameOfReading = "temperature";
+        readingsSingleUpdate($rhash, $nameOfReading, $value / 100.0, 1);
+      }
     }
            
     my @list;

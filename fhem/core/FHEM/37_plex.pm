@@ -1,5 +1,5 @@
 
-# $Id: 37_plex.pm 18622 2019-02-17 17:09:38Z justme1968 $
+# $Id: 37_plex.pm 21698 2020-04-16 07:20:02Z justme1968 $
 
 #http://10.0.1.21:32400/music/:/transcode/generic.mp3?offset=0&format=mp3&audioCodec=libmp3lame&audioBitrate=320&audioSamples=44100&url=http%3A%2F%2F127.0.0.1%3A32400%2Flibrary%2Fparts%2F71116%2Ffile.mp3
 
@@ -1052,7 +1052,7 @@ plex_Set($$@)
       my $server = ReadingsVal($name,'server', undef);
       return 'no current server' if( !$server );
 
-      plex_sendApiCmd( $hash, "http://$ip:$entry->{port}/player/playback/stop?type=video", "playback" ) if( $cmd == 'watched' );
+      plex_sendApiCmd( $hash, "http://$ip:$entry->{port}/player/playback/stop?type=video", "playback" ) if( $cmd eq 'watched' );
 
       my $entry = plex_serverOf($hash, $server, 1);
       return "unknown server: $server" if( !$entry );

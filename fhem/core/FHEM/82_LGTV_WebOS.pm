@@ -2,7 +2,7 @@
 #
 # Developed with Kate
 #
-#  (c) 2017-2018 Copyright: Marko Oldenburg (leongaultier at gmail dot com)
+#  (c) 2017-2020 Copyright: Marko Oldenburg (leongaultier at gmail dot com)
 #  All rights reserved
 #
 #   Special thanks goes to comitters:
@@ -25,7 +25,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 82_LGTV_WebOS.pm 19994 2019-08-13 06:53:45Z CoolTux $
+# $Id: 82_LGTV_WebOS.pm 22008 2020-05-22 19:47:25Z CoolTux $
 #
 ###############################################################################
 
@@ -228,7 +228,10 @@ my %openApps = (
     'Notificationcenter' => 'com.webos.app.notificationcenter',
     'Plex'               => 'cdp-30',
     'SkyOnline'          => 'de.sky.skyonline',
-    'Smart-IPTV'         => 'com.1827622.109556'
+    'Smart-IPTV'         => 'com.1827622.109556',
+    'Spotify'            => 'spotify-beehive',
+    'DuplexIPTV'         => 'com.duplexiptv.app',
+    'Disney+'            => 'com.disney.disneyplus-prod',
 );
 
 my %openAppsPackageName = reverse %openApps;
@@ -2006,7 +2009,7 @@ sub LGTV_WebOS_WakeUp_Udp($@) {
   ],
   "release_status": "stable",
   "license": "GPL_2",
-  "version": "v3.2.1",
+  "version": "v3.2.4",
   "author": [
     "Marko Oldenburg <leongaultier@gmail.com>"
   ],

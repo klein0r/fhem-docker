@@ -19,7 +19,7 @@ function getClock() {
 
 jQuery(document).ready(function ($) {
 
-    var themeVersion = '2.14';
+    var themeVersion = '2.16';
 
     // attr WEB hiddenroom input -> Ansicht anpassen
     if ($('#hdr .maininput').length == 0) {
@@ -60,13 +60,10 @@ jQuery(document).ready(function ($) {
     }
 
     // Add version to logo
-    $('#logo').append(
-        $('<span class="theme-version">' + themeVersion + '</span>')
-    ).append(
-        $('<span id="clock"></span>')
-    );
+    $('#logo').append($('<span class="theme-version">' + themeVersion + '</span>'));
 
     // Add clock
+    $('#logo').append($('<span id="clock"></span>'));
     window.addEventListener('load', getClock, false);
 
 	// Clear spaces
@@ -84,17 +81,6 @@ jQuery(document).ready(function ($) {
     $('button.dist').wrapAll('<div class="icons"/>');
     $('button.dist').css({width: '50px', height: '50px', margin: '5px', padding: '0'});
     $('button.dist > *').css({maxWidth: '40px', maxHeight: '40px', display: 'block', margin: '0px auto'});
-
-    $('input[type=text][name=icon-filter]').keyup(function() {
-        var val = $(this).val().toLowerCase();
-        if (val.length === 0) {
-            jQuery('button.dist').show();
-        } else {
-            jQuery('button.dist').hide().filter(function() {
-                return $(this).attr('title').toLowerCase().indexOf(val) > -1;
-            }).show();
-        }
-    });
 
     // Links in der Navigation hinzufügen
     var navElement = jQuery('#menu .room').last().find('tbody');
@@ -123,7 +109,7 @@ jQuery(document).ready(function ($) {
 
     // hide elements by name
     if (document.URL.indexOf('showall') != -1) {
-        //don't hide anything
+        // don't hide anything
     } else {
         $('div.devType:contains("-hidden")').parent('td').hide();
     }
@@ -133,16 +119,48 @@ jQuery(document).ready(function ($) {
     var elHaToolbar = $('<div>').attr('id', 'haToolbar').hide();
     $('body').append(elHaToolbar);
 
+    $('#haToolbar').on('click', '.toHdr', function() {
+        $('input.maininput').val($(this).text()).change();
+    });
+
+    function addToToolbar(val) {
+        if (val.length > 0) {
+            elHaToolbar.empty();
+            jQuery.each(val, function(i, v) {
+                $('<span>').addClass('toHdr').text(v).appendTo(elHaToolbar);
+                $('<br>').appendTo(elHaToolbar);
+            });
+            elHaToolbar.show();
+        }
+    }
+
     $('table.internals .dname').click(function (e) {
         var deviceName = $(this).attr('data-name');
         var rowVal = $(this).text();
 
         if ($(this).html() == "TYPE") {
-            elHaToolbar.html(("GetType('" + deviceName + "');")).show();
+            addToToolbar(
+                [
+                    "GetType('" + deviceName + "');",
+                    "InternalVal('" + deviceName + "', '" + rowVal + "', '');",
+                    "[i:" + deviceName + ":TYPE]"
+                ]
+            );
         } else if ($(this).html() == "STATE") {
-            elHaToolbar.html("Value('" + deviceName + "');").show();
+            addToToolbar(
+                [
+                    "Value('" + deviceName + "');",
+                    "InternalVal('" + deviceName + "', '" + rowVal + "', '');",
+                    "[i:" + deviceName + ":STATE]"
+                ]
+            );
         } else {
-            elHaToolbar.html("InternalVal('" + deviceName + "', '" + rowVal + "', '');").show();
+            addToToolbar(
+                [
+                    "InternalVal('" + deviceName + "', '" + rowVal + "', '');",
+                    "[i:" + deviceName + ":" + rowVal + "]"
+                ]
+            );
         }
     });
 
@@ -150,20 +168,27 @@ jQuery(document).ready(function ($) {
         var deviceName = $(this).attr('data-name');
         var rowVal = $(this).text();
 
-        elHaToolbar
-            .html(
-                "ReadingsVal('" + deviceName + "', '" + rowVal + "', '');<br/>" +
-                "[" + deviceName + ":" + rowVal + "]<br/>" +
+        addToToolbar(
+            [
+                "ReadingsVal('" + deviceName + "', '" + rowVal + "', '');",
+                "[" + deviceName + ":" + rowVal + "]",
+                "[r:" + deviceName + ":" + rowVal + "]",
                 deviceName + ":" + rowVal + ":.*"
-            )
-            .show();
+            ]
+        );
     });
 
     $('table.attributes .dname').click(function (e) {
         var deviceName = $(this).attr('data-name');
         var rowVal = $(this).text();
 
-        elHaToolbar.html("AttrVal('" + deviceName + "', '" + rowVal + "', '');").show();
+        addToToolbar(
+            [
+                "AttrVal('" + deviceName + "', '" + rowVal + "', '');",
+                "[a:" + deviceName + ":" + rowVal + "]",
+                "global:ATTR." + deviceName + "." + rowVal + ".*"
+            ]
+        );
     });
 
     // Group attributes

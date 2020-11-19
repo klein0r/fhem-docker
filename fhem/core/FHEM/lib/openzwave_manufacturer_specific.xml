@@ -23,7 +23,9 @@
   <Manufacturer id="0022" name="A-1 Components"></Manufacturer>
   <Manufacturer id="0117" name="Abilia"></Manufacturer>
   <Manufacturer id="0400" name="Abode"></Manufacturer>
-  <Manufacturer id="0409" name="ABUS August Bremicker Sohne KG"></Manufacturer>
+  <Manufacturer id="0409" name="ABUS August Bremicker Sohne KG">
+    <Product config="abus/cfa3010.xml" id="0003" name="HomeTec Pro CFA3010" type="0005" forumNr="106068"/>
+  </Manufacturer>
   <Manufacturer id="0403" name="ABUS Security-Center GmbH Co. KG"></Manufacturer>
   <Manufacturer id="034A" name="AcroComm Corp"></Manufacturer>
   <Manufacturer id="0001" name="ACT">
@@ -647,9 +649,11 @@
     <Product config="fibaro/fgs223.xml" id="2000" name="FGS223 Double Relay" type="0203"/>
     <Product config="fibaro/fgs223.xml" id="3000" name="FGS223 Double Relay" type="0203"/>
     <Product config="fibaro/fgs223.xml" id="4000" name="FGS223 Double Relay" type="0203"/>
+    <Product config="fibaro/fgs224.xml" id="1000" name="FGS224 Double Smart Module" type="0204"/>
     <Product config="fibaro/fgr223.xml" id="1000" name="FGR223 Roller Shutter Controller 3" type="0303"/>
     <Product config="fibaro/fgwpe.xml" id="1000" name="FGWPE/F Wall Plug" type="0600"/>
     <Product config="fibaro/fgwpe.xml" id="1000" name="FGWPE/F Wall Plug" type="0200"/>
+    <Product config="fibaro/fgwoe.xml" id="1000" name="FGWOE/F Walli Outlet" type="1f01"/>
     <Product config="fibaro/fgwpfzw5.xml" id="1001" name="FGWPE/F Wall Plug Gen5" type="0602"/>
     <Product config="fibaro/fgwpfzw5.xml" id="1003" name="FGWPE/F Wall Plug Gen5" type="0602"/>
     <Product config="fibaro/fgms.xml" id="1001" name="FGMS001 Motion Sensor" type="0800"/>
@@ -692,6 +696,8 @@
     <Product config="fibaro/fgwds221.xml" id="1000" name="FGWDS221 Walli Double Switch" type="1B01"/>
     <Product config="fibaro/fgwd111.xml" id="1000" name="FGWD111 Walli Dimmer" type="1C01"/>
     <Product config="fibaro/fgwr111.xml" id="1000" name="FGWR111 Walli Roller Shutter" type="1d01"/>
+    <Product config="fibaro/fgrgbw442.xml" id="1000" name="FGRGBW-442" type="0902"/>
+    <Product config="fibaro/fgrgbw442.xml" id="2000" name="FGRGBW-442" type="0902"/>
   </Manufacturer>
   <Manufacturer id="0295" name="fifthplay nv"></Manufacturer>
   <Manufacturer id="0138" name="First Alert (BRK Brands Inc)">
@@ -1226,7 +1232,7 @@
     <Product config="philio/pan03.xml" id="000f" name="PAN03 Switch Module with meter 3 KW X1" type="0001"/>
     <Product config="philio/pan11.xml" id="0011" name="PAN11 Smart Energy Plug In Switch" type="0001"/>
     <Product config="philio/pan04.xml" id="0012" name="PAN04-1 Double Relay Switch 2x1.5kW with Power Measurement" type="0001"/>
-    <Product id="0013" name="PAN06-1 In Wall Dual Relay(1 Way) Switch Module" type="0001" forumNr="no-statistics"/>
+    <Product config="philio/pan06.xml" id="0013" name="PAN06-1 In Wall Dual Relay(1 Way) Switch Module" type="0001"/>
     <Product config="philio/pan08.xml" id="0015" name="PAN08-1 In Wall Roller Shutter Controller" type="0001"/>
     <Product config="philio/pan16.xml" id="0029" name="PAN16 Smart energy plug in switch" type="0001"/>
     <Product config="philio/psm02.xml" id="0002" name="PSM02-1 Slim Multi-Sensor" type="0002"/>
@@ -1475,6 +1481,7 @@
     <Product config="shenzen_neo/ls02ch.xml" id="108b" name="Wall Switch (2 channels)" type="0003"/>
     <Product config="shenzen_neo/ls01ch.xml" id="008c" name="Wall Switch (1 channel)" type="0003"/>
     <Product config="shenzen_neo/ls01ch.xml" id="108c" name="Wall Switch (1 channel)" type="0003"/>
+    <Product config="shenzen_neo/shutter.xml" id="102c" name="NEO Coolcam Roller Shutter" type="0200"/>
   </Manufacturer>
   <Manufacturer id="032C" name="Shenzhen Saykey Technology"></Manufacturer>
   <Manufacturer id="036C" name="Shenzhen Sen5 Technology"></Manufacturer>
@@ -1519,6 +1526,7 @@
     <Product config="steinel/rs-led-d2.xml" id="1a74" name="RS LED D2" type="0001"/>
     <Product config="steinel/xled-home-2.xml" id="1a73" name="XLED HOME 2" type="0001"/>
     <Product config="steinel/l810-led-ihf.xml" id="1a75" name="L810 LED iHF" type="0001"/>
+    <Product config="steinel/MotionSwitch.xml" id="19fb" name="MotionSwitch LED" type="0002" forumNr="111295"/>
   </Manufacturer>
   <Manufacturer id="0239" name="Stelpro">
     <Product config="stelpro/stzw402.xml" id="0001" name="STZW402+ Electronic Thermostat" type="0001"/>
@@ -1545,6 +1553,11 @@
   <Manufacturer id="0089" name="Team Precision PCL"></Manufacturer>
   <Manufacturer id="0240" name="Technicolor"></Manufacturer>
   <Manufacturer id="000A" name="Techniku"></Manufacturer>
+  <Manufacturer id="0299" name="TechniSat">
+    <Product config="technisat/03009499.xml" id="1a90" name="Single-Switch" type="0002"/>
+    <Product config="technisat/03009496.xml" id="1a93" name="Shutter" type="0005"/>
+    <Product config="technisat/03009497.xml" id="1a92" name="Dimmer" type="0004"/>
+  </Manufacturer>
   <Manufacturer id="012F" name="Tecom"></Manufacturer>
   <Manufacturer id="0012" name="Tell It Online">
     <Product config="icare/zw-66.xml" id="0001" name="Switchkeeper Plug-in Appliance Module" type="0001"/>

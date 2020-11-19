@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_SVG.pm 20859 2019-12-31 10:21:48Z rudolfkoenig $
+# $Id: 98_SVG.pm 22703 2020-08-31 16:21:08Z rudolfkoenig $
 package main;
 
 use strict;
@@ -53,6 +53,11 @@ my $SVG_hdr = 'version="1.1" xmlns="http://www.w3.org/2000/svg" '.
               'xmlns:xlink="http://www.w3.org/1999/xlink" '.
               'data-origin="FHEM"';
 
+my $isDE;
+my %monthNamesDE = (
+  Jan=>"Jan", Feb=>"Feb", Mar=>"Mrz", Apr=>"Apr", May=>"Mai", Jun=>"Jun",
+  Jul=>"Jul", Aug=>"Aug", Sep=>"Sep", Oct=>"Okt", Nov=>"Nov", Dec=>"Dez"
+);
 
 #####################################
 sub
@@ -109,7 +114,7 @@ SVG_Define($$)
   $hash->{LOGFILE}   = ($3 ? $3 : "CURRENT");
   $hash->{STATE} = "initialized";
   $hash->{LOGDEVICE} =~ s/^fileplot //; # Autocreate bug.
-  notifyRegexpChanged($hash, "global");
+  # notifyRegexpChanged($hash, "global"); # ??
 
   return undef;
 }
@@ -198,9 +203,15 @@ SVG_log10($)
 {
   my ($n) = @_;
 
-  return 0.0000000001 if( $n <= 0 );
+  $n = 0.0000000001 if($n <= 0);
+  return log($n)/log(10);
+}
 
-  return log(1+$n)/log(10);
+sub
+SVG_exp10($)
+{
+  my ($n) = @_;
+  return 10**$n;
 }
 
 
@@ -483,7 +494,8 @@ SVG_PEdit($$$$)
       $lw =~ s/.*stroke-width://g;
       $lw =~ s/"//g; 
     }
-    $o .= SVG_sel("width_$idx", "0.2,0.5,1,1.5,2,3,4,8,12,16,24",($lw ? $lw:1));
+    $o .= SVG_sel("width_$idx", "0.2,0.5,1,1.5,2,2.5,3,4,8,12,16,24",
+                        ($lw ? $lw:1));
     $o .= "</td></tr>";
     $output[$idx] = $o;
   }
@@ -761,7 +773,7 @@ SVG_readgplotfile($$$)
   {
     return "%$_[0]%" if(!$pr);
     my $v = $pr->{$_[0]};
-    return "%$_[0]%" if(!$v);
+    return "%$_[0]%" if(!defined($v));
     if($v =~ m/^{.*}$/) {
       $cmdFromAnalyze = $v;
       return eval $v;
@@ -889,8 +901,11 @@ SVG_substcfg($$$$$$)
 sub
 SVG_tspec(@)
 {
+  my $d=$_[3];
+  $d = 28 if($d==29 && $_[4]==1 && $_[5]%4);
+  $d = 30 if($d==31 && ($_[4] =~ /3|5|8|10/));
   return sprintf("%04d-%02d-%02d_%02d:%02d:%02d",
-                 $_[5]+1900,$_[4]+1,$_[3],$_[2],$_[1],$_[0]);
+                 $_[5]+1900,$_[4]+1,$d,$_[2],$_[1],$_[0]);
 }
 
 ##################
@@ -1014,8 +1029,7 @@ SVG_calcOffsets($$)
     }
     $l[4] += $off;
     $l[4] += 12, $l[5]-- if($l[4] < 0);
-    my @me = (31,28,31,30,31,30,31,31,30,31,30,31);
-    $me[1]++ if(($sy+1900)%4); # leap year. Ignore 1900 and 2100 :)
+    my @me = (31,29,31,30,31,30,31,31,30,31,30,31); # 29 is fixed in SVG_tspec
 
     if(SVG_Attr($FW_wname, $wl, "endPlotToday", undef)) {
       $sy = $ey = $l[5];
@@ -1023,7 +1037,6 @@ SVG_calcOffsets($$)
       $sm += 12, $sy-- if($sm < 0);
       $sd = $l[3]+1; $ed = $l[3];
       $sd=1, $sm=$em, $sy=$ey if($sd > $me[$sm]);
-      $ed = $me[$em] if($ed > $me[$em]);
 
     } else {
       $sy = $ey = $l[5];
@@ -1211,8 +1224,9 @@ SVG_getData($$$$$)
 
   foreach my $src (@{$srcDesc->{order}}) {
     my $s = $srcDesc->{src}{$src};
-    my $fname = ($defs{$d}{LOGDEVICE} && $src eq $defs{$d}{LOGDEVICE} ?
-                $defs{$d}{LOGFILE} : "CURRENT");
+    my $fname = ($defs{$d}{LOGDEVICE} && $src eq $defs{$d}{LOGDEVICE}) ||
+                ($defs{$src} && $defs{$src}{TYPE} eq "DbLog") ?
+                $defs{$d}{LOGFILE} : "CURRENT";
     my $cmd = "get $src $fname INT $f $t ".$s->{arg};
     FW_fC($cmd, 1);
     if($showData) {
@@ -1487,13 +1501,13 @@ SVG_render($$$$$$$$$$)
       $xmax= $data{"xmax$idx"} if($data{"xmax$idx"}> $xmax);
       $idx++;
     }
-    #main::Debug "xmin= $xmin   xmax=$xmax";
     $conf{xrange} = AnalyzeCommand(undef, $1) if($conf{xrange} =~ /^(\{.*\})$/);
     if($conf{xrange} =~ /\[(.*):(.*)\]/) {
       $xmin = $1 if($1 ne "");
       $xmax = $2 if($2 ne "");
     }
   }
+  my $xmul = ($xmax > $xmin) ? $w/($xmax-$xmin) : 0;
   $xtics = defined($conf{xtics}) ? $conf{xtics} : "";
 
   ######################
@@ -1501,10 +1515,10 @@ SVG_render($$$$$$$$$$)
   my ($fromsec, $tosec);
   $fromsec = SVG_time_to_sec($from) if($from ne "0"); # 0 is special
   $tosec   = SVG_time_to_sec($to)   if($to ne "9");   # 9 is special
-  my $tmul; 
+  my $tmul=0; 
   $tmul = $w/($tosec-$fromsec) if($tosec && $fromsec && $tosec != $fromsec);
 
-  my ($min, $max, $idx) = (99999999, -99999999, 0);
+  my ($min, $max, $idx) = (9e+30, -9e+30, 0);
   my (%hmin, %hmax, @hdx, @hdy);
   my ($dxp, $dyp) = (\(), \());
 
@@ -1529,7 +1543,7 @@ SVG_render($$$$$$$$$$)
           $hmin{$a} = $min if(!defined($hmin{$a}) || $hmin{$a} > $min);
           $hmax{$a} = $max if(!defined($hmax{$a}) || $hmax{$a} < $max);
         }
-        ($min, $max) = (99999999, -99999999);
+        ($min, $max) = (9e+30, -9e+30);
         $hdx[$idx] = $dxp; $hdy[$idx] = $dyp;
         ($dxp, $dyp) = (\(), \());
         $lIdx++;
@@ -1538,7 +1552,6 @@ SVG_render($$$$$$$$$$)
 
       } elsif( $l =~ /^;/ ) { #allow ;special lines
         if( $l =~ m/^;p (\S+)\s(\S+)/ ) {# point
-          my $xmul = $w/($xmax-$xmin) if($xmax-$xmin > 0 );
           my $x1;
           if( $conf{xrange} ) {
             $x1 = int(($1-$xmin)*$xmul);
@@ -1641,7 +1654,6 @@ SVG_render($$$$$$$$$$)
   my $initoffset = $tstep;
   if( $conf{xrange} ) { # user defined range
     if( !$xtics || $xtics ne "()" ) { # auto tics
-      my $xmul = $w/($xmax-$xmin);
       my ($step,$mi,$ma) = SVG_getSteps( $conf{xrange}, $xmin, $xmax );
       $step /= 5 if( $step > 50 );
       $step /= 2 if( $step > 10 );
@@ -1667,6 +1679,7 @@ SVG_render($$$$$$$$$$)
   # then the text and the grid
   $off1 = $x;
   $off2 = $y+$h+$th;
+  $isDE = (AttrVal("global", "language","EN") eq "DE");
   my $t = SVG_fmtTime($first_tag, $fromsec);
   SVG_pO "<text x=\"0\" y=\"$off2\" class=\"ylabel\">$t</text>"
         if(!$conf{xrange});
@@ -1678,7 +1691,6 @@ SVG_render($$$$$$$$$$)
   }
 
   if( $conf{xrange} ) { # user defined range
-    my $xmul = $w/($xmax-$xmin);
     if( $xtics ) { #user tics and grid
       my $tic = $xtics;
       $tic =~ s/^\((.*)\)$/$1/;   # Strip ()
@@ -1752,6 +1764,12 @@ SVG_render($$$$$$$$$$)
     $htics{$a} = defined($conf{$yt}) ? $conf{$yt} : "";
 
     #-- Round values, compute a nice step  
+    my $scale = $conf{"y".($idx ? $idx+1:"")."scale"};
+    $scale = "" if(!defined($scale));
+    if($scale eq "log") {
+      $hmax{$a} = SVG_log10($hmax{$a});
+      $hmin{$a} = SVG_log10($hmin{$a});
+    }
     ($hstep{$a}, $hmin{$a}, $hmax{$a}) =
         SVG_getSteps($conf{$yra},$hmin{$a},$hmax{$a});
 
@@ -1764,24 +1782,14 @@ SVG_render($$$$$$$$$$)
 
     next if(!defined($hmin{$a})); # Bogus case
 
-    #-- safeguarding against pathological data
-    if( !$hstep{$a} ){
-        $hmax{$a} = $hmin{$a}+1;
-        $hstep{$a} = 1;
-    }
+    my $axis = 1;
+    $axis = $1 if( $a =~ m/x\d+y(\d+)/ );
+    my $scale = $conf{"y".($axis==1?"":$axis)."scale"};
+    $scale = "" if(!defined($scale));
 
     #-- Draw the y-axis values and grid
     my $dh = $hmax{$a} - $hmin{$a};
     my $hmul = $dh>0 ? $h/$dh : $h;
-
-    my $axis = 1;
-    $axis = $1 if( $a =~ m/x\d+y(\d+)/ );
-
-    my $scale = "y".($axis)."scale"; $scale = "yscale" if( $axis == 1 );
-    my $log = ""; $log = $conf{$scale} if( $conf{$scale} );
-    my $f_log = (int($hmax{$a}) && $dh > 0) ? 
-                    ((SVG_log10($hmax{$a})-SVG_log10($hmin{$a})) / $dh) :
-                    1;
 
     # offsets
     my ($align,$display,$cll);
@@ -1819,23 +1827,18 @@ SVG_render($$$$$$$$$$)
     #-- tics handling
     my $tic = $htics{$a};
     #-- tics as in the config-file
-    if($tic && $tic !~ m/mirror/) {
+    if($tic) {
       $tic =~ s/^\((.*)\)$/$1/;   # Strip ()
-      for(my $decimal = 0;
-          $decimal <($log eq 'log'?SVG_log10($hmax{$a})-SVG_log10($hmin{$a}):1);
-          $decimal++) {
       foreach my $onetic (split(",", $tic)) {
+        last if($onetic eq "nomirror");
         $onetic =~ s/^ *(.*) *$/$1/;
         my ($tlabel, $tvalue) = split(" ", $onetic);
         $tlabel =~ s/^"(.*)"$/$1/;
         $tvalue = 0 if( !$tvalue );
-        $tvalue /= 10 ** $decimal;
         $tlabel = $tvalue if( !$tlabel );
+        $tvalue = SVG_log10($tvalue) if($scale eq "log");
 
         $off2 = int($y+($hmax{$a}-$tvalue)*$hmul);
-        $off2 = int($y+($hmax{$a}-
-                        (SVG_log10($tvalue)-SVG_log10($hmin{$a}))/$f_log)*$hmul)
-                if( $log eq 'log' );
         #-- tics
         SVG_pO "<polyline points=\"$off3,$off2 $off4,$off2\" $cll/>";
         #--grids
@@ -1852,22 +1855,11 @@ SVG_render($$$$$$$$$$)
         SVG_pO
           "<text x=\"$off1\" y=\"$off2\" class=\"ylabel\"$align>$tlabel</text>";
       }
-      }
+
     #-- tics automatically 
-    } elsif( $hstep{$a}>0 ) {            
-      for(my $decimal = 0;
-          $decimal <($log eq 'log'?SVG_log10($hmax{$a})-SVG_log10($hmin{$a}):1);
-          $decimal++) {
-      for(my $i = ($log eq 'log' ? 0 : $hmin{$a});
-             $i <= $hmax{$a}; $i += $hstep{$a}) {
-        my $i = $i / 10 ** $decimal;
-        if( $log eq 'log' ) {
-          next if( $i < $hmin{$a} );
-          $off2 = int($y + ($hmax{$a} -
-                    (SVG_log10($i) - SVG_log10($hmin{$a})) / $f_log) * $hmul);
-        } else {
-          $off2 = int($y+($hmax{$a}-$i)*$hmul);
-        }
+    } elsif( $hstep{$a}>0 ) {
+      for(my $i = $hmin{$a}; $i <= $hmax{$a}; $i += $hstep{$a}) {
+        $off2 = int($y+($hmax{$a}-$i)*$hmul);
         #-- tics
         SVG_pO "  <polyline points=\"$off3,$off2 $off4,$off2\" $cll/>";
         #--grids
@@ -1883,10 +1875,11 @@ SVG_render($$$$$$$$$$)
         $off2 += $th/4;
         #--  text   
         my $name = ($axis==1 ? "y":"y$axis")."sprintf"; # Forum #88460
-        my $txt = sprintf($conf{$name} ? $conf{$name} : "%g", $i);
+        my $txt = sprintf($conf{$name} ? $conf{$name} : 
+                          ($scale eq "log" ? "%0.0e" : "%g"),
+                          ($scale eq "log" ? SVG_exp10($i) : $i));
         SVG_pO
           "<text x=\"$off1\" y=\"$off2\" class=\"ylabel\"$align>$txt</text>";
-      }
       }
     }
     SVG_pO "</g>";
@@ -1903,24 +1896,21 @@ SVG_render($$$$$$$$$$)
     next if(!defined($a));
 
     my $axis = 1; $axis = $1 if( $a =~ m/x\d+y(\d+)/ );
-    my $scale = "y".($axis)."scale"; $scale = "yscale" if( $axis == 1 );
-    my $log = ""; $log = $conf{$scale} if( $conf{$scale} );
+    my $scale = $conf{"y".($axis==1?"":$axis)."scale"};
+    $scale = "" if(!defined($scale));
 
     $min = $hmin{$a};
     $hmax{$a} += 1 if($min == $hmax{$a});  # Else division by 0 in the next line
-    my $xmul;
-    $xmul = $w/($xmax-$xmin) if( $conf{xrange} );
     my $hmul = $h/($hmax{$a}-$min);
+    my $hfill = $hmul*$hmax{$a}; # Fill only to the 0-line, #108858
     my $ret = "";
     my ($dxp, $dyp) = ($hdx[$idx], $hdy[$idx]);
     SVG_pO "<!-- Warning: No data item $idx defined -->" if(!defined($dxp));
     next if(!defined($dxp));
 
-    my $f_log = int($hmax{$a}) ? ((SVG_log10($hmax{$a}) -
-                        SVG_log10($hmin{$a})) / ($hmax{$a}-$hmin{$a})) : 1;
-    if( $log eq 'log' ) {
-      foreach my $i (1..int(@{$dxp})-1) {
-        $dyp->[$i] = (SVG_log10($dyp->[$i])-SVG_log10($hmin{$a})) / $f_log;
+    if($scale eq 'log') {
+      foreach my $i (0..int(@{$dyp})-1) {
+        $dyp->[$i] = SVG_log10($dyp->[$i]);
       }
     }
 
@@ -1936,7 +1926,7 @@ SVG_render($$$$$$$$$$)
           ($conf{xrange}?"x_off=\"$xmin\" ":"x_off=\"$fromsec\" ").
           ($conf{xrange}?"x_mul=\"$xmul\" ":"t_mul=\"$tmul\" ").
           "y_h=\"$yh\" y_min=\"$min\" y_mul=\"$hmul\" title=\"$tl\" ".
-          ($log eq 'log'?"log_scale=\"$f_log\" ":"").
+          "scale=\"$scale\" ".
           "onclick=\"parent.svg_click(evt)\"";
     my $lStyle = $conf{lStyle}[$idx];
     my $isFill = ($conf{lStyle}[$idx] =~ m/fill/);
@@ -1950,7 +1940,7 @@ SVG_render($$$$$$$$$$)
         my ($x1, $y1) = (int($x+$dxp->[$i]),
                          int($y+$h-($dyp->[$i]-$min)*$hmul));
         next if($x1 == $lx && $y1 == $ly);
-        $ly = $x1; $ly = $y1;
+        $lx = $x1; $ly = $y1;
         $ret =  sprintf(" %d,%d %d,%d %d,%d %d,%d %d,%d",
               $x1-3,$y1, $x1,$y1-3, $x1+3,$y1, $x1,$y1+3, $x1-3,$y1);
         SVG_pO "<polyline $attributes $lStyle points=\"$ret\"/>";
@@ -1958,7 +1948,7 @@ SVG_render($$$$$$$$$$)
 
     } elsif($lType eq "steps" || $lType eq "fsteps" ) {
 
-      $ret .=  sprintf(" %d,%d", $x+$dxp->[0], $y+$h) if($isFill && @{$dxp});
+      $ret .=  sprintf(" %d,%d", $x+$dxp->[0],$y+$hfill) if($isFill && @{$dxp});
       if(@{$dxp} == 1) {
           my $y1 = $y+$h-($dyp->[0]-$min)*$hmul;
           $ret .=  sprintf(" %d,%d %d,%d %d,%d %d,%d",
@@ -1985,12 +1975,12 @@ SVG_render($$$$$$$$$$)
           }
         }
       }
-      $ret .=  sprintf(" %d,%d", $lx, $y+$h) if($isFill && $lx > -1);
+      $ret .=  sprintf(" %d,%d", $lx, $y+$hfill) if($isFill && $lx > -1);
 
       SVG_pO "<polyline $attributes $lStyle points=\"$ret\"/>";
 
     } elsif($lType eq "histeps" ) {
-      $ret .=  sprintf(" %d,%d", $x+$dxp->[0], $y+$h) if($isFill && @{$dxp});
+      $ret .=  sprintf(" %d,%d", $x+$dxp->[0],$y+$hfill) if($isFill && @{$dxp});
       if(@{$dxp} == 1) {
           my $y1 = $y+$h-($dyp->[0]-$min)*$hmul;
           $ret .=  sprintf(" %d,%d %d,%d %d,%d %d,%d",
@@ -2005,7 +1995,7 @@ SVG_render($$$$$$$$$$)
              $x1,$y1, ($x1+$x2)/2,$y1, ($x1+$x2)/2,$y2, $x2,$y2);
         }
       }
-      $ret .=  sprintf(" %d,%d", $lx, $y+$h) if($isFill && $lx > -1);
+      $ret .=  sprintf(" %d,%d", $lx, $y+$hfill) if($isFill && $lx > -1);
       SVG_pO "<polyline $attributes $lStyle points=\"$ret\"/>";
 
     } elsif( $lType eq "bars" ) {
@@ -2140,7 +2130,7 @@ SVG_render($$$$$$$$$$)
 
         if($i == 0) {
           if($doClose) {
-            $ret .= sprintf("M %d,%d L %d,%d $lt", $x1,$y+$h, $x1,$y1);
+            $ret .= sprintf("M %d,%d L %d,%d $lt", $x1,$y+$hfill, $x1,$y1);
           } else {
             $ret .= sprintf("M %d,%d $lt", $x1,$y1);
           }
@@ -2167,7 +2157,7 @@ SVG_render($$$$$$$$$$)
   
       #-- insert last point for filled line
       $ret .= sprintf(" %.1f,%.1f", $x1, $y1) if(($lt eq "T") && defined($x1));
-      $ret .= sprintf(" L %d,%d Z", $x1, $y+$h) if($doClose && defined($x1));
+      $ret .= sprintf(" L %d,%d Z", $x1,$y+$hfill) if($doClose && defined($x1));
 
       if($ret =~ m/^ (\d+),(\d+)/) { # just points, no M/L
         $ret = sprintf("M %d,%d $lt ", $1, $2).$ret;
@@ -2366,7 +2356,7 @@ SVG_fmtTime($$)
   $fmt = "" if(!defined($fmt));
   for my $f (split(" ", $fmt)) {
     $ret .= $sep if($ret);
-    $ret .= $tarr[$f];
+    $ret .= ($isDE && $f==1) ? $monthNamesDE{$tarr[$f]} : $tarr[$f];
   }
   return $ret;
 }
@@ -2436,7 +2426,6 @@ plotAsPng(@)
       last;
     }
   }
-  #Debug "FW_wname= $FW_wname, plotName= $plotName[0]";
 
   $FW_RET                 = undef;
   $FW_webArgs{dev}        = $plotName[0];
@@ -2447,9 +2436,6 @@ plotAsPng(@)
   $FW_pos{off}            = $plotName[2] if $plotName[2];
 
   ($mimetype, $svgdata)   = SVG_showLog("unused");
-
-  #Debug "MIME type= $mimetype";
-  #Debug "SVG= $svgdata";
 
   my ($w, $h) = split(",", AttrVal($plotName[0],"plotsize","800,160"));
   $svgdata =~ s/<\/svg>/<polyline opacity="0" points="0,0 $w,$h"\/><\/svg>/;

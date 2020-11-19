@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 32_WifiLight.pm 15907 2018-01-16 20:58:44Z herrmannj $
+# $Id: 32_WifiLight.pm 21721 2020-04-19 15:35:49Z rudolfkoenig $
 
 # TODO
 
@@ -3972,7 +3972,6 @@ WifiLight_LowLevelCmdQueue_Send(@)
   <p>The module controls a large number of different "no name" LED types and provide a consistent interface.</p>
   <p>Following types will be supported:</p> 
 
-  <!-- <table rules="all" cellpadding="6" style="border:solid 1px;"> -->
   <table>
 	  <thead align="left">
 		  <tr>
@@ -4617,7 +4616,6 @@ WifiLight_LowLevelCmdQueue_Send(@)
   <p>Das Modul steuert eine gro&szlig;e Anzahl unterschiedlicher &quot;no name&quot; LED Typen und stellt Ihnen einheitliches Interface zur Verf&uuml;gung.</p>
   <p>Folgende Typen werden unterstützt:</p> 
 
-  <!-- <table rules="all" cellpadding="6" style="border:solid 1px;"> -->
   <table>
 	  <thead align="left">
 		  <tr>

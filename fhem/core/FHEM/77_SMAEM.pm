@@ -1,9 +1,9 @@
 ################################################################################################
-# $Id: 77_SMAEM.pm 20768 2019-12-16 22:01:29Z DS_Starter $
+# $Id: 77_SMAEM.pm 21706 2020-04-16 20:38:04Z DS_Starter $
 #
 #  Copyright notice
 #
-#  (c) 2016-2019 Copyright: Volker Kettenbach
+#  (c) 2016-2020 Copyright: Volker Kettenbach
 #  e-mail: volker at kettenbach minus it dot de
 #
 #  Credits: 
@@ -29,13 +29,16 @@ package main;
 
 use strict;
 use warnings;
-use bignum;
 use IO::Socket::Multicast;
+eval "use IO::Interface;1" or my $IOInterfaceAbsent = 1;
 use Blocking;
 eval "use FHEM::Meta;1" or my $modMetaAbsent = 1;
 
 # Versions History by DS_Starter 
 our %SMAEM_vNotesIntern = (
+  "4.2.0" => "14.04.2020  delete 'use bignum' ",
+  "4.1.0" => "17.03.2020  add define option <interface> ",
+  "4.0.1" => "10.02.2020  fix perl warning Forum: https://forum.fhem.de/index.php/topic,51569.msg1021988.html#msg1021988",
   "4.0.0" => "16.12.2019  change module to OBIS metric resolution, change Readings Lx_THD to Lx_Strom, FirmwareVersion to SoftwareVersion ".
                           "new attribute \"noCoprocess\", many internal code changes ",
   "3.5.0" => "14.12.2019  support of SMA Homemanager 2.0 >= 2.03.4.R, attribute \"serialNumber\", ".
@@ -166,6 +169,9 @@ sub SMAEM_Define ($$) {
   my ($success, $gridin_sum, $gridout_sum);
   my $socket;
   
+  my @a  = split("[ \t][ \t]*", $def);
+  my $if = $a[2] ? $a[2] : "";
+  
   $hash->{INTERVAL}              = 60;
   $hash->{HELPER}{FAULTEDCYCLES} = 0;
   $hash->{HELPER}{STARTTIME}     = time();
@@ -185,7 +191,15 @@ sub SMAEM_Define ($$) {
   
   Log3 $hash, 3, "SMAEM $name - Multicast socket opened";
   
-  $socket->mcast_add('239.12.255.254');
+  if($a[2]) {
+      eval { $socket->mcast_add('239.12.255.254',$if); };
+	  if ($@) {
+          return "Socket error in define ('239.12.255.254',$if): $@";         
+      }
+  } else {
+      $socket->mcast_add('239.12.255.254');
+  }
+  
 
   $hash->{TCPDev} = $socket;
   $hash->{FD}     = $socket->fileno();
@@ -193,6 +207,8 @@ sub SMAEM_Define ($$) {
   $selectlist{"$name"} = $hash;
   
   $hash->{HELPER}{MODMETAABSENT} = 1 if($modMetaAbsent);                         # Modul Meta.pm nicht vorhanden
+  
+  Log3($name, 3, "$name - The perl module \"IO::Interface\" is missing. You should install it.") if($IOInterfaceAbsent);
   
   # Versionsinformationen setzen
   SMAEM_setVersionInfo($hash);
@@ -470,6 +486,7 @@ sub SMAEM_DoParse ($) {
     my $length;
     my ($b,$c,$d,$e);                                                        # OBIS Klassen
     
+    no warnings qw(overflow portable);
     while (substr($hex,$i,8) ne "00000000" && $i<=($dl*2)) {
         $b = hex(substr($hex,$i,2));
         $c = hex(substr($hex,$i+2,2));
@@ -485,6 +502,7 @@ sub SMAEM_DoParse ($) {
         $obis->{"1:".$c.".".$d.".".$e} = hex(substr($hex,$i+8,$length));
         $i = $i + 8 + $length;
     }
+    use warnings;
     
     Log3 ($name, 5, "SMAEM $name - OBIS metrics identified:");
     my @ui;                                                                  # Array für "unknown items"
@@ -622,7 +640,7 @@ sub SMAEM_DoParse ($) {
     my $cosphi = $obis->{"1:13.4.0"}/1000;
 	push(@row_array, $ps."CosPhi ".sprintf("%.3f",$cosphi)."\n");
     
-    my $grid_freq = $obis->{"1:14.4.0"}/1000;
+    my $grid_freq = $obis->{"1:14.4.0"}/1000          if($obis->{"1:14.4.0"});
     push(@row_array, $ps."GridFreq ".$grid_freq."\n") if($grid_freq);
     
     push(@row_array, $ps."SoftwareVersion ".$obis->{"144:0.0.0"}."\n");
@@ -1050,12 +1068,12 @@ sub SMAEM_setVersionInfo($) {
   if($modules{$type}{META}{x_prereqs_src} && !$hash->{HELPER}{MODMETAABSENT}) {
 	  # META-Daten sind vorhanden
 	  $modules{$type}{META}{version} = "v".$v;              # Version aus META.json überschreiben, Anzeige mit {Dumper $modules{SMAPortal}{META}}
-	  if($modules{$type}{META}{x_version}) {                                                                             # {x_version} ( nur gesetzt wenn $Id: 77_SMAEM.pm 20768 2019-12-16 22:01:29Z DS_Starter $ im Kopf komplett! vorhanden )
+	  if($modules{$type}{META}{x_version}) {                                                                             # {x_version} ( nur gesetzt wenn $Id: 77_SMAEM.pm 21706 2020-04-16 20:38:04Z DS_Starter $ im Kopf komplett! vorhanden )
 		  $modules{$type}{META}{x_version} =~ s/1.1.1/$v/g;
 	  } else {
 		  $modules{$type}{META}{x_version} = $v; 
 	  }
-	  return $@ unless (FHEM::Meta::SetInternals($hash));                                                                # FVERSION wird gesetzt ( nur gesetzt wenn $Id: 77_SMAEM.pm 20768 2019-12-16 22:01:29Z DS_Starter $ im Kopf komplett! vorhanden )
+	  return $@ unless (FHEM::Meta::SetInternals($hash));                                                                # FVERSION wird gesetzt ( nur gesetzt wenn $Id: 77_SMAEM.pm 21706 2020-04-16 20:38:04Z DS_Starter $ im Kopf komplett! vorhanden )
 	  if(__PACKAGE__ eq "FHEM::$type" || __PACKAGE__ eq $type) {
 	      # es wird mit Packages gearbeitet -> Perl übliche Modulversion setzen
 		  # mit {<Modul>->VERSION()} im FHEMWEB kann Modulversion abgefragt werden
@@ -1084,9 +1102,10 @@ return;
 <a name="SMAEMdefine"></a>
   <b>Define</b>
   <ul>
-    <code>define &lt;name&gt; SMAEM </code><br>
+    <code>define &lt;name&gt; SMAEM [&lt;interface&gt;]</code><br>
     <br>
     Defines a SMA Energy Meter (SMAEM), a bidirectional energy meter/counter used in photovoltaics. 
+	The optional parameter <b>interface</b> defines a specific network interface to use, e.g. "eth0".
     <br><br>
     You need at least one SMAEM on your local subnet or behind a multicast enabled network of routers to receive multicast messages from the SMAEM over the
     multicast group 239.12.255.254 on udp/9522. Multicast messages are sent by SMAEM once a second (firmware 1.02.04.R, March 2016).
@@ -1109,8 +1128,8 @@ return;
 <b>Set </b>
 <ul>
   <li><b>reset</b> <br>
-  The automatically generated file "cacheSMAEM" will be deleted. Then the file will be recreated again by the module.
-  This function is used to reset the device in possible case of error condition, but may be executed at all times.  
+  The automatically created file "cacheSMAEM" is deleted. The file is reinitialized by the module. 
+  This function is used to reset a possible error state of the device, but can also be executed at any time.  
   </li>
   <br>  
 </ul>
@@ -1193,9 +1212,10 @@ return;
 <a name="SMAEMdefine"></a>
   <b>Define</b>
   <ul>
-    <code>define &lt;name&gt; SMAEM </code><br>
+    <code>define &lt;name&gt; SMAEM [&lt;Interface&gt;]</code><br>
     <br>
-    Definiert ein SMA Energy Meter (SMAEM), einen bidirektionalen Stromzähler, der häufig in Photovolatikanlagen der Firma SMA zum Einsatz kommt. 
+    Definiert ein SMA Energy Meter (SMAEM), einen bidirektionalen Stromzähler, der häufig in Photovolatikanlagen der Firma SMA zum Einsatz kommt.
+    Der optionale Parameter <b>Interface</b> legt das zu benutzende Netzwerk-Interface fest, zum Beispiel "eth0". 
     <br><br>
     Sie brauchen mindest ein SMAEM in Ihrem lokalen Netzwerk oder hinter einen multicastfähigen Netz von Routern, um die Daten des SMAEM über die
     Multicastgruppe 239.12.255.254 auf udp/9522 zu empfangen. Die Multicastpakete werden vom SMAEM einmal pro Sekunde ausgesendet (firmware 1.02.04.R, März 2016).
@@ -1338,6 +1358,7 @@ return;
         "Blocking": 0      
       },
       "recommends": {
+	    "IO::Interface": 0,
         "FHEM::Meta": 0
       },
       "suggests": {

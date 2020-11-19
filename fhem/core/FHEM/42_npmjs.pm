@@ -1,4 +1,4 @@
-# $Id: 42_npmjs.pm 20855 2019-12-30 14:36:05Z loredo $
+# $Id: 42_npmjs.pm 20933 2020-01-10 12:27:41Z loredo $
 
 package main;
 use strict;
@@ -960,7 +960,6 @@ sub ExecuteNpmCommand($) {
       . '--json --silent --depth=0 2>/dev/null); '
       . '[ "$L1" != "" ] && [ "$L1" != "\n" ] && echo ", \"listed\": $L1"; '
       . 'L2=$('
-      . $sudo
       . $locale
       . ' npm outdated '
       . $global
@@ -1090,6 +1089,10 @@ sub NpmUninstall($) {
 
 sub NpmUpdate($) {
     my $cmd = shift;
+    eval {
+        umask 0022;
+        1;
+    };
     my $p   = `$cmd->{npmupdate}`;
     my $ret = RetrieveNpmOutput( $cmd, $p );
 
@@ -1098,6 +1101,10 @@ sub NpmUpdate($) {
 
 sub NpmInstall($) {
     my $cmd = shift;
+    eval {
+        umask 0022;
+        1;
+    };
     my $p   = `$cmd->{npminstall}`;
     my $ret = RetrieveNpmOutput( $cmd, $p );
 
@@ -1176,16 +1183,15 @@ sub RetrieveNpmOutput($$) {
                       . "were authorized to access remote host";
                     $h->{error}{detail} = "<pre>$o</pre>";
                 }
-                elsif ( $o =~ m/^sudo: /i ) {
+                elsif ( $o =~ m/(sudo: .+)/i ) {
                     $h->{error}{code} = "E403";
                     $h->{error}{summary} =
                       "Forbidden - " . "passwordless sudo permissions required";
                     $h->{error}{detail} =
-                        $o
+                        $1
                       . "<br /><br />"
                       . "You may add the following lines to /etc/sudoers.d/$runningUser:\n"
                       . "<pre>"
-                      . "  $runningUser ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm outdated *\n"
                       . "  $runningUser ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm update *\n"
                       . "  $runningUser ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm install *\n"
                       . "  $runningUser ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm uninstall *"
@@ -1678,14 +1684,12 @@ sub ToDay() {
   Global installations will be controlled by default and running update/install/uninstall require sudo permissions like this:<br>
   <br>
   <code>
-    fhem ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm outdated *<br>
     fhem ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm update *<br>
     fhem ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm install *<br>
     fhem ALL=(ALL) NOPASSWD:SETENV: /usr/bin/npm uninstall *
   </code><br>
   <br>
   This line may easily be added to a new file in /etc/sudoers.d/fhem and will automatically included to /etc/sudoers from there.<br>
-  Only checking for outdated packages does not require any privileged access at all!<br>
   <br>
   <br>
   <a name="npmjsdefine" id="npmjsdefine"></a><b>Define</b><br>
@@ -1782,7 +1786,6 @@ sub ToDay() {
   </code><br>
   <br>
   Diese Zeile kann einfach in einer neuen Datei unter /etc/sudoers.d/fhem hinzugef&uuml;gt werden und wird von dort automatisch in /etc/sudoers inkludiert.<br>
-  Um nur die zu aktualisierenden Pakete zu &uuml;berpr&uuml;fen wird &uuml;berhaupt kein priviligierter Zugriff ben&ouml;tigt!<br>
   <br>
   <br>
   <a name="npmjsdefine" id="npmjsdefine"></a><b>Define</b><br>
@@ -1820,13 +1823,13 @@ sub ToDay() {
   <br>
   <a name="npmjsset" id="npmjsset"></a><b>Set</b>
   <ul>
+    <li>statusRequest - Node.js Installationsstatus aktualisieren
+    </li>
     <li>outdated - Holt aktuelle Informationen &uuml;ber den Updatestatus
     </li>
     <li>update - F&uuml;hrt ein komplettes oder selektives Update aus (nutzt 'npm update' Kommando). FHEM relevante Pakete werden immer auf die neuste Major Version upgegraded (nutzt 'npm install' Kommando anstatt von 'npm update'). <a href="https://semver.org/">Semantische Versionierung</a> wird bei anderen Paketen weiterhin respektiert und es werden keine Major Upgrades durchgef&uuml;hrt.
     </li>
     <li>upgrade - F&uuml;hrt ein komplettes oder selektives Upgrade aus (nutzt 'npm install' Kommando). ACHTUNG! Jedes Paket wird auf die neuste und gr&ouml;&szlig;te Version upgegraded (nutzt 'npm install' Kommando anstatt von 'npm update'), ganz egal ob der Paket Maintainer eine Inkompatibilit&auml;t zwischen der aktuell installierten und der neusten Version definiert hat. Im Zweifel sollte besser stattdessen das Update set Kommando benutzt werden.
-    </li>
-    <li>install - installiert ein oder mehrere NPM Pakete
     </li>
     <li>install - Installiert ein oder mehrere NPM Pakete. Wenn Node.js nicht installiert ist, wird die erstmalige
         Installation von Node.js angeboten (nur für APT kompatible Linux Distributionen). Node.js kann weiterhin
@@ -1869,7 +1872,7 @@ sub ToDay() {
       "abstract": "Modul zur Bedienung der Node.js Installation und Updates"
     }
   },
-  "version": "v1.1.3",
+  "version": "v1.1.6",
   "release_status": "stable",
   "author": [
     "Julian Pawlowski <julian.pawlowski@gmail.com>"

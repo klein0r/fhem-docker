@@ -1,5 +1,5 @@
 #################################################################
-# $Id: 88_Timer.pm 20729 2019-12-13 15:58:26Z HomeAuto_User $
+# $Id: 88_Timer.pm 21514 2020-03-25 17:30:43Z HomeAuto_User $
 #
 # The module is a timer for executing actions with only one InternalTimer.
 # Github - FHEM Home Automation System
@@ -9,7 +9,7 @@
 # https://forum.fhem.de/index.php/board,20.0.html
 # https://forum.fhem.de/index.php/topic,103848.html | https://forum.fhem.de/index.php/topic,103986.0.html
 #
-# 2019 - HomeAuto_User & elektron-bbs
+# 2019 | 2020 - HomeAuto_User, elektron-bbs
 #################################################################
 # notes:
 # - module mit package umsetzen
@@ -267,7 +267,8 @@ sub Timer_Set($$$@) {
 
 		my $deleteTimer = "Timer_$cmd2"."_set:textField-long";
 		Timer_delFromUserattr($hash,$deleteTimer);
-		addStructChange("modify", $name, "attr $name userattr Timer_$cmd2");      # note with question mark
+		Timer_PawList($hash);                                                  # list, Probably associated with
+		addStructChange("modify", $name, "attr $name userattr Timer_$cmd2");   # note with question mark
 	}
 
 	return $setList if ( $a[0] eq "?");
@@ -281,6 +282,7 @@ sub Timer_Get($$$@) {
 	my $list = "loadTimers:no,yes";
 	my $cmd2 = $a[0];
 	my $Timer_cnt_name = -1;
+	my $room = AttrVal($name, "room", "Unsorted");
 
 	if ($cmd eq "loadTimers") {
 		if ($cmd2 eq "no") {
@@ -378,8 +380,10 @@ sub Timer_Get($$$@) {
 				CommandAttr($hash,"$name $attr_values_names[$i] $attr_values[$i]");
 			}
 
+			Timer_PawList($hash);                                    # list, Probably associated with
+
 			readingsSingleUpdate($hash, "state" , "Timers loaded", 1);
-			FW_directNotify("FILTER=(room=)?$name", "#FHEMWEB:WEB", "location.reload('true')", "");
+			FW_directNotify("FILTER=(room=$room|$name)", "#FHEMWEB:WEB", "location.reload('true')", "");
 			Timer_Check($hash);
 
 			return undef;
@@ -408,6 +412,7 @@ sub Timer_Attr() {
 
 		if ($attrName =~ /^Timer_\d{2}_set$/) {
 			my $err = perlSyntaxCheck($attrValue, ());   # check PERL Code
+			InternalTimer(gettimeofday()+0.1, "Timer_PawList", $hash);
 			return $err if($err);
 		}
 	}
@@ -424,6 +429,11 @@ sub Timer_Attr() {
 				return "Please execute again if you want to force the attribute to delete!" if ($cnt_attr_userattr == 1);
 				$cnt_attr_userattr = 0;
 			}
+		}
+		
+		if ($attrName =~ /^Timer_\d{2}_set$/) {
+			Log3 $name, 3, "$name: Attr | Attributes $attrName deleted";
+			InternalTimer(gettimeofday()+0.1, "Timer_PawList", $hash);
 		}
 	}
 }
@@ -711,6 +721,7 @@ sub FW_pushed_savebutton {
 	my $cnt_names = scalar(@selected_buttons);
 	my $devicefound = 0;                                    # to check device exists
 	my $reload = 0;
+	my $room = AttrVal($name, "room", "Unsorted");
 
 	my $timestamp = TimeNow();                              # Time now -> 2016-02-16 19:34:24
 	my @timestamp_values = split(/-|\s|:/ , $timestamp);    # Time now splitted
@@ -804,14 +815,16 @@ sub FW_pushed_savebutton {
 	readingsBulkUpdate($hash, "state" , $state, 1);
 	readingsEndUpdate($hash, 1);
 
+	Timer_PawList($hash);                                                          # list, Probably associated with
+
 	## popup user message (jump to javascript) ##
 	if ($popup != 0) {
-		FW_directNotify("FILTER=(room=)?$name", "#FHEMWEB:WEB", "show_popup(".$selected_buttons[0].")", "");
+		FW_directNotify("FILTER=(room=$room|$name)", "#FHEMWEB:WEB", "show_popup(".$selected_buttons[0].")", "");
 		$reload = 0 if ($reload != 0); # reset, need to right running
 	}
 
 	## refresh site, need for userattr & right view checkboxes ##
-	FW_directNotify("FILTER=(room=)?$name", "#FHEMWEB:WEB", "location.reload('true')", "") if ($reload != 0);
+	FW_directNotify("FILTER=(room=$room|$name)", "#FHEMWEB:WEB", "location.reload('true')", "") if ($reload != 0);
 
 	Timer_Check($hash) if ($selected_buttons[16] eq "1" && ReadingsVal($name, "internalTimer", "stop") eq "stop");
 
@@ -907,7 +920,8 @@ sub Timer_Check($) {
 				if ($set == 1) {
 					Log3 $name, 4, "$name: $d - set $values[6] $values[7] ($dayOfWeek, $values[0]-$values[1]-$values[2] $values[3]:$values[4]:$values[5])";
 					CommandSet($hash, $values[6]." ".$values[7]) if ($values[7] ne "DEF");
-					$state = "$d set $values[6] $values[7] accomplished";
+					# $state = "$d set $values[6] $values[7] accomplished";
+					readingsSingleUpdate($hash, "state" , "$d set $values[6] $values[7] accomplished", 1);
 					if ($values[7] eq "DEF") {
 						if (AttrVal($name, $d."_set", undef)) {
 							Log3 $name, 5, "$name: $d - exec at command: ".AttrVal($name, $d."_set", undef);
@@ -948,6 +962,51 @@ sub Timer_Check($) {
 	readingsBulkUpdate($hash, "internalTimer" , $intervall, 0) if($cnt_activ > 0);
 	readingsEndUpdate($hash, 1);
 }
+
+### list, Probably associated with ###
+sub Timer_PawList($) {
+	my ($hash) = @_;
+	my $name = $hash->{NAME};
+	my $associatedWith = "";
+
+	Log3 $name, 5, "$name: Timer_PawList is running";
+
+	foreach my $d (keys %{$hash->{READINGS}}) {
+		if ($d =~ /^Timer_(\d+)$/) {
+			my @values = split("," , ReadingsVal($name, $d, ""));
+			### clear value, "Probably associated with" ne DEF
+			if ($values[7] ne "DEF") {
+				if (not grep /$values[6]/, $associatedWith) {
+					$associatedWith = $associatedWith eq "" ? $values[6] : $associatedWith.",".$values[6];
+				}
+			### Self-administration test, "Probably associated with" for DEF
+			} elsif ($values[7] eq "DEF") {
+				my $Timer_set_attr = AttrVal($name, $d."_set", "");
+				if ($Timer_set_attr ne "") {
+					Log3 $name, 5, "$name: Timer_PawList | look at DEF: ".$Timer_set_attr;
+					$Timer_set_attr =~ /(get|set)\s(\w+)\s/;
+					if ($2) {
+						Log3 $name, 5, "$name: Timer_PawList | found in DEF: ".$2;
+						if (not grep /$2/, $associatedWith) {
+							$associatedWith = $associatedWith eq "" ? $2 : $associatedWith.",".$2;
+						}
+					}
+				}
+			}
+			### END ###
+		}
+	}
+
+	Log3 $name, 5, "$name: Timer_PawList | Reading .associatedWith is: ".$associatedWith;
+	if ($associatedWith ne "") {
+		CommandSetReading(undef, "$name .associatedWith $associatedWith");	
+	} else {
+		readingsDelete($hash,".associatedWith") if(ReadingsVal($name, ".associatedWith", undef));
+	}
+	## current list "Probably associated with" finish ##
+}
+
+##########################################
 
 # Eval-Rückgabewert für erfolgreiches
 # Laden des Moduls

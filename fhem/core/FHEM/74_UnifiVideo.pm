@@ -1,4 +1,4 @@
-# $Id: 74_UnifiVideo.pm 19679 2019-06-21 14:14:29Z justme1968 $
+# $Id: 74_UnifiVideo.pm 22856 2020-09-26 09:01:25Z justme1968 $
 
 package main;
 
@@ -31,6 +31,7 @@ UnifiVideo_Initialize($)
   $hash->{GetFn}    = "UnifiVideo_Get";
   $hash->{AttrFn}   = "UnifiVideo_Attr";
   $hash->{AttrList} = "disable filePath apiKey ".
+                      "logfile ".
                       "sshUser ".
                       $readingFnAttributes;
 
@@ -645,7 +646,7 @@ UnifiVideo_Attr($$$)
   <ul>
     <li>snapshot cam=&lt;cam&gt; width=&lt;width&gt; fileName=&lt;fileName&gt;<br>
       takes a snapshot from &lt;cam&gt; with optional &lt;width&gt; and stores it with the optional &lt;fileName&gt;<br>
-      &lt;cam&gt; can be the number of the cammera, its id or a regex that is matched against the name.
+      &lt;cam&gt; can be the number of the camera, its id or a regex that is matched against the name.
       </li>
     <li>reconnect<br>
       </li>

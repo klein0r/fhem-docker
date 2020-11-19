@@ -1,4 +1,4 @@
-# $Id: Meta.pm 20009 2019-08-17 11:06:17Z loredo $
+# $Id: Meta.pm 21008 2020-01-18 10:22:10Z loredo $
 
 package main;
 use strict;
@@ -3304,20 +3304,20 @@ sub __SetXVersion {
   "version": "v0.6.5",
   "release_status": "testing",
   "x_changelog": {
-    "2019-04-18": {
-      "version": "v0.6.0",
+    "v0.6.0": {
+      "date": "2019-04-18",
       "changes": [
         "improved JSON dependencies"
       ]
     },
-    "2019-04-16": {
-      "version": "v0.5.0",
+    "v0.5.0": {
+      "date": "2019-04-16",
       "changes": [
         "use Module::CoreList to identify Perl Core modules"
       ]
     },
-    "2019-04-12": {
-      "version": "v0.4.2",
+    "v0.4.2": {
+      "date": "2019-04-12",
       "release_notes": [
         ""
       ],

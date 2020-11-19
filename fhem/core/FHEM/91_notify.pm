@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 91_notify.pm 20827 2019-12-25 19:17:36Z rudolfkoenig $
+# $Id: 91_notify.pm 21427 2020-03-15 10:10:32Z rudolfkoenig $
 package main;
 
 use strict;
@@ -124,6 +124,7 @@ notify_Exec($$)
       $ntfy->{TRIGGERTIME} = $now;
       $ntfy->{STATE} =
         AttrVal($ln,'showtime',1) ? $dev->{NTFY_TRIGGERTIME} : 'active';
+      last if($dat);
     }
   }
   
@@ -746,6 +747,12 @@ END
   <ul>
     <li><a href="#disable">disable</a></li>
     <li><a href="#disabledForIntervals">disabledForIntervals</a></li>
+
+    <a name="disabledAfterTrigger"></a>
+    <li>disabledAfterTrigger &lt;sekunden&gt;<br>
+      deaktiviert die Ausf&uuml;hrung f&uuml;r &lt;sekunden&gt; nach dem
+      das notify ausgel&ouml;st wurde.
+    </li>
 
     <a name="addStateEvent"></a>
     <li>addStateEvent<br>

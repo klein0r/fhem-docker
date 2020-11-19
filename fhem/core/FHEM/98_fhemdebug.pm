@@ -1,9 +1,10 @@
 ##############################################
-# $Id: 98_fhemdebug.pm 20149 2019-09-11 13:05:10Z rudolfkoenig $
+# $Id: 98_fhemdebug.pm 21673 2020-04-14 13:19:24Z rudolfkoenig $
 package main;
 
 use strict;
 use warnings;
+use B qw(svref_2object);
 
 my $fhemdebug_enabled;
 my $main_callfn;
@@ -113,8 +114,13 @@ fhemdebug_timerList($)
 
   for my $h (@intAtA) {
     my $tt = $h->{TRIGGERTIME};
+    my $fnName = $h->{FN};
+    if(ref($fnName) ne "") {
+      my $cv = svref_2object($fnName);
+      $fnName = $cv->GV->NAME if($cv); # get function name
+    }
     push(@res, sprintf("%s.%05d %s%s",
-      FmtDateTime($tt), int(($tt-int($tt))*100000), $h->{FN},
+      FmtDateTime($tt), int(($tt-int($tt))*100000), $fnName,
       $h->{STACKTRACE} ? $h->{STACKTRACE} : ""));
   }
   return join("\n", @res);

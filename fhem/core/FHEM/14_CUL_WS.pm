@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 14_CUL_WS.pm 20008 2019-08-17 10:24:14Z rudolfkoenig $
+# $Id: 14_CUL_WS.pm 20918 2020-01-08 19:20:38Z rudolfkoenig $
 package main;
 
 use strict;
@@ -20,7 +20,7 @@ CUL_WS_Initialize($)
   # Message is like
   # K41350270
 
-  $hash->{Match}     = "^K.....";
+  $hash->{Match}     = "^K[A-Fa-f0-9]{5,}";
   $hash->{DefFn}     = "CUL_WS_Define";
   $hash->{UndefFn}   = "CUL_WS_Undef";
   $hash->{AttrFn}    = "CUL_WS_Attr";
@@ -60,7 +60,6 @@ CUL_WS_Define($$)
   $hash->{corr3} = ((int(@a) > 5) ? $a[5] : 0);
   $hash->{corr4} = ((int(@a) > 6) ? $a[6] : 0);
   $modules{CUL_WS}{defptr}{$a[2]} = $hash;
-  AssignIoPort($hash);
   return undef;
 }
 

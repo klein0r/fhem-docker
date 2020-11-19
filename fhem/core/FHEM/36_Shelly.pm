@@ -5,7 +5,7 @@
 #  FHEM module to communicate with Shelly switch/roller actor devices
 #  Prof. Dr. Peter A. Henning, 2018
 # 
-#  $Id: 36_Shelly.pm 20605 2019-11-27 15:46:54Z phenning $
+#  $Id: 36_Shelly.pm 21949 2020-05-16 04:35:35Z phenning $
 #
 ########################################################################################
 #
@@ -39,7 +39,7 @@ use vars qw{%attr %defs};
 sub Log($$);
 
 #-- globals on start
-my $version = "2.11";
+my $version = "2.13";
 
 #-- these we may get on request
 my %gets = (
@@ -709,6 +709,10 @@ sub Shelly_Set ($@) {
     
     if( $cmd eq "hsv" ){
       my($hue,$saturation,$value)=split(',',$value);
+      #-- rescale 
+      if( $hue>1 ){
+        $hue = $hue/360;
+      } 
       my ($red,$green,$blue)=Color::hsv2rgb($hue,$saturation,$value);
       $cmd=sprintf("red=%d&green=%d&blue=%d",int($red*255+0.5),int($green*255+0.5),int($blue*255+0.5));
       Shelly_dim($hash,"color/0","?".$cmd);
@@ -722,7 +726,7 @@ sub Shelly_Set ($@) {
       my $red=hex(substr($value,0,2));
       my $green=hex(substr($value,2,2));
       my $blue=hex(substr($value,4,2));
-      my $white=hex(substr($value,4,2));
+      my $white=hex(substr($value,6,2));
       $cmd=sprintf("red=%d&green=%d&blue=%d&white=%d",$red,$green,$blue,$white);
       Shelly_dim($hash,"color/0","?".$cmd);
     }elsif( $cmd eq "white" ){
@@ -1478,7 +1482,8 @@ sub Shelly_updown2($){
                 <br />switches device on or off for &lt;time&gt; seconds. </li> 
             <li>
                 <code>set &lt;name&gt; hsv &lt;hue value 0..360&gt;,&lt;saturation value 0..1&gt;,&lt;brightness value 0..1&gt; </code>
-                <br />comma separated list of hue, saturation and value to set the color</li>    
+                <br />comma separated list of hue, saturation and value to set the color. Note, that 360° is the same hue as 0° = red. 
+                Hue values smaller than 1 will be treated as fraction of the full circle, e.g. 0.5 will give the same hue as 180°.</li>    
             <li>
                 <code>set &lt;name&gt; rgb &lt;rrggbb&gt; </code>
                 <br />6-digit hex string to set the color</li>      

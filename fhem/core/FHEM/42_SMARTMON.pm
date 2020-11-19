@@ -23,7 +23,7 @@
 #
 ################################################################
 
-# $Id: 42_SMARTMON.pm 14440 2017-05-31 18:49:20Z hexenmeister $
+# $Id: 42_SMARTMON.pm 23025 2020-10-25 17:09:24Z hexenmeister $
 
 package main;
 
@@ -31,7 +31,7 @@ use strict;
 use warnings;
 use Data::Dumper;
 
-my $VERSION = "0.9.5";
+my $VERSION = "0.9.9";
 
 my $DEFAULT_INTERVAL = 60; # in minuten
 
@@ -57,7 +57,7 @@ sub SMARTMON_Initialize($)
   $hash->{GetFn}    = "SMARTMON_Get";
   #$hash->{SetFn}    = "SMARTMON_Set";
   $hash->{AttrFn}   = "SMARTMON_Attr";
-  $hash->{AttrList} = "show_raw:0,1,2 disable:0,1 include parameters ".$readingFnAttributes;
+  $hash->{AttrList} = "show_raw:0,1,2 disable:0,1 include parameters ssh_host show_device_info:0,1 ".$readingFnAttributes;
 }
 
 sub SMARTMON_Log($$$) {
@@ -205,6 +205,10 @@ sub SMARTMON_Attr($$$) {
         $hash->{PARAMETERS}=$attrVal;
       }
       
+      if($attrName eq "ssh_host") {
+        $hash->{SSHHOST}=$attrVal;
+      }
+      
       if($attrName eq "show_raw") {
         SMARTMON_refreshReadings($hash);  
       }
@@ -213,6 +217,10 @@ sub SMARTMON_Attr($$$) {
         SMARTMON_refreshReadings($hash);  
       }
       
+      if($attrName eq "show_device_info") {
+        SMARTMON_refreshReadings($hash);  
+      }
+
       #return $attrName ." set to ". $attrVal;
       return undef;
     }
@@ -224,13 +232,22 @@ sub SMARTMON_Attr($$$) {
       SMARTMON_refreshReadings($hash);  
     }
     
-    if($attrName eq "include") {
+    if($attrName eq "show_device_info") {
       delete $attr{$name}{$attrName};
       SMARTMON_refreshReadings($hash);  
     }
     
+    if($attrName eq "include") {
+      delete $attr{$name}{$attrName};
+      SMARTMON_refreshReadings($hash);  
+    }
+
     if($attrName eq "parameters") {
         delete $hash->{PARAMETERS};
+    }
+
+    if($attrName eq "ssh_host") {
+      delete $hash->{SSHHOST};
     }
   }
   
@@ -300,7 +317,7 @@ sub SMARTMON_obtainParameters($) {
 
   # /usr/sbin/smartctl in /etc/sudoers aufnehmen
   # fhem ALL=(ALL) NOPASSWD: [...,] /usr/sbin/smartctl 
-  # Natuerlich muss der user auch der Gruppe "sudo" angehˆren.
+  # Natuerlich muss der user auch der Gruppe "sudo" angeh√∂ren.
 
   # Health  
   my $param="";
@@ -389,22 +406,30 @@ sub SMARTMON_readDeviceData($%) {
   if($hash->{PARAMETERS}) {$param=" ".$hash->{PARAMETERS};}
   my ($r, @dev_data) = SMARTMON_execute($hash, "sudo smartctl -i".$param." ".$hash->{DEVICE});
   SMARTMON_Log($hash, 5, "device data: ".Dumper(@dev_data));
+  my $sd = AttrVal($hash->{NAME}, "show_device_info", "0");
   if(defined($dev_data[0])) {
     while(scalar(@dev_data)>0) {
       my $line = $dev_data[0];
       shift @dev_data;
       my($k,$v) = split(/:\s*/,$line);
-      if($k eq "Device Model") {
-        $hash->{DEVICE_MODEL}=$v;
-      }
-      if($k eq "Serial Number") {
-        $hash->{DEVICE_SERIAL}=$v;
-      }
-      if($k eq "Firmware Version") {
-        $hash->{DEVICE_FIRMARE}=$v;
-      }
-      if($k eq "User Capacity") {
-        $hash->{DEVICE_CAPACITY}=$v;
+      if(defined $v) {
+		  $v = trim($v);
+		  if($k eq "Device Model") {
+			$hash->{DEVICE_MODEL}=$v;
+			$map->{"deviceModel"}=$v if($sd eq '1');
+		  }
+		  if($k eq "Serial Number") {
+			$hash->{DEVICE_SERIAL}=$v;
+			$map->{"deviceSerial"}=$v if($sd eq '1');
+		  }
+		  if($k eq "Firmware Version") {
+			$hash->{DEVICE_FIRMWARE}=$v;
+			$map->{"deviceFirmware"}=$v if($sd eq '1');
+		  }
+		  if($k eq "User Capacity") {
+			$hash->{DEVICE_CAPACITY}=$v;
+			$map->{"deviceCapacity"}=$v if($sd eq '1');
+		  }
       }
     }
   }
@@ -568,6 +593,8 @@ sub SMARTMON_execute($$) {
   SMARTMON_Log($hash, 5, "Execute: $cmd");
   
   local $SIG{'CHLD'}='DEFAULT';
+  if($hash->{SSHHOST}) {$cmd="ssh ".$hash->{SSHHOST}." \"$cmd\"";}
+  SMARTMON_Log($hash, 5, "cmd: ".$cmd);
   my @ret = qx($cmd);
   my $rcode = $?>>8;
   SMARTMON_Log($hash, 5, "Returncode: ".$rcode);
@@ -579,7 +606,7 @@ sub SMARTMON_execute($$) {
 =pod
 =item device
 =item summary    provides some statistics about the S.M.A.R.T. capable drive
-=item summary_DE liefert einige Statistiken ueber S.M.A.R.T. kompatible Ger‰te
+=item summary_DE liefert einige Statistiken ueber S.M.A.R.T. kompatible Ger&auml;te
 =begin html
 
 <!-- ================================ -->
@@ -654,6 +681,10 @@ sub SMARTMON_execute($$) {
     Valid values: 0: no RAW Readings (default), 1: show all, are not included in interpreted Readings, 2: show all.
     </li>
     <br>
+    <li>show_device_info<br>
+    Valid values: 0: no device info as reading, 1: show show device info as readings.
+    </li>
+    <br>
     <li>include<br>
     Comma separated list of IDs for desired SMART parameters. If nothing passed, all available values are displayed.
     </li>
@@ -667,7 +698,11 @@ sub SMARTMON_execute($$) {
     </li>
     <br>
     </ul><br>
-    For more information see cmartctrl documentation.
+    <li>ssh_host<br>
+		remote machine adresse. If defined, smartctrl is executed via SSH.
+    </li>
+    <br>
+    For more information see smartctrl documentation.
   </ul>
 <!-- ================================ -->
 
@@ -746,6 +781,10 @@ sub SMARTMON_execute($$) {
     G&uuml;ltige Werte: 0: keine RAW-Readings anzeigen (default), 1: alle anzeigen, die nicht in interpretierten Readings enthalten sind, 2: alle anzeigen.
     </li>
     <br>
+    <li>show_device_info<br>
+    G&uuml;ltige Werte: 0: keine Ger&auml;teinforamtionen in readings, 1: Ger&auml;teinformationen in readings anzeigen.
+    </li>
+    <br>
     <li>include<br>
     Kommaseparierte Liste der IDs gew&uuml;nschten SMART-Parameter. Wenn nichts angegeben, werden alle verf&uuml;gbaren angezeigt.
     </li>
@@ -759,7 +798,11 @@ sub SMARTMON_execute($$) {
     </li>
     <br>
     </ul><br>
-    F&uuml;r weitere Informationen wird die cmartctrl-Dokumentation empfohlen.
+    <li>ssh_host<br>
+		Adresse einer entferten Maschine. Falls definiert, wird smartctrl dort per SSH ausgef√ºhrt.
+    </li>
+    <br>
+    F&uuml;r weitere Informationen wird die smartctrl-Dokumentation empfohlen.
 
   </ul>
 

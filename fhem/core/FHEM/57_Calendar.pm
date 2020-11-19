@@ -1,4 +1,4 @@
-# $Id: 57_Calendar.pm 20528 2019-11-17 16:07:12Z neubert $
+# $Id: 57_Calendar.pm 21910 2020-05-10 12:22:05Z neubert $
 ##############################################################################
 #
 #     57_Calendar.pm
@@ -1084,9 +1084,10 @@ sub createEvent($) {
 # 20120520T185202Z: date/time string in ISO8601 format, time zone GMT
 # 20121129T222200: date/time string in ISO8601 format, time zone local
 # 20120520:         a date string has no time zone associated
-sub tm($$) {
-  my ($self, $t)= @_;
+sub tm($$;$) {
+  my ($self, $t, $eod)= @_;
   return undef if(!$t);
+  $eod= 0 unless defined($eod);
   ##main::Debug "convert >$t<";
   my ($year,$month,$day)= (substr($t,0,4), substr($t,4,2),substr($t,6,2));
   if(length($t)>8) {
@@ -1101,8 +1102,27 @@ sub tm($$) {
       }
   } else {
       ##main::Debug "$day.$month.$year";
-      return main::fhemTimeLocal(0,0,0,$day,$month-1,$year-1900);
+      if($eod) {
+        # treat a date without time component as end of day, i.e. start of next day, for comparisons
+        return main::fhemTimeLocal(0,0,0,$day+1,$month-1,$year-1900); # fhemTimeLocal can handle days after end of month
+      } else {
+        return main::fhemTimeLocal(0,0,0,$day,$month-1,$year-1900);
+      }
   }
+}
+
+# compare a date/time string in ISO8601 format with a point in time
+# date/time string < point in time
+sub before($$) {
+  my ($self, $t, $pit) = @_;
+  # include the whole day if the time component is missing in the date/time string
+  return $self->tm($t,1) < $pit;
+}
+
+# date/time string > point in time
+sub after($$) {
+  my ($self, $t, $pit) = @_;
+  return $self->tm($t,0) > $pit;
 }
 
 #      DURATION RFC2445
@@ -1702,6 +1722,7 @@ sub Calendar_Initialize($) {
   $hash->{NotifyFn}= "Calendar_Notify";
   $hash->{AttrList}=  "update:none,onUrlChanged ".
                       "synchronousUpdate:0,1 ".
+                      "delay " .
                       "removevcalendar:0,1 " .
                       "ignoreCancelled:0,1 ".
                       "SSLVerify:0,1 ".
@@ -1825,10 +1846,7 @@ sub Calendar_Notify($$)
   # update calendar after initialization or change of configuration
   # wait 10 to 29 seconds to avoid congestion due to concurrent activities
   Calendar_DisarmTimer($hash);
-  my $delay= 10+int(rand(20));
-
-  # delay removed until further notice
-  $delay= 2;
+  my $delay= AttrVal($name, "delay", 10+int(rand(20)));
 
   Log3 $hash, 5, "Calendar $name: FHEM initialization or rereadcfg triggered update, delay $delay seconds.";
   InternalTimer(time()+$delay, "Calendar_Wakeup", $hash, 0) ;
@@ -2937,7 +2955,7 @@ sub Calendar_UpdateCalendar($$) {
             # non recurring event
             next if(
               $v->hasKey("DTEND") &&
-              $v->tm($v->value("DTEND")) < $cutoffLowerBound
+              $v->before($v->value("DTEND"), $cutoffLowerBound)
               );
           } else {
             # recurring event, inspect
@@ -2945,8 +2963,7 @@ sub Calendar_UpdateCalendar($$) {
             my @rrparts= split(";", $rrule);
             my %r= map { split("=", $_); } @rrparts;
             if(exists($r{"UNTIL"})) {
-              next if($v->tm($r{"UNTIL"}) < $cutoffLowerBound)
-              #main::Debug "UNTIL exists with " . $v->tm($r{"UNTIL"}) . " <=> $cutoffLowerBound";
+              next if($v->before($r{"UNTIL"},$cutoffLowerBound))
             }
           }
         }
@@ -2954,7 +2971,7 @@ sub Calendar_UpdateCalendar($$) {
         if($cutoffUpperBound) {
           next if(
             $v->hasKey("DTSTART") &&
-            $v->tm($v->value("DTSTART")) > $cutoffUpperBound
+            $v->after($v->value("DTSTART"), $cutoffUpperBound)
             );
         }
 
@@ -3660,6 +3677,13 @@ sub CalendarEventsAsHtml($;$) {
         If this attribute is set to <code>none</code>, the calendar will not be updated at all.
         </li><p>
 
+    <li><code>delay &lt;time&gt;</code><br>
+        The waiting time in seconds after the initialization of FHEM or a configuration change before 
+        actually retrieving the calendar from its source. If not set, a random time between 10 and 29 
+        seconds is chosen. When several calendar devices are defined, staggered delays reduce
+        load error rates.
+        </li><p>
+
     <li><code>removevcalendar 0|1</code><br>
         If this attribute is set to 1, the vCalendar will be discarded after the processing to reduce the memory consumption of the module.
         A retrieval via <code>get &lt;name&gt; vcalendar</code> is then no longer possible.
@@ -4263,7 +4287,7 @@ sub CalendarEventsAsHtml($;$) {
   <br>
 
   <a name="Calendarattr"></a>
-  <b>Attributes</b>
+  <b>Attribute</b>
   <br><br>
   <ul>
     <li><code>defaultFormat &lt;formatSpec&gt;</code><br>
@@ -4289,6 +4313,13 @@ sub CalendarEventsAsHtml($;$) {
         Wird dieses Attribut auf <code>none</code> gesetzt ist, wird der Kalender &uuml;berhaupt nicht aktualisiert.<br/>
         Wird dieses Attribut auf <code>onUrlChanged</code> gesetzt ist, wird der Kalender nur dann aktualisiert, wenn sich die
         URL seit dem letzten Aufruf ver&auml;ndert hat, insbesondere nach der Auswertung von wildcards im define.<br/>
+        </li><p>
+
+    <li><code>delay &lt;time&gt;</code><br>
+        Wartezeit in Sekunden nach der Initialisierung von FHEM oder einer Konfigurations&auml;nderung bevor
+        der Kalender tats&auml;chlich von der Quelle geladen wird. Wenn nicht gesetzt wird eine
+        Zufallszeit zwischen 10 und 29 Sekunden gew&auml;hlt. Wenn mehrere Kalender definiert sind, f&uuml;hren
+        gestaffelte Wartezeiten zu einer Verminderung der Ladefehleranf&auml;lligkeit.
         </li><p>
 
     <li><code>removevcalendar 0|1</code><br>

@@ -1,0 +1,357 @@
+###########################################
+# $Id: zwave.template 23072 2020-11-02 05:58:05Z Beta-User $
+#
+# Comments start with #. Empty lines are ignored.
+# Syntax of one entry: name: line, one optional filter: line, zero or more par: lines,  FHEM-Commands
+# filter:INTERNAL=VALUE (optional)
+# par: name of the parameter; comment; perl_code (optional)
+# perl_code returns a value for the parameter, or undef.
+# If undef, the user has to specify them (the comment is shown to the user)
+
+###########################################
+name:General_Info_ZWave
+filter:TYPE=ZWave
+desc: This attrTemplate-file is still in a very early stage and more like a POC, see <a href="https://forum.fhem.de/index.php/topic,114109.0.html">Forum Thread</a> for further info.<br>Best starting point with ZWave in FHEM is the <a href="https://wiki.fhem.de/wiki/Z-Wave">FHEM-Wiki</a> (german). Most important step is to make sure, inclusion process has finished successfully and association with the gateway (USB-Dongle in most cases) has been set. To check, use (if available):<br>    get <device> associationAll<br>    get <device> configAll<br>    get <device> versionClassAll<br>    get <device> mcaAll<br>    get <device> wakeupInterval (battery powered devices only)<br>Processing could take some time (wake up battery powered devices if needed...), at the end you will have "cmdsPending" at a "0" value (refresh browser page if needed, it's an "Internal").
+order:000000
+
+###############
+# For general use
+#
+name:zwave_delete_error_readings
+filter:TYPE=ZWave
+desc:delete some readings in one or all ZWave devices (atm: "UNPARSED", "SEND_DATA", "CMD").<br>For direct use of one of the options, use "set <ZWave-device> attrTemplate RADIO_SINGLEDEV=1"set <ZWave-device> attrTemplate RADIO_SINGLEDEV=1 or "set <ZWave-device> attrTemplate RADIO_ALLDEVS=1".
+order:000001
+par:RADIO_SINGLEDEV;apply to single device;{ undef }
+par:RADIO_ALLDEVS;apply to all ZWave type devices;{ undef }
+option:{ RADIO_SINGLEDEV }
+deletereading -q DEVICE (UNPARSED|SEND_DATA|CMD)
+option:{ RADIO_ALLDEVS }
+deletereading -q TYPE=ZWave (UNPARSED|SEND_DATA|CMD)
+
+name:zwave_get_myutils_from_svn
+filter:TYPE=ZWave
+desc:template to download or update additional code from svn. Code ist necessary for quite a lot of these templates to work, so first do this...
+order:000002
+{ Svn_GetFile("contrib/AttrTemplate/99_attrT_ZWave_Utils.pm", "FHEM/99_attrT_ZWave_Utils.pm", sub(){CommandReload(undef, "99_attrT_ZWave_Utils")}) }
+
+
+name:zwave_showcase_show_main_and_channel_devices_2
+filter:TYPE=ZWave
+desc:example template just to identify all main and channel devices for a 2-channel device like Fibaro FGS223
+order:000003
+par:MAINCHANNEL;Main channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",0) }
+par:CHANNEL01;First channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",1) }
+par:CHANNEL02;Second channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",2) }
+{ fhem "trigger $FW_wname JS:location.href='$FW_ME?room=%23devspec%3dMAINCHANNEL,CHANNEL01,CHANNEL02'" if($cl && $cl->{TYPE} eq "FHEMWEB") }
+
+name:----Fibaro-devices-section--------
+filter:TYPE=ZWave
+order:01Fibaro00000
+desc:Templates for Fibaro devices. <br>Manufacturer info (manuals) can be found <a href="https://manuals.fibaro.com/">here</a>. <br>Unfortunately, firmware updates are only offered when using their home center hardware...
+
+
+name:FGRM222_Roller_Mode
+filter:TYPE=ZWave
+order:01Fibaro000005
+desc:Applies to Fibaro FGRM222 devices. This is for normal shutter mode. For other modes use different attrTemplates if available or manual configuration. 
+farewell:No Problem encountered, enjoy!
+par:RADIO_SCENES_ACTIVATION;Send scenes events when buttons are pressed;{ undef }
+par:RADIO_ASSOCIATIONS_ACTIVATION;Do not send scene events when buttons are pressed;{ undef }
+par:SWITCHTYPE;Possible values: 0-2 (0=MomentarySwitches, 1=ToggleSwitches, 2=SingleMomentarySwitch);{ undef }
+par:CALLSPEECHRECOGN;Set this to 0 to not set any speech recogn. related attributes;{ 1 }
+par:ICON;ICON as set, defaults to fts_shutter_updown;{ AttrVal("DEVICE","icon","fts_shutter_updown") }
+attr DEVICE icon ICON
+attr DEVICE devStateIcon { FHEM::attrT_ZWave_Utils::devStateIcon_shutter($name,"FGRM222") }
+attr DEVICE eventMap { usr=>{'dim.100'=>'dim 99' } }
+attr DEVICE webCmd dim
+attr DEVICE cmdIcon stop:fts_shutter_manual
+attr DEVICE widgetOverride dim:colorpicker,BRI,0,1,99
+set DEVICE configByte 10 1     ## configRollerShutterOperatingModes 1RollerBlindModeWithPositioning
+set DEVICE configByte  3 0     ## configReportsType BlindPositionReportsSentToThe0
+set DEVICE configByte 14 SWITCHTYPE
+option:{ RADIO_SCENES_ACTIVATION }
+set DEVICE configByte 50 1 ## configScenesAssociationsActivation ScenesActivation
+option:{ RADIO_ASSOCIATIONS_ACTIVATION }
+set DEVICE configByte 50 0 ## configScenesAssociationsActivation AssociationsActivation
+option:{ CALLSPEECHRECOGN }  
+set DEVICE attrTemplate speechcontrol_type_blind
+#closing section
+option:global
+get DEVICE configAll
+get DEVICE associationAll
+setreading DEVICE attrTemplateVersion FGRM222_Roller_Mode_20201007
+
+
+name:FGRM222_Ventian_Blind_Mode
+filter:TYPE=ZWave
+order:01Fibaro000005a
+desc:Applies to Fibaro FGRM222 devices. This is for venetian blind mode. For other modes use differnt attrTemplates or manual configuration. Note: additional code needed - has to be downloaded seperately from svn.
+farewell:Things to be done manually: adopt turning time for lamellas (configInVenetianBlindModeTheParameter12) if needed.
+par:RADIO_SCENES_ACTIVATION;Send scenes events when buttons are pressed;{ undef }
+par:RADIO_ASSOCIATIONS_ACTIVATION;Do not send scene events when buttons are pressed;{ undef }
+par:SWITCHTYPE;Possible values: 0-2 (0=MomentarySwitches, 1=ToggleSwitches, 2=SingleMomentarySwitch);{ undef }
+par:CALLSPEECHRECOGN;Set this to 0 to not set any speech recogn. related attributes;{ 1 }
+par:ICON;ICON as set, defaults to fts_shutter_updown;{ AttrVal("DEVICE","icon","fts_shutter_updown") }
+attr DEVICE icon ICON
+attr DEVICE eventMap { usr=>{'dim.100'=>'dim 99' } }
+attr DEVICE webCmd dim
+attr DEVICE cmdIcon stop:fts_shutter_manual
+attr DEVICE widgetOverride dim:colorpicker,BRI,0,1,99
+attr DEVICE devStateIcon { FHEM::attrT_ZWave_Utils::devStateIcon_shutter($name,"FGRM222","venetian") }
+set DEVICE configByte 10 2 ## configRollerShutterOperatingModes 2VenetianBlindModeWith2
+set DEVICE configByte  3 1 ## configReportsType BlindPositionReportsSentToThe1
+set DEVICE configByte 13 0 ## configSetSlatsBackToPreviousPosition OnlyInCaseOfTheMainController0
+set DEVICE configByte 14 SWITCHTYPE
+attr DEVICE userReadings dim:power..0.0.W {my $pos = ReadingsVal($name,"state",0) =~ m,dim, ? ReadingsNum($name,"state",0) : ReadingsNum($name,"dim",0);; my $pos1 = ReadingsNum($name,"position",0);; $pos = $pos1 if ($pos > $pos1 +3 || $pos < $pos1 -3);; return $pos }, positionSlat:power..0.0.W {ReadingsVal($name,"position",0) =~ m,Slat.([0-9]+),?$1:undef}
+option:{ RADIO_SCENES_ACTIVATION }
+set DEVICE configByte 50 1 ## configScenesAssociationsActivation ScenesActivation
+option:{ RADIO_ASSOCIATIONS_ACTIVATION }
+set DEVICE configByte 50 0 ## configScenesAssociationsActivation AssociationsActivation
+option:{ CALLSPEECHRECOGN }  
+set DEVICE attrTemplate speechcontrol_type_blind
+#closing section
+option:global 
+get DEVICE configAll
+get DEVICE associationAll
+setreading DEVICE attrTemplateVersion FGRM222_Ventian_Blind_Mode_20201007
+
+name:FGRM222_Choice_demo
+filter:TYPE=ZWave
+order:01Fibaro000008
+desc:Applies to Fibaro FGRM222 devices. You can choose between normal shutter mode or venetian blind mode. For other modes use manual configuration. Note: additional code will be downloaded from svn.
+farewell:Things to be done manually: configure switch type (configSwitchType) and (for venetian mode only) turning time for lamellas (configInVenetianBlindModeTheParameter12).
+par:RADIO_ROLLER_MODE;Configure as normal shutter (no option to turn lamellas);{ undef }
+par:RADIO_VENETIANBLIND_MODE;Configure as venetian blind (allow turning of lamellas);{ undef }
+par:CALLSPEECHRECOGN;Set this to 0 to not set any speech recogn. related attributes;{ 1 }
+par:ICON;ICON as set, defaults to fts_shutter_updown;{ AttrVal("DEVICE","icon","fts_shutter_updown") }
+attr DEVICE icon ICON
+set DEVICE attrTemplate zwave_get_myutils_from_svn
+#deletereading -q DEVICE (?!associatedWith|model.*).*
+attr DEVICE eventMap { usr=>{'dim.100'=>'dim 99' } }
+attr DEVICE webCmd dim
+attr DEVICE cmdIcon stop:fts_shutter_manual
+attr DEVICE widgetOverride dim:colorpicker,BRI,0,1,99
+option:{ RADIO_ROLLER_MODE }
+set DEVICE configRollerShutterOperatingModes 1RollerBlindModeWithPositioning
+set DEVICE configReportsType BlindPositionReportsSentToThe0
+attr DEVICE devStateIcon { FHEM::attrT_ZWave_Utils::devStateIcon_shutter($name,"FGRM222") }
+option:{ RADIO_VENETIANBLIND_MODE }
+attr DEVICE devStateIcon { FHEM::attrT_ZWave_Utils::devStateIcon_shutter($name,"FGRM222","venetian") }
+set DEVICE configRollerShutterOperatingModes 2VenetianBlindModeWith2
+set DEVICE configReportsType BlindPositionReportsSentToThe1
+set DEVICE configSetLamellasBackToPrevious13 0LamellasReturnToPreviouslySet0
+attr DEVICE userReadings dim:power..0.0.W {my $pos = ReadingsVal($name,"state",0) =~ m,dim, ? ReadingsNum($name,"state",0) : ReadingsNum($name,"dim",0);; my $pos1 = ReadingsNum($name,"position",0);; $pos = $pos1 if ($pos > $pos1 +3 || $pos < $pos1 -3);; return $pos }, positionSlat:power..0.0.W {ReadingsVal($name,"position",0) =~ m,Slat.([0-9]+),?$1:undef}
+option:{ CALLSPEECHRECOGN }  
+set DEVICE attrTemplate speechcontrol_type_blind
+#closing section
+option:global
+get DEVICE configAll
+get DEVICE associationAll
+setreading DEVICE attrTemplateVersion FGRM222_Choice_demo_20201002
+
+name:FGR223_Roller_Mode
+filter:TYPE=ZWave
+order:01Fibaro000006
+desc:Applies to Fibaro FGR223 devices. This is for normal shutter mode. For other modes use different attrTemplates if available or manual configuration. 
+farewell:No Problem encountered, enjoy! In case you activated scene events at keypresses, events will be shown in the main channel device.
+par:RADIO_SCENES_ACTIVATION;Send scenes events when buttons are pressed;{ undef }
+par:RADIO_ASSOCIATIONS_ACTIVATION;Do not send scene events when buttons are pressed;{ undef }
+par:SWITCHTYPE;Possible values: 0-2 (0=MomentarySwitches, 1=ToggleSwitches, 2=SingleMomentarySwitch);{ undef }
+par:CALLSPEECHRECOGN;Set this to 0 to not set any speech recogn. related attributes;{ 1 }
+par:MAINCHANNEL;Main channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",0) }
+par:CHANNEL01;First channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",1) }
+par:CHANNEL02;Second channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",2) }
+par:IO_DEV_ID;Decimal value of the IO node ID - do not proceed if it can't be identified!;{ my $id = hex(InternalVal(AttrVal("DEVICE","IODev","unknown"),"nodeIdHex",0));  $id ? $id : undef }
+par:ICON;ICON as set, defaults to fts_shutter_updown;{ AttrVal("DEVICE","icon","fts_shutter_updown") }
+attr MAINCHANNEL,CHANNEL01,CHANNEL02 icon ICON
+attr CHANNEL01 devStateIcon { FHEM::attrT_ZWave_Utils::devStateIcon_shutter($name,"FGR223") }
+attr CHANNEL01 eventMap { usr=>{'dim.100'=>'dim 99' } }
+attr CHANNEL01 webCmd dim
+attr CHANNEL01 widgetOverride dim:colorpicker,BRI,0,1,99
+attr CHANNEL01 userReadings dim:(dim|reportedState).* {$1 =~ /reportedState/ ? ReadingsNum($name,"reportedState",0):ReadingsNum($name,"state",0)}
+set MAINCHANNEL associationDel 1 IO_DEV_ID  ## just like for FGS-223 (module-internal setting)
+set MAINCHANNEL mcaAdd 1 0 IO_DEV_ID 0      ## needs to be veryfied!
+set MAINCHANNEL mcaAdd 2 0 IO_DEV_ID 1
+set MAINCHANNEL mcaAdd 3 0 IO_DEV_ID 2
+set MAINCHANNEL configByte 65 10 ## configEnergyReportsOnChange 10
+option:{ RADIO_SCENES_ACTIVATION }
+set MAINCHANNEL configByte 40 15 ## configS1SwitchScenesSent 15 (=1+2+4+8=all keypress types)
+set MAINCHANNEL configByte 41 15 ## configS2SwitchScenesSent 15
+option:{ RADIO_ASSOCIATIONS_ACTIVATION }
+set MAINCHANNEL configByte 40 0  ## configS1SwitchScenesSent 0
+set MAINCHANNEL configByte 41 0  ## configS2SwitchScenesSent 0
+option:global
+set MAINCHANNEL configByte 20 SWITCHTYPE
+set MAINCHANNEL configByte 151 1 ## configOperatingMode RollerBlind
+set MAINCHANNEL configByte 150 2 ## configForceCalibration ForceDeviceCalibration
+option:{ CALLSPEECHRECOGN }  
+set CHANNEL01 attrTemplate speechcontrol_type_blind
+#closing section
+option:global
+get MAINCHANNEL configAll
+get MAINCHANNEL associationAll
+{ fhem "trigger $FW_wname JS:location.href='$FW_ME?room=%23devspec%3dMAINCHANNEL,CHANNEL01,CHANNEL02'" if($cl && $cl->{TYPE} eq "FHEMWEB") }
+setreading DEVICE attrTemplateVersion FGR223_Roller_Mode_20201007
+
+name:FGR223_Venetian_Mode
+filter:TYPE=ZWave
+order:01Fibaro000006a
+desc:Applies to Fibaro FGR223 devices. This is for venetian blind mode. For other modes use differnt attrTemplates or manual configuration.<br>The template is based on this <a href="https://forum.fhem.de/index.php/topic,100390.0.html">forum thread</a>.
+farewell:Things to be done manually: adopt turning time for lamellas (configVenetianBlindTimeOfFullTurnOfThe152) if needed. In case you activated scene events at keypresses, events will be shown in the main channel device.
+par:RADIO_SCENES_ACTIVATION;Send scenes events when buttons are pressed;{ undef }
+par:RADIO_ASSOCIATIONS_ACTIVATION;Do not send scene events when buttons are pressed;{ undef }
+par:SWITCHTYPE;Possible values: 0-2 (0=MomentarySwitches, 1=ToggleSwitches, 2=SingleMomentarySwitch);{ undef }
+par:CALLSPEECHRECOGN;Set this to 0 to not set any speech recogn. related attributes;{ 1 }
+par:MAINCHANNEL;Main channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",0) }
+par:CHANNEL01;First channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",1) }
+par:CHANNEL02;Second channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",2) }
+par:IO_DEV_ID;Decimal value of the IO node ID - do not proceed if it can't be identified!;{ my $id = hex(InternalVal(AttrVal("DEVICE","IODev","unknown"),"nodeIdHex",0));  $id ? $id : undef }
+par:ICON;ICON as set, defaults to fts_shutter_updown;{ AttrVal("DEVICE","icon","fts_shutter_updown") }
+attr MAINCHANNEL,CHANNEL01,CHANNEL02 icon ICON
+attr CHANNEL01 devStateIcon { FHEM::attrT_ZWave_Utils::devStateIcon_shutter($name,"FGR223","venetian") }
+attr CHANNEL01 eventMap { usr=>{'dim.100'=>'dim 99' } }
+attr CHANNEL01 webCmd dim
+attr CHANNEL01 widgetOverride dim:colorpicker,BRI,0,1,99
+attr CHANNEL01 userReadings dim:(dim|reportedState).* {$1 =~ /reportedState/ ? ReadingsNum($name,"reportedState",0):ReadingsNum($name,"state",0)}
+set MAINCHANNEL associationDel 1 IO_DEV_ID  ## just like for FGS-223 (module-internal setting)
+set MAINCHANNEL mcaAdd 1 0 IO_DEV_ID 0      ## needs to be veryfied!
+set MAINCHANNEL mcaAdd 2 0 IO_DEV_ID 1
+set MAINCHANNEL mcaAdd 3 0 IO_DEV_ID 2
+set MAINCHANNEL configEnergyReportsOnChange 10
+option:{ RADIO_SCENES_ACTIVATION }
+set MAINCHANNEL configByte 40 15 ## configS1SwitchScenesSent 15 (=1+2+4+8=all keypress types)
+set MAINCHANNEL configByte 41 15 ## configS2SwitchScenesSent 15
+option:{ RADIO_ASSOCIATIONS_ACTIVATION }
+set MAINCHANNEL configByte 40 0  ## configS1SwitchScenesSent 0
+set MAINCHANNEL configByte 41 0  ## configS2SwitchScenesSent 0
+option:global
+set MAINCHANNEL configByte 20 SWITCHTYPE
+set MAINCHANNEL configByte 151 2 ## configOperatingMode VenetianBlind
+set MAINCHANNEL configByte 150 2 ## configForceCalibration ForceDeviceCalibration
+option:{ CALLSPEECHRECOGN }  
+set CHANNEL01 attrTemplate speechcontrol_type_blind
+#closing section
+option:global
+get MAINCHANNEL configAll
+get MAINCHANNEL associationAll
+{ fhem "trigger $FW_wname JS:location.href='$FW_ME?room=%23devspec%3dMAINCHANNEL,CHANNEL01,CHANNEL02'" if($cl && $cl->{TYPE} eq "FHEMWEB") }
+setreading DEVICE attrTemplateVersion FGR223_Venetian_Mode_20201007
+
+
+name:----AEOTEC-devices-section--------
+filter:TYPE=ZWave
+order:03AEOTEC00000
+desc:Templates for AEOTEC/AEON Labs devices. <br>Manufacturer info can be found <a href="https://aeotec.freshdesk.com/support/solutions/6000084017">here</a>. <br>firmware updates are available for some devices, but for updating, you have to use a separate Windows machine.
+
+
+#AEON Labs ZW095 Home Energy Meter Gen5
+name:ZW095_Home_Energy_Meter
+filter:TYPE=ZWave
+order:03AEOTEC0000ZW095
+desc:Applies to AEON Labs ZW095 Home Energy Meter Gen5 .<br>NOTE: early, untested version!<br>The template is based on this <a href="https://forum.fhem.de/index.php/topic,112682.0.html">forum thread</a>, manufacturer info can be found <a href="https://aeotec.freshdesk.com/support/solutions/folders/6000217020">here</a>.
+par:MAINCHANNEL;Main channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",0) }
+par:CHANNEL01;First channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",1) }
+par:CHANNEL02;Second channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",2) }
+par:CHANNEL02;Second channel of the device - do not proceed if it can't be identified!;{ FHEM::attrT_ZWave_Utils::identify_channel_devices("DEVICE",3) }
+#set MAINCHANNEL associationAdd 1 1
+set MAINCHANNEL configByte 111 60      ## configGroup1Interval 60
+set MAINCHANNEL configWord 111 14337   ## configGroup1Reports 14337
+set MAINCHANNEL configByte 112 60      ## configGroup2Interval 60
+set MAINCHANNEL configWord 102 1792    ## configGroup2Reports 1792
+set MAINCHANNEL configWord 113 600     ## configGroup3Interval 600
+set MAINCHANNEL configLong 103 4128780 ## configGroup3Reports 4128780
+set MAINCHANNEL configByte   3 1       ## configSelectiveReporting Enable
+attr MAINCHANNEL,CHANNEL01,CHANNEL02,CHANNEL03 stateFormat energy_kWh
+attr MAINCHANNEL,CHANNEL01,CHANNEL02,CHANNEL03 userReadings energy_kWh:energy:.* monotonic {ReadingsNum("$name","energy",0)}
+#closing section
+option:global
+get MAINCHANNEL configAll
+get MAINCHANNEL associationAll
+{ fhem "trigger $FW_wname JS:location.href='$FW_ME?room=%23devspec%3dMAINCHANNEL,CHANNEL01,CHANNEL02,CHANNEL03'" if($cl && $cl->{TYPE} eq "FHEMWEB") }
+setreading DEVICE attrTemplateVersion ZW095_Home_Energy_Meter_20200930
+
+
+name:ZW100_Multisensor_Battery
+filter:TYPE=ZWave
+order:03AEOTEC0000ZW100
+desc:Applies to AEON Labs ZW100 MultiSensor 6 when battery powered.<br>NOTE: early version!<br>The template is based on this <a href="https://forum.fhem.de/index.php/topic,114538.0.html">forum thread</a>, manufacturer info can be found <a href="https://aeotec.freshdesk.com/support/solutions/folders/6000149641">here</a>. Having an up-to-date firmware is highly recommended!
+par:RADIO_REPORT_UV;Send also UV values;{ undef }
+par:RADIO_NO_UV_REPORT;Do not send UV values;{ undef }
+set DEVICE configWord 111 3600 ## configGroup1Interval 3600
+set DEVICE configByte 40 0     ## configReportOnlyOnThresholds Disabled
+option:{ RADIO_REPORT_UV}
+set DEVICE configByte 101 241  ## configGroup1Reports 241 (1+16+32+64+128)
+option:{ RADIO_NO_UV_REPORT }
+set DEVICE configByte 101 225  ## configGroup1Reports 225 (1+32+64+128)
+option:global
+get DEVICE config 111          ## configGroup1Interval
+get DEVICE config  40          ## configReportOnlyOnThresholds
+get DEVICE config 101          ## configGroup1Reports
+setreading DEVICE attrTemplateVersion ZW100_Multisensor_Battery_20201007
+
+
+name:ZW100_Multisensor_USB
+filter:TYPE=ZWave
+order:03AEOTEC0000ZW100a
+desc:Applies to AEON Labs ZW100 MultiSensor 6 when powered over USB.<br>NOTE: early version!<br>The template is based on this <a href="https://forum.fhem.de/index.php/topic,114538.0.html">forum thread</a>, manufacturer info can be found <a href="https://aeotec.freshdesk.com/support/solutions/folders/6000149641">here</a> Having an up-to-date firmware is highly recommended!
+par:RADIO_REPORT_UV;Send also UV values;{ undef }
+par:RADIO_NO_UV_REPORT;Do not send UV values;{ undef }
+set DEVICE configByte 111 30  ## configGroup1Interval 30
+set DEVICE configByte 40 1    ## configReportOnlyOnThresholds Enabled
+option:{ RADIO_REPORT_UV}
+set DEVICE configByte 101 240 ## configGroup1Reports 240 (16+32+64+128)
+option:{ RADIO_NO_UV_REPORT }
+set DEVICE configByte 101 224 ## configGroup1Reports 224 (32+64+128)
+#closing section
+option:global
+get DEVICE configAll
+setreading DEVICE attrTemplateVersion ZW100_Multisensor_USB_20201007
+
+name:ZWA005_TriSensor
+filter:TYPE=ZWave
+order:03AEOTEC0000ZWA005
+desc:Applies to AEON Labs ZWA005 TriSensor.<br>NOTE: early version!<br>The template is based on this <a href="https://forum.fhem.de/index.php/topic,115396.0.html">forum thread</a>, manufacturer info can be found <a href="https://aeotec.freshdesk.com/support/solutions/folders/6000232835">here</a>. Having an up-to-date firmware is highly recommended!
+set DEVICE configByte  4 1    ## Binary Sensor Report Enable (for seperate motion reporting)
+setreading DEVICE attrTemplateVersion ZWA005_TriSensor_20201030
+
+
+name:----Eurotronic-devices-section--------
+filter:TYPE=ZWave
+order:04EUROTRONIC00000
+desc:Templates for Eurotronics devices. <br>Note: Manufacturer does not provide free updates; functionality is less than advertised!
+
+
+# Eurotronic Spirit ZWave version
+name:Eurotronic_Spirit
+desc: First version, see <a href="https://forum.fhem.de/index.php/topic,112955.0.html">Forum Thread</a> for details
+order:04EUROTRONIC00001
+filter:TYPE=ZWave
+par:RADIO_NO_EXTERNAL_TEMP;Use internal temperature sensor for regulation;{ undef }
+par:RADIO_ZWAVE_EXTERNAL_TEMP;Use an external Zwave temperature sensor. Association has to be set seperately!;{ undef }
+par:RADIO_NONZWAVE_EXTERNAL_TEMP;Use an external (non-Zwave) temperature sensor. Make sure, sensor data is regularly updated!;{ undef }
+par:RADIO_DIRECT_VALVE_CONTROL;Change mode to direct valve control (needs additional logic, e.g. provided by PID20 FHEM module.;{ undef }
+par:ICON;ICON as set, defaults to hm-cc-rt-dn;{ AttrVal("DEVICE","icon","hm-cc-rt-dn") }
+attr DEVICE icon ICON
+set DEVICE configByte  4 1  ## should set "send battery reports once a day"
+set DEVICE configByte  5 1  ## should set "Temperature Report Threshold" to 1 (lowest value)
+set DEVICE configByte  6 1  ## should set valve reports to 1% delta - might not lead to any report...
+option:{ RADIO_NONZWAVE_EXTERNAL_TEMP + RADIO_ZWAVE_EXTERNAL_TEMP + RADIO_NO_EXTERNAL_TEMP }
+option:{ RADIO_DIRECT_VALVE_CONTROL }
+set DEVICE configByte 64 31 ## should set "manufacturer specific"
+option:{ RADIO_NO_EXTERNAL_TEMP }
+set DEVICE configByte  8 0  ## note: no offset!
+#deleteattr DEVICE setList
+option:{ RADIO_ZWAVE_EXTERNAL_TEMP }
+set DEVICE configByte  8 128  ## note: disables internal sensor, make sure to associate one (ZWave type)
+#deleteattr DEVICE setList
+option:{ RADIO_NONZWAVE_EXTERNAL_TEMP }
+set DEVICE configByte  8 128  ## disables internal sensor, make sure to regularly update, e.g. using notify like  n_extTemp notify EG_sz_sensor:temperature:.* set DEVICE  sml_temperature $EVTPART1 C
+attr DEVICE setList sml_temperature
+#closing section
+option:global
+attr DEVICE webCmd desired-temp
+attr DEVICE userReadings energySaveHeating:setpointTemp.+energySaveHeating {ReadingsNum($name,"setpointTemp",0)}, heating:setpointTemp.+heating {ReadingsNum($name,"setpointTemp",0)}, thermostatMode:setpointTemp.+ {ReadingsVal($name,"setpointTemp",0)=~m/(heating|energySaveHeating)/; $1?$1:undef}, valve:reportedState.+(dim.[0-9.]+|off) {my $val = ReadingsVal($name,"state",0); return 0 if $val eq "off"; ReadingsNum($name,"state",0)}
+attr DEVICE widgetOverride desired-temp:knob,min:5,max:30,angleArc:180,width:40,height:40,fgColor:#FF9900,bgColor:#CCCCCC,step:0.5,lineCap:round,angleOffset:225
+get  DEVICE configAll
+set DEVICE attrTemplate speechcontrol_type_thermostat
+setreading DEVICE attrTemplateVersion Eurotronic_Spirit_20201101

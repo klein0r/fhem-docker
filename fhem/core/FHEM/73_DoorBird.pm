@@ -1,4 +1,4 @@
-# $Id: 73_DoorBird.pm 20597 2019-11-26 12:39:20Z Sailor $
+# $Id: 73_DoorBird.pm 21857 2020-05-04 06:31:32Z Sailor $
 ########################################################################################################################
 #
 #     73_DoorBird.pm
@@ -7,7 +7,7 @@
 #     Author                     : Matthias Deeke 
 #     e-mail                     : matthias.deeke(AT)deeke(DOT)eu
 #     Fhem Forum                 : https://forum.fhem.de/index.php/topic,100758
-#     Fhem Wiki                  : 
+#     Fhem Wiki                  : https://wiki.fhem.de/wiki/DoorBird
 #
 #     This file is part of fhem.
 #
@@ -48,15 +48,18 @@ use utf8;
 use JSON;
 use HttpUtils;
 use Encode;
+use FHEM::Meta;
 use Cwd;
 use MIME::Base64;
 use Crypt::NaCl::Sodium qw( :utils );
 use Crypt::Argon2 qw/argon2i_raw/;
 use IO::Socket;
+use IO::String;			   
 use LWP::UserAgent;
 use constant false => 0;
 use constant true  => 1;
 use Data::Dumper;
+use File::Spec::Functions ':ALL';
 
 ###START###### Initialize module ##############################################################################START####
 sub DoorBird_Initialize($)
@@ -72,6 +75,7 @@ sub DoorBird_Initialize($)
 	$hash->{ReadFn}          = "DoorBird_Read";
 	$hash->{DbLog_splitFn}   = "DoorBird_DbLog_splitFn";
 	$hash->{FW_detailFn}     = "DoorBird_FW_detailFn";
+	$hash->{NotifyFn}        = "DoorBird_Notify";										  
 
     $hash->{AttrList}        = "do_not_notify:1,0 " .
 							   "header " .
@@ -79,8 +83,6 @@ sub DoorBird_Initialize($)
 							   "MaxHistory:slider,0,1,50 " .
 							   "KeepAliveTimeout " .
 							   "UdpPort:6524,35344 " .
-							   "SipDevice:" . join(",", devspec2array("TYPE=SIP")) . " " .
-							   "SipNumber " .
 							   "ImageFileDir " .
 							   "AudioFileDir " .
 							   "VideoFileDir " .
@@ -88,6 +90,7 @@ sub DoorBird_Initialize($)
 							   "VideoDurationDoorbell " .
 							   "VideoDurationMotion " .
 							   "VideoDurationKeypad " .
+							   "HistoryFilePath:1,0 " .
 							   "EventReset " .
 							   "SessionIdSec:slider,0,10,600 " .
 							   "WaitForHistory " .
@@ -95,6 +98,7 @@ sub DoorBird_Initialize($)
 							   "disable:1,0 " .
 						       "loglevel:slider,0,1,5 " .
 						       $readingFnAttributes;
+	return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 ####END####### Initialize module ###############################################################################END#####
 
@@ -170,8 +174,6 @@ sub DoorBird_Define($$)
 	  $hash->{RevisonAPI}								= "0.26";
 	  $hash->{helper}{SOX}	  							= "/usr/bin/sox"; #On Windows systems use "C:\Programme\sox\sox.exe"
 	  $hash->{helper}{URL}	  							= $url;
-	  $hash->{helper}{SipDevice}						= AttrVal($name,"SipDevice","");
-	  $hash->{helper}{SipNumber}						= AttrVal($name, "SipNumber", "**620");
 	  $hash->{helper}{PollingTimeout}					= AttrVal($name,"PollingTimeout",5);
 	  $hash->{helper}{KeepAliveTimeout}					= AttrVal($name, "KeepAliveTimeout", 30);
 	  $hash->{helper}{MaxHistory}						= AttrVal($name, "MaxHistory", 50);
@@ -188,6 +190,7 @@ sub DoorBird_Define($$)
 	  $hash->{helper}{EventReset}						= AttrVal($name, "EventReset", 5);
 	  $hash->{helper}{WaitForHistory}					= AttrVal($name, "WaitForHistory", 7);
 	  $hash->{helper}{CameraInstalled}					= false;
+	  $hash->{helper}{HistoryFilePath}					= 0;
 	  $hash->{helper}{SessionId}						= 0;
 	  $hash->{helper}{UdpMessageId}						= 0;
 	  $hash->{helper}{UdpMotionId}						= 0;
@@ -211,16 +214,61 @@ sub DoorBird_Define($$)
 	Log3 $name, 5, $name. " : DoorBird - Define D                               : " . $def;
 	Log3 $name, 5, $name. " : DoorBird - Define A                               : " . @a;
 	Log3 $name, 5, $name. " : DoorBird - Define Name                            : " . $name;
-	Log3 $name, 5, $name. " : DoorBird - Define SipDevice                       : " . $hash->{helper}{SipDevice};
 	Log3 $name, 5, $name. " : DoorBird - Define OpsModeList                     : " . Dumper(@{$hash->{helper}{OpsModeList}});
 	Log3 $name, 5, $name. " : DoorBird - Define OpsModeListBackup[0]            : " . ${$hash->{helper}{OpsModeListBackup}}[0];
 	
+	### Notify this device after changes on global variables
+	$hash->{NOTIFYDEV} = "global,";
+
+	### Call intitialization of sub if the initialization is done
+	DoorBird_InitializeDevice($hash) if ($init_done);
+	
+	return undef;
+}
+####END####### Activate module after module has been used via fhem command "define" ############################END#####
+
+
+###START###### Handle Notifications received by this module  ##################################################START####
+sub DoorBird_Notify($$)
+{
+	my ($hash, $dev) = @_;
+	my $name    = $hash->{NAME};
+	my $devName = $dev->{NAME}; # Device that created the events
+	my $events  = deviceEvents($dev, 1);
+
+	### For Debugging purpose only 
+	Log3 $name, 5, $name. " : DoorBird - DoorBird_Notify devname                : " . $devName;
+	Log3 $name, 5, $name. " : DoorBird - DoorBird_Notify events                 : " . Dumper($events);
+
+	### Return without any further action if the module is disabled
+	return "" if(IsDisabled($name));
+
+	### If the global variables notified an update and matches
+	if($devName eq "global" && grep(m/^INITIALIZED|REREADCFG$/, @{$events}))
+	{
+		### For Debugging purpose only 
+		Log3 $name, 5, $name. " : DoorBird_Notify                                   : fhem system has been initialized or config has been re-read.";
+		
+		### Call initialization 
+		DoorBird_InitializeDevice($hash);
+	}
+	
+	return undef;
+}
+###END######## Handle Notifications received by this module  ####################################################END####
+
+
+##START###### Initialize the device when all attributes are available ########################################START####
+sub DoorBird_InitializeDevice($)
+{
+	my($hash) = @_;
+	my $name    = $hash->{NAME};
 
 	### Initialize Socket connection
 	DoorBird_OpenSocketConn($hash);
 	
 	### Initialize Readings
-	DoorBird_Info_Request($hash, "");
+	DoorBird_Info_Request($hash,  "");
 	DoorBird_Image_Request($hash, "");
 	DoorBird_Live_Video($hash, "off");
 
@@ -228,10 +276,12 @@ sub DoorBird_Define($$)
 	InternalTimer(gettimeofday()+ $hash->{helper}{KeepAliveTimeout}	, "DoorBird_LostConn",       $hash, 0);
 	InternalTimer(gettimeofday()+ 10,                                 "DoorBird_RenewSessionID", $hash, 0);
 
+	### For Debugging purpose only 
+	Log3 $name, 3, $name. " : DoorBird_InitializeDevice                         : DoorBird has been initialized";
+
 	return undef;
 }
-####END####### Activate module after module has been used via fhem command "define" ############################END#####
-
+###END######## Initialize the device when all attributes are available #########################################END####
 
 ###START###### To bind unit of value to DbLog entries #########################################################START####
 # sub DoorBird_DbLog_splitFn($$)
@@ -252,8 +302,12 @@ sub DoorBird_Undefine($$)
 	RemoveInternalTimer($hash);
 
 	### Close UDP scanning
-	DevIo_CloseDev($hash);
-	
+	delete $selectlist{$name};
+	if (defined($hash->{CD})) {
+		$hash->{CD}->close();
+		delete $hash->{CD};
+	}
+	delete $hash->{FD};
 	### Add Log entry
 	Log3 $name, 3, $name. " - DoorBird has been undefined. The DoorBird unit will no longer polled.";
 
@@ -302,36 +356,9 @@ sub DoorBird_Attr(@)
 		if ($a[3] == int($a[3])) {
 			### Set helper in hash
 			$hash->{helper}{UdpPort} = $a[3];
-		}
-	}
-	### Check whether SipDevice attribute has been provided
-	elsif ($a[2] eq "SipDevice") {
-		### Check whether SipDevice is defined as fhem device
-		if (defined($defs{$a[3]})) {
-			### Set helper in hash
-			$hash->{helper}{SipDevice} = $a[3];
 			
-			### Log Entry for debugging purposes
-			Log3 $name, 5, $name. " : DoorBird_Attr - SipDevice set to                  : " . $hash->{helper}{SipDevice};
-		}
-		else {
-			### Set helper in hash
-			$hash->{helper}{SipDevice} = "";
-			
-			### Log Entry for debugging purposes
-			Log3 $name, 5, $name. " : DoorBird_Attr - SipDevice reset to                : " . $hash->{helper}{SipDevice};
-		}
-	}
-		### Check whether SipNumber attribute has been provided
-	elsif ($a[2] eq "SipNumber") {
-		### Check whether SipNumber is defined
-		if (defined($a[3])) {
-			### Set helper in hash
-			$hash->{helper}{SipNumber} = $a[3];
-		}
-		else {
-			### Set helper in hash
-			$hash->{helper}{SipNumber} = "**620";
+			### Call initialization 
+			DoorBird_InitializeDevice($hash);
 		}
 	}
 	### Check whether PollingTimeout attribute has been provided
@@ -403,13 +430,17 @@ sub DoorBird_Attr(@)
 			### Check whether SessionIdSec is 0 = disabled
 			if ($a[3] == int($a[3]) && ($a[3] == 0)) {
 				### Save attribute as internal
-				$hash->{helper}{SessionIdSec}  = 0;
+				$hash->{helper}{SessionIdSec} = 0;
+				$hash->{helper}{SessionId}    = 0;
 			}
 			### If KeepAliveTimeout is numeric and greater than 9s
 			elsif ($a[3] == int($a[3]) &&  ($a[3] > 9)) {
 
 				### Save attribute as internal
-				$hash->{helper}{SessionIdSec}  = $a[3];
+				$hash->{helper}{SessionIdSec} = $a[3];
+
+				### Obtain SessionId
+				DoorBird_RenewSessionID($hash);
 
 				### Re-Initiate the timer
 				InternalTimer(gettimeofday()+$hash->{helper}{SessionIdSec}, "DoorBird_RenewSessionID", $hash, 0);
@@ -418,6 +449,9 @@ sub DoorBird_Attr(@)
 			else{
 				### Save standard interval as internal
 				$hash->{helper}{SessionIdSec}  = 540;
+				
+				### Obtain SessionId
+				DoorBird_RenewSessionID($hash);
 				
 				### Re-Initiate the timer
 				InternalTimer(gettimeofday()+$hash->{helper}{SessionIdSec}, "DoorBird_RenewSessionID", $hash, 0);
@@ -428,6 +462,9 @@ sub DoorBird_Attr(@)
 			### Save standard interval as internal
 			$hash->{helper}{SessionIdSec}  = 540;
 			
+			### Obtain SessionId
+			DoorBird_RenewSessionID($hash);
+				
 			### Re-Initiate the timer
 			InternalTimer(gettimeofday()+$hash->{helper}{SessionIdSec}, "DoorBird_RenewSessionID", $hash, 0);
 		}
@@ -502,6 +539,30 @@ sub DoorBird_Attr(@)
 		else {
 			### Set helper in hash
 			$hash->{helper}{VideoDurationKeypad} = "0";
+		}
+	}
+	### Check whether HistoryFilePath attribute has been provided
+	elsif ($a[2] eq "HistoryFilePath") {
+		### Check whether HistoryFilePath is defined
+		if (defined($a[3])) {
+			### Set helper in hash
+			$hash->{helper}{HistoryFilePath} = $a[3];
+			
+			if ($a[3] == true) {
+				### Update the history list for images and videos
+				DoorBird_History_List($hash);
+			}
+			else {
+				### Delete all reading entries to files
+				fhem("deleteReading " . $name . " HistoryFilePath.*");
+			}
+		}
+		else {
+			### Set helper in hash
+			$hash->{helper}{HistoryFilePath} = "0";
+			
+			### Delete all reading entries to files
+			fhem("deleteReading " . $name . " HistoryFilePath.*");
 		}
 	}
 	### Check whether VideoFileFormat attribute has been provided
@@ -617,7 +678,7 @@ sub DoorBird_Get($@)
 	
 	### If DoorBird has a Camera installed
 	if ($hash->{helper}{CameraInstalled} == true) {
-		$usage .= "Image_Request:noArg History_Request:noArg "
+		$usage .= "Image_Request:noArg History_Request:noArg Video_Request "
 	}
 	### If DoorBird has NO Camera installed
 	else {
@@ -634,10 +695,20 @@ sub DoorBird_Get($@)
 		### Call Subroutine and hand back return value
 		return DoorBird_Info_Request($hash, $option);
 	}
-	### LIVE IMAGE REQUEST
+	### IMAGE REQUEST
 	elsif ($command eq "Image_Request") {
 		### Call Subroutine and hand back return value
 		return DoorBird_Image_Request($hash, $option);
+	}
+	### VIDEO REQUEST
+	elsif ($command eq "Video_Request") {
+		my $VideoDuration = 10;
+		### If the duration has been given use it. Otherwise use 10s
+		if ( $optionString == int($optionString) and $optionString eq int($optionString) and $optionString > 0 ) {
+			$VideoDuration = $optionString;
+		}
+		### Call Subroutine and hand back return value
+		return DoorBird_Video_Request($hash, $VideoDuration, "manual", time());
 	}
 	### HISTORY IMAGE REQUEST
 	elsif ($command eq "History_Request") {
@@ -708,8 +779,9 @@ sub DoorBird_Set($@)
 	
 	### Define "set" menu
 	my $usage	= "Unknown argument, choose one of";
-		$usage .= " Test";
+		#$usage .= " Test";
 		$usage .= " Open_Door:" . join(",", @RelayAdresses) . " OpsMode:" . join(",", @OpsModeList) . " Restart:noArg Transmit_Audio";
+		$usage .= " Receive_Audio";
 
 	### If the OpsModeList is not empty
 	if ((defined(${$hash->{helper}{OpsModeList}}[0])) && (${$hash->{helper}{OpsModeList}}[0] ne "")) {
@@ -842,7 +914,6 @@ sub DoorBird_Set($@)
 		### Call Subroutine and hand back return value
 		return DoorBird_Light_On($hash, $option)	
 	}
-	
 	### RESTART
 	elsif ($command eq "Restart") {
 		### Call Subroutine and hand back return value
@@ -853,17 +924,19 @@ sub DoorBird_Set($@)
 		### Call Subroutine and hand back return value
 		return DoorBird_Live_Audio($hash, $option)	
 	}
-	### LIVE AUDIO TRANSMIT
+	### AUDIO RECEIVE
+	elsif ($command eq "Receive_Audio") {
+		### Call Subroutine and hand back return value
+		return DoorBird_Receive_Audio($hash, $option)	
+	}
+	### AUDIO TRANSMIT
 	elsif ($command eq "Transmit_Audio") {
 		### Call Subroutine and hand back return value
 		return DoorBird_Transmit_Audio($hash, $option)	
 	}
 	### TEST
 	elsif ($command eq "Test") {
-		### Call Subroutine and hand back return value
-		DoorBird_Video_Request($hash, 10, "doorbell_001", 1571506485);
-		
-		return;
+		DoorBird_History_List($hash);
 	}
 	### ADD OR CHANGE FAVORITE
 	### DELETE FAVORITE
@@ -1841,7 +1914,7 @@ sub DoorBird_RenewSessionID($) {
 		### If the VideoStream has been activated
 		if (ReadingsVal($name, ".VideoURL", "") ne "") {
 			### Refresh Video URL
-			DoorBird_Live_Video($hash, undef);
+			DoorBird_Live_Video($hash, "on");
 			
 			### Log Entry for debugging purposes
 			Log3 $name, 5, $name. " : DoorBird_RenewSessionID - VideoUrl refreshed";
@@ -1850,7 +1923,7 @@ sub DoorBird_RenewSessionID($) {
 		### If the AudioStream has been activated
 		if (ReadingsVal($name, ".AudioURL", "") ne "") {
 			### Refresh Video URL
-			DoorBird_Live_Audio($hash, undef);
+			DoorBird_Live_Audio($hash, "on");
 			
 			### Log Entry for debugging purposes
 			Log3 $name, 5, $name. " : DoorBird_RenewSessionID - AudioUrl refreshed";
@@ -1964,7 +2037,6 @@ sub DoorBird_FW_detailFn($$$$) {
 					<td id="ImageCell" width="430px" height="300px" align="center">
 						' . $ImageHtmlCode  . '
 					</td>
-
 					<td id="ImageCell" width="435px" height="300px" align="center">
 						' . $VideoHtmlCode . '<BR>
 					</td>
@@ -1993,7 +2065,6 @@ sub DoorBird_FW_detailFn($$$$) {
 					<tr>
 						<td align="center" colspan="5"><b>History of events - Last download: ' . $hash->{helper}{HistoryTime} . '</b></td>
 					</tr>
-
 					<tr>
 						<td align="center" colspan="2"><b>Doorbell</b></td>
 						<td align="center"></td>
@@ -2195,9 +2266,6 @@ sub DoorBird_Info_Request($$) {
 					readingsBulkUpdate($hash, $key, $VersionContent -> {$key} );
 				}
 			}
-			### Update Reading for Firmware-Status
-			readingsBulkUpdate($hash, "Firmware-Status", "up-to-date");
-
 			### Update SessionId
 			DoorBird_RenewSessionID($hash);
 
@@ -2235,16 +2303,15 @@ sub DoorBird_FirmwareStatus($) {
 	### Log Entry for debugging purposes
 	Log3 $name, 5, $name. " : DoorBird_FirmwareStatus - Checking firmware status on doorbird page";
 	
-	my $FirmwareVersionUnit = ReadingsVal($name, "FIRMWARE", 0);
+	my $FirmwareVersionUnit = ReadingsVal($name, "FIRMWARE"   , 0        );
+	my $FirmwareDevice      = ReadingsVal($name, "DEVICE-TYPE", "unknown");
 
 	### Download website of changelocks
 	my $html = GetFileFromURL("https://www.doorbird.com/changelog");
 	
-	### Get the latest firmware number
-	my $result;
-	if ($html =~ /(?<=Firmware version )(.*)(?=\n=====)/) {
-		$result = $1;
-	}
+	### Get the latest firmware number for this product
+	my $versions = DoorBird_parseChangelog($hash, $html);
+	my $result   = DoorBird_findNewestFWVersion($hash, $versions, $FirmwareDevice);
 
 	### Log Entry for debugging purposes
 	Log3 $name, 5, $name. " : DoorBird_FirmwareStatus - result                  : " . $result;
@@ -2334,7 +2401,7 @@ sub DoorBird_Live_Video($$) {
 }
 ####END####### Define Subfunction for LIVE VIDEO REQUEST #######################################################END#####
 
-###START###### Define Subfunction for LIVE AUDIO REQUEST ######################################################START####
+###START###### Define Subfunction for LIVE VIDEO REQUEST ######################################################START####
 sub DoorBird_Live_Audio($$) {
 	my ($hash, $option)	= @_;
 
@@ -2343,7 +2410,7 @@ sub DoorBird_Live_Audio($$) {
 	my $url 			= $hash->{helper}{URL};
 	
 	### Create complete command URL for DoorBird depending on whether SessionIdSecurity has been enabled (>0) or disabled (=0)
-	my $UrlPrefix 		= "http://" . $url . "/bha-api/";
+	my $UrlPrefix 		= "http://" . $url . "/bha-api/audio-receive.cgi";
 	my $UrlPostfix;
 	if ($hash->{helper}{SessionIdSec} > 0) {
 		$UrlPostfix 	= "?sessionid=" . $hash->{helper}{SessionId};
@@ -2353,7 +2420,7 @@ sub DoorBird_Live_Audio($$) {
 		my $password	= DoorBird_credential_decrypt($hash->{helper}{".PASSWORD"});
 		$UrlPostfix 	= "?http-user=". $username . "&http-password=" . $password;
 	}
-	my $AudioURL 		= $UrlPrefix . "audio-receive.cgi" . $UrlPostfix;
+	my $AudioURL 		= $UrlPrefix . $UrlPostfix;
 
 	### Log Entry for debugging purposes
 	Log3 $name, 5, $name. " : DoorBird_Live_Audio - AudioURL                    : " . $AudioURL ;
@@ -2384,6 +2451,7 @@ sub DoorBird_Live_Audio($$) {
 	return
 }
 ####END####### Define Subfunction for LIVE VIDEO REQUEST #######################################################END#####
+
 
 ###START###### Define Subfunction for LIVE IMAGE REQUEST ######################################################START####
 sub DoorBird_Image_Request($$) {
@@ -2512,6 +2580,9 @@ sub DoorBird_Image_Request($$) {
 		
 		### Log Entry for debugging purposes
 		Log3 $name, 5, $name. " : DoorBird_Image_Request - write file               : Successfully written " . $ImageFileName;
+		
+		### Update the history list for images and videos
+		DoorBird_History_List($hash);
 		
 		### Close file or write error message in log
 		close $fh or do {
@@ -2734,6 +2805,9 @@ sub DoorBird_LastEvent_Image($$$) {
 					
 						### Write Last Image into reading
 						readingsSingleUpdate($hash, $ReadingImage, $ImageFileName, 1);
+						
+						### Update the history list for images and videos
+						DoorBird_History_List($hash);
 					}
 					### Log Entry for debugging purposes
 					Log3 $name, 5, $name. " : DoorBird_LastEvent_Image - ImageData - event      : " . length($ImageData);
@@ -2929,7 +3003,7 @@ sub DoorBird_Light_On($$) {
 }
 ####END####### Define Subfunction for LIGHT ON #################################################################END#####
 
-###START###### Define Subfunction for LIVE AUDIO TRANSMIT #####################################################START####
+###START###### Define Subfunction for TRANSMIT AUDIO REQUEST ##################################################START####
 sub DoorBird_Transmit_Audio($$) {
 	my ($hash, $option)	= @_;
 	
@@ -2939,110 +3013,192 @@ sub DoorBird_Transmit_Audio($$) {
 	my $Password			= DoorBird_credential_decrypt($hash->{helper}{".PASSWORD"});
 	my $Url 				= $hash->{helper}{URL};
 	my $Sox					= $hash->{helper}{SOX};
-	my $SipDevice			= $hash->{helper}{SipDevice};
-	my $SipNumber			= $hash->{helper}{SipNumber};
 	my $AudioDataPathOrig	= $option;
-	my @ListSipDevices		= devspec2array("TYPE=SIP");
-	my $err;
 	
 	### Log Entry for debugging purposes
 	Log3 $name, 5, $name. " : DoorBird_Transmit_Audio  - ---------------------------------------------------------------";
 	
-	### If device of TYPE = SIP exists
-	if (@ListSipDevices > 0) {
-		### If file exists
-		if (-e $AudioDataPathOrig) {
-			### Create new filepath from old filepath
-			my $AudioDataNew;
-			my $AudioDataSizeNew;
-			my $AudioDataPathNew  = $AudioDataPathOrig;
-			   $AudioDataPathNew  =~ s/\..*//;
-			my $AudioDataPathTemp = $AudioDataPathNew . "_tmp.wav";
-			   $AudioDataPathNew .= ".ulaw";
+	### If file exists
+	if (-e $AudioDataPathOrig) {
+		### Create new filepath from old filepath
+		my $AudioDataNew;
+		my $AudioDataSizeNew;
+		my $AudioDataPathNew  = $AudioDataPathOrig;
+		   $AudioDataPathNew  =~ s/\..*//;
+		   $AudioDataPathNew .= ".wav";
 
-			### Delete future new file and temporary file if exist
-			unlink($AudioDataPathTemp);
-			unlink($AudioDataPathNew);
+		### If the respective .wav file already exists
+		if (-e $AudioDataPathNew) {
+		
+			### Log Entry for debugging purposes
+			Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - wav file already exists : " . $AudioDataPathNew;
+			
+		}
+		### If the respective .wav file does not exists
+		else {
 			
 			### Create Sox - command
-			my $SoxCmd = $Sox . " -V " . $AudioDataPathOrig . " -r 8000 -b 8 -c 1 -e u-law " . $AudioDataPathTemp;
+			my $SoxCmd = $Sox . " -V " . $AudioDataPathOrig . " " . $AudioDataPathNew;
 			
 			### Log Entry for debugging purposes
 			Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - Original Path exists    : " . $AudioDataPathOrig;
-			Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - Temp Path created       : " . $AudioDataPathTemp;
 			Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - New  Path created       : " . $AudioDataPathNew;
 			Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - Sox System-Command      : " . $SoxCmd;
-			Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - SipDeviceAttribute      : " . $SipDevice;
-			Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - SipNumber               : " . $SipNumber;
-			Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - ListSipDevices          : " . Dumper(@ListSipDevices);
-				
+
 			### Convert file
 			system ($SoxCmd);
-
-			### Rename temporary file in .ulaw
-			$err = rename($AudioDataPathTemp, $AudioDataPathNew);
-			
-			### Get new filesize
-			$AudioDataSizeNew = -s $AudioDataPathNew;
-
-			### Log Entry for debugging purposes		
-			Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - New Filesize            : " . $AudioDataSizeNew;
-			Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - rename response message : " . $err;
-			
-			### If the a name for a SIP - TYPE device has been provided as per attribute
-			if (defined($SipDevice)) {
-				### Log Entry for debugging purposes		
-				Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - Attribute for SIP device: " . $SipDevice;
-			
-				### If SIP device provided in attribute exists
-				if (defined($defs{$SipDevice})) {
-					### Log Entry for debugging purposes		
-					Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - SIP device in Attribute exists";
-				}
-				### If SIP device provided in attribute does NOT exists
-				else {
-					### Take the first available SIP device
-					$SipDevice= $ListSipDevices[0];
-
-					### Log Entry for debugging purposes		
-					Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - SIP device in Attribute does NOT exist";
-					Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - SipDevice chosen        : " . $SipDevice;
-				}
-			}
-			### If the a name for a SIP - TYPE device has NOT been provided as per attribute
-			else {
-				### Take the first available SIP device
-				$SipDevice= $ListSipDevices[0];
-				
-				### Log Entry for debugging purposes		
-				Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - SIP device has not been provided in Attribute";
-				Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - SipDevice chosen        : " . $SipDevice;
-			}
-			
-			
-			### Use SIP device and transfer filepath
-			my $FhemCommand = "set " . $SipDevice . " call " . $SipNumber . " 30 " . $AudioDataPathNew;
-			fhem($FhemCommand);
-			
-			return "The audio file: " . $AudioDataPathOrig . " has been passed to the fhem device " . $SipDevice;
 		}
-		### If Filepath does not exist
+		
+		### Get filesize of wav file
+		$AudioDataSizeNew = -s $AudioDataPathNew;
+
+		### Get FileInfo and extract the length of wav file in seconds
+		my $SoxCmd = $Sox . " " . $AudioDataPathNew . " -n stat stats";
+
+		my @FileInfo = qx($SoxCmd 2>&1);
+		my $AudioLength = $FileInfo[1];
+		   $AudioLength =~ s/Length \(seconds\)\://;
+		   $AudioLength =~ s/\s+//g;
+		   $AudioLength = int($AudioLength);
+
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - AudioLength in seconds  : " . $AudioLength;
+		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - New Filesize            : " . $AudioDataSizeNew;
+
+				### Create complete command URL for DoorBird depending on whether SessionIdSecurity has been enabled (>0) or disabled (=0)
+		my $UrlPrefix 	= "http://" . $Url . "/bha-api/audio-transmit.cgi";
+		my $UrlPostfix;
+		
+		### If SessionIdSec is enabled
+		if ($hash->{helper}{SessionIdSec} != 0) {
+			   $UrlPostfix 	= "?sessionid=" . $hash->{helper}{SessionId} . " content-type=\"audio/basic\" use-content-length=true";
+		}
+		### Id SessionID Security is disabled
 		else {
-			### Log Entry
-			Log3 $name, 3, $name. " : DoorBird_Transmit_Audio - Path doesn't exist      : " . $AudioDataPathOrig;
-			Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - ---------------------------------------------------------------";
-			return "The audio file: " . $AudioDataPathOrig . " does not exist!"
+			my $username 	= DoorBird_credential_decrypt($hash->{helper}{".USER"});
+			my $password	= DoorBird_credential_decrypt($hash->{helper}{".PASSWORD"});
+			   $UrlPostfix 	= " content-type=\"audio/basic\" use-content-length=true user=" . $username . " passwd=" . $password;
 		}
+		my $CommandURL 	= $UrlPrefix . $UrlPostfix;
+
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - CommandURL              : " . $CommandURL ;
+
+		### Create the gst-lauch command
+		my $GstCommand  = "gst-launch-1.0 filesrc location="; 
+		   $GstCommand .= $AudioDataPathNew;
+		   $GstCommand .=  " ! wavparse ! audioconvert ! audioresample ! \"audio/x-raw,format=S16LE,rate=8000,channels=1\" ! mulawenc ! \"audio/x-mulaw,rate=8000,channels=1\" ! curlhttpsink location=";
+		   $GstCommand .= $CommandURL;
+
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - GstCommand              : " . $GstCommand;
+
+		### Create command for shell
+		my $ShellCommand  = "timeout " . ($AudioLength + 3) . " " . $GstCommand . " &";
+		
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - ShellCommand            : " . $ShellCommand;
+
+		### Pass shell command to shell and continue with the code below
+		eval {
+						system($ShellCommand) or die "Could not execute" . $ShellCommand . " ". $@;
+		};
+
+		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - File streamed successf. : " . $AudioDataPathOrig;
+		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - ---------------------------------------------------------------";
+		return "The audio file: " . $AudioDataPathOrig . " has been streamed to the DoorBird";
 	}
-	### If no device TYPE = SIP exists
+	### If Filepath does not exist
 	else {
 		### Log Entry
-		Log3 $name, 3, $name. " : DoorBird_Transmit_Audio - No device with TYPE=SIP exists. Install SIP device first";
+		Log3 $name, 3, $name. " : DoorBird_Transmit_Audio - Path doesn't exist      : " . $AudioDataPathOrig;
 		Log3 $name, 5, $name. " : DoorBird_Transmit_Audio - ---------------------------------------------------------------";
-		return "No device with TYPE=SIP exists. Install SIP device first"
+		return "The audio file: " . $AudioDataPathOrig . " does not exist!"
 	}
 }
-####END####### Define Subfunction for LIVE AUDIO TRANSMIT ######################################################END#####
+####END####### Define Subfunction for TRANSMIT AUDIO REQUEST ###################################################END#####
+
+###START###### Define Subfunction for RECEIVE AUDIO REQUEST ###################################################START####
+sub DoorBird_Receive_Audio($$) {
+	my ($hash, $option)	= @_;
+	
+	### Obtain values from hash
+	my $name				= $hash->{NAME};
+	my $Username 			= DoorBird_credential_decrypt($hash->{helper}{".USER"});
+	my $Password			= DoorBird_credential_decrypt($hash->{helper}{".PASSWORD"});
+	my $Url 				= $hash->{helper}{URL};
+	my $Sox					= $hash->{helper}{SOX};
+	my $AudioDataPathOrig	= $option;
+	
+	### For Test only
+	my $AudioLength = 7;
+	
+	### Log Entry for debugging purposes
+	Log3 $name, 5, $name. " : DoorBird_Live_Audio  - ---------------------------------------------------------------";
+	
+	### If file does not exist already
+	if ((-e $AudioDataPathOrig) == false) {
+		### Create new filepath from old filepath
+		my $AudioDataNew;
+		my $AudioDataSizeNew;
+		my $AudioDataPathNew  = $AudioDataPathOrig;
+		   $AudioDataPathNew  =~ s/\..*//;
+		   $AudioDataPathNew .= ".mp3";
+
+		### Create complete command URL for DoorBird depending on whether SessionIdSecurity has been enabled (>0) or disabled (=0)
+		my $UrlPrefix 	= "http://" . $Url . "/bha-api/audio-receive.cgi";
+		my $UrlPostfix;
+		
+		### If SessionIdSec is enabled
+		if ($hash->{helper}{SessionIdSec} != 0) {
+			   $UrlPostfix 	= "?sessionid=" . $hash->{helper}{SessionId};
+		}
+		### Id SessionID Security is disabled
+		else {
+			my $username 	= DoorBird_credential_decrypt($hash->{helper}{".USER"});
+			my $password	= DoorBird_credential_decrypt($hash->{helper}{".PASSWORD"});
+			   $UrlPostfix 	= " user=" . $username . " passwd=" . $password;
+		}
+		my $CommandURL 	= $UrlPrefix . $UrlPostfix;
+
+
+		### Log Entry for debugging purposes
+		Log3 $name, 1, $name. " : DoorBird_Live_Audio - CommandURL              : " . $CommandURL ;
+
+		### Create the gst-lauch command
+		my $GstCommand  = "gst-launch-1.0 filesrc location=<"; 
+		   $GstCommand .= $CommandURL;
+		   $GstCommand .=  "> ! wavparse ! audioconvert ! lame ! filesink location=";
+		   $GstCommand .= $AudioDataPathNew;
+
+		### Log Entry for debugging purposes
+		Log3 $name, 1, $name. " : DoorBird_Live_Audio - GstCommand              : " . $GstCommand;
+
+		### Create command for shell
+		my $ShellCommand  = "timeout " . ($AudioLength + 3) . " " . $GstCommand . " &";
+		
+		### Log Entry for debugging purposes
+		Log3 $name, 1, $name. " : DoorBird_Live_Audio - ShellCommand            : " . $ShellCommand;
+
+		### Pass shell command to shell and continue with the code below
+		eval {
+						system($ShellCommand) or die "Could not execute" . $ShellCommand . " ". $@;
+		};
+
+		Log3 $name, 1, $name. " : DoorBird_Live_Audio - File streamed successf. : " . $AudioDataPathOrig;
+		Log3 $name, 1, $name. " : DoorBird_Live_Audio - ---------------------------------------------------------------";
+		return "The audio file: " . $AudioDataPathOrig . " has been streamed to the DoorBird";
+	}
+	### If Filepath does not exist
+	else {
+		### Log Entry
+		Log3 $name, 1, $name. " : DoorBird_Live_Audio - Path doesn't exist      : " . $AudioDataPathOrig;
+		Log3 $name, 1, $name. " : DoorBird_Live_Audio - ---------------------------------------------------------------";
+		return "The audio file: " . $AudioDataPathOrig . " does not exist!"
+	}
+}
+####END####### Define Subfunction for RECEIVE VIDEO REQUEST ####################################################END#####
+
 
 ###START###### Define Subfunction for HISTORY IMAGE REQUEST ###################################################START####
 ### https://wiki.fhem.de/wiki/HttpUtils#HttpUtils_NonblockingGet
@@ -3400,6 +3556,9 @@ sub DoorBird_History_Request_Parse($) {
 					### Log Entry for debugging purposes
 					Log3 $name, 5, $name. " : DoorBird_History_Request - write file             : Successfully written " . $ImageFileName;
 					
+					### Update the history list for images and videos
+					DoorBird_History_List($hash);
+					
 					### Close file or write error message in log
 					close $fh or do {
 						### Log Entry 
@@ -3435,6 +3594,284 @@ sub DoorBird_History_Request_Parse($) {
 	return
 }
 ####END####### Define Subfunction for HISTORY IMAGE REQUEST ####################################################END#####
+
+###START###### Define Subfunction for history list update as readings #########################################START####
+sub DoorBird_History_List($) {
+	my ($hash)	= @_;
+
+	### Obtain values from hash
+	my $name			= $hash->{NAME};
+
+	### If the HistoryFile List shall be created
+	if ($hash->{helper}{HistoryFilePath} == true) {
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : DoorBird_History_List ___________________________________________________________";
+		Log3 $name, 5, $name. " : DoorBird_History_List - The HistoryList has been activated. Processing...";
+
+		### Delete all older reading entries to files
+		#fhem("deleteReading " . $name . " HistoryFilePath.*", 1);
+		
+		foreach my $DeleteReading (keys %{$hash->{READINGS}}) {
+			if ($DeleteReading =~ m/HistoryFilePath/ ){
+				### Log Entry for debugging purposes
+				Log3 $name, 5, $name. " : DoorBird_History_List - Delete Reading            :  " . $DeleteReading;
+				
+				### Delete Reading
+				readingsDelete($hash, $DeleteReading);
+			}
+		}
+
+		### Get current working directory
+		my $cwd = getcwd();
+
+		### If the ImageFileDir has been defined and images are taken
+		if ((defined($hash->{helper}{ImageFileDir})) && (($hash->{helper}{ImageFileDir} =~ m/\/fhem\/www/)) || (($hash->{helper}{ImageFileDir} =~ m/\\fhem\\www/))){
+			my $ImageFileName;
+			my @ImageFileList;
+
+			### If the path is given as UNIX file system format
+			if ($cwd =~ /\//) {
+				### Log Entry for debugging purposes
+				Log3 $name, 5, $name. " : DoorBird_History_List - file system format       : UNIX";
+
+				### Find out whether it is an absolute path or an relative one (leading "/")
+				if ($hash->{helper}{ImageFileDir} =~ /^\//) {
+					$ImageFileName = $hash->{helper}{ImageFileDir};
+				}
+				else {
+					$ImageFileName = $cwd . "/" . $hash->{helper}{ImageFileDir};						
+				}
+			}
+			
+			### If the path is given as Windows file system format
+			if ($hash->{helper}{ImageFileDir} =~ /\\/) {
+				### Log Entry for debugging purposes
+				Log3 $name, 5, $name. " : DoorBird_History_List - file system format       : WINDOWS";
+
+				### Find out whether it is an absolute path or an relative one (containing ":\")
+				if ($hash->{helper}{ImageFileDir} != /^.:\//) {
+					$ImageFileName = $cwd . $hash->{helper}{ImageFileDir};
+				}
+				else {
+					$ImageFileName = $hash->{helper}{ImageFileDir};						
+				}
+			}
+			
+			### Log Entry for debugging purposes
+			Log3 $name, 5, $name. " : DoorBird_History_List - ImageFileName             : " . $ImageFileName;
+
+			### Get list of directory items
+			if (opendir(FileSearch,$ImageFileName)) {
+				@ImageFileList		= readdir(FileSearch);
+				close FileSearch;
+
+				### Define Types to be searched for
+				my @FileTypes		= ("motionsensor", "doorbell", "keypad", "snapshot", "manual");
+
+				readingsBeginUpdate($hash);
+
+				foreach my $SearchType (@FileTypes) {
+					### Log Entry for debugging purposes
+					Log3 $name, 5, $name. " : DoorBird_History_List - SearchType                : " . $SearchType;
+					
+					### Extract all Filenames which matches the SearchType
+					my @ImageFileListSearch = grep {/$SearchType/} @ImageFileList;
+
+					### Extract all Filenames which matches the file extension
+					my @ImageFileListExt = grep {/jpg/} @ImageFileListSearch;
+						
+					# Sort list
+					@ImageFileListExt=sort(@ImageFileListExt);
+						
+					### Get the last n elements (hash->{helper}{MaxHistory})
+					@ImageFileListExt = ($hash->{helper}{MaxHistory} >= @ImageFileListExt) ? @ImageFileListExt : @ImageFileListExt[-$hash->{helper}{MaxHistory}..-1];
+
+					# Sort list
+					@ImageFileListExt=sort({$b cmp $a} @ImageFileListExt);
+						
+					### Log Entry for debugging purposes
+					Log3 $name, 5, $name. " : DoorBird_History_List - ImageFileListSearch       : \n" . Dumper(@ImageFileListExt);
+						
+					### Update Readings
+					my $index = 0;
+					foreach my $FileName (@ImageFileListExt){
+						### Log Entry for debugging purposes
+						Log3 $name, 5, $name. " : DoorBird_History_List - FileName                  : " . $FileName;
+
+						### Extract timestamp from Filename
+						my $TimeStamp  = substr($FileName,0,4) . "-" . substr($FileName, 4,2) . "-" . substr($FileName, 6,2) . " ";
+						   $TimeStamp .= substr($FileName,9,2) . ":" . substr($FileName,11,2) . ":" . substr($FileName,13,2);
+						
+						### Log Entry for debugging purposes
+						Log3 $name, 5, $name. " : DoorBird_History_List - TimeStamp                 : " . $TimeStamp;
+
+						### Complete relative path from /opt/fhem/www/tablet to $hash->{helper}{ImageFileDir}
+						my $FilePath = abs2rel(rel2abs($ImageFileName), rel2abs("/opt/fhem/www/tablet"));
+						my $ReadingsValue = $FilePath . "/" . $FileName;
+
+						### Log Entry for debugging purposes
+						Log3 $name, 5, $name. " : DoorBird_History_List - FilePath                  : " . $FilePath;
+						
+						### Create ReadingsName for Imagepath and write reading
+						my $ReadingsName = "HistoryFilePath_" . $SearchType . "_Image_" . sprintf("%02d", $index);
+						readingsBulkUpdate($hash, $ReadingsName, $ReadingsValue);
+
+						### Log Entry for debugging purposes
+						Log3 $name, 5, $name. " : DoorBird_History_List - ReadingsName-Image        : " . $ReadingsName;
+						Log3 $name, 5, $name. " : DoorBird_History_List - ReadingsValue-Image       : " . $ReadingsValue;
+
+						
+						### Create ReadingsName for Timestamp and write reading
+						$ReadingsName = "HistoryFilePath_" . $SearchType . "_Image_" . sprintf("%02d", $index) . "_Timestamp";
+						readingsBulkUpdate($hash, $ReadingsName, $TimeStamp);
+
+						### Log Entry for debugging purposes
+						Log3 $name, 5, $name. " : DoorBird_History_List - ReadingsName-Timestamp    : " . $ReadingsName;
+						Log3 $name, 5, $name. " : DoorBird_History_List - ReadingsValue-Timestamp   : " . $TimeStamp;
+
+						### Increase Index
+						$index++;
+					}
+				}
+			}
+			else {
+				### Log Entry for warning
+				Log3 $name, 2, $name. " : DoorBird_History_List - The Attribute \"ImageFileDir\" leads to an directory which produced an error! - Does it actually exist?";		
+			}
+		}
+		else {
+			### Log Entry for warning
+			Log3 $name, 4, $name. " : DoorBird_History_List - The ImageFileDir has not been provided or has not been created below the web-folder e.g. \"/opt/fhem/www/doorbird-images/\"";
+		}
+		### If the VideoFileDir has been defined and Videos are taken
+		if ((defined($hash->{helper}{VideoFileDir})) && (($hash->{helper}{VideoFileDir} =~ m/\/fhem\/www/) || (($hash->{helper}{ImageFileDir} =~ m/\\fhem\\www/)))){
+			my $VideoFileName;
+			my @VideoFileList;
+			
+			### If the path is given as UNIX file system format
+			if ($cwd =~ /\//) {
+				### Log Entry for debugging purposes
+				Log3 $name, 5, $name. " : DoorBird_History_List - file system format        : UNIX";
+
+				### Find out whether it is an absolute path or an relative one (leading "/")
+				if ($hash->{helper}{VideoFileDir} =~ /^\//) {
+					$VideoFileName = $hash->{helper}{VideoFileDir};
+				}
+				else {
+					$VideoFileName = $cwd . "/" . $hash->{helper}{VideoFileDir};						
+				}
+			}
+			
+			### If the path is given as Windows file system format
+			if ($hash->{helper}{VideoFileDir} =~ /\\/) {
+				### Log Entry for debugging purposes
+				Log3 $name, 5, $name. " : DoorBird_History_List - file system format        : WINDOWS";
+
+				### Find out whether it is an absolute path or an relative one (containing ":\")
+				if ($hash->{helper}{VideoFileDir} != /^.:\//) {
+					$VideoFileName = $cwd . $hash->{helper}{VideoFileDir};
+				}
+				else {
+					$VideoFileName = $hash->{helper}{VideoFileDir};						
+				}
+			}
+			
+			### Log Entry for debugging purposes
+			Log3 $name, 5, $name. " : DoorBird_History_List - VideoFileName             : " . $VideoFileName;
+
+			### Get list of directory items
+			if (opendir(FileSearch,$VideoFileName)) {
+				@VideoFileList		= readdir(FileSearch);
+				close FileSearch;
+
+				### Define Types to be searched for
+				my @FileTypes		= ("motionsensor", "doorbell", "keypad", "snapshot", "manual");
+
+				readingsBeginUpdate($hash);
+
+				foreach my $SearchType (@FileTypes) {
+					### Log Entry for debugging purposes
+					Log3 $name, 5, $name. " : DoorBird_History_List - SearchType                : " . $SearchType;
+					
+					### Extract all Filenames which matches the SearchType
+					my @VideoFileListSearch = grep {/$SearchType/} @VideoFileList;
+
+					### Extract all Filenames which matches the file extension
+					my @VideoFileListExt = grep {/$hash->{helper}{VideoFileFormat}/} @VideoFileListSearch;
+						
+					# Sort list
+					@VideoFileListExt=sort(@VideoFileListExt);
+						
+					### Get the last n elements (hash->{helper}{MaxHistory})
+					@VideoFileListExt = ($hash->{helper}{MaxHistory} >= @VideoFileListExt) ? @VideoFileListExt : @VideoFileListExt[-$hash->{helper}{MaxHistory}..-1];
+
+					# Sort list
+					@VideoFileListExt=sort({$b cmp $a} @VideoFileListExt);
+						
+					### Log Entry for debugging purposes
+					Log3 $name, 5, $name. " : DoorBird_History_List - VideoFileListSearch       : \n" . Dumper(@VideoFileListExt);
+						
+					### Update Readings
+					my $index = 0;
+					foreach my $FileName (@VideoFileListExt){
+						### Log Entry for debugging purposes
+						Log3 $name, 5, $name. " : DoorBird_History_List - FileName                  : " . $FileName;
+
+						### Extract timestamp from Filename
+						my $TimeStamp  = substr($FileName,0,4) . "-" . substr($FileName, 4,2) . "-" . substr($FileName, 6,2) . " ";
+						   $TimeStamp .= substr($FileName,9,2) . ":" . substr($FileName,11,2) . ":" . substr($FileName,13,2);
+						
+						### Log Entry for debugging purposes
+						Log3 $name, 5, $name. " : DoorBird_History_List - TimeStamp                 : " . $TimeStamp;
+
+						### Complete relative path from /opt/fhem/www/tablet to $hash->{helper}{VideoFileDir}
+						my $FilePath = abs2rel(rel2abs($VideoFileName), rel2abs("/opt/fhem/www/tablet"));
+						my $ReadingsValue = $FilePath . "/" . $FileName;
+
+						### Log Entry for debugging purposes
+						Log3 $name, 5, $name. " : DoorBird_History_List - FilePath                  : " . $FilePath;
+						
+						### Create ReadingsName for Videopath and write reading
+						my $ReadingsName = "HistoryFilePath_" . $SearchType . "_Video_" . sprintf("%02d", $index);
+						readingsBulkUpdate($hash, $ReadingsName, $ReadingsValue);
+
+						### Log Entry for debugging purposes
+						Log3 $name, 5, $name. " : DoorBird_History_List - ReadingsName-Video        : " . $ReadingsName;
+						Log3 $name, 5, $name. " : DoorBird_History_List - ReadingsValue-Video       : " . $ReadingsValue;
+
+						
+						### Create ReadingsName for Timestamp and write reading
+						$ReadingsName = "HistoryFilePath_" . $SearchType . "_Video_" . sprintf("%02d", $index) . "_Timestamp";
+						readingsBulkUpdate($hash, $ReadingsName, $TimeStamp);
+
+						### Log Entry for debugging purposes
+						Log3 $name, 5, $name. " : DoorBird_History_List - ReadingsName-Timestamp    : " . $ReadingsName;
+						Log3 $name, 5, $name. " : DoorBird_History_List - ReadingsValue-Timestamp   : " . $TimeStamp;
+
+						### Increase Index
+						$index++;
+					}
+				}
+			}
+			else {
+				### Log Entry for warning
+				Log3 $name, 2, $name. " : DoorBird_History_List - The Attribute \"VideoFileDir\" leads to an directory which produced an error! - Does it actually exist?";		
+			}
+		}	
+		else {
+			### Log Entry for warning
+			Log3 $name, 4, $name. " : DoorBird_History_List - The VideoFileDir has not been provided or has not been created below the web-folder e.g. \"/opt/fhem/www/doorbird-videos/\"";
+		}
+
+		### Initiate Readings Update
+		readingsEndUpdate($hash, 1);
+	}
+	else {
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : DoorBird_History_List - The HistoryList has been disabled. Not Links to pictures are provided.";
+	}
+}
+####END####### Define Subfunction for history list update as readings ##########################################END#####
 
 ###START###### Define Subfunction for VIDEO REQUEST ###########################################################START####
 sub DoorBird_Video_Request($$$$) {
@@ -3474,6 +3911,9 @@ sub DoorBird_Video_Request($$$$) {
 	}
 	elsif ($event =~ m/keypad/ ){
 		$ReadingVideo 			= "keypad_video";
+	}
+	elsif ($event =~ m/manual/ ){
+		$ReadingVideo 			= "manual_video";
 	}
 	else {
 		### Create Log entry
@@ -3587,6 +4027,9 @@ sub DoorBird_Video_Request($$$$) {
 			### Log Entry for debugging purposes
 			Log3 $name, 2, $name. " : DoorBird_Video_Request - Video-Request ha not been implemented for Windows file system. Contact fhem forum and WIKI.";
 		}
+		
+		### Update the history list for images and videos after the video has been taken
+		InternalTimer(gettimeofday()+$duration+3,"DoorBird_History_List", $hash, 0);
 	}
 	### If attribute to video directory has NOT been set
 	else {
@@ -3949,14 +4392,9 @@ sub DoorBird_SipStatus_Request($$) {
 					readingsBulkUpdate($hash, "SIP_" . $key, $VersionContent -> {$key} );
 				}
 			}
-			### Update Reading for Firmware-Status
-			readingsBulkUpdate($hash, "Firmware-Status", "up-to-date");
 
 			### Execute Readings Bulk Update
 			readingsEndUpdate($hash, 1);
-
-			### Check for Firmware-Updates
-			DoorBird_FirmwareStatus($hash);
 			
 			return "Readings have been updated!\n";
 		}
@@ -4045,6 +4483,111 @@ sub DoorBird_BlockGet($$$$) {
 	return($err, $data);
 }
 ####END####### Blocking Get ####################################################################################END#####
+
+###START###### Calculate relative path ########################################################################START####
+sub DoorBird_Rel_Path($$) {
+	my ($start,$target) = @_;
+	$start 				=~ s:/[^/]+:/:;    # remove trailing filename
+	my @spath 			= grep {$_ ne ''} split(/\//,$start); 
+	my @tpath 			= grep {$_ ne ''} split(/\//,$target);
+
+	# strip common start of the path
+	while ( @spath && @tpath && $spath[0] eq $tpath[0]) {
+		shift @spath;
+		shift @tpath;
+	}
+
+	return ("../"x(@spath)).join('/', @tpath);
+}
+####END####### Calculate relative path #########################################################################END#####
+
+###START###### Processing Change Log ##########################################################################START####
+# Changelog parser for DoorBird changelog as of 2020-02-22 (or earlier) containing multiple product lines. 
+# Returns a hash ref containing the newest version number for each product name or prefix found.
+#
+# Prefixes are denoted by a trailing 'x', as in the original changelog. Note:
+# this means that still multiple versions matching a single product could be in the hash, 
+# e. g. for different prefixes all matching the final product name.
+
+sub DoorBird_parseChangelog($$)
+{
+	my ($hash, $data) = @_;
+	my $name = $hash->{NAME};
+
+	my $lines = IO::String->new($data);
+	my $all_versions;
+	my $version;
+
+	### For all lines do
+	while(my $line = <$lines>) 	{
+
+		### If the line contains the keywords "Firmware version " followed by a number then obtain it
+		if ($line =~ /^Firmware version (\d{6})$/) 	{
+			$version = $1;
+		}
+
+		### If the line contains the keywords "Products affected: " then obtain it
+		elsif ($line =~ /^Products affected: (.*)$/) {
+
+			### If version is already obtained from the changelog
+			if (defined($version)) {
+				
+				### Split the product names into an array
+				my @products = split(/,\s*/, $1);
+
+				### For each product name mentioned in the changelog
+				foreach my $product (@products) {
+					### Apparently the line of the "Products affected" in current changelog file is not closed with an \r so we ignore this array - entry
+					next if $product =~ /Preceding version: /;
+					
+					### If the Product version for the firmware ha snot yet been defined or the already obtaine version number is older than the current value
+					if (!defined($all_versions->{$product}) or 0 + $all_versions->{$product} < 0 + $version) {
+						
+						### Log Entry for debugging purposes
+						Log3 $name, 5, $name. " : DoorBird_parseChangelog - found firmware version  : " . $version . " for " . $product;
+						
+						### Save latest firmware version
+						$all_versions->{$product} = $version;
+					}
+				}
+				undef $version;
+			}
+			### If version cannot be found
+			else
+			{
+				### Log Entry for debugging purposes
+				Log3 $name, 3, $name. " : DoorBird_parseChangelog - Products without version found in changelog, ignored.";
+			}
+		}
+	}
+	return $all_versions;
+}
+
+# Find newest firmware version for this device by name or prefix.
+# The versions hash ref expected as second argument should match the format returned from DoorBird_parseChangelog().
+sub DoorBird_findNewestFWVersion($$$)
+{
+	my ($hash, $versions, $product_name) = @_;
+	my $name	 = $hash->{NAME};
+	my $newest = 0;
+
+	### For all version entries
+	foreach my $product (sort keys %$versions)
+	{
+		### Optional prefix matching
+		my $prefix = $product;
+		$prefix =~ s/x$//;
+
+		### If the installed product name is (partial) identical with the product name given in the changelog file entry
+		if (length($prefix) <= length($product_name) and $prefix eq substr($product_name, 0, length($prefix)) and 0 + $newest < 0 + $versions->{$product}) {
+			$newest = $versions->{$product};
+		}
+	}
+
+	return $newest;
+}
+####END####### Processing Change Log ###########################################################################END#####
+
 1;
 
 ###START###### Description for fhem commandref ################################################################START####
@@ -4052,7 +4595,6 @@ sub DoorBird_BlockGet($$$$) {
 =item device
 =item summary    Connects fhem to the DoorBird IP door station
 =item summary_DE Verbindet fhem mit der DoorBird IP T&uuml;rstation
-
 =begin html
 
 <a name="DoorBird"></a>
@@ -4069,6 +4611,7 @@ sub DoorBird_BlockGet($$$$) {
 					<li>sudo apt-get install sox					</li>
 					<li>sudo apt-get install libsox-fmt-all			</li>
 					<li>sudo apt-get install libsodium-dev			</li>
+					<li>sudo apt-get install gstreamer1.0-tools     </li>
 					<li>sudo cpan Crypt::Argon2						</li>
 					<li>sudo cpan Alien::Base::ModuleBuild			</li>
 					<li>sudo cpan Alien::Sodium						</li>
@@ -4078,7 +4621,6 @@ sub DoorBird_BlockGet($$$$) {
 		</tr>
 	</table>
 	<BR>
-
 	<table>
 		<tr>
 			<td>
@@ -4086,7 +4628,6 @@ sub DoorBird_BlockGet($$$$) {
 			</td>
 		</tr>
 	</table>
-
 	<table>
 		<tr>
 			<td>
@@ -4096,7 +4637,6 @@ sub DoorBird_BlockGet($$$$) {
 			</td>
 		</tr>
 	</table>
-
 	<ul>
 		<ul>
 			<table>
@@ -4107,15 +4647,11 @@ sub DoorBird_BlockGet($$$$) {
 			</table>
 		</ul>
 	</ul>
-
 	<BR>
-
 	<table>
 		<tr><td><a name="DoorBirdSet"></a><b>Set</b></td></tr>
 		<tr><td><ul>The set function is able to change or activate the following features as follows:</ul></td></tr>
 	</table>
-
-
 	<table>
 		<tr><td><ul><code>set Light_On                    </code></ul></td><td> : Activates the IR lights of the DoorBird unit. The IR - light deactivates automatically by the default time within the Doorbird unit																			</td></tr>
 		<tr><td><ul><code>set Live_Audio &lt;on:off&gt;   </code></ul></td><td> : Activate/Deactivate the Live Audio Stream of the DoorBird on or off and toggles the direct link in the <b>hidden</b> Reading <code>.AudioURL</code>															</td></tr>
@@ -4124,8 +4660,6 @@ sub DoorBird_BlockGet($$$$) {
 		<tr><td><ul><code>set Restart                     </code></ul></td><td> : Sends the command to restart (reboot) the Doorbird unit																																						</td></tr>
 		<tr><td><ul><code>set Transmit_Audio &lt;Path&gt; </code></ul></td><td> : Converts a given audio file and transmits the stream to the DoorBird speaker. Requires a datapath to audio file to be converted and send. The user "fhem" needs to have write access to this directory.<BR>	</td></tr>
 	</table>
-
-
 	<table>
 		<tr><td><a name="DoorBirdGet"></a><b>Get</b></td></tr>
 		<tr><td>
@@ -4137,10 +4671,9 @@ sub DoorBird_BlockGet($$$$) {
 	<table>
 		<tr><td><ul><code>get History_Request             </code></ul></td><td> : Downloads the pictures of the last events of the doorbell and motion sensor. (Refer to attribute <code>MaxHistory</code>)																						</td></tr>
 		<tr><td><ul><code>get Image_Request               </code></ul></td><td> : Downloads the current Image of the camera of DoorBird unit.																																					</td></tr>
+		<tr><td><ul><code>get Video_Request &lt;Value&gt; </code></ul></td><td> : Downloads the current Video of the camera of DoorBird unit for th etime in seconds given.																														</td></tr>
 		<tr><td><ul><code>get Info_Request                </code></ul></td><td> : Downloads the current internal setup such as relay configuration, firmware version etc. of the DoorBird unit. The obtained relay adresses will be used as options for the <code>Open_Door</code> command.		</td></tr>
 	</table>
-
-
 	<table>
 		<tr><td><a name="DoorBirdAttr"></a><b>Attributes</b></td></tr>
 		<tr><td>
@@ -4149,7 +4682,6 @@ sub DoorBird_BlockGet($$$$) {
 			</ul>
 		</td></tr>
 	</table>
-
 	<ul>
 		<table>
 			<tr>
@@ -4174,34 +4706,18 @@ sub DoorBird_BlockGet($$$$) {
 				<td>
 					<code>PollingTimeout</code> : </td><td>Timeout in seconds before download requests are terminated in cause of no reaction by DoorBird unit. Might be required to be adjusted due to network speed.<BR>
 																   The default value is 10s.<BR>
-
 				</td>
 			</tr>
 			<tr>
 				<td>
 					<code>UdpPort</code> : </td><td>Port number to be used to receice UDP datagrams. Ports are pre-defined by firmware.<BR>
 																   The default value is port 6524<BR>
-
-				</td>
-			</tr>
-			<tr>
-				<td>
-					<code>SipDevice</code> : </td><td>Name of the fhem SIP device which is registered in the DoorBird unit as those ones who are allowed to call the DoorBird. Refer to <a href="#SIP">SIP</a>.<BR>
-																   The default value is the first SIP device in fhem.<BR>
-
 				</td>
 			</tr>
 			<tr>
 				<td>
 					<code>SessionIdSec</code> : </td><td>Time in seconds for how long the session Id shall be valid, which is required for secure Video and Audio transmission. The DoorBird kills the session Id after 10min = 600s automatically. In case of use with CCTV recording units, this function must be disabled by setting to 0.<BR>
 																   The default value is 540s = 9min.<BR>
-
-				</td>
-			</tr>
-			<tr>
-				<td>
-					<code>SipNumber</code> : </td><td>The telephone number under which the DoorBird unit is registered and can be called.<BR>
-																   The default value is <code>**620</code><BR>
 				</td>
 			</tr>
 			<tr>
@@ -4257,13 +4773,17 @@ sub DoorBird_BlockGet($$$$) {
 					<code>OpsModeList</code> : </td><td>A space separated list of names for operational modes (e.g. "Normal Party Fire") on which the DoorBird reacts automatically on events.<BR>
    																   The default value is <code>""</code> = disabled<BR>
 				</td>
-			</tr>			
+			</tr>
+			<tr>
+				<td>
+					<code>HistoryFilePath</code> : </td><td>Creates relative datapaths to the last pictures, and videos in order to indicate them directly (e.g. fhem ftui widget "image")<BR>
+   																   The default value is <code>"0"</code> = disabled<BR>
+				</td>
+			</tr>
 		</table>
 	</ul>
 </ul>
 =end html
-
-
 =begin html_DE
 
 <a name="DoorBird"></a>
@@ -4280,6 +4800,7 @@ sub DoorBird_BlockGet($$$$) {
 					<li>sudo apt-get install sox					</li>
 					<li>sudo apt-get install libsox-fmt-all			</li>
 					<li>sudo apt-get install libsodium-dev			</li>
+					<li>sudo apt-get install gstreamer1.0-tools     </li>
 					<li>sudo cpan Crypt::Argon2						</li>
 					<li>sudo cpan Alien::Base::ModuleBuild			</li>
 					<li>sudo cpan Alien::Sodium						</li>
@@ -4289,7 +4810,6 @@ sub DoorBird_BlockGet($$$$) {
 		</tr>
 	</table>
 	<BR>
-
 	<table>
 		<tr>
 			<td>
@@ -4297,7 +4817,6 @@ sub DoorBird_BlockGet($$$$) {
 			</td>
 		</tr>
 	</table>
-
 	<table>
 		<tr>
 			<td>
@@ -4307,7 +4826,6 @@ sub DoorBird_BlockGet($$$$) {
 			</td>
 		</tr>
 	</table>
-
 	<ul>
 		<ul>
 			<table>
@@ -4318,14 +4836,11 @@ sub DoorBird_BlockGet($$$$) {
 			</table>
 		</ul>
 	</ul>
-
 	<BR>
-
 	<table>
 		<tr><td><a name="DoorBirdSet"></a><b>Set</b></td></tr>
 		<tr><td><ul>Die Set - Funktion ist in der lage auf der DoorBird - Anlage die folgenden Einstellungen vorzunehmen bzw. zu de-/aktivieren:</ul><BR></td></tr>
 	</table>
-
 	<table>
 		<tr><td><ul><code>set Light_On                    </code></ul></td><td> : Schaltet das IR lichht der DoorBird Anlage ein. Das IR Licht schaltet sich automatisch nach der in der DoorBird - Anlage vorgegebenen Default Zeit wieder aus.																	</td></tr>
 		<tr><td><ul><code>set Live_Audio &lt;on:off&gt;   </code></ul></td><td> : Aktiviert/Deaktiviert den Live Audio Stream der DoorBird - Anlage Ein oder Aus und wechselt den direkten link in dem <b>versteckten</b> Reading <code>.AudioURL.</code>															</td></tr>
@@ -4334,8 +4849,6 @@ sub DoorBird_BlockGet($$$$) {
 		<tr><td><ul><code>set Restart                     </code></ul></td><td> : Sendet das Kommando zum rebooten der DoorBird - Anlage.																																											</td></tr>
 		<tr><td><ul><code>set Transmit_Audio &lt;Path&gt; </code></ul></td><td> : Konvertiert die angegebene Audio-Datei und sendet diese zur Ausgabe an die DoorBird - Anlage. Es ben&ouml;tigt einen Dateipfad zu der Audio-Datei zu dem der User "fhem" Schreibrechte braucht (z.B.: /opt/fhem/audio).			</td></tr>
 	</table>
-
-
 	<table>
 		<tr><td><a name="DoorBirdGet"></a><b>Get</b></td></tr>
 		<tr><td><ul>Die Get - Funktion ist in der lage von der DoorBird - Anlage die folgenden Informationen und Daten zu laden:<BR><BR></ul></td></tr>
@@ -4343,10 +4856,9 @@ sub DoorBird_BlockGet($$$$) {
 	<table>
 		<tr><td><ul><code>get History_Request             </code></ul></td><td> : L&auml;dt die Bilder der letzten Ereignisse durch die T&uuml;rklingel und dem Bewegungssensor herunter. (Siehe auch Attribut <code>MaxHistory</code>)</td></tr>
 		<tr><td><ul><code>get Image_Request               </code></ul></td><td> : L&auml;dt das gegenw&auml;rtige Bild der DoorBird - Kamera herunter.</td></tr>
+		<tr><td><ul><code>get Video_Request &lt;Value&gt; </code></ul></td><td> : L&auml;dt das gegenw&auml;rtige Video der DoorBird - Kamera f&uumlr die gegebene Zeit in Sekunden herunter.</td></tr>
 		<tr><td><ul><code>get Info_Request                </code></ul></td><td> : L&auml;dt das interne Setup (Firmware Version, Relais Konfiguration etc.) herunter. Die &uuml;bermittelten Relais-Adressen werden als Option f&uuml;r das Kommando <code>Open_Door</code> verwendet.</td></tr>
 	</table>
-
-
 	<table>
 		<tr><td><a name="DoorBirdAttr"></a><b>Attributes</b></td></tr>
 		<tr><td>
@@ -4355,7 +4867,6 @@ sub DoorBird_BlockGet($$$$) {
 			</ul>
 		</td></tr>
 	</table>
-
 	<ul>
 		<table>
 			<tr>
@@ -4391,18 +4902,6 @@ sub DoorBird_BlockGet($$$$) {
 				<td>
 					<code>SessionIdSec</code> : </td><td>Zeit in Sekunden nach welcher die Session Id erneuert werden soll. Diese ist f&uuml;r die sichere &Uuml;bertragung der Video und Audio Verbindungsdaten notwendig. Die DoorBird-Unit devalidiert die Session Id automatisch nach 10min. F&uuml;r den Fall, dass die DoorBird Kamera an ein &Uuml;berwachungssystem angebunden werden soll, muss diese Funktion ausser Betrieb genommen werden indem man den Wert auf 0 setzt 0.<BR>
 																   Der Default Wert ist 540s = 9min.<BR>
-				</td>
-			</tr>
-			<tr>
-				<td>
-					<code>SipDevice</code> : </td><td>Name des fhem SIP Device mit wessen Nummer in der DoorBird - Anlage hinterlegt wurde die die DoorBird - Anlage  anrufen d&uuml;rfen. Refer to <a href="#SIP">SIP</a>.<BR>
-																   Der Default Wert ist das erste SIP device in fhem.<BR>
-				</td>
-			</tr>
-			<tr>
-				<td>
-					<code>SipNumber</code> : </td><td>Die Telefonnummer unter der die DoorBird / Anlage registriert und erreicht werden kann.<BR>
-																   Der Default Wert ist <code>**620</code><BR>
 				</td>
 			</tr>
 			<tr>
@@ -4458,14 +4957,18 @@ sub DoorBird_BlockGet($$$$) {
 					<code>OpsModeList</code> : </td><td>Eine durch Leerzeichen getrennte Liste von Namen für Operationszust&auml;nde (e.g. "Normal Party Feuer" auf diese der DoorBird automatisch bei Events reagiert.<BR>
    																   Der Default Wert ist "" = deaktiviert<BR>
 				</td>
-			</tr>			
+			</tr>
+			<tr>
+				<td>
+					<code>HistoryFilePath</code> : </td><td>Erstellt Dateipfade zu den letzten Bildern und Videos um sie in den User Interfaces direkt anzuzeigen (e.g. fhem ftui Widget "Image")<BR>
+   																   Der Default Wert ist <code>"0"</code> = disabled<BR>
+				</td>
+			</tr>
 		</table>
 	</ul>
 </ul>
 =end html_DE
-
 =encoding utf8
-
 =for :application/json;q=META.json 73_DoorBird.pm
 {
   "abstract": "Connects fhem to the DoorBird IP door station",
@@ -4496,6 +4999,7 @@ sub DoorBird_BlockGet($$$$) {
         "Alien::Sodium": 0,
         "Crypt::Argon2": 0,
         "Crypt::NaCl::Sodium": 0,
+		"IO::String": 0,
         "Cwd": 0,
         "Data::Dumper": 0,
         "Encode": 0,
@@ -4521,7 +5025,8 @@ sub DoorBird_BlockGet($$$$) {
       "requires": {
         "sox": 0,
         "libsox-fmt-all": 0,
-        "libsodium-dev": 0
+        "libsodium-dev": 0,
+		"gstreamer1.0-tools": 0
       },
       "recommends": {
       },
@@ -4531,5 +5036,4 @@ sub DoorBird_BlockGet($$$$) {
   }
 }
 =end :application/json;q=META.json
-
 =cut

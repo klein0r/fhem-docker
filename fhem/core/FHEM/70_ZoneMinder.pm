@@ -25,7 +25,7 @@
 #
 # Discussed in FHEM Forum: https://forum.fhem.de/index.php/topic,91847.0.html
 #
-# $Id: 70_ZoneMinder.pm 20463 2019-11-06 14:11:20Z delmar $
+# $Id: 70_ZoneMinder.pm 22251 2020-06-24 13:13:36Z delmar $
 #
 ##############################################################################
 
@@ -99,7 +99,12 @@ sub ZoneMinder_Define {
   my $triggerPortState = $hash->{STATE};
   ZoneMinder_updateState( $hash, $triggerPortState, 'n/a' );
 
-  ZoneMinder_afterInitialized($hash);
+  if (!$init_done) {
+    InternalTimer(gettimeofday()+5, "ZoneMinder_afterInitialized", $hash, 0);
+  }
+  else {
+    ZoneMinder_afterInitialized($hash);
+  }
 
   return undef;
 }

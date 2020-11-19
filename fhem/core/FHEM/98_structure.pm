@@ -1,4 +1,4 @@
-# $Id: 98_structure.pm 20453 2019-11-04 12:25:04Z rudolfkoenig $
+# $Id: 98_structure.pm 22721 2020-09-03 18:51:29Z rudolfkoenig $
 ##############################################################################
 #
 #     98_structure.pm
@@ -48,6 +48,7 @@ structure_Initialize($)
     clientstate_priority
     disable
     disabledForIntervals
+    considerDisabledMembers
     evaluateSetResult:1,0
     propagateAttr
     setStateIndirectly:1,0
@@ -142,6 +143,7 @@ structure_setDevs($;$)
   $hash->{".memberHash"} = \%list;
   $hash->{".memberList"} = \@list;
   delete $hash->{".cachedHelp"};
+  notifyRegexpChanged($hash, 'global|'.join('|', @list));
 }
 
 #############################
@@ -175,8 +177,9 @@ structure_Notify($$)
   my ($hash, $dev) = @_;
   my $me = $hash->{NAME};
   my $devmap = $hash->{ATTR}."_map";
+  my $devName = $dev->{NAME};
 
-  if($dev->{NAME} eq "global") {
+  if($devName eq "global") {
     my $max = int(@{$dev->{CHANGED}});
     for (my $i = 0; $i < $max; $i++) {
       my $s = $dev->{CHANGED}[$i];
@@ -206,7 +209,7 @@ structure_Notify($$)
 
   return "" if(IsDisabled($me));
 
-  return "" if (! exists $hash->{".memberHash"}->{$dev->{NAME}});
+  return "" if (! exists $hash->{".memberHash"}->{$devName});
 
   my $behavior = AttrVal($me, "clientstate_behavior", "absolute");
   my %clientstate;
@@ -232,12 +235,12 @@ structure_Notify($$)
         $priority[$i+1]=$foo[0];
       }
   }
-  
   my $minprio = 99999;
   my $devstate;
-
+  my $stateCause="";
+  my $cdm = AttrVal($me, "considerDisabledMembers", undef);
   foreach my $d (sort keys %{ $hash->{".memberHash"} }) {
-    next if(!$defs{$d} || IsDisabled($d));
+    next if(!$defs{$d} || (!$cdm && IsDisabled($d)));
 
     if($attr{$d} && $attr{$d}{$devmap}) {
       my @gruppe = attrSplit($attr{$d}{$devmap});
@@ -271,8 +274,10 @@ structure_Notify($$)
             delete($hash->{INNTFY});
             return "";
           }
-          $minprio = $priority{$devstate}
-                if($priority{$devstate} && $priority{$devstate} < $minprio);
+          if($priority{$devstate} && $priority{$devstate} < $minprio) {
+            $minprio = $priority{$devstate};
+            $stateCause = $d;
+          }
           $clientstate{$devstate} = 1;
         }
       }
@@ -285,8 +290,10 @@ structure_Notify($$)
           delete($hash->{INNTFY});
           return "";
         }
-        $minprio = $priority{$devstate}
-              if($priority{$devstate} && $priority{$devstate} < $minprio);
+        if($priority{$devstate} && $priority{$devstate} < $minprio) {
+          $minprio = $priority{$devstate};
+          $stateCause = $d;
+        }
         $clientstate{$devstate} = 1;
       }
     }
@@ -294,27 +301,32 @@ structure_Notify($$)
     $hash->{".memberHash"}{$d} = $devstate;
   }
 
+  $devstate = ReadingsVal($devName, AttrVal($devName,$devmap,"state"),undef);
+  $devstate = $defs{$devName}{STATE} if(!defined($devstate));
+  $devstate = "undefined" if(!defined($devstate));
+
   my $newState = "undefined";
   if($behavior eq "absolute"){
     my @cKeys = keys %clientstate;
     $newState = (@cKeys == 1 ? $cKeys[0] : "undefined");
+    $stateCause = "different states: ".join(",", @cKeys);
 
   } elsif($behavior =~ "^relative" && $minprio < 99999) {
     $newState = $priority[$minprio];
 
   } elsif($behavior eq "last"){
-    my $readingName = AttrVal($dev->{NAME}, $devmap, "state");
-    $newState = ReadingsVal($dev->{NAME}, $readingName, undef);
-    $newState = "undefined" if(!defined($newState));
+    $newState = $devstate;
 
   }
 
-  Log3 $me, 5, "Update structure '$me' to $newState" .
-              " because device $dev->{NAME} has changed";
+  my $dStr = "structure $me: event from $devName: setting state to $newState";
+  $dStr .= ", cause $stateCause" if($newState ne $devstate);
+  Log3 $me, 5, $dStr;
+
   readingsBeginUpdate($hash);
-  readingsBulkUpdate($hash, "LastDevice", $dev->{NAME}, 0);
+  readingsBulkUpdate($hash, "LastDevice", $devName, 0);
   readingsBulkUpdate($hash, "LastDevice_Abs",
-                                structure_getChangedDevice($dev->{NAME}), 0);
+                                structure_getChangedDevice($devName), 0);
   readingsBulkUpdate($hash, "state", $newState);
   readingsEndUpdate($hash, 1);
   $hash->{CHANGEDCNT}++;
@@ -539,7 +551,7 @@ structure_Attr($@)
     userattr=>1
   );
 
-  return undef if($ignore{$list[1]} || !$init_done);
+  return undef if(($ignore{$list[1]} && $featurelevel <= 5.9) || !$init_done);
 
   my $me = $list[0];
   my $hash = $defs{$me};
@@ -668,6 +680,12 @@ structure_Attr($@)
     <li><a href="#disable">disable</a></li>
     <li><a href="#disabledForIntervals">disabledForIntervals</a></li>
 
+    <a name="structureconsiderDisabledMembers"></a>
+    <li>considerDisabledMembers<br>
+        if set, consider disabled members when computing the overall state of
+        the structure. If not set or set to 0, disabled members are ignored.
+        </li>
+
     <a name="clientstate_behavior"></a>
     <li>clientstate_behavior<br>
         The backward propagated status change from the devices to this structure
@@ -686,7 +704,8 @@ structure_Attr($@)
           clientstate_priority. Needed e.g. for HomeMatic devices.
           </li>
         <li>last<br>
-          The structure state corresponds to the state of the device last changed.
+          The structure state corresponds to the state of the device last
+          changed.
           </li>
         </ul>
         </li>
@@ -734,6 +753,8 @@ structure_Attr($@)
           <li>attr door struct_kitchen_map A:open:on A:closed:off</li>
           <li>attr door2 struct_kitchen_map A</li>
         </ul>
+        If this attribute is not set, the member devices state reading is taken,
+        or, if also absent, the STATE internal.
         </li>
 
     <a name="evaluateSetResult"></a>
@@ -748,6 +769,12 @@ structure_Attr($@)
       if the regexp matches the name of the attribute, then this attribute will
       be propagated to all the members. The default is .* (each attribute) for
       featurelevel <= 5.9, else ^$ (no attribute).
+      Note: the following attibutes were never propagated for featurelevel<=5.9
+      <ul>
+        alias async_delay clientstate_behavior clientstate_priority
+        devStateIcon disable disabledForIntervals group icon room propagateAttr
+        setStateIndirectly stateFormat webCmd userattr
+      </ul>
       </li>
 
     <li>setStateIndirectly<br>
@@ -879,6 +906,12 @@ structure_Attr($@)
     <li><a href="#disable">disable</a></li>
     <li><a href="#disabledForIntervals">disabledForIntervals</a></li>
 
+    <a name="structureconsiderDisabledMembers"></a>
+    <li>considerDisabledMembers<br>
+        wenn gesetzt (auf 1), werden "disabled" Mitglieder bei der Berechnung
+        der Struktur-Status ber&uuml;cksichtigt, sonst werden diese ignoriert.
+        </li>
+
     <a name="clientstate_behavior"></a>
     <li>clientstate_behavior<br>
       Der Status einer Struktur h&auml;ngt von den Status der zugef&uuml;gten
@@ -962,6 +995,8 @@ structure_Attr($@)
         <li>attr tuer struct_kitchen_map A:open:on A:closed:off</li>
         <li>attr tuer2 struct_kitchen_map A</li>
       </ul>
+      Ist das Attribut nicht gesetzt, wertet structure den state des Devices
+      aus, bzw. falls dieser nicht existiert, dessen STATE.
       </li>
 
     <a name="evaluateSetResult"></a>
@@ -977,6 +1012,13 @@ structure_Attr($@)
       Attribut an allen Mitglieder weitergegeben. F&uuml;r featurelevel <= 5.9
       ist die Voreinstellung .* (d.h. alle Attribute), sonst ^$ (d.h. keine
       Attribute).
+      <br>Achtung: folgende Attribute wurden fuer featurelevel<=5.9 nicht
+      weitervererbt:
+      <ul>
+        alias async_delay clientstate_behavior clientstate_priority
+        devStateIcon disable disabledForIntervals group icon room propagateAttr
+        setStateIndirectly stateFormat webCmd userattr
+      </ul>
       </li>
 
     <li>setStateIndirectly<br>

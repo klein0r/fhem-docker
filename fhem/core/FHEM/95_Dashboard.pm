@@ -1,10 +1,10 @@
-﻿# $Id: 95_Dashboard.pm 20323 2019-10-06 20:12:38Z DS_Starter $
+﻿# $Id: 95_Dashboard.pm 21180 2020-02-11 21:04:55Z DS_Starter $
 ########################################################################################
 #       95_Dashboard.pm
 #
 #       written and released by Sascha Hermann 2013
 #      
-#       maintained 2019 by Heiko Maaz
+#       maintained 2019-2020 by Heiko Maaz
 #       e-mail: Heiko dot Maaz at t-online dot de
 # 
 #       This script is part of fhem.
@@ -42,6 +42,7 @@ package main;
 use strict;
 use warnings;
 eval "use FHEM::Meta;1" or my $modMetaAbsent = 1;
+use Data::Dumper;  
 
 use vars qw(%FW_icons); 	# List of icons
 use vars qw($FW_dir);      	# base directory for web server
@@ -55,6 +56,7 @@ use vars qw($FW_ss);      	# is smallscreen, needed by 97_GROUP/95_VIEW
 
 # Versions History intern
 our %Dashboard_vNotesIntern = (
+  "3.17.1" => "10.02.2020  fix perl warning, Forum: https://forum.fhem.de/index.php/topic,16503.msg1023004.html#msg1023004 ",
   "3.17.0" => "06.10.2019  Path handling of backgroundimage changed ",
   "3.16.0" => "04.10.2019  new attribute dashboard_hideGroupHeader, commandref revised ",   
   "3.15.2" => "29.09.2019  fix warnings, Forum: https://forum.fhem.de/index.php/topic,16503.msg978883.html#msg978883 ",
@@ -1053,9 +1055,18 @@ sub Dashboard_GetActiveTab ($;$) {
   }
   
   if (defined($FW_httpheader{Cookie})) {
-      Log3 ($name, 4, "Dashboard $name - Cookie set: ".$FW_httpheader{Cookie});
-      my %cookie = map({ split('=', $_) } split(/; */, $FW_httpheader{Cookie}));
-      if (defined($cookie{dashboard_activetab})) {
+      Log3 ($name, 4, "Dashboard $name - Cookie delivered: ".$FW_httpheader{Cookie});
+
+      # my %cookie = map({ split('=', $_) } split(/; */, $FW_httpheader{Cookie}));	  
+      my %cookie;                                                            # 10.02.2020, Forum: https://forum.fhem.de/index.php/topic,16503.msg1023004.html#msg1023004
+	  foreach (split(/; */, $FW_httpheader{Cookie})) {
+	      my ($k,$v) = split('=', $_);
+		  next if(!defined $v);
+		  $cookie{$k} = $v;
+	  }
+	 
+      Log3($name, 5, "Dashboard $name - Cookie Hash: ". Dumper %cookie);
+	  if (defined($cookie{dashboard_activetab})) {
           $activeTab = $cookie{dashboard_activetab};
           $activeTab = ($activeTab <= $maxTab)?$activeTab:$maxTab;
       }
@@ -1105,12 +1116,12 @@ sub Dashboard_setVersionInfo($) {
   
   if($modules{$type}{META}{x_prereqs_src} && !$hash->{HELPER}{MODMETAABSENT}) {   # META-Daten sind vorhanden
 	  $modules{$type}{META}{version} = "v".$v;                                    # Version aus META.json überschreiben, Anzeige mit {Dumper $modules{SMAPortal}{META}}
-	  if($modules{$type}{META}{x_version}) {                                      # {x_version} ( nur gesetzt wenn $Id: 95_Dashboard.pm 20323 2019-10-06 20:12:38Z DS_Starter $ im Kopf komplett! vorhanden )
+	  if($modules{$type}{META}{x_version}) {                                      # {x_version} ( nur gesetzt wenn $Id: 95_Dashboard.pm 21180 2020-02-11 21:04:55Z DS_Starter $ im Kopf komplett! vorhanden )
 		  $modules{$type}{META}{x_version} =~ s/1.1.1/$v/g;
 	  } else {
 		  $modules{$type}{META}{x_version} = $v; 
 	  }
-	  return $@ unless (FHEM::Meta::SetInternals($hash));                         # FVERSION wird gesetzt ( nur gesetzt wenn $Id: 95_Dashboard.pm 20323 2019-10-06 20:12:38Z DS_Starter $ im Kopf komplett! vorhanden )
+	  return $@ unless (FHEM::Meta::SetInternals($hash));                         # FVERSION wird gesetzt ( nur gesetzt wenn $Id: 95_Dashboard.pm 21180 2020-02-11 21:04:55Z DS_Starter $ im Kopf komplett! vorhanden )
 	  if(__PACKAGE__ eq "FHEM::$type" || __PACKAGE__ eq $type) {                  # es wird mit Packages gearbeitet -> Perl übliche Modulversion setzen
 	      use version 0.77; our $VERSION = FHEM::Meta::Get( $hash, 'version' );   # mit {<Modul>->VERSION()} im FHEMWEB kann Modulversion abgefragt werden                                       
       }

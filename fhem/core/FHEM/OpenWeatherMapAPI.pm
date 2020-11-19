@@ -1,4 +1,4 @@
-# $Id: OpenWeatherMapAPI.pm 20155 2019-09-13 10:22:36Z CoolTux $
+# $Id: OpenWeatherMapAPI.pm 21777 2020-04-25 23:53:13Z CoolTux $
 ###############################################################################
 #
 # Developed with Kate
@@ -36,7 +36,6 @@ package OpenWeatherMapAPI;
 use strict;
 use warnings;
 use FHEM::Meta;
-use Data::Dumper;
 
 FHEM::Meta::Load(__PACKAGE__);
 use version 0.50; our $VERSION = $main::packages{OpenWeatherMapAPI}{META}{version};
@@ -47,6 +46,8 @@ use warnings;
 
 use POSIX;
 use HttpUtils;
+
+# use Data::Dumper;
 
 # try to use JSON::MaybeXS wrapper
 #   for chance of better performance + open code
@@ -124,7 +125,7 @@ eval "use Encode qw(encode_utf8);1" or $missingModul .= "Encode ";
 
 # use Data::Dumper;    # for Debug only
 ## API URL
-use constant URL     => 'https://api.openweathermap.org/data/2.5/';
+use constant URL => 'https://api.openweathermap.org/data/2.5/';
 ## URL . 'weather?' for current data
 ## URL . 'forecast?' for forecast data
 
@@ -207,14 +208,15 @@ sub new {
     $self->{cachemaxage} = (
         defined( $apioptions->{cachemaxage} )
         ? $apioptions->{cachemaxage}
-        : 900 );
+        : 900
+    );
     $self->{cached} = _CreateForecastRef($self);
 
     bless $self, $class;
     return $self;
 }
 
-sub parseApiOptions($) {
+sub parseApiOptions {
     my $apioptions = shift;
 
     my @params;
@@ -246,10 +248,10 @@ sub setRetrieveData {
 }
 
 sub setLocation {
-    my ($self,$lat,$long) = @_;
+    my ( $self, $lat, $long ) = @_;
 
-    $self->{lat}            = $lat;
-    $self->{long}           = $long;
+    $self->{lat}  = $lat;
+    $self->{long} = $long;
 
     return 0;
 }
@@ -266,19 +268,18 @@ sub getWeather {
     return $self->{cached};
 }
 
-sub _RetrieveDataFromOpenWeatherMap($) {
+sub _RetrieveDataFromOpenWeatherMap {
     my $self = shift;
 
     # retrieve data from cache
-    if (  ( time() - $self->{fetchTime} ) < $self->{cachemaxage}
+    if (    ( time() - $self->{fetchTime} ) < $self->{cachemaxage}
         and $self->{cached}->{lat} == $self->{lat}
-        and $self->{cached}->{long} == $self->{long}
-      )
+        and $self->{cached}->{long} == $self->{long} )
     {
         return _CallWeatherCallbackFn($self);
     }
 
-    $self->{cached}->{lat}  = $self->{lat}
+    $self->{cached}->{lat} = $self->{lat}
       unless ( $self->{cached}->{lat} == $self->{lat} );
     $self->{cached}->{long} = $self->{long}
       unless ( $self->{cached}->{long} == $self->{long} );
@@ -326,9 +327,11 @@ sub _RetrieveDataFromOpenWeatherMap($) {
     }
 }
 
-sub _RetrieveDataFinished($$$) {
-    my ( $paramRef, $err, $response ) = @_;
-    my $self = $paramRef->{self};
+sub _RetrieveDataFinished {
+    my $paramRef = shift;
+    my $err      = shift;
+    my $response = shift;
+    my $self     = $paramRef->{self};
 
     if ( !$err ) {
         $self->{cached}->{status} = 'ok';
@@ -342,8 +345,9 @@ sub _RetrieveDataFinished($$$) {
     }
 }
 
-sub _ProcessingRetrieveData($$) {
-    my ( $self, $response ) = @_;
+sub _ProcessingRetrieveData {
+    my $self     = shift;
+    my $response = shift;
 
     if (    $self->{cached}->{status} eq 'ok'
         and defined($response)
@@ -401,6 +405,10 @@ sub _ProcessingRetrieveData($$) {
                             sprintf( "%.1f",
                                 ( $data->{main}->{temp_max} - 273.15 ) ) + 0.5
                         ),
+                        'tempFeelsLike_c' => int(
+                            sprintf( "%.1f",
+                                ( $data->{main}->{feels_like} - 273.15 ) ) + 0.5
+                        ),
                         'humidity' => $data->{main}->{humidity},
                         'condition' =>
                           encode_utf8( $data->{weather}->[0]->{description} ),
@@ -417,8 +425,6 @@ sub _ProcessingRetrieveData($$) {
                         ),
                         'wind_direction' => $data->{wind}->{deg},
                         'cloudCover'     => $data->{clouds}->{all},
-                        'visibility' =>
-                          int( sprintf( "%.1f", $data->{visibility} ) + 0.5 ),
                         'code'       => $codes{ $data->{weather}->[0]->{id} },
                         'iconAPI'    => $data->{weather}->[0]->{icon},
                         'sunsetTime' => strftimeWrapper(
@@ -434,6 +440,10 @@ sub _ProcessingRetrieveData($$) {
                             localtime( $data->{dt} )
                         ),
                     };
+
+                    $self->{cached}->{current}->{'visibility'} =
+                      int( sprintf( "%.1f", $data->{visibility} ) + 0.5 )
+                      if ( exists $data->{visibility} );
                 }
 
                 if ( $self->{endpoint} eq 'forecast' ) {
@@ -444,7 +454,7 @@ sub _ProcessingRetrieveData($$) {
                         delete $self->{cached}->{forecast};
 
                         my $i = 0;
-                        foreach ( @{ $data->{list} } ) {
+                        for ( @{ $data->{list} } ) {
                             push(
                                 @{ $self->{cached}->{forecast}->{hourly} },
                                 {
@@ -580,7 +590,7 @@ sub _ProcessingRetrieveData($$) {
     _CallWeatherCallbackFn($self) if ( $self->{endpoint} eq 'none' );
 }
 
-sub _CallWeatherCallbackFn($) {
+sub _CallWeatherCallbackFn {
     my $self = shift;
 
     #     print 'Dumperausgabe: ' . Dumper $self;
@@ -588,8 +598,9 @@ sub _CallWeatherCallbackFn($) {
     main::Weather_RetrieveCallbackFn( $self->{devName} );
 }
 
-sub _ErrorHandling($$) {
-    my ( $self, $err ) = @_;
+sub _ErrorHandling {
+    my $self = shift;
+    my $err  = shift;
 
     $self->{cached}->{current_date_time} =
       strftimeWrapper( "%a, %e %b %Y %H:%M", localtime( $self->{fetchTime} ) ),
@@ -597,7 +608,7 @@ sub _ErrorHandling($$) {
     $self->{cached}->{validity} = 'stale';
 }
 
-sub _CreateForecastRef($) {
+sub _CreateForecastRef {
     my $self = shift;
 
     my $forecastRef = (
@@ -606,14 +617,15 @@ sub _CreateForecastRef($) {
             long => $self->{long},
             apiMaintainer =>
 'Leon Gaultier (<a href=https://forum.fhem.de/index.php?action=profile;u=13684>CoolTux</a>)',
-            apiVersion    => version->parse(OpenWeatherMapAPI->VERSION())->normal,
+            apiVersion =>
+              version->parse( OpenWeatherMapAPI->VERSION() )->normal,
         }
     );
 
     return $forecastRef;
 }
 
-sub strftimeWrapper(@) {
+sub strftimeWrapper {
     my $string = POSIX::strftime(@_);
 
     $string =~ s/\xe4/ä/g;
@@ -636,7 +648,6 @@ sub strftimeWrapper(@) {
 
 1;
 
-
 =pod
 
 =encoding utf8
@@ -649,7 +660,7 @@ sub strftimeWrapper(@) {
       "abstract": "Wetter API für OpenWeatherMap"
     }
   },
-  "version": "v1.0.0",
+  "version": "v1.0.2",
   "author": [
     "Marko Oldenburg <leongaultier@gmail.com>"
   ],

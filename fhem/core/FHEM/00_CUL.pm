@@ -1,9 +1,10 @@
 ##############################################
-# $Id: 00_CUL.pm 17559 2018-10-18 07:45:07Z rudolfkoenig $
+# $Id: 00_CUL.pm 21659 2020-04-13 10:08:36Z rudolfkoenig $
 package main;
 
 use strict;
 use warnings;
+use DevIo;
 use Time::HiRes qw(gettimeofday);
 
 sub CUL_Attr(@);
@@ -126,8 +127,6 @@ CUL_Initialize($)
 {
   my ($hash) = @_;
 
-  require "$attr{global}{modpath}/FHEM/DevIo.pm";
-
 # Provider
   $hash->{ReadFn}  = "CUL_Read";
   $hash->{WriteFn} = "CUL_Write";
@@ -146,7 +145,7 @@ CUL_Initialize($)
     connectCommand
     do_not_notify:1,0
     dummy:1,0
-    hmId longids 
+    hmId maxid longids 
     hmProtocolEvents:0_off,1_dump,2_dumpFull,3_dumpTrigger 
     model:CUL,CUN,CUNO,SCC,nanoCUL
     rfmode:SlowRF,HomeMatic,MAX,WMBus_T,WMBus_S,WMBus_C,KOPP_FC 
@@ -928,7 +927,13 @@ CUL_Parse($$$$@)
     $dmsg .= "::$rssi:$name" if(defined($rssi));
 
   } elsif($fn eq "Z" && $len >= 21) {              # Moritz/Max
-    ;
+    my $src = lc(substr($dmsg,9,6));
+    if(exists($modules{MAX}{defptr}{$src}) && defined($rssi))
+    {
+     $modules{MAX}{defptr}{$src}{helper}{io}{$name}->{time} = gettimeofday();
+     $modules{MAX}{defptr}{$src}{helper}{io}{$name}->{rssi} = $rssi;
+     $modules{MAX}{defptr}{$src}{helper}{io}{$name}->{raw} = $dmsg;
+    }
   } elsif($fn eq "b" && $len >= 24) {              # Wireless M-Bus
     $dmsg .= "::$rssi" if (defined($rssi));
   } elsif($fn eq "t" && $len >= 5)  {              # TX3

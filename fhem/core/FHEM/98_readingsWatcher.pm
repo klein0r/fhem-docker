@@ -1,6 +1,8 @@
 ################################################################
+#  $Id: 98_readingsWatcher.pm 21853 2020-05-03 17:24:25Z Wzut $
+################################################################
 #
-#  $Id: 98_readingsWatcher.pm 20220 2019-09-21 17:39:21Z Wzut $
+#  98_readingsWatcher
 #
 #  (c) 2015,2016 Copyright: HCS,Wzut
 #  All rights reserved
@@ -13,495 +15,616 @@
 #  (at your option) any later version.
 #  The GNU General Public License can be found at
 #  http://www.gnu.org/copyleft/gpl.html.
-#  A copy is found in the textfile GPL.txt and important notices to the license
-#  from the author is found in LICENSE.txt distributed with these scripts.
 #  This script is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #  GNU General Public License for more details.
+#
+#
+#  2.1.3  =>  20.04.20 remove all $_ , add attribut delimiter
+#  2.1.2  =>  16.04.20 remove undef value for ReadingsAge
+#  2.1.1  =>  14.04.20 remove List::Utils
+#  2.1.0  =>  06.04.20
+#  2.0.0  =>  05.04.20 perlcritic -4 / PBP
+#  1.7.1  =>  25.01.20 fix ErrorValue 0
+#  1.7.0  =>  12.01.20 add OR / AND watching
+#  1.6.0  =>  27.08.19 package, Meta
+#  1.5.0  =>  18.02.19
+#  1.3.0  =>  26.01.18 use ReadingsAge
+#  1.2.0  =>  15.02.16 add Set, Get
+#  1.1.0  =>  14.02.16
+#  1.0.0  =>  (c) HCS, first version
+#
 ################################################################
 
+package FHEM::readingsWatcher;  ## no critic 'package'
+# das no critic könnte weg wenn die Module nicht mehr zwingend mit NN_ beginnnen müssen
 
-package main;
 use strict;
 use warnings;
-eval "use FHEM::Meta;1";
-
-#####################################################################################
-
-sub readingsWatcher_Initialize($) 
-{
-   my ($hash) = @_;
-   $hash->{GetFn}     = "FHEM::readingsWatcher::Get";
-   $hash->{SetFn}     = "FHEM::readingsWatcher::Set";
-   $hash->{DefFn}     = "FHEM::readingsWatcher::Define";
-   $hash->{UndefFn}   = "FHEM::readingsWatcher::Undefine";
-   $hash->{AttrFn}    = "FHEM::readingsWatcher::Attr";
-   $hash->{AttrList}  = "disable:0,1 interval deleteUnusedReadings:1,0 readingActivity ".$readingFnAttributes;
-
-   eval { FHEM::Meta::InitMod( __FILE__, $hash ) };          # für Meta.pm (https://forum.fhem.de/index.php/topic,97589.0.html)
-
- return;
-}
-
-###############################################################
-#                    Begin Package
-###############################################################
-package FHEM::readingsWatcher;
-use strict;
-use warnings;
-use GPUtils qw(:all);                   # wird für den Import der FHEM Funktionen aus der fhem.pl benötigt
-use POSIX;
+use utf8;
+use GPUtils qw(GP_Import GP_Export); # wird für den Import der FHEM Funktionen aus der fhem.pl benötigt
 use Time::HiRes qw(gettimeofday);
 
-eval "use FHEM::Meta;1" or my $modMetaAbsent = 1;
 
-# Run before module compilation
-BEGIN {
-  # Import from main::
-  GP_Import( 
-      qw(
-          attr
-          AttrVal
-          AttrNum
-          CommandAttr
-          addToAttrList
-          delFromAttrList
-          delFromDevAttrList
-          defs
-          devspec2array
-          init_done
-          InternalTimer
-          RemoveInternalTimer
-          IsDisabled
-          IsIgnored
-          Log3    
-          modules          
-          readingsSingleUpdate
-          readingsBulkUpdate
-          readingsBeginUpdate
-          readingsDelete
-          readingsEndUpdate
-          ReadingsNum
-          ReadingsAge
-          ReadingsTimestamp
-          ReadingsVal
-          setReadingsVal
-          CommandSetReading
-          CommandDeleteReading
-          gettimeofday
-          TimeNow
-        )
-  );
+BEGIN
+{
+    # Import from main::
+    GP_Import(
+	qw(
+	attr
+	AttrVal
+	AttrNum
+	CommandAttr
+	addToAttrList
+	delFromAttrList
+	delFromDevAttrList
+	defs
+	devspec2array
+	init_done
+	InternalTimer
+	RemoveInternalTimer
+	IsDisabled
+	IsIgnored
+	Log3
+	modules
+	readingsSingleUpdate
+	readingsBulkUpdate
+	readingsBeginUpdate
+	readingsDelete
+	readingsEndUpdate
+	readingFnAttributes
+	ReadingsNum
+	ReadingsAge
+	ReadingsTimestamp
+	ReadingsVal
+	setReadingsVal
+	CommandSetReading
+	CommandDeleteReading
+	gettimeofday
+	TimeNow)
+    );
+
+    # Export to main
+    GP_Export( qw(Initialize) );
 }
 
-# Versions History intern
-our %vNotesIntern = 
-(
- "1.6.0"  =>  "27.08.19 package, Meta",
- "1.5.0"  =>  "18.02.19",
- "1.3.0"  =>  "26.01.18 use ReadingsAge",
- "1.2.0"  =>  "15.02.16 add Set, Get",
- "1.1.0"  =>  "14.02.16",
- "1.0.0"  =>  "(c) HCS, first version"
-);
+my $hasmeta = 0;
+# ältere Installationen haben noch kein Meta.pm
+if (-e $attr{global}{modpath}.'/FHEM/Meta.pm') {
+    $hasmeta = 1;
+    require FHEM::Meta;
+}
 
-our %gets = ("devices:noArg"  => "");
-our %sets = ("checkNow:noArg" => "","inactive:noArg"=>"", "active:noArg"=>"" , "clearReadings:noArg"=>"");
+my @stateDevs;
+my @toDevs;
+my @deadDevs;
+my @skipDevs;
+my @allDevs;
+
+sub Initialize {
+
+    my $hash = shift;
+    $hash->{GetFn}     = \&FHEM::readingsWatcher::Get;
+    $hash->{SetFn}     = \&FHEM::readingsWatcher::Set;
+    $hash->{DefFn}     = \&FHEM::readingsWatcher::Define;
+    $hash->{UndefFn}   = \&FHEM::readingsWatcher::Undefine;
+    $hash->{AttrFn}    = \&FHEM::readingsWatcher::Attr;
+    $hash->{AttrList}  = 'disable:0,1 interval deleteUnusedReadings:1,0 '
+			.'readingActivity delimiter:-,--,_,__ '
+			.$readingFnAttributes;
+
+    return  FHEM::Meta::InitMod( __FILE__, $hash ) if ($hasmeta);
+
+    return;
+}
 
 ##################################################################################### 
 
-sub Define($$) 
-{
-  my ($hash,$def) = @_;
-  my ($name, $type, $noglobal) = split("[ \t\n]+", $def, 3);
+sub Define {
 
-  if(exists($modules{readingsWatcher}{defptr})) 
-  {
-    my $txt = 'one readingsWatcher device is already defined !';
-    Log3 $name, 1, $txt;
-    return $txt;
-  }
+    my $hash = shift;
+    my $def  = shift;
+    my ($name, $type, $noglobal) = split(m{ \s+ }xms, $def, 3);
 
-  $modules{readingsWatcher}{defptr} = $hash;
 
-  if (defined($noglobal) && ($noglobal  eq 'noglobal'))
-  {   $hash->{DEF} = 'noglobal'; }
-  else { addToAttrList('readingsWatcher'); $hash->{DEF} = 'global';} # global -> userattr 
-
-  CommandAttr(undef,$name.' interval 60') unless (exists($attr{$name}{interval}));
-  CommandAttr(undef,$name.' readingActivity none') unless (exists($attr{$name}{readingActivity}));
-
-  RemoveInternalTimer($hash);
-  InternalTimer(gettimeofday()+5, "FHEM::readingsWatcher::OnTimer", $hash, 0);
-  if (!$modMetaAbsent) {return $@ unless ( FHEM::Meta::SetInternals($hash) ) }
-  return undef;
-}
-
-#####################################################################################
-
-sub Undefine($$) 
-{
-  my ($hash, $arg) = @_;
-  RemoveInternalTimer($hash);
-  delete($modules{readingsWatcher}{defptr});
-  if ($hash->{DEF} eq 'global')
-  {
-   delFromAttrList('readingsWatcher'); # global -> userattr
-   my @devs = devspec2array("readingsWatcher!="); # wer hat alles ein Attribut readingsWatcher ?
-   foreach (@devs)
-   { delFromDevAttrList($_, 'readingsWatcher'); } # aufräumen
-  }
-  return undef;
-}
-
-#####################################################################################
-
-sub Set($@)
-{
- my ($hash, @a)= @_;
- my $name= $hash->{NAME};
- 
- return join(' ', sort keys %sets) if((@a < 2) || ($a[1] eq '?'));
- readingsSingleUpdate($hash, 'state', 'inactive', 1) if ($a[1] eq 'inactive');
- readingsSingleUpdate($hash, 'state', 'active', 1)   if ($a[1] eq 'active');
- return undef if(IsDisabled($name));
-
- OnTimer($hash) if ($a[1] eq 'checkNow') || ($a[1] eq 'active');
-
- if  ($a[1] eq 'clearReadings')
- {
-  foreach (keys %{$defs{$name}{READINGS}}) # alle eignen Readings 
-  {
-   if ($_ =~ /_/) # device.reading
-   {
-    readingsDelete($hash, $_);
-    Log3 $name,4,$name.", delete reading ".$_;
-   }
-  }
- }
- return undef;
-}
-
-#####################################################################################
-
-sub Get($@)
-{
- my ($hash, @a)= @_;
- my (@parts, $deviceName, $rSA, $d, $curVal, $age , @devs, $state);
-
- return join(' ', sort keys %gets) if(@a < 2);
-
- my $name = $hash->{NAME};
- my ($dw,$rw,$tw,$sw,$aw) = (1,1,1,1,1);
-
- if ($a[1] eq 'devices')
- {
-  foreach $deviceName (devspec2array("readingsWatcher!="))
-  {
-   $rSA  = ($deviceName eq  $a[0]) ? '' : AttrVal($deviceName, 'readingsWatcher', '');
-   $dw   = length($deviceName) if (length($deviceName) > $dw);
-
-   if ($rSA)
-   {
-    if (IsDisabled($deviceName)) 
-    { 
-      $sw  = 8 if ($sw<8);
-      push @devs, "$deviceName,-,-,disabled,-";
+    if (exists($modules{readingsWatcher}{defptr}) && ($modules{readingsWatcher}{defptr}->{NAME} ne $name)) {
+	my $error = 'one readingsWatcher device is already defined !';
+	Log3($name, 1, $error);
+	return $error;
     }
-    elsif (IsIgnored($deviceName))
-    { 
-      $sw  = 7 if ($sw<7);
-      push @devs, "$deviceName,-,-,ignored,-";
+
+    if (defined($noglobal) && ($noglobal  eq 'noglobal')) {
+	$hash->{DEF} = 'noglobal';
     }
-    else
-     { 
-       my @r = split(';',$rSA);
+    else {
+	addToAttrList('readingsWatcher');
+	$hash->{DEF} = 'global'; # global -> userattr
+    }
 
-       foreach (@r)
-       {
-       @parts = split(',', $_);
-       if (@parts > 2) 
-       { 
-        my $timeout = int($parts[0]);
-        $tw =  length($timeout) if(length($timeout) > $tw);
+    $hash->{SVN}  = (qw($Id: 98_readingsWatcher.pm 21853 2020-05-03 17:24:25Z Wzut $))[2];
 
-        shift @parts;   # Timeoutwert
-        shift @parts;   # Ersatzwert
+    CommandAttr(undef, "$name interval 60")          unless (exists($attr{$name}{interval}));
+    CommandAttr(undef, "$name readingActivity none") unless (exists($attr{$name}{readingActivity}));
 
-        foreach (@parts) # alle zu überwachenden Readings
-        {
-          $_  =~ s/^\s+|\s+$//g;
-          $_  = 'state' if ($_ eq 'STATE');
-          $rw =  length($_) if(length($_) > $rw); 
+    $modules{readingsWatcher}{defptr} = $hash;
 
-          if (($_ eq 'state') && (ReadingsVal($deviceName,'state','') eq 'inactive'))
-          {
-            $state   = 'inactive';
-            $age     = '-';
-          }
-          else
-          {
-           $age = ReadingsAge($deviceName, $_, undef);
- 
-           if (!defined($age))
-           {
-            $state   = 'unknown';
-            $age     = 'undef';
-           }
-           else
-           {
-            $state = ($age>$timeout) ? 'timeout' : 'ok';
-           }
-          }
-          $aw = length($age)   if(length($age)   > $aw);
-          $sw = length($state) if(length($state) > $sw);
-          push @devs, "$deviceName,".$_.",$timeout,$state,$age";
-        }
-       } # @parts >2 
-       
-       else 
-       { 
-         $sw   = 16 if ($sw<16);
-         push @devs, "$deviceName,-,-,wrong parameters,-";
-       } 
-      } # not disabled
-    } # rSA
-   }
-  } # foreach
+    RemoveInternalTimer($hash);
+    InternalTimer(gettimeofday()+5, 'FHEM::readingsWatcher::OnTimer', $hash, 0);
 
-  if (int(@devs))
-  {
-   $dw += 2;
-   $rw += 2;
-   $sw += 4;
-   $aw += 2;
+    Log3($name, 5, "$name, hasmeta $hasmeta");
+    if ($hasmeta) {
+	return $@ unless ( FHEM::Meta::SetInternals($hash) )
+    }
 
-   my $s  = 'Device'.(' ' x ($dw-6)).'Reading'.(' ' x ($rw-7)).(' ' x ($tw-2)).'TO'.(' ' x ($sw-5)).'State'.(' ' x ($aw-3)).'Age';
-   $s    .= "\n".('-' x length($s))."\n"; # --------------------------
-
-   foreach(@devs) 
-   { 
-      @a  = split(',',$_);
-      $s .= $a[0] . (' ' x ($dw - length$a[0])); # linksbündig
-      $s .= $a[1] . (' ' x ($rw - length$a[1])); # linksbündig
-      $s .= (' ' x ($tw - length$a[2])).$a[2];   # rechtsbündig
-      $s .= (' ' x ($sw - length$a[3])).$a[3];   # rechtsbündig
-      $s .= (' ' x ($aw - length$a[4])).$a[4];   # rechtsbündig
-      $s .= "\n";
-   }
-   return $s;
-  }
-  return 'Sorry, no devices with valid attribute readingsWatcher found !';
- } # get devices
- return 'get '.$name.' with unknown argument '.$a[1].', choose one of ' . join(' ', sort keys %gets); 
+  return;
 }
 
 #####################################################################################
 
-sub OnTimer($) 
-{
-  my ($hash) = @_;
-  my $name = $hash->{NAME};
-  my $interval = AttrNum($name, 'interval', 0);
-  $hash->{INTERVAL} = $interval;
-  RemoveInternalTimer($hash);
+sub Undefine {
 
-  return if (!$interval);
+    my $hash = shift;
+    RemoveInternalTimer($hash);
+    delete($modules{readingsWatcher}{defptr});
 
-  InternalTimer(gettimeofday()+$interval, 'FHEM::readingsWatcher::OnTimer', $hash, 0);
+    if ($hash->{DEF} eq 'global') { # werden die meisten haben 
 
-  readingsSingleUpdate($hash, 'state', 'disabled', 0) if (IsDisabled($name));
-  return if(IsDisabled($name) || !$init_done);
+	delFromAttrList('readingsWatcher'); # global -> userattr
+	# wer hat alles ein Attribut readingsWatcher gesetzt ?
+	foreach my $dev (devspec2array('readingsWatcher!=')) {
+	    delFromDevAttrList($dev, 'readingsWatcher');  # aufräumen
+	}
+    }
+ 
+    return;
+}
 
-  my ($timeOutState, $errorValue, $timeout, $associated, $error, $readingsList);
-  my ($deviceName, $rSA, $age, @devices, $rts, @parts, @devs);
-  my ($alives, $deads, $state, $readings) = (0, 0, '', 0);
-  my @timeOutdevs = ();
+#####################################################################################
 
-  foreach (keys %{$defs{$name}{READINGS}}) # alle eignen Readings 
-  { $readingsList .=  $_ .',' if ($_ =~ /_/); }# nur die mit _ im Namen
+sub Set {
 
-  @devs = devspec2array("readingsWatcher!=");
+    my $hash = shift;
+    my $name = shift;
+    my $cmd  = shift // return "set $name needs at least one argument !";
 
-  my ($areading,$dead,$alive) = split(":",AttrVal($name,'readingActivity','none:dead:alive'));
-  $dead = 'dead'  if(!$dead);
-  $alive= 'alive' if(!$alive);
-  $areading = ''  if ($areading eq 'none');
+    if ($cmd eq 'inactive') {
+	readingsSingleUpdate($hash, 'state', 'inactive', 1);
+	RemoveInternalTimer($hash);
+	$hash->{INTERVAL} = 0;
+	return;
+    }
 
-  readingsBeginUpdate($hash);
+    if ($cmd eq 'active') {
+	readingsSingleUpdate($hash, 'state', 'active', 1);
+	$hash->{INTERVAL} = AttrVal($name,'interval',60);
+	return;
+    }
 
-  foreach  $deviceName (@devs) 
-  {
+    return  if (IsDisabled($name));
 
-    $rSA = ($deviceName eq  $name) ? '' : AttrVal($deviceName, 'readingsWatcher', undef);
+    if (($cmd eq 'checkNow') || ($cmd eq 'active')) {
+	OnTimer($hash);
+	return;
+    }
 
-    if(defined($rSA) && !IsDisabled($deviceName) && !IsIgnored($deviceName)) 
+    if  ($cmd eq 'clearReadings') {
+	my $delimiter = AttrVal($name,'delimiter','_');
+	foreach my $reading (keys %{$defs{$name}{READINGS}}) { # alle eigenen Readings
+	    if (index($reading, $delimiter) != -1) { # device_reading
+		readingsDelete($hash, $reading);
+		Log3($name,4,"$name, delete reading $reading");
+	    }
+	}
+
+	return;
+    }
+
+    return "unknown argument $cmd, choose one of checkNow:noArg inactive:noArg active:noArg clearReadings:noArg";
+}
+
+#####################################################################################
+
+sub Get {
+
+    my $hash = shift;
+    my $name = shift;
+    my $cmd  = shift // return "get $name needs at least one argument !";
+
+    return getStateList($name) if ($cmd eq 'devices');
+
+    return "unknown command $cmd, choose one of devices:noArg";
+}
+
+#####################################################################################
+
+sub getStateList {
+
+    my $name = shift;
+
+    @stateDevs = ();
+
+    foreach my $device (devspec2array('readingsWatcher!=')) {
+	my $rSA  = ($device ne  $name) ? AttrVal($device, 'readingsWatcher', '') : '';
+
+	next if ($rSA eq '');
+
+	if (IsDisabled($device)) {
+	    push @stateDevs, "$device,-,-,disabled,-";
+	}
+	elsif (IsIgnored($device)) {
+	    push @stateDevs, "$device,-,-,ignored,-";
+	}
+	else { # valid device
+	    push @stateDevs , IsValidDevice($device, $rSA);
+	}
+    }
+
+    return formatStateList();
+}
+
+#####################################################################################
+
+sub IsValidDevice {
+
+    my $device = shift;
+    my @ar;
+
+    foreach my $rs (split(';', shift)) { # Anzahl Regelsätze pro Device, meist nur einer
+
+	$rs =~ s/\+/,/xg; # OR Readings wie normale Readingsliste behandeln
+	$rs =~ s/ //g;
+
+	my ($timeout,undef,@readings) = split(',', $rs); # der ggf. vorhandene Ersatzstring wird hier nicht benötigt
+
+	return "$device,-,-,wrong parameters,-" if (!@readings);
+
+	foreach my $reading (@readings) { # alle zu überwachenden Readings
+
+	    my ($age,$state);
+
+	    $reading =~ s/ //g;
+
+	    if (($reading eq 'state') && (ReadingsVal($device, 'state', '') eq 'inactive')) {
+		$state   = 'inactive';
+		$age     = '-';
+	    }
+	    else {
+		$age = ReadingsAge($device, $reading, 'undef');
+
+		if ($age eq 'undef') {
+		    $state   = 'unknown';
+		}
+		else {
+		    $state = (int($age) > int($timeout)) ? 'timeout' : 'ok';
+		}
+	    }
+	    push @ar, "$device,$reading,$timeout,$state,$age";
+	}
+    }
+
+    return "$device,?,?,?,?" if (!@ar);
+
+    return @ar;
+}
+
+#####################################################################################
+
+sub formatStateList {
+
+    # Device | Reading    | Timeout |   State |     Age
+    # -------+------------+---------+---------+--------
+    # CUL    | credit10ms |     300 |      ok |      56
+    # lamp   | state      |     900 | timeout | 3799924
+    # -------+------------+---------+---------+--------
+
+    return 'Sorry, no devices with valid attribute readingsWatcher found !' if (!@stateDevs);
+
+    my ($dw,$rw,$tw,$sw,$aw) = (6,7,7,5,3); # Startbreiten, bzw. Mindestbreite durch Überschrift
+
+    foreach my $dev (@stateDevs) {
+	my ($d,$r,$t,$s,$g)  = split(',', $dev);
+	# die tatsächlichen Breiten aus den vorhandenen Werten ermitteln
+	$dw = (length($d) > $dw) ? length($d) : $dw;
+	$rw = (length($r) > $rw) ? length($r) : $rw;
+	$tw = (length($t) > $tw) ? length($t) : $tw;
+	$sw = (length($s) > $sw) ? length($s) : $sw;
+	$aw = (length($g) > $aw) ? length($g) : $aw;
+    }
+
+    my $head  = 'Device '  .(' ' x ($dw-6))
+              .'| Reading '.(' ' x ($rw-7)).'| '
+              .(' ' x ($tw-7)).'Timeout | '
+              .(' ' x ($sw-5)).'State | '
+              .(' ' x ($aw-3)).'Age';
+
+    my $separator = ('-' x length($head));
+
+    while ( $head =~ m{\|}xg ) { # alle | Positionen durch + ersetzen
+	substr $separator, (pos($head)-1), 1, '+';
+    }
+
+    $head .= "\n".$separator."\n";
+
+    my $s;
+    foreach my $dev (@stateDevs) {
+	my ($d,$r,$t,$e,$g)  = split(',', $dev);
+
+	$s .= $d . (' ' x ($dw - length($d))).' ';       # left-align Device
+	$s .= '| '. $r . (' ' x ($rw - length($r))).' '; # left-align Reading
+	$s .= '| ' . (' ' x ($tw - length($t))).$t.' ';  # Timeout right-align
+	$s .= '| ' . (' ' x ($sw - length($e))).$e.' ';  # State   right-align
+	$s .= '| ' . (' ' x ($aw - length($g))).$g;      # Age     right-align
+	$s .= "\n";
+    }
+
+    return $head.$s.$separator;
+}
+
+#####################################################################################
+
+sub Attr {
+
+    my ($cmd, $name, $attrName, $attrVal) = @_;
+
+    return 'attribute not allowed for self !' if ($attrName eq 'readingsWatcher');
+
+    my $hash = $defs{$name};
+
+    if ($cmd eq 'set')
     {
-      push @devices, $deviceName if  !grep {/$deviceName/} @devices; # keine doppelten Namen
+	if ($attrName eq 'disable') {
+	    RemoveInternalTimer($hash);
+	    readingsSingleUpdate($hash, 'state', 'disabled', 1) if (int($attrVal) == 1);
+	    InternalTimer(gettimeofday() + 2, 'FHEM::readingsWatcher::OnTimer', $hash, 0) if (int($attrVal) == 0);
+	    return;
+	}
 
-      # rSA: timeout, errorValue, reading1, reading2, reading3, ...
-      #      120,---,temperature,humidity,battery
-      # or   900,,current,eState / no errorValue = do not change reading
-
-      my @r = split(';', $rSA);
-      foreach (@r)
-      {
-        @parts = split(',', $_);
-        if (@parts > 2)
-        {
-        $timeout    = int($parts[0]);
-        $errorValue = $parts[1]; # = leer, Readings des Device nicht anfassen !
-
-        # die ersten beiden brauchen wir nicht mehr
-        shift @parts;
-        shift @parts;
-
-        foreach (@parts) # alle zu überwachenden Readings
-        {
-          $_ =~ s/^\s+|\s+$//g; # $_ = Reading Name
-
-          $state = 0;
-          if ($_ eq 'STATE')
-          {
-           $_ = 'state'; $state = 1; # Sonderfall STATE 
-          } 
-
-          $age = ReadingsAge($deviceName, $_, undef);
-
-          if (defined($age))
-          {
-           $readings++;
-
-           if (($age > $timeout) && ($timeout>0))
-           {
-             push @timeOutdevs, $deviceName if  !grep {/$deviceName/} @timeOutdevs;
-             $timeOutState = "timeout";
-             $deads++; 
-             $rts = ReadingsTimestamp($deviceName, $_,0);
-             setReadingsVal($defs{$deviceName},$_,$errorValue,$rts) if ($errorValue && $rts); # leise setzen ohne Event
-             $error = CommandSetReading(undef, "$deviceName $areading $dead") if ($areading); # und das mit Event
-             $defs{$deviceName}->{STATE} = $errorValue if ($errorValue && $state);
-           }
-           else
-           {
-            $alives++;
-            $timeOutState = "ok";
-            $error = CommandSetReading(undef, "$deviceName $areading $alive") if ($areading);
-           }
-
-           Log3 $name,2,$name.', '.$error if ($error);
-
-           my $r = $deviceName.'_'.$_;
-
-           readingsBulkUpdate($hash, $r, $timeOutState) if ($timeout>0);
-           $readingsList =~  s/$r,// if ($readingsList) ; # das Reading aus der Liste streichen, leer solange noch kein Device das Attr hat !
-
-           if ($timeout < 1)
-           {
-            $alives--;
-            $error = 'Invalid timeout value '.$timeout.' for reading '.$deviceName.'.'.$_;
-            Log3 $name,2,$name.', '.$error;
-           }
-          }#age
-          else
-          {  
-            $error = 'Timestamp for '.$_.' not found on device '.$deviceName;
-            Log3 $name,3,$name.', reading '.$error;
-            readingsBulkUpdate($hash, $deviceName.'_'.$_, 'no Timestamp');
-          }
-        }# foreach @parts
-       }# parts > 2 
-       else 
-       { 
-         $error = 'insufficient parameters for device '.$deviceName;
-         Log3 $name,2,$name.', '.$error.' - skipped !';
-       }
-      }# if $readingsWatcherAttribute
+	if (($attrName eq 'readingActivity') && (lc($attrVal) eq 'state')) {
+	    my $error = 'forbidden value state !';
+	    Log3($name, 1, "$name, readingActivity $error");
+	    return $error;
+	}
     }
-   }# foreach $deviceName
 
-   readingsBulkUpdate($hash,'readings'       , $readings);
-   readingsBulkUpdate($hash,'devices'        , int(@devices));
-   readingsBulkUpdate($hash,'alive'          , $alives);
-   readingsBulkUpdate($hash,'timeouts'       , $deads);
-   readingsBulkUpdate($hash,'state'          , ($deads) ? 'timeout' : 'ok');
- 
-   # nicht aktualisierte Readings markieren oder löschen
-   if ($readingsList) 
-   { 
-     my @a = split(",",$readingsList); 
-     foreach (@a) 
-     {
-       if ($_)
-       {
-        if (AttrNum($name,'deleteUnusedReadings','1'))
-        {
-          readingsDelete($hash, $_);
-          Log3 $name,3,$name.', delete unused reading '.$_;
-        }
-         else 
-        { 
-         readingsBulkUpdate($hash, $_ , 'unused'); 
-         Log3 $name,4,$name.', unused reading '.$_;
-        }
-       }
-     } 
-   }
+    if (($cmd eq 'del') && ($attrName eq 'disable')) {
+	RemoveInternalTimer($hash);
+	InternalTimer(gettimeofday() + 2, 'FHEM::readingsWatcher::OnTimer', $hash, 0);
+    }
 
-   if (int(@devices))
-   { readingsBulkUpdate($hash,'.associatedWith' , join(',',@devices)); }
-   else
-   { readingsDelete($hash, '.associatedWith'); }
-
-   if (int(@timeOutdevs))
-   { readingsBulkUpdate($hash,'timeoutdevs',join(',',@timeOutdevs));}
-   else
-   { readingsBulkUpdate($hash,'timeoutdevs','none');}
-
-   readingsEndUpdate($hash, 1);
-
-   return undef;
+    return;
 }
 
-sub Attr (@) 
-{
-
- my ($cmd, $name, $attrName, $attrVal) = @_;
- my $hash = $defs{$name};
- my $error;
-
- if ($cmd eq 'set')
- {
-   if ($attrName eq 'disable')
-   {
-    readingsSingleUpdate($hash,'state','disabled',1) if ($attrVal == 1);
-    OnTimer($hash) if ($attrVal == 0);
-    $_[3] = $attrVal;
-   }
-   if (($attrName eq 'readingActivity') && ($attrVal eq 'state'))
-   {
-    $_[3] = '';
-    my $err = 'forbidden value state !';
-    Log3 $name,1,$name.', readingActivity '.$err;
-    return $err;
-   }
- }
- elsif ($cmd eq 'del')
- {
-  if ($attrName eq 'disable')
-  {
-   OnTimer($hash);
-  }
- }
-   return undef;
-}
 #####################################################################################
+
+sub OnTimer {
+
+    my $hash     = shift;
+    my $name     = $hash->{NAME};
+    my $interval = AttrNum($name, 'interval', 0);
+
+    $hash->{INTERVAL} = $interval;
+    RemoveInternalTimer($hash);
+
+    return if (!$interval);
+
+    InternalTimer(gettimeofday() + $interval, 'FHEM::readingsWatcher::OnTimer', $hash, 0);
+
+    readingsSingleUpdate($hash, 'state', 'disabled', 0) if (IsDisabled($name));
+    return if ( IsDisabled($name) || !$init_done );
+
+    @toDevs   = ();
+    @deadDevs = ();
+    @skipDevs = ();
+    @allDevs  = ();
+
+    ($hash->{helper}{readingActifity},$hash->{helper}{dead},$hash->{helper}{alive}) = split(':', AttrVal($name, 'readingActivity', 'none:dead:alive'));
+
+    $hash->{helper}{dead}  //= 'dead';  # if (!defined($dead));
+    $hash->{helper}{alive} //= 'alive'; # if (!defined($alive));
+    $hash->{helper}{readingActifity} = ''  if ($hash->{helper}{readingActifity} eq 'none');
+
+    $hash->{helper}{delimiter} = AttrVal($name,'delimiter','_'); # -, --, _, __
+
+    foreach my $reading (keys %{$defs{$name}{READINGS}}) { # alle eigenen Readings
+	$hash->{helper}{readingsList} .= $reading .',' if (index($reading, $hash->{helper}{delimiter}) != -1);  # nur die Readings mit _ im Namen (Device_Reading)
+    }
+
+    readingsBeginUpdate($hash);
+
+    foreach  my $device (devspec2array('readingsWatcher!=')) {
+	$hash->{helper}{device} = $device;
+	checkDevice($hash, $device);
+    } # foreach device
+
+    readingsBulkUpdate($hash, 'readings' , $hash->{helper}{readings_count});
+    readingsBulkUpdate($hash, 'devices'  , int(@allDevs));
+    readingsBulkUpdate($hash, 'alive'    , $hash->{helper}{alive_count});
+    readingsBulkUpdate($hash, 'dead'     , int(@deadDevs));
+    readingsBulkUpdate($hash, 'skipped'  , int(@skipDevs));
+    readingsBulkUpdate($hash, 'timeouts' , int(@toDevs));
+    readingsBulkUpdate($hash, 'state'    , (@toDevs) ? 'timeout' : 'ok');
+
+    # jetzt nicht aktualisierte Readings markieren oder gleich ganz löschen
+    # Vorwahl via Attribut deleteUnusedReadings
+    clearReadings($name) if ($hash->{helper}{readingsList});
+
+    (@allDevs)  ? readingsBulkUpdate($hash, '.associatedWith', join(',', @allDevs))  : readingsDelete($hash, '.associatedWith');
+    (@toDevs)   ? readingsBulkUpdate($hash, 'timeoutDevs',     join(',', @toDevs))   : readingsBulkUpdate($hash, 'timeoutDevs', 'none');
+    (@deadDevs) ? readingsBulkUpdate($hash, 'deadDevs',        join(',', @deadDevs)) : readingsBulkUpdate($hash, 'deadDevs',    'none');
+    (@skipDevs) ? readingsBulkUpdate($hash, 'skippedDevs',     join(',', @skipDevs)) : readingsBulkUpdate($hash, 'skippedDevs', 'none');
+
+    readingsEndUpdate($hash, 1);
+
+    delete $hash->{helper};
+
+    return;
+}
+
+#####################################################################################
+
+sub clearReadings {
+
+    my $name  = shift;
+    my $hash  = $defs{$name};
+
+    foreach my $reading (split(',', $hash->{helper}{readingsList})) # Liste der aktiven Readings
+    {
+	next if (!$reading);
+
+	if (AttrNum($name, 'deleteUnusedReadings', 1)) {
+	    readingsDelete($hash, $reading);
+	    Log3($name, 3, "$name, delete unused reading $reading");
+	}
+	else {
+	    readingsBulkUpdate($hash, $reading, 'unused');
+	    Log3($name, 4, "$name, unused reading $reading");
+	}
+    }
+
+    return;
+}
+
+#####################################################################################
+
+sub checkReadings {
+
+    my $hash = shift;
+    my $name = $hash->{NAME};
+    my $device = $hash->{helper}{device};
+    my $timeout = $hash->{helper}{timeout};
+    my $errorValue = $hash->{helper}{errorValue};
+    my @ar = split('\|' ,$hash->{helper}{readings_ar});
+ 
+	    foreach my $reading (@ar) { # alle zu überwachenden Readings in einem Regelsatz
+
+		$reading =~ s/ //g;
+		my $state = 0;
+
+		if ($reading eq 'STATE') { # Sonderfall STATE
+
+		    $reading = 'state';
+		    $state   = 1;
+		}
+
+		my $age = ReadingsAge($device, $reading, '');
+		my $d_r = $device.$hash->{helper}{delimiter}.$reading;
+
+		if ($age ne '') {
+
+		    $hash->{helper}{readings_count} ++;
+
+		    if ($age > $timeout) {
+    			$hash->{helper}{timeOutState} = 'timeout';
+			$hash->{helper}{d_d} ++; # Device Tote
+			my $rts = ReadingsTimestamp($device, $reading, 0);
+			setReadingsVal($defs{$device}, $reading, $errorValue, $rts) if ($rts && ($errorValue ne '')); # leise setzen ohne Event
+			$defs{$device}->{STATE} = $errorValue if ($state && ($errorValue ne ''));
+		    }
+		    else {
+			$hash->{helper}{d_a} ++; # Device Lebende
+			$hash->{helper}{timeOutState} = 'ok';
+		    }
+
+		    readingsBulkUpdate($hash, $d_r, $hash->{helper}{timeOutState}) if ($hash->{helper}{timeOutState});
+
+		    $hash->{helper}{readingsList} =~ s/$d_r,//xms if ($hash->{helper}{readingsList}); # das Reading aus der Liste streichen, leer solange noch kein Device das Attr hat !
+		}
+		else {
+		    setReadingsVal($defs{$device},$reading,'unknown',TimeNow()) if ($errorValue); # leise setzen ohne Event
+		    $defs{$device}->{STATE} = 'unknown' if ($errorValue && $state);
+		    Log3($name, 3, "$name, reading Timestamp for $reading not found on device $device");
+		    readingsBulkUpdate($hash, $d_r, 'no Timestamp');
+		}
+	    } # Readings in einem Regelsatz
+
+  return;
+}
+
+sub checkDevice {
+
+    my $hash = shift;
+    my $name = $hash->{NAME};
+    my $device = shift;
+
+    my $or_and       = 0; # Readings als OR auswerten
+    $hash->{helper}{timeOutState} = '';
+    $hash->{helper}{d_a} = 0;
+    $hash->{helper}{d_d} = 0;
+
+    my $rSA = ($device eq  $name) ? '' : AttrVal($device, 'readingsWatcher', '');
+
+    return if (!$rSA || IsDisabled($device) || IsIgnored($device));
+
+    push @allDevs, $device;
+
+    $or_and = 1 if (index($rSA,'+') != -1); # Readings als AND auswerten
+    $rSA =~ s/\+/,/xg ; # eventuell vorhandene + auch in Komma wandeln
+
+    # rSA: timeout, errorValue, reading1, reading2, reading3, ...
+    #      120,---,temperature,humidity,battery
+    # or   900,,current,eState / no errorValue = do not change reading
+
+    my $ok_device = 0;
+
+    foreach my $sets (split(';', $rSA)) { #Anzahl Regelsätze im Device
+
+	my ($timeout, $errorValue, @readings_ar) = split(',',  $sets);
+
+	$hash->{helper}{readings_ar} = join('|', @readings_ar);
+	$hash->{helper}{timeout}     = int($timeout);
+	$hash->{helper}{errorValue}  = $errorValue;
+
+	if (@readings_ar) {
+
+	    if ($timeout > 1) {
+		$ok_device  = 1;
+	    }
+	    else {
+		Log3($name, 2, "$name, invalid timeout value $timeout for readings $device ".join(',',@readings_ar));
+		delete $hash->{helper}{readings_ar}; # das werten wir danach im foreach erst gar nicht mehr aus
+	    }
+
+	    checkReadings($hash);
+	}
+    }
+    
+    push @toDevs , $device  if ($hash->{helper}{d_d});
+
+    if ($ok_device && $hash->{helper}{timeOutState}) {
+        my $error;
+        my $d_a = $hash->{helper}{d_a};
+        my $d_d = $hash->{helper}{d_d};
+
+        if ((!$or_and && $d_d) || ($or_and && !$d_a)) { # tot bei OR und mindestens einem Toten ||  AND aber kein noch Lebender
+	    $error = CommandSetReading(undef, "$device $hash->{helper}{readingActifity} $hash->{helper}{dead}") if ($hash->{helper}{readingActifity});
+	    push @deadDevs, $device; # dead devices
+	}
+	else  { # wenn es nicht tot ist müsste es eigentlich noch leben ....
+	    $error = CommandSetReading(undef, "$device $hash->{helper}{readingActifity} $hash->{helper}{alive}") if ($hash->{helper}{readingActifity});
+	    $hash->{helper}{alive_count} ++; # alive devices
+	}
+	Log3($name, 2, "$name, $error") if ($error);
+    }
+    else {
+        Log3($name, 2, "$name, insufficient parameters for device $device - skipped !");
+        CommandSetReading(undef, "$device $hash->{helper}{readingActifity} unknown") if ($hash->{helper}{readingActifity});
+        push @skipDevs, $device;
+    }
+
+    return;
+}
+
+
 1;
 
+__END__
+
 =pod
+=over
+=encoding utf8
 =item helper
-=item summary    cyclical watching of readings updates
+=item summary cyclical watching of readings updates
 =item summary_DE zyklische Überwachung von Readings auf Aktualisierung
 =begin html
 
@@ -531,6 +654,9 @@ sub Attr (@)
     If readings are only to be monitored for their update and should <b>not</b> be overwritten<br>
     so the replacement string must be <b>empty</b><br><br>
     Example : <code>attr myThermo readingsWatcher 300,,temperature,humidity</code><br><br>
+    other examples :<br>
+    <code>attr weather readingsWatcher 300,,temperature+humidity</code> (new)<br>
+    <code>attr weather readingsWatcher 300,,temperature,humidity;3600,???,battery</code>
   </ul>
  
   <a name="readingsWatcherSet"></a>
@@ -553,6 +679,7 @@ sub Attr (@)
   <ul>
      <br>
      <ul>
+       <a name="delimiter"></a><li><b>delimiter</b><br>separator for reading names ( e.g. device_reading) default _</li><br>
        <a name="disable"></a><li><b>disable</b><br>deactivate/activate the device</li><br>
        <a name="interval"></a><li><b>interval &lt;seconds&gt;</b><br>Time interval for continuous check (default 60)</li><br>
        <a name="deleteUnusedReadings"></a><li><b>deleteUnusedReadings</b><br>delete unused readings (default 1)</li><br>
@@ -575,8 +702,8 @@ sub Attr (@)
 <a name="readingsWatcher"></a>
 <h3>readingsWatcher</h3>
 <ul>
-  Das Modul &uuml;berwacht Readings in anderen Modulen darauf das sich dessen Readings bzw. deren Zeiten in bestimmten Abst&auml;nden 
-  ändern<br> und l&ouml;st ggf. Events aus die mit anderen Modulen (z.B. notify,DOIF) weiter verarbeitet werden k&ouml;nnen.<br>
+  Das Modul überwacht Readings in anderen Modulen darauf das sich dessen Readings bzw. deren Zeiten in bestimmten Abständen
+  ändern<br> und löst ggf. Events aus die mit anderen Modulen (z.B. notify,DOIF) weiter verarbeitet werden können.<br>
   Forum : <a href="https://forum.fhem.de/index.php/topic,49408.0.html">https://forum.fhem.de/index.php/topic,49408.0.html</a><br><br>
  
   <a name="readingsWatcher_Define"></a>
@@ -586,19 +713,23 @@ sub Attr (@)
     <br>
     Definiert ein readingsWatcher Device.<br><br>
     Danach besitzt jedes FHEM Device das neue globale Attribut readingsWatcher<br>
-    Dieses Attribut ist bei allen zu &uuml;berwachenden Ger&auml;ten wie folgt zu belegen :<br>
+    Dieses Attribut ist bei allen zu überwachenden Geräten wie folgt zu belegen :<br>
     <code>attr mydevice timeout,[Ersatz],Readings1,[Readings2][;timeout2,Ersatz2,Reading,Reading]</code>
     Timeout in Sekunden, neuer Reading Wert, Reading1 des Devices, Reading2, usw.<br><br>
-    Beispiel : Ein Funk Thermometer sendet in regelm&auml;&szlig;igen Abst&auml;nden ( z.b.5 Sekunden ) seine Werte.<br> 
+    Beispiel : Ein Funk Thermometer sendet in regelmäßigen Abständen ( z.b.5 Sekunden ) seine Werte.<br> 
     Bleiben diese nun für eine bestimmte Zeit aus, so kann das Modul diesen nun nicht mehr aktuellen Werte (oder Werte)<br>
-    mit einem beliebigen anderen Wert &uuml;berschreiben ( z.B. ??? )<br>
-    Das Attribut readingsWatcher k&ouml;nnte hier wie folgt gesetzt werden :<br><br>
+    mit einem beliebigen anderen Wert überschreiben ( z.B. ??? )<br>
+    Das Attribut readingsWatcher könnte hier wie folgt gesetzt werden :<br><br>
     <code>attr AussenTemp readingsWatcher 300,???,temperature</code><br><br>
     oder falls mehr als ein Reading &uuml;berwacht werden soll<br><br>
     <code>attr AussenTemp readingsWatcher 300,???,temperature,humidity</code><br><br>
-    Sollen Readings nur auf ihre Aktualiesierung &uuml;berwacht, deren Wert aber <b>nicht</b> &uuml;berschrieben werden,<br>
-    so  mu&szlig; der Ersatzsstring <b>leer</b> gelassen werden :<br>
+    Sollen Readings nur auf ihre Aktualiesierung überwacht, deren Wert aber <b>nicht</b> überschrieben werden,<br>
+    so  muss der Ersatzsstring <b>leer</b> gelassen werden :<br>
     Bsp : <code>attr AussenTemp readingsWatcher 300,,temperature,humidity</code><br><br>
+    <br>
+    weitere Beispiele :<br>
+    <code>attr wetter readingsWatcher 300,,temperature+humidity</code> (neu)<br>
+    <code>attr wetter readingsWatcher 300,,temperature,humidity;3600,???,battery</code>
   </ul>
 
   <a name="readingsWatcherSet"></a>
@@ -621,16 +752,17 @@ sub Attr (@)
   <ul>
      <br>
      <ul>
+       <a name="delimiter"></a><li><b>delimiter</b><br>Trennzeichen für Reading Namen (z.b. device_reading) default _</li><br>
        <a name="disable"></a><li><b>disable</b><br>Deaktiviert das Device</li><br>
-       <a name="interval"></a><li><b>interval &lt;Sekunden&gt;</b> (default 60)<br>Zeitintervall zur kontinuierlichen &Uuml;berpr&uuml;fung</li><br>
-       <a name="deleteUnusedReadings"></a><li><b>deleteUnusedReadings</b> (default 1)<br>Readings mit dem Wert unused werden automatisch gel&ouml;scht</li><br>
+       <a name="interval"></a><li><b>interval &lt;Sekunden&gt;</b> (default 60)<br>Zeitintervall zur kontinuierlichen Überprüfung</li><br>
+       <a name="deleteUnusedReadings"></a><li><b>deleteUnusedReadings</b> (default 1)<br>Readings mit dem Wert unused werden automatisch gelöscht</li><br>
        <a name="readingActifity"></a><li><b>readingActifity</b> (default none)<br>
-       Das Modul kann &auml;hnlich dem HomeMatic ActionDetector im &uuml;berwachten Gerät ein eigenes Reading setzen und den &Uuml;berwachungsstatus<br>
+       Das Modul kann ähnlich dem HomeMatic ActionDetector im überwachten Gerät ein eigenes Reading setzen und den Überwachungsstatus<br>
        in diesem speichern. Beispiel :<br>
        <code>attr &lt;name&gt; readingActifity actifity</code><br>
-       Erzeugt in den &uuml;berwachten Ger&auml;ten das zus&auml;tzliche Reading actifity und versorgt es mit dem Status dead bzw alive<br>     
+       Erzeugt in den überwachten Geräten das zusäzliche Reading actifity und versorgt es mit dem Status dead bzw alive<br>     
        <code>attr &lt;name&gt; readingActifity aktiv:0:1</code><br>
-       Erzeugt in den &uuml;berwachten Ger&auml;ten das zus&auml;tzliche Reading aktiv und versorgt es mit dem Status 0 bzw 1
+       Erzeugt in den überwachten Geräten das zusätzliche Reading aktiv und versorgt es mit dem Status 0 bzw 1
        </li><br>
      </ul>
   </ul>
@@ -640,7 +772,6 @@ sub Attr (@)
 
 =end html_DE
 
-=encoding utf8
 =for :application/json;q=META.json 98_readingsWatcher.pm
 
 {
@@ -654,9 +785,9 @@ sub Attr (@)
     "readings",
     "watch",
     "supervision",
-    "ueberwachung"
+    "überwachung"
   ],
-  "version": "1.6.0",
+  "version": "2.1.3",
   "release_status": "stable",
   "author": [
     "Wzut"
@@ -665,17 +796,14 @@ sub Attr (@)
     "Wzut"
   ],
   "x_fhem_maintainer_github": [
-    "Wzut"
   ],
   "prereqs": {
     "runtime": {
       "requires": {
         "FHEM": 5.00918799,
-        "perl": 5.014,
-        "POSIX": 0,
         "GPUtils": 0,
         "Time::HiRes": 0
-      },
+	},
       "recommends": {
         "FHEM::Meta": 0
       },
@@ -686,6 +814,5 @@ sub Attr (@)
 }
 =end :application/json;q=META.json
 
+=back
 =cut
-
-

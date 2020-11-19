@@ -2,9 +2,9 @@
 #
 #  88_HMCCU.pm
 #
-#  $Id: 88_HMCCU.pm 20644 2019-12-02 15:55:44Z zap $
+#  $Id: 88_HMCCU.pm 21747 2020-04-22 13:42:49Z zap $
 #
-#  Version 4.3.020
+#  Version 4.3.025
 #
 #  Module for communication between FHEM and Homematic CCU2/3.
 #
@@ -52,7 +52,7 @@ my %HMCCU_CUST_CHN_DEFAULTS;
 my %HMCCU_CUST_DEV_DEFAULTS;
 
 # HMCCU version
-my $HMCCU_VERSION = '4.3.020';
+my $HMCCU_VERSION = '4.3.025';
 
 # Constants and default values
 my $HMCCU_MAX_IOERRORS = 100;
@@ -353,6 +353,8 @@ sub HMCCU_GetDutyCycle ($);
 sub HMCCU_GetHMState ($$$);
 sub HMCCU_GetIdFromIP ($$);
 sub HMCCU_GetTimeSpec ($);
+sub HMCCU_Max ($$);
+sub HMCCU_Min ($$);
 sub HMCCU_MaxHashEntries ($$);
 sub HMCCU_RefToString ($);
 sub HMCCU_ResolveName ($$);
@@ -1378,7 +1380,7 @@ sub HMCCU_DelayedShutdown ($)
 	
 #	HMCCU_Log ($hash, 3, "DelayedShutdown()");
 	
-	my $delay = max (AttrVal ("global", "maxShutdownDelay", 10)-2, 0);
+	my $delay = HMCCU_Max (AttrVal ("global", "maxShutdownDelay", 10)-2, 0);
 
 	# Shutdown RPC server
 	if (!exists ($hash->{hmccu}{delayedShutdown})) {
@@ -1438,7 +1440,7 @@ sub HMCCU_Set ($@)
 	my ($hash, $a, $h) = @_;
 	my $name = shift @$a;
 	my $opt = shift @$a;
-	my $options = "avar clear delete execute hmscript cleardefaults:noArg datapoint defaults:noArg ".
+	my $options = "var clear delete execute hmscript cleardefaults:noArg datapoint defaults:noArg ".
 		"importdefaults rpcregister:all rpcserver:on,off,restart ackmessages:noArg authentication ".
 		"prgActivate prgDeactivate";
 
@@ -1548,23 +1550,37 @@ sub HMCCU_Set ($@)
 		return HMCCU_SetState ($hash, "OK");
 	}
 	elsif ($opt eq 'datapoint') {
-		$usage = "set $name $opt DevSpec [Channel].Datapoint=Value [...]\n";
+		$usage = "set $name $opt [DevSpec] [Device[,...]].[Channel].Datapoint=Value [...]\n";
 		my $devSpec = shift @$a;
 		
-		return HMCCU_SetError ($hash, $usage) if (scalar (keys %$h) < 1 || !defined($devSpec));
+		return HMCCU_SetError ($hash, $usage) if (scalar (keys %$h) < 1);
 
 		my $cmd = 1;
 		my %dpValues;
+		my @devSpecList = ();
 		
-		my @devList = devspec2array ($devSpec);
-		return HMCCU_SetError ($hash, "No FHEM device matching $devSpec in command set datapoint")
-			if (scalar (@devList) == 0);
+		if (defined($devSpec)) {
+			@devSpecList = devspec2array ($devSpec);
+			return HMCCU_SetError ($hash, "No FHEM device matching $devSpec in command set datapoint")
+				if (scalar (@devSpecList) == 0);
+		}
 		
 		foreach my $dptSpec (keys %$h) {
 			my $adr;
 			my $chn;
 			my $dpt;
-			my ($t1, $t2) = split (/\./, $dptSpec);
+			my @t = split (/\./, $dptSpec);
+			
+			my @devList = ();
+			
+			if (scalar(@t) == 3 || (scalar(@t) == 2 && $dptSpec !~ /^[0-9]{1,2}\.(.+)$/)) {
+				$devSpec = shift @t;
+				@devList = split (',', $devSpec);
+			}
+			else {
+				@devList = @devSpecList;
+			}
+			my ($t1, $t2) = @t;
 			
 			foreach my $devName (@devList) {
 				my $dh = $defs{$devName};
@@ -1599,6 +1615,7 @@ sub HMCCU_Set ($@)
 				my $statevals = AttrVal ($dh->{NAME}, 'statevals', '');
 
 				my $no = sprintf ("%03d", $cmd);
+				HMCCU_Log ($hash, 2, "$no.$ccuif.$devName:$chn.$dpt");
 				$dpValues{"$no.$ccuif.$devName:$chn.$dpt"} = HMCCU_Substitute ($h->{$dptSpec}, $statevals, 1, undef, '');
 				$cmd++;
 			}
@@ -3383,7 +3400,7 @@ sub HMCCU_UpdateSingleDevice ($$$$)
 	# Check if update of device allowed
 	my $disable = AttrVal ($cltname, 'disable', 0);
 	my $update = AttrVal ($cltname, 'ccureadings', 1);
-	next if ($update == 0 || $disable == 1 || $clthash->{ccudevstate} ne 'active');
+	return 0 if ($update == 0 || $disable == 1 || $clthash->{ccudevstate} ne 'active');
 
 	# Get device parameters and attributes
 	my $ccuflags = HMCCU_GetFlags ($ccuname);
@@ -3763,7 +3780,7 @@ sub HMCCU_GetRPCCallbackURL ($$$$$)
 
 	return undef if (!defined ($hash));
 	
-	my $hmccu_hash = $hash->{TYPE} eq 'HMCCURPC' ? $hash->{IODev} : $hash;
+	my $hmccu_hash = $hash->{TYPE} eq 'HMCCURPCPROC' ? $hash->{IODev} : $hash;
 	
 	return undef if (!exists ($hmccu_hash->{hmccu}{interfaces}{$iface}) &&
 		!exists ($hmccu_hash->{hmccu}{ifports}{$iface}));
@@ -7028,7 +7045,7 @@ sub HMCCU_UpdateCB ($$$)
 	
 	my $c_ok = HMCCU_UpdateMultipleDevices ($hash, \%events);
 	my $c_err = 0;
-	$c_err = max($param->{devCount}-$c_ok, 0) if (exists ($param->{devCount}));
+	$c_err = HMCCU_Max($param->{devCount}-$c_ok, 0) if (exists ($param->{devCount}));
 	HMCCU_Log ($hash, 2, "Update success=$c_ok failed=$c_err") if ($logcount);
 }
 
@@ -7575,6 +7592,20 @@ sub HMCCU_GetHMState ($$$)
 	}
 
 	return @hmstate;
+}
+
+sub HMCCU_Min ($$)
+{
+	my ($a, $b) = @_;
+	
+	return $a < $b ? $a : $b;
+}
+
+sub HMCCU_Max ($$)
+{
+	my ($a, $b) = @_;
+	
+	return $a > $b ? $a : $b;
 }
 
 ######################################################################
@@ -8602,7 +8633,7 @@ sub HMCCU_CCURPC_ListDevicesCB ($$)
 		<li><b>set &lt;name&gt; cleardefaults</b><br/>
 			Clear default attributes imported from file.
 		</li><br/>
-		<li><b>set &lt;name&gt; datapoint &lt;FHEM-DevSpec&gt; [&lt;channel-number&gt;].&lt;datapoint&gt;=&ltvalue&gt;</b><br/>
+		<li><b>set &lt;name&gt; datapoint [&lt;FHEM-DevSpec&gt;] [FHEM-Device[,...]][&lt;channel-number&gt;].&lt;datapoint&gt;=&ltvalue&gt;</b><br/>
 			Set datapoint values on multiple devices. If <i>FHEM-Device</i> is of type HMCCUDEV
 			a <i>channel-number</i> must be specified. The channel number is ignored for devices of
 			type HMCCUCHN.

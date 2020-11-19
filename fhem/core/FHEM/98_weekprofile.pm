@@ -1,8 +1,8 @@
 ##############################################
-# $Id: 98_weekprofile.pm 20617 2019-11-29 16:48:35Z Risiko $
+# $Id: 98_weekprofile.pm 21373 2020-03-07 18:15:44Z Risiko $
 #
 # Usage
-# 
+#
 # define <name> weekprofile [device]
 ############################################## 
 
@@ -110,6 +110,16 @@ sub weekprofile_getDeviceType($$;$)
 {
   my ($me,$device,$sndrcv) = @_;
   
+  if (IsDummy($device)){
+    Log3 $me, 4, "$me(getDeviceType): $device is dummy - ignored";
+    return undef;
+  }
+  
+  if (IsIgnored($device)){
+    Log3 $me, 4, "$me(getDeviceType): $device is ignored";
+    return undef;
+  }
+  
   $sndrcv = "RCV" if (!defined($sndrcv));
 
   # determine device type
@@ -126,6 +136,12 @@ sub weekprofile_getDeviceType($$;$)
   
   if ($devType =~ /CUL_HM/){
     my $model = AttrVal($device,"model","");
+    
+    my $readonly = AttrVal($device,"readOnly",0);
+    if ($readonly) {
+      Log3 $me, 4, "$me(getDeviceType): $devHash->{NAME} is readonly - ignored";
+      return undef;
+    }
     
     #models: HM-TC-IT-WM-W-EU, HM-CC-RT-DN, HM-CC-TC
     unless ($model =~ m/.*HM-[C|T]C-.*/) {
@@ -149,13 +165,19 @@ sub weekprofile_getDeviceType($$;$)
     
     $type = "CUL_HM" if ( ($model =~ m/.*HM-CC-RT.*/) && ($channel == 4) );
     $type = "CUL_HM" if ( ($model =~ m/.*HM-TC.*/)    && ($channel == 2) );
-    $type = "CUL_HM" if ( ($model =~ m/.*HM-CC-TC.*/) && ($channel == 2) );
+    $type = "CUL_HM" if ( ($model =~ m/.*HM-CC-TC.*/) && ($channel == 2) );    
   }
   #avoid max shutter contact
   elsif ( ($devType =~ /MAX/) && ($devHash->{type} =~ /.*Thermostat.*/) ){
     $type = "MAX";
   }
   elsif ( $devType =~ /HMCCUDEV/){
+    my $readonly = AttrVal($device,"readOnly",0);
+    if ($readonly) {
+      Log3 $me, 4, "$me(getDeviceType): $devHash->{NAME} is readonly - ignored";
+      return undef;
+    }
+    
 	  my $model = $devHash->{ccutype};
     if (!defined($model)) {
       Log3 $me, 2, "$me(getDeviceType): ccutype not defined - take HM-xxx (HMCCU_HM)";
@@ -551,6 +573,31 @@ sub weekprofile_refreshSendDevList($)
   return undef;
 }
 
+##############################################
+sub weekprofile_receiveList($)
+{
+  my ($hash) = @_;
+  my $me = $hash->{NAME};
+  
+  my @rcvList = ();
+   
+  foreach my $d (keys %defs)   
+  {
+    next if ($defs{$d}{NAME} eq $me);
+    
+    my $module   = $defs{$d}{TYPE};
+    
+    my %sndHash;
+    @sndHash{@DEVLIST_SEND}=();
+    next if (!exists $sndHash{$module});
+    
+    my $type = weekprofile_getDeviceType($me, $defs{$d}{NAME});
+    next if (!defined($type));    
+    push @rcvList, $defs{$d}{NAME};
+  }  
+  return @rcvList;
+}
+
 ############################################## 
 sub weekprofile_assignDev($)
 {
@@ -585,7 +632,7 @@ sub weekprofile_assignDev($)
   }
   
   if (!defined($prf)) {
-	Log3 $me, 5, "create default profile";
+	  Log3 $me, 5, "create default profile";
     my $prfDev = weekprofile_createDefaultProfile($hash);
     if(defined($prfDev)) {
       $prf = {};
@@ -814,6 +861,58 @@ sub weekprofile_Get($$@)
     }
     return $names;
   }
+
+  #-----------------------------------------------------------------------------
+  $list .= ' associations:0,1' if ($useTopics);
+  if($cmd eq "associations") {
+    my $retType = 1; 
+    $retType = $params[0] if(@params >= 1);
+    # html only if FHEMWEB and canAsyncOutput
+    if (defined($hash->{CL})) {
+      $retType = ($hash->{CL}{TYPE} eq "FHEMWEB" && $hash->{CL}{canAsyncOutput}) ? $retType : 1;
+    }
+    else {
+      $retType = 1;
+    }
+    # dumpData($hash,"(Get): asso",$hash->{CL}) if defined($hash->{CL});
+    my @not_asso = ();
+    my @json_arr = ();    
+	  my $retHTML = "<html><table><thead><tr>";
+    $retHTML .= "<th width='150'><b>Device</b></th><th width='150'><b>Profile</b></th></tr>";
+    $retHTML .= "<th>&nbsp;</th><th></th></tr>";
+    $retHTML .= "</thead><tbody>"; 
+    foreach my $dev (@{$hash->{SNDDEVLIST}}) {
+      my $entry = {};
+      $entry->{DEVICE}->{NAME} = $dev->{NAME};
+      $entry->{PROFILE}->{NAME} = "";
+      my $prfName = AttrVal($dev->{NAME},"weekprofile",undef);       
+      if (!defined($prfName)) {
+        push @not_asso, $dev->{NAME};
+        push @json_arr , $entry;
+        next;
+      }
+      my ($prf,$idx) = weekprofile_findPRF($hash, $prfName, undef, 0);
+      my $color = defined($prf) ? "" : "color:red" ;
+      
+      $entry->{PROFILE}->{NAME} = $prfName;
+      $entry->{PROFILE}->{EXISTS} = defined($prf) + 0;
+      push @json_arr , $entry;       
+	    $retHTML .= "<tr><td style='text-align:left'>$dev->{NAME}</td><td style='text-align:center;$color'>$prfName</td></tr>";
+    }
+    $retHTML .= "<tr><td colspan='2'><i>Not associated devices</i></td></tr>" if (scalar(@not_asso));
+    foreach my $devname (@not_asso) {      
+      $retHTML .= "<tr><td style='text-align:left'>$devname</td><td style='text-align:center'></td></tr>";
+    }
+    $retHTML.= "</tbody></table></html>";
+    my $ret = $retHTML;
+    if ($retType == 1) {
+      my $json_text = undef;
+      my $json = JSON->new->allow_nonref;
+      eval { $json_text = $json->encode(\@json_arr) };
+      $ret = $json_text;
+    }
+	  return $ret;
+  }
   
   if($cmd eq "sndDevList") {
     my $json = JSON->new->allow_nonref;
@@ -842,9 +941,11 @@ sub weekprofile_findPRF($$$$)
   
   my $found = undef;
   my $idx = 0;
+  my $topicOk = 0;
     
   foreach my $prf (@{$hash->{PROFILES}}){
-    if ( ($prf->{NAME} eq $name) && ($prf->{TOPIC} eq $topic) ){
+    $topicOk =  defined($topic) ? ($prf->{TOPIC} eq $topic) : 1;
+    if ( ($prf->{NAME} eq $name) && $topicOk ){
       $found = $prf;
       last;
     }
@@ -1048,7 +1149,7 @@ sub weekprofile_Set($$@)
     
     my ($topic, $name) = weekprofile_splitName($me, $params[0]);
     
-     return "Error topics not enabled" if (!$useTopics && ($topic ne 'default'));
+    return "Error topics not enabled" if (!$useTopics && ($topic ne 'default'));
     
     my ($delprf,$idx)  = weekprofile_findPRF($hash,$name,$topic,0);
     return "Error unknown profile $params[0]" unless($delprf);
@@ -1105,6 +1206,43 @@ sub weekprofile_Set($$@)
       } else {
 		  return "Error reading master profile";
 	  }
+  }
+
+  #----------------------------------------------------------  
+  my @rcvList = weekprofile_receiveList($hash);
+  $list.= " import_profile:" if(@rcvList > 0);
+  foreach my $rcvDev (@rcvList) {
+    $list.=$rcvDev.",";
+  }
+  $list = substr($list, 0, -1) if (@rcvList > 0);
+  if ($cmd eq 'import_profile') {
+    return 'usage: import_profile <device> [name]' if(@params < 1);
+    my $device = $params[0];
+    my $type = weekprofile_getDeviceType($me, $device);
+    if (!defined($type)) {
+      Log3 $me, 2, "$me(Set): device $device not supported or defined";
+      return "Error device $device not supported or defined";
+    }
+    my ($topic, $name) = ('default', $device);
+    ($topic, $name) = weekprofile_splitName($me, $params[1]) if(@params == 2);
+    return "Error topics not enabled" if (!$useTopics && ($topic ne 'default'));
+
+    my $devPrf = weekprofile_readDevProfile($device,$type,$me);
+    my $prf = {};
+    $prf->{NAME} = $name;
+    $prf->{TOPIC} = $topic;
+        
+    if(defined($devPrf)) {
+      $prf->{DATA} = $devPrf;
+    } else {
+      Log3 $me, 2, "device $device has no week profile";
+      return "Error device $device has no week profile";  
+    }
+   
+    Log3 $me, 3, "profile $topic:$name from $device imported";
+    push @{$hash->{PROFILES}} , $prf;     
+    weekprofile_updateReadings($hash);
+    return undef;
   }
   
   $list =~ s/ $//;
@@ -1224,7 +1362,7 @@ sub weekprofile_writeProfilesToFile(@)
   my $me = $hash->{NAME};
   
   if (!defined($hash->{PROFILES})) {
-	  Log3 $me, 4, "$me(writeProfileToFile): no pofiles to save";
+	  Log3 $me, 4, "$me(writeProfileToFile): no profiles to save";
 	  return;
   }
   
@@ -1232,25 +1370,40 @@ sub weekprofile_writeProfilesToFile(@)
   my $prfCnt = scalar(@{$hash->{PROFILES}});
   return if ($prfCnt <= $start);
 
-  my $filename = "./log/weekprofile-$me.cfg";
-  $filename = AttrVal($me,"configFile",$filename);
-
-  my $ret = open(my $fh, '>', $filename);
-  if (!$ret){
-    Log3 $me, 1, "$me(writeProfileToFile): Could not open file '$filename' $!";
-    return;
-  }
-  
-  print $fh "__version__=".$CONFIG_VERSION."\n";  
-  
-  Log3 $me, 5, "$me(writeProfileToFile): write profiles to $filename";
+  my @content;
+  my $idstring = "__version__=$CONFIG_VERSION";
+  push (@content, $idstring);
   my $json = JSON->new->allow_nonref;
   for (my $i = $start; $i < $prfCnt; $i++) {
-    print $fh "entry=".$json->encode($hash->{PROFILES}[$i])."\n";
-  }  
-  close $fh;
-  DoTrigger($me,"PROFILES_SAVED",1);
-  weekprofile_updateReadings($hash);
+    push (@content, "entry=".$json->encode($hash->{PROFILES}[$i]));
+  }
+  
+  my $dbused = configDBUsed();
+  my $filename = weekprofile_getDataFile($hash);
+  Log3 $me, 5, "$me(writeProfileToFile): write profiles to $filename [DB: $dbused]";
+  
+  my $ret = FileWrite($filename,@content);
+  if ($ret){
+    Log3 $me, 1, "$me(writeProfileToFile): write profiles to $filename [DB: $dbused] failed $ret";
+  } else {
+    DoTrigger($me,"PROFILES_SAVED",1);
+    weekprofile_updateReadings($hash);
+  }
+}
+##############################################
+sub weekprofile_getDataFile(@)
+{  
+  my ($hash) = @_;
+  my $me = $hash->{NAME};
+  my $filename = "%L/weekprofile-$me.cfg";
+  $filename = AttrVal($me,"configFile",$filename);
+  my @t = localtime(gettimeofday());
+  $filename = ResolveDateWildcards($filename,@t);
+  # compatibility to old weekprofile versions
+  # if no global logdir is set - use log
+  $filename =~s/%L/.\/log/g;
+  $hash->{CONFIGFILE} = $filename; # for configDB migration
+  return $filename;
 }
 ############################################## 
 sub weekprofile_readProfilesFromFile(@)
@@ -1260,27 +1413,28 @@ sub weekprofile_readProfilesFromFile(@)
   
   my $useTopics = AttrVal($me,"useTopics",0);
 
-  my $filename = "./log/weekprofile-$me.cfg";
-  $filename = AttrVal($me,"configFile",$filename);
-  
-  unless (-e $filename) {
-     Log3 $me, 5, "$me(readProfilesFromFile): file do not exist '$filename'";
-     return;
-  }
-  
-  #my $ret = open(my $fh, '<:encoding(UTF-8)', $filename);
-  my $ret = open(my $fh, '<', $filename);
-  if (!$ret){
-    Log3 $me, 1, "$me(readProfilesFromFile): Could not open file '$filename' $!";
-    return;
-  }
-  
+  my $filename = weekprofile_getDataFile($hash);
   Log3 $me, 5, "$me(readProfilesFromFile): read profiles from $filename";
   
+  my ($ret, @content) = FileRead($filename);
+  if ($ret) {
+    if (configDBUsed()){
+      Log3 $me, 1, "$me(readProfilesFromFile): please import your config file $filename into configDB!";
+    } else {
+      if ($ret =~ m/.*Can't open.*/) {
+        defined($hash->{MASTERDEV}) ? Log3 $me, 4, "$me(readProfilesFromFile): $ret" : Log3 $me, 3, "$me(readProfilesFromFile): $ret - save profil(s) at least one time";
+      } else {
+        Log3 $me, 1, "$me(readProfilesFromFile): $ret";
+      }
+    }
+    return;
+  }
+
   my $json = JSON->new->allow_nonref;  
   my $rowCnt = 0;
   my $version = undef;
-  while (my $row = <$fh>) {
+  foreach (@content) {
+    my $row = $_;
     chomp $row;    
     Log3 $me, 5, "$me(readProfilesFromFile): data row $row";
     my @data = split('=',$row);
@@ -1333,11 +1487,9 @@ sub weekprofile_readProfilesFromFile(@)
       $rowCnt++;
     } else {
       Log3 $me, 1, "$me(readProfilesFromFile): Error unknown version $version";
-      close $fh;
       return;
     }
-  }  
-  close $fh;
+  }
 }
 
 ############################################## 
@@ -1503,6 +1655,10 @@ sub weekprofile_getEditLNK_MasterDev($$)
   With 'restore_topic' the defined profile in the attribute will be transfered to the thermostat.
   So it is possible to change the topic easily and all thermostats will be updated with the correndponding profile.
   <br><br>
+  <b>Hint:</b> 
+  weekprofile supports configdb and configdb migrate since svn: 21314.<br>
+  You have to import the profile\config file into configdb manually if you update from an earlier version.
+  <br><br>
   <b>Attention:</b> 
   To transfer a profile to a device it needs a lot of Credits. 
   This is not taken into account from this module. So it could be happend that the profile in the module 
@@ -1563,6 +1719,10 @@ sub weekprofile_getEditLNK_MasterDev($$)
     <li>reread_master<br>
 		Refresh (reread) the master profile from the master device.
     </li>
+    <li>import_profile<br>
+    <code>set &lt;name&gt; import_profile &lt;device&gt; &lt;[profilename]&gt;</code><br>
+		Importing a profile from a supported device 
+    </li>
   </ul>
   
   <a name="weekprofileget"></a>
@@ -1586,6 +1746,11 @@ sub weekprofile_getEditLNK_MasterDev($$)
     </li>
     <li>topic_names<br>
      Return a comma seperated list of topic names.
+    </li>
+    <li>associations [ReturnType (0|1)]<br>
+    Returns a list of supported devices with the associated profile.<br>
+    ReturnType 0: HTML table</br>
+    ReturnType 1: json list</br>
     </li>
   </ul>
   
@@ -1678,6 +1843,10 @@ sub weekprofile_getEditLNK_MasterDev($$)
   Mittels 'restore_topic' wird dann das angebene Wochenprofil der Topic an das Thermostat übertragen.
   Somit kann man einfach zwischen den Topics wechseln und die Thermostate bekommen das passende Wochenprofil.
   <br><br>
+  <b>Hinweis:</b> 
+  weekprofile unterstützt configdb and configdb migrate seit SVN-Version: 21314.<br>
+  Wenn von einer früheren Version geupdatet wird, muss die Profiel-\Konfigurationsdatei manuell in configDB importiert werden.
+  <br><br>
   <b>Achtung:</b> Das Übertragen von Wochenprofilen erfordet eine Menge an Credits. 
   Dies wird vom Modul nicht berücksichtigt. So kann es sein, dass nach dem 
   Setzen\Aktualisieren eines Profils das Profil im Modul nicht mit dem Profil im Gerät 
@@ -1738,6 +1907,10 @@ sub weekprofile_getEditLNK_MasterDev($$)
     <li>reread_master<br>
 		Aktualisiert das master profile indem das 'Master-Geräte' neu ausgelesen wird.
     </li>
+    <li>import_profile<br>
+    <code>set &lt;name&gt; import_profile &lt;device&gt; &lt;[profilename]&gt;</code><br>
+		Profil von einem Gerät importieren. 
+    </li>
   </ul>
   
   <a name="weekprofileget"></a>
@@ -1758,6 +1931,11 @@ sub weekprofile_getEditLNK_MasterDev($$)
       ref_topic:ref_profile>dest_topic:dest_profile
       </code>
       Ist name 'topicname:profilename' wird  '0' der Name der Referenz zurück gegeben.
+    </li>
+    <li>associations [Rückgabetyp (0|1)]<br>
+      Gibt eine Liste der unterstützten Geräte mit dem verbundenen\zugeordnetem Profilnamen zurück.<br>
+      Rückgabetyp 0: HTML Tabelle</br>
+      Rückgabetyp 1: json Liste</br>
     </li>
   </ul>
   

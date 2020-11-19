@@ -1,9 +1,8 @@
 ##############################################
-# $Id: 98_XmlList.pm 13128 2017-01-17 21:40:09Z rudolfkoenig $
+# $Id: 98_XmlList.pm 22518 2020-08-02 10:25:25Z rudolfkoenig $
 package main;
 use strict;
 use warnings;
-use POSIX;
 
 sub CommandXmlList($$);
 sub XmlEscape($);
@@ -78,8 +77,13 @@ CommandXmlList($$)
         $str .= sprintf("\t\t\t<INT key=\"%s\" value=\"%s\"/>\n",
                         XmlEscape($c), XmlEscape($p->{$c}));
       }
-      $str .= sprintf("\t\t\t<INT key=\"IODev\" value=\"%s\"/>\n",
-                        $p->{IODev}{NAME}) if($p->{IODev} && $p->{IODev}{NAME});
+
+      if($p->{IODev} &&
+         ref($p->{IODev}) eq "HASH" &&
+         $p->{IODev}{NAME}) {
+        $str .= sprintf("\t\t\t<INT key=\"IODev\" value=\"%s\"/>\n",
+                          $p->{IODev}{NAME})
+      }
  
       foreach my $c (sort keys %{$attr{$d}}) {
         next if(!$si && $c =~ m/^\./);

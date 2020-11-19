@@ -29,7 +29,7 @@
 #
 # Contributed by Kai 'wusel' Siering <wusel+fhem@uu.org> in 2010
 # Based in part on work for FHEM by other authors ...
-# $Id: 70_SISPM.pm 2076 2012-11-04 13:49:43Z rudolfkoenig $
+# $Id: 70_SISPM.pm 21721 2020-04-19 15:35:49Z rudolfkoenig $
 ###########################
 
 package main;
@@ -527,6 +527,7 @@ sub nonblockGetLinesSISPM {
 1;
 
 =pod
+=item summary      Control the Silver Shield Power Manager over sispmctl
 =begin html
 
 <a name="SISPM"></a>
@@ -540,7 +541,6 @@ sub nonblockGetLinesSISPM {
     <code>define &lt;name&gt; SISPM &lt;/path/to/sispmctl&gt;</code>
     <br><br>
 
-    <!--<div style="background-color: #ffaaaa;"> -->
     <div>
     When <i>using multiple SIS PMs on one host</i>, sispmctl up to and including V 2.7 has a bug:
 <pre>plug-2:# sispmctl -v -s -d 1 -g all -d 2 -g all

@@ -1,4 +1,4 @@
-# $Id: 98_configdb.pm 18754 2019-02-27 21:26:16Z betateilchen $
+# $Id: 98_configdb.pm 22340 2020-07-03 11:01:06Z betateilchen $
 #
 
 package main;
@@ -10,18 +10,18 @@ use configDB;
 
 no if $] >= 5.017011, warnings => 'experimental';
 
-sub CommandConfigdb($$);
+sub CommandConfigdb;
 sub _cfgDB_readConfig();
 
 my @pathname;
 
-sub configdb_Initialize($$) {
+sub configdb_Initialize {
   my %hash = (  Fn => "CommandConfigdb",
                Hlp => "help     ,access additional functions from configDB" );
   $cmds{configdb} = \%hash;
 }
 
-sub CommandConfigdb($$) {
+sub CommandConfigdb {
 	my ($cl, $param) = @_;
 
 	my @a = split("[ \t][ \t]*", $param);
@@ -39,7 +39,7 @@ sub CommandConfigdb($$) {
 
 		when ('attr') {
 			Log3('configdb', 4, "configdb: attr $param1 $param2 requested.");
-			if ($param1 eq "" && $param2 eq "") {
+			if ($param1 eq '' && $param2 eq '') {
 			# list attributes
 				foreach my $c (sort keys %{$configDB{attr}}) {
 					my $val = $configDB{attr}{$c};
@@ -47,14 +47,29 @@ sub CommandConfigdb($$) {
 					$val =~ s/\n/\\\n/g;
 					$ret .= "configdb attr $c $val\n";
 				}
-			} elsif($param2 eq "") {
+			} elsif(lc($param1) eq '?' || lc($param1) eq 'help') {
+			# list all available attributes
+			    my $l = 0;
+				foreach my $c (sort keys %{$configDB{knownAttr}}) {
+    				$l = length($c) > $l ? length($c) : $l;
+    			}
+				foreach my $c (sort keys %{$configDB{knownAttr}}) {
+					my $val = $configDB{knownAttr}{$c};
+					$val =~ s/;/;;/g;
+					$val =~ s/\n/\\\n/g;
+					$ret .= sprintf("%-*s : ",$l,$c)."$val\n";
+				}
+			} elsif($param2 eq '') {
 			# delete attribute
 				delete $configDB{attr}{$param1};
 				$ret = " attribute $param1 deleted";
+				addStructChange('configdb attr',undef,"$param1 (deleted)");
+
 			} else {
 			# set attribute
 				$configDB{attr}{$param1} = $param2;
 				$ret = " attribute $param1 set to value $param2";
+                addStructChange('configdb attr',undef,"$param1 $param2 (set)");
 			}
 		}
 
@@ -65,8 +80,6 @@ sub CommandConfigdb($$) {
 
 		when ('diff') {
 			return "\n Syntax: configdb diff <device> <version>" if @a != 3;
-#			return "Invalid paramaeter '$param1' for diff. Must be a number."
-#				unless looks_like_number($param1);
 			return "Invalid paramaeter '$param2' for diff. Must be a number."
 				unless (looks_like_number($param2) || $param2 eq 'current');
 			Log3('configdb', 4, "configdb: diff requested for device: $param1 in version $param2.");
@@ -106,7 +119,7 @@ sub CommandConfigdb($$) {
 					Log3 (4,undef,"configDB: exporting $f");
 					my ($path,$file) = $f =~ m|^(.*[/\\])([^/\\]+?)$|;
 					$path = "/tmp/$path";
-					eval qx(mkdir -p $path) unless (-e "$path");
+					eval { qx(mkdir -p $path) } unless (-e "$path");
 					$ret .= _cfgDB_Fileexport $f; 
 					$ret .= "\n";
 				}
@@ -165,7 +178,7 @@ sub CommandConfigdb($$) {
 
 		when ('info') {
 			Log3('configdb', 4, "info requested.");
-			$ret = _cfgDB_Info('$Id: 98_configdb.pm 18754 2019-02-27 21:26:16Z betateilchen $');
+			$ret = _cfgDB_Info('$Id: 98_configdb.pm 22340 2020-07-03 11:01:06Z betateilchen $');
 		}
 
 		when ('list') {
@@ -241,17 +254,20 @@ sub CommandConfigdb($$) {
 }
 
 sub _cfgDB_readConfig() {
-	if(!open(CONFIG, 'configDB.conf')) {
+	my ($conf,@config);
+	if(!open($conf, '<', 'configDB.conf')) {
 		Log3('configDB', 1, 'Cannot open database configuration file configDB.conf');
 		return 0;
 	}
-	my @config=<CONFIG>;
-	close(CONFIG);
+	@config=<$conf>;
+	close($conf);
 
 	use vars qw(%configDB);
 
 	my %dbconfig;
-	eval join("", @config);
+## no critic
+	eval join("", @config) ;
+## use critic
 
 	my $cfgDB_dbconn	= $dbconfig{connection};
 	my $cfgDB_dbuser	= $dbconfig{user};
@@ -302,13 +318,14 @@ sub _cfgDB_readConfig() {
 			<li>93_DbLog.pm</li>
 			<li>95_holiday.pm</li>
 			<li>98_SVG.pm</li>
+			<li>98_weekprofile.pm</li>
 			<br/>
 			will use configDB to read their configuration data from database<br/> 
 			instead of formerly used configuration files inside the filesystem.<br/>
 			<br/>
 			This requires you to import your configuration files from filesystem into database.<br/>
 			<br/>
-			Example:<br/>
+			Examples:<br/>
 			<code>configdb fileimport FHEM/nrw.holiday</code><br/>
 			<code>configdb fileimport FHEM/myrss.layout</code><br/>
 			<code>configdb fileimport www/gplot/xyz.gplot</code><br/>
@@ -432,12 +449,7 @@ sub _cfgDB_readConfig() {
 			<br/>
 			<code> configdb attr</code> - show all defined attributes.<br/>
 			<br/>
-			<ul>Supported attributes:</ul>
-			<br/>
-			<ul><b>deleteimported</b> if set to 1 files will always be deleted from filesystem after import to database.<br/></ul><br/>
-			<ul><b>maxversions</b> set the maximum number of configurations stored in database. <br/>
-			    The oldest version will be dropped in a "save config" if it would exceed this number.</ul><br/>
-			<ul><b>private</b> if set to 0 the database user and password info will be shown in 'configdb info' output.</ul><br/>
+			<code> configdb attr ?|help</code> - show a list of available attributes.<br/>
 			<br/>
 
 		<li><code>configdb diff &lt;device&gt; &lt;version&gt;</code></li><br/>

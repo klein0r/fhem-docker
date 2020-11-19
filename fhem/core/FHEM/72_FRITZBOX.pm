@@ -1,5 +1,5 @@
 ﻿###############################################################
-# $Id: 72_FRITZBOX.pm 17437 2018-09-30 18:24:58Z tupol $
+# $Id: 72_FRITZBOX.pm 22125 2020-06-06 11:11:54Z tupol $
 #
 #  72_FRITZBOX.pm 
 #
@@ -227,7 +227,7 @@ sub FRITZBOX_Define($$)
 
    $hash->{STATE}              = "Initializing";
    $hash->{INTERVAL}           = 300; 
-   $hash->{fhem}{modulVersion} = '$Date: 2018-09-30 18:24:58 +0000 (Sun, 30 Sep 2018) $';
+   $hash->{fhem}{modulVersion} = '$Date: 2020-06-06 13:11:54 +0200 (Sat, 06 Jun 2020) $';
    $hash->{fhem}{lastHour}     = 0;
    $hash->{fhem}{LOCAL}        = 0;
 
@@ -1225,7 +1225,7 @@ sub FRITZBOX_Readout_Run_Shell($)
    push @readoutCmdArray, [ "box_wlan_2.4GHz", "ctlmgr_ctl r wlan settings/ap_enabled", "onoff" ];
 # 2nd WLAN
    push @readoutCmdArray, [ "box_wlan_5GHz", "ctlmgr_ctl r wlan settings/ap_enabled_scnd", "onoff" ];
-# G�ste WLAN
+# Gäste WLAN
    push @readoutCmdArray, [ "box_guestWlan", "ctlmgr_ctl r wlan settings/guest_ap_enabled", "onoff" ];
    push @readoutCmdArray, [ "box_guestWlanRemain", "ctlmgr_ctl r wlan settings/guest_time_remain", ];
 # Dect
@@ -4842,9 +4842,9 @@ sub FRITZBOX_fritztris($)
 1;
 
 =pod
-=item device
 =item summary Controls some features of AVM's Fritz!Box, FRITZ!Repeater and Fritz!Fon.
 =item summary_DE Steuert einige Funktionen von AVM's Fritz!Box, Fritz!Repeater und Fritz!Fon.
+=item device
 
 =begin html
 

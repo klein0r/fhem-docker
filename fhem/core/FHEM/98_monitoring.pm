@@ -1,5 +1,5 @@
 # Id ##########################################################################
-# $Id: 98_monitoring.pm 18801 2019-03-06 04:57:04Z igami $
+# $Id: 98_monitoring.pm 22154 2020-06-10 19:29:47Z igami $
 
 # copyright ###################################################################
 #
@@ -1115,7 +1115,7 @@ attr BeamerFilter_monitoring warningFuncRemove {return}</pre>
     <b>Define</b>
     <ul>
       <code>
-        define &lt;name&gt; mointoring &lt;add-event&gt; [&lt;remove-event&gt;]
+        define &lt;name&gt; monitoring &lt;add-event&gt; [&lt;remove-event&gt;]
       </code>
       <br>
       Die Syntax f&uuml;r &lt;add-event&gt; und &lt;remove-event&gt; ist die

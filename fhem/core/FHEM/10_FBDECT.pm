@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_FBDECT.pm 19906 2019-07-28 17:58:01Z rudolfkoenig $
+# $Id: 10_FBDECT.pm 23004 2020-10-22 10:13:06Z rudolfkoenig $
 package main;
 
 # See also https://avm.de/fileadmin/user_upload/Global/Service/Schnittstellen/AHA-HTTP-Interface.pdf
@@ -10,9 +10,12 @@ use SetExtensions;
 sub FBDECT_Parse($$@);
 sub FBDECT_Set($@);
 sub FBDECT_Get($@);
-sub FBDECT_Cmd($$@);
 
 sub FBDECT_decodePayload($$$);
+sub FBDECT_adjustHueSat($$);
+sub FBDECT_colName($);
+sub FBDECT_colVal($$$);
+sub FBDECT_getDiscreteSat($$);
 
 my @fbdect_models = qw(Powerline546E Dect200 CometDECT HAN-FUN);
 
@@ -75,6 +78,7 @@ FBDECT_Define($$)
   }
   $hash->{id} = $id;
   $hash->{props} = shift @a;
+  $hash->{webCmd} = "desired-temp" if($hash->{props} =~ m/actuator/);
 
   $modules{FBDECT}{defptr}{$ioNameAndId} = $hash;
   AssignIoPort($hash, $ioName);
@@ -88,6 +92,10 @@ FBDECT_SetHttp($@)
   my ($hash, @a) = @_;
   my %cmd;
   my $p = $hash->{props};
+  my $name = $hash->{NAME};
+  my $unittype = ReadingsVal($name, "unittype", "");
+
+  $cmd{raw} = "textField";
 
   if($p =~ m/switch/) {
     $cmd{off} = $cmd{on} = $cmd{toggle} = "noArg";
@@ -95,7 +103,24 @@ FBDECT_SetHttp($@)
   if($p =~ m/actuator/) {
     $cmd{"desired-temp"} = "slider,7.5,0.5,28.5,1";
     $cmd{open} = $cmd{closed} = "noArg";
+    $cmd{windowopen} = $cmd{boost} = "textField";
   }
+  if($p =~ m/dimmer/) {
+    $cmd{"dim"} = "slider,0,1,100,1";
+  }
+  if($p =~ m/HANFUNUnit/ && $unittype eq "BLIND") {
+    $cmd{open} = $cmd{closed} = $cmd{stop} = "noArg";
+  }
+  if($p =~ m/HANFUNUnit/ && $unittype eq "DIMMABLE_COLOR_BULB") {
+    $cmd{"color"} = "select,red,orange,yellow,lawngreen,green,turquoise,".
+                        "cyan,azure,blue,violet,magenta,pink";
+    $cmd{"satindex"}         = "slider,1,1,3,1";
+    $cmd{"colortemperature"} = "colorpicker,CT,2700,100,6500";
+    $cmd{"hue"}              = "colorpicker,HUE,0,1,359";
+    $cmd{"saturation"}       = "slider,0,1,255";
+    $cmd{off} = $cmd{on} = $cmd{toggle} = "noArg";
+  }
+
   if(!$cmd{$a[1]}) {
     my $cmdList = join(" ", map { "$_:$cmd{$_}" } sort keys %cmd);
     return SetExtensions($hash, $cmdList, @a)
@@ -103,18 +128,18 @@ FBDECT_SetHttp($@)
   SetExtensionsCancel($hash);
 
   my $cmd = $a[1];
-  my $name = $hash->{NAME};
   return "" if(IsDisabled($name));
   Log3 $name, 3, "FBDECT set $name $cmd";
+  my $ain = ReadingsVal($name,"AIN",0);
 
   if($cmd =~ m/^(on|off|toggle)$/) {
-    IOWrite($hash, ReadingsVal($name,"AIN",0), "setswitch$cmd");
+    IOWrite($hash, $ain, "setswitch$cmd");
     my $state = ($cmd eq "toggle" ? ($hash->{STATE} eq "on" ? "off":"on"):$cmd);
     readingsSingleUpdate($hash, "state", $state, 1);
     return undef;
   }
 
-  if($cmd =~ m/^(open|closed|desired-temp)$/) {
+  if($cmd =~ m/^(open|closed|desired-temp)$/ && $p =~ m/actuator/) {
     if($cmd eq "desired-temp") { 
       return "Usage: set $name desired-temp value" if(int(@a) != 3);
       return "desired-temp must be between 7.5 and 28.5"
@@ -123,9 +148,150 @@ FBDECT_SetHttp($@)
     my $a2 = ($a[2] ? $a[2] : 0);
     my $val = ($cmd eq "open"  || $a2==28.5) ? 254 :
               ($cmd eq "closed"|| $a2== 7.5) ? 253: int(2*$a2);
-    IOWrite($hash, ReadingsVal($name,"AIN",0),"sethkrtsoll&param=$val");
+    IOWrite($hash, $ain,"sethkrtsoll&param=$val");
     return undef;
   }
+
+  if($cmd =~ m/^(boost|windowopen)$/ && $p =~ m/actuator/) {
+    return "Usage: set $name $cmd duration" if(int(@a) != 3);
+    return "duration must be between 0 (deactivate) and 86400 (+24h)"
+      if($a[2] !~ m/^\d+$/ || $a[2] > 86400);
+    my $endtimestamp = ($a[2] == 0 ? 0 : (time() + $a[2]));
+
+    if($cmd eq "boost") {
+      Log3 $name,5, "$name: raw sethkrboost&endtimestamp=$endtimestamp";
+      IOWrite($hash, $ain, "sethkrboost&endtimestamp=$endtimestamp");
+
+    } elsif ($cmd eq "windowopen") {
+      Log3 $name,5, "$name: raw sethkrwindowopen&endtimestamp=$endtimestamp";
+      IOWrite($hash, $ain, "sethkrwindowopen&endtimestamp=$endtimestamp");
+
+    } 
+    return undef;
+  }
+
+  if($cmd eq "dim") {
+    return "Usage: set $name dim value"
+        if(int(@a) != 3 || $a[2] !~ m/^\d+$/ || !($a[2]>=0 && $a[2]<=100));
+    IOWrite($hash, $ain,"setlevelpercentage&level=$a[2]");
+    return undef;
+  }
+
+  if($cmd =~ m/^(open|closed|stop)$/ &&
+    $p =~ m/HANFUNUnit/ && $unittype eq "BLIND") {
+    IOWrite($hash, $ain,"setblind&target=$cmd");
+    return undef;
+  }
+
+  if($cmd eq "raw") {
+    shift @a; shift @a;
+    return "Usage set $name raw <arguments>" if(!@a);
+    IOWrite($hash, $ain, join("&", @a));
+    return undef;
+  }
+
+  if($cmd eq "color") {
+    return "Usage: set $name color [colorname]"
+        if(int(@a) != 2 && int(@a) != 3);
+    my $color = defined($a[2]) ? $a[2] : FBDECT_colVal($hash,"color","yellow");
+    my $satindex = FBDECT_colVal($hash, "satindex", 1);
+    my ($hue, $saturation) = FBDECT_adjustHueSat($color, $satindex);
+    $hash->{hue}        = $hue;
+    $hash->{saturation} = $saturation;
+    $hash->{color}      = $color;
+    Log3 $name,5,
+        "$name: raw setcolor&hue=$hue&saturation=$saturation&duration=0";
+    IOWrite($hash, $ain, "setcolor&hue=$hue&saturation=$saturation&duration=0");
+    return undef;
+  }
+  
+  if($cmd eq "satindex") {
+    return "Usage: set $name satindex [saturation-index]"
+        if(int(@a) != 2 && int(@a) != 3);
+    my $satindex = defined($a[2]) ? $a[2] : FBDECT_colVal($hash, "satindex", 1);
+    my $color = FBDECT_colVal($hash, "color", "yellow");
+    my ($hue, $saturation) = FBDECT_adjustHueSat($color,$satindex);
+    $hash->{saturation} = $saturation;
+    $hash->{satindex}   = $satindex;
+    Log3 $name,5,
+        "$name: raw setcolor&hue=$hue&saturation=$saturation&duration=0";
+    IOWrite($hash, $ain, "setcolor&hue=$hue&saturation=$saturation&duration=0");
+    return undef;
+  }
+
+  if($cmd eq "saturation") {
+    return "Usage: set $name saturation value"
+        if(int(@a) != 3 || $a[2] !~ m/^\d+$/ || !($a[2]>=0 && $a[2]<=255));
+    my $color = FBDECT_colVal($hash, "color", "yellow");
+    my $hue   = FBDECT_colVal($hash, "hue", 52);
+    my $saturation = $a[2];
+    my $satindex;
+    ($satindex, $saturation) = FBDECT_getDiscreteSat($color, $saturation);
+    $hash->{saturation} = $saturation;
+    $hash->{satindex} = $satindex;
+    Log3 $name,5,
+        "$name: raw setcolor&hue=$hue&saturation=$saturation&duration=0";
+    IOWrite($hash, $ain, "setcolor&hue=$hue&saturation=$saturation&duration=0");
+    return undef;
+  }
+    
+  if($cmd eq "colortemperature") {
+    return "Usage: set $name colortemperature [temperature]"
+        if(int(@a) != 2 && int(@a) != 3);
+    my $initialTemperature = FBDECT_colVal($hash, "colortemperature", 4200);
+    my $setTemperature = defined($a[2]) ? $a[2] : $initialTemperature;
+    my $tempunit = "kelvin";
+    my $colortemperature = $setTemperature;
+    if($setTemperature < 2000) { # get temp in Kelvin if given in mireds
+      $tempunit = "mired";
+      $colortemperature = int(1000000 / $setTemperature + 0.5);
+    }
+    my @discreteTemp = (2700,3000,3400,3800,4200,4700,5300,5900,6500,99999);
+    for(my $i = 0; $i < int(@discreteTemp)-1; $i++) {
+      if($colortemperature <
+         $discreteTemp[$i] + ($discreteTemp[$i+1]-$discreteTemp[$i])/2 ) {
+           $colortemperature = $discreteTemp[$i];
+           last;
+      }
+    }
+    # sending setcolortemperature will switch the mode to white. Homebridge
+    # sends ct (mireds) along with hue when in color mode => only
+    # setcolortemperature if kelvin or if temp changed
+    if($colortemperature != $initialTemperature || $tempunit eq "kelvin") {
+      $hash->{colortemperature} = $colortemperature;
+      Log3 $name,5, "$name: raw setcolortemperature&".
+                        "temperature=$colortemperature&duration=0";
+      IOWrite($hash, $ain,
+                "setcolortemperature&temperature=$colortemperature&duration=0");
+    }
+    return undef;
+  }
+
+  if($cmd eq "hue") {
+    return "Usage: set $name hue huevalue"
+        if(int(@a) != 3 || $a[2] !~ m/^\d+$/ || !($a[2]>=0 && $a[2]<=359));
+    my $satindex = FBDECT_colVal($hash, "satindex", 1);
+    my $hue = $a[2];
+    my $saturation;
+    my @discreteHue = (35,52,92,120,160,195,212,225,266,296,335,358,9999);
+    for(my $i = 0; $i < int(@discreteHue)-1; $i++) {
+      if($hue < $discreteHue[$i] + ($discreteHue[$i+1]-$discreteHue[$i])/2 ) {
+        $hue = $discreteHue[$i];
+        last;
+      }
+    }
+    my $color = FBDECT_colName($hue);
+    ($hue, $saturation) = FBDECT_adjustHueSat($color,$satindex);
+    $hash->{color} = $color;
+    $hash->{hue} = $hue;
+    $hash->{saturation} = $saturation;
+    Log3 $name,5,
+        "$name: raw setcolor&hue=$hue&saturation=$saturation&duration=0";
+    IOWrite($hash, $ain, "setcolor&hue=$hue&saturation=$saturation&duration=0");
+    return undef;
+  }
+  
+  return "Internal Error, unknown command $cmd";
 }
 
 ###################################
@@ -220,11 +386,14 @@ my %fbhttp_readings = (
    batterylow      => '"batterylow:$val"',
    celsius         => 'sprintf("temperature:%.1f C (measured)", $val/10)',
    energy          => 'sprintf("energy:%d Wh", $val)',
+   etsideviceid    => '"etsideviceid:$val"',
    functionbitmask => '"FBPROP:$fbprop"',
    fwversion       => '"fwversion:$val"',
    id              => '"ID:$val"',
    identifier      => '"AIN:$val"',
    komfort         => 'sprintf("day-temp:%.1f C", $val/2)',
+   level           => '"level:$val"',
+   levelpercentage => '"dim:$val"',
    lock            => '"locked:".($val ? "yes":"no")',
    mode            => '"mode:$val"',
    name            => '"FBNAME:$val"',
@@ -238,6 +407,7 @@ my %fbhttp_readings = (
    tsoll           => 'sprintf("desired-temp:%s", $val)',
    members         => '"members:$val"',
    devicelock      => '"devicelock:".($val ? "yes":"no")',
+   unittype        => '"unittype:".($unittype{$val} ? $unittype{$val} : $val)',
    errorcode       => '"errorcode:".($ecTxt{$val} ? $ecTxt{$val} : ">$val<")',
    windowopenactiv => '"windowopenactiv:".($val ? "yes":"no")',
    battery         => 'sprintf("battery:%s %%", $val)',
@@ -246,6 +416,17 @@ my %fbhttp_readings = (
    summeractive    => '"summeractive:".($val ? "yes":"no")',
    holidayactive   => '"holidayactive:".($val ? "yes":"no")',
    lastpressedtimestamp => '"lastpressedtimestamp:".($val=~m/^\d{10}$/ ? FmtDateTime($val) : "N/A")',
+   lastpressedtimestamp_kurz => '"lastpressedtimestamp_kurz:".($val=~m/^\d{10}$/ ? FmtDateTime($val) : "N/A")',
+   lastpressedtimestamp_lang => '"lastpressedtimestamp_lang:".($val=~m/^\d{10}$/ ? FmtDateTime($val) : "N/A")',
+   hue             => '"hue:$val"',
+   current_mode    => '"current_mode:$val"',
+   saturation      => '"saturation:$val"',
+   temperature     => '"colortemperature:$val"',
+   windowopenactiveendtime => '"windowopenactiveendtime:".($val=~m/^\d{10}$/ ? FmtDateTime($val) : "N/A")',
+   boostactive     => '"boostactive:".($val ? "yes":"no")',
+   boostactiveendtime => '"boostactiveendtime:".($val=~m/^\d{10}$/ ? FmtDateTime($val) : "N/A")',
+   masterdeviceid  => '"groupmasterid:$val"',
+   lastalertchgtimestamp => '"lastalertchgtimestamp:".($val=~m/^\d{10}$/ ? FmtDateTime($val) : "N/A")',
 );
 
 sub
@@ -254,23 +435,47 @@ FBDECT_ParseHttp($$$)
   my ($iodev, $msg, $type) = @_;
   my $ioName = $iodev->{NAME};
   my %h;
+  my $omsg;
 
-  $msg =~ s,<([^/>]+?)>([^<]+?)<,$h{$1}=$2,ge; # Quick & Dirty: Tags
-  $msg =~ s, ([a-z]+?)="([^"]*)",$h{$1}=$2,ge; # Quick & Dirty: Attributes
+  $omsg = $msg;
+  $omsg =~ s,<([^/>]+?)>([^<]+?)<,$h{$1}=$2,ge; # Quick & Dirty: Tags
+  $omsg = $msg;
+  $omsg =~ s, ([a-z_]+?)="([^"]*)",$h{$1}=$2,ge; # Quick & Dirty: Attributes
+
+  if($h{lastpressedtimestamp}) { # Dect400/#94700
+    sub dp($$$);
+    sub 
+    dp($$$)
+    {
+      my ($ln, $txt,$hptr) = (@_);
+      $txt =~ s#<([^/\s>]+?)[^/]*?>(.*?)</\g1>#
+        my ($n,$c) = ($1,$2);
+        $ln = $1 if($n eq "name" && $c =~ m/.*(kurz|lang)$/);
+        $hptr->{"${n}_$ln"} = $c if($n eq "lastpressedtimestamp" && $ln);
+        dp($ln, $c, $hptr) if($c && $c =~ m/^<.*>$/);
+      #gex;
+    }
+    dp("", $msg, \%h);
+  }
 
   my $ain = $h{identifier};
   $ain =~ s/[-: ]/_/g;
 
   my %ll = (
     0 => "HANFUN",
+    2 => "lightSwitch",
     4 => "alarmSensor",
+    5 => "avmButton",
     6 => "actuator",
     7 => "powerMeter",
     8 => "tempSensor",
     9 => "switch",
    10 => "repeater",
    11 => "microphone",
-   13 => "HANFUN2"
+   13 => "HANFUNUnit",
+   15 => "switch",
+   16 => "dimmer",
+   17 => "colorswitch",
   );
   my %ecTxt = (0 => "noError (0)",
                1 => "notMounted (1)",
@@ -279,6 +484,29 @@ FBDECT_ParseHttp($$$)
                4 => "installationPreparation (4)",
                5 => "installationInProgress (5)",
                6 => "installationIsAdapting (6)");
+  my %unittype = (
+    273 => "SIMPLE_BUTTONAHA-HTTP-API",
+    256 => "SIMPLE_ON_OFF_SWITCHABLE",
+    257 => "SIMPLE_ON_OFF_SWITCH",
+    262 => "AC_OUTLET",
+    263 => "AC_OUTLET_SIMPLE_POWER_METERING",
+    264 => "SIMPLE_LIGHT",
+    265 => "DIMMABLE_LIGHT",
+    266 => "DIMMER_SWITCH",
+    277 => "COLOR_BULB",
+    278 => "DIMMABLE_COLOR_BULB",
+    281 => "BLIND",
+    282 => "LAMELLAR",
+    512 => "SIMPLE_DETECTOR",
+    513 => "DOOR_OPEN_CLOSE_DETECTOR",
+    514 => "WINDOW_OPEN_CLOSE_DETECTOR",
+    515 => "MOTION_DETECTOR",
+    518 => "FLOOD_DETECTOR",
+    519 => "GLAS_BREAK_DETECTOR",
+    520 => "VIBRATION_DETECTOR",
+    640 => "SIREN",
+  );
+
 
   my $lsn = int($h{functionbitmask});
   my @fb;
@@ -300,6 +528,7 @@ FBDECT_ParseHttp($$$)
   }
 
   $hash->{props} = $fbprop; # replace values from define
+  $hash->{webCmd} = "desired-temp" if($hash->{props} =~ m/actuator/);
   readingsBeginUpdate($hash);
   Log3 $hash, 5, $hash->{NAME};
   foreach my $n (keys %h) {
@@ -317,6 +546,27 @@ FBDECT_ParseHttp($$$)
         if($ptyp eq "batterylow");
     readingsBulkUpdate($hash, "batteryPercent", $val) # 87575/96302
         if($ptyp eq "battery");
+    if($val && $ptyp eq "colortemperature") {
+      readingsBulkUpdate($hash, "colortemperaturemireds",
+                $val>0 ? int(1000000/$val+0.5) : "");
+      readingsBulkUpdate($hash, $ptyp, $val);
+      $hash->{$ptyp} = $val;
+    }
+    if($val && $ptyp eq "hue") {
+      readingsBulkUpdate($hash, "color", FBDECT_colName($val));
+      $hash->{color} = FBDECT_colName($val);
+      $hash->{hue} = $val;
+    }
+    if ($val && $ptyp eq "saturation") {
+      my $color = FBDECT_colVal($hash, "color", "yellow");
+      my ($satindex, $sat) = FBDECT_getDiscreteSat($color, $val);
+      readingsBulkUpdate($hash, "satindex", $satindex);
+      $hash->{saturation} = $val;
+      $hash->{satindex} = $satindex;
+    }
+    readingsBulkUpdate($hash, "colormode", $val eq "1" ? "color" : "white")
+        if($ptyp eq "current_mode");
+
   }
   readingsEndUpdate($hash, 1);
 
@@ -506,7 +756,8 @@ FBDECT_decodePayload($$$)
   my $ptyp = hex(substr($d, 0, 8));
   my $plen = hex(substr($d, 8, 4));
   if(length($d) < 16+$plen*2) {
-    Log3 $hash, 4, "FBDECT ignoring payload: data shorter than given length($plen)";
+    Log3 $hash, 4,
+        "FBDECT ignoring payload: data shorter than given length($plen)";
     return ("", "", "");
   }
   my $pyld = substr($d, 16, $plen*2);
@@ -519,6 +770,69 @@ FBDECT_decodePayload($$$)
     $ptyp = ($pyld ? $fbdect_payload{$ptyp}{n} : "");
   }
   return ($ptyp, $plen, $pyld);
+}
+
+###################################
+# Color helpers
+my %colordefaults = (
+  red       => { hue=>358, sat=>[180, 112, 54] },
+  orange    => { hue=> 35, sat=>[214, 140, 72] },
+  yellow    => { hue=> 52, sat=>[153, 102, 51] },
+  lawngreen => { hue=> 92, sat=>[123,  79, 38] },
+  green     => { hue=>120, sat=>[160,  82, 38] },
+  turquoise => { hue=>160, sat=>[145,  84, 41] },
+  cyan      => { hue=>195, sat=>[179, 118, 59] },
+  azure     => { hue=>212, sat=>[169, 110, 56] },
+  blue      => { hue=>225, sat=>[204, 135, 67] },
+  violet    => { hue=>266, sat=>[169, 110, 54] },
+  magenta   => { hue=>296, sat=>[140,  92, 46] },
+  pink      => { hue=>335, sat=>[180, 107, 51] }
+);
+
+sub
+FBDECT_adjustHueSat($$)
+{
+  my ($color, $satindex) = @_;
+  return FBDECT_adjustHueSat("yellow", $satindex) if(!$colordefaults{$color});
+  return FBDECT_adjustHueSat($color, 1) if($satindex < 1 || $satindex > 3);
+  return ($colordefaults{$color}{hue},$colordefaults{$color}{sat}[$satindex-1]);
+}
+
+sub
+FBDECT_colName($)
+{
+  my ($hue) = @_;
+  foreach my $k (keys %colordefaults) {
+    return $k if($hue eq $colordefaults{$k}{hue});
+  }
+  return "yellow";
+}
+
+sub
+FBDECT_colVal($$$)
+{
+  my ($hash,$cname,$default) = @_;
+  return $hash->{$cname} if($hash->{$cname});
+  return ReadingsVal($hash->{NAME}, $cname, $default);
+}
+
+
+sub
+FBDECT_getDiscreteSat($$)
+{
+  my ($color, $saturation) = @_;
+  my $satindex = 3;
+  $color = "yellow" if(!$colordefaults{$color});
+  my @discreteSat = reverse (9999, @{$colordefaults{$color}{sat}});
+  for(my $i=0; $i<3; $i++) {
+    if($saturation <
+       $discreteSat[$i] + ($discreteSat[$i+1]-$discreteSat[$i])/2 ) {
+      $saturation = $discreteSat[$i];
+      $satindex = 3 - $i;
+      last;
+    }
+  }
+  return ($satindex, $saturation);
 }
 
 #####################################
@@ -566,14 +880,35 @@ FBDECT_Undef($$)
 
   <a name="FBDECTset"></a>
   <b>Set</b>
+  Note: not all commands are supported for all devices.
   <ul>
   <li>on/off<br>
     set the device on or off.
     </li>
 
+  <li>dim &lt;value&gt;<br>
+    dim the device (if it is supported), value is between 0 and 100 (in %)
+    </li>
+
+  <li>open/close/stop<br>
+    set the blind correspondingly
+    </li>
+
   <li>desired-temp &lt;value&gt;<br>
     set the desired temp on a Comet DECT (FBAHAHTTP IOdev only). The value 7.5
     corresponds to off, and 28.5 to on.
+    </li>
+
+  <li>boost &lt;duration&gt;<br>
+    set the boost mode on a Comet/Fritz DECT 301 (FBAHAHTTP IOdev only) for 
+    duration in seconds.
+    The value 0 means deactivate previously set boost mode.
+    </li>
+
+  <li>windowopen &lt;duration&gt;<br>
+    set the windowopen mode on a Comet/Fritz DECT (FBAHAHTTP IOdev only) for 
+    duration in seconds.
+    The value 0 means deactivate previously set windowopen mode.
     </li>
 
   <li><a href="#setExtensions">set extensions</a> are supported.
@@ -582,6 +917,49 @@ FBDECT_Undef($$)
   <li>msgInterval &lt;sec&gt;<br>
     Number of seconds between the sensor messages (FBAHA IODev only).
     </li>
+
+  <li>color &lt;colorname&gt;<br>
+    Color name for color bulbs: red, orange, yellow, lawngreen, green, 
+    turquoise, cyan, azure, blue, violet, magenta, pink.
+    If the bulb was in "white" mode, it will change to "color" mode.
+    </li>
+
+  <li>colortemperature &lt;temperature&gt;<br>
+    Color temperature in Kelvin (&gt; 2000) otherwise micro-reciprocal degrees
+    (mired).  If temperature is not given, it will only change from "color" to
+    "white" mode.  As the Fritzbox only accepts pre-defined values, it will be
+    set back to the nearest authorized value in Kelvin (run <i>set
+    &lt;devicename&gt; raw getcolordefaults</i> to know the accepted values).
+    If the bulb was in "color" mode, it will change to "white" mode, except if
+    temperature given in mireds leads to no change of temperature in Kelvin.
+    </li>
+
+  <li>sat_index &lt;index&gt;<br>
+    Index from 1 to 3 of accepted saturation levels. Sets the bulb to the 
+    corresponding saturation for the set color.
+    If the bulb was in "white" mode, it will change to "color" mode.
+    </li>
+
+  <li>hue &lt;huevalue&gt;<br>
+    Hue value from 0 to 359. As the Fritzbox only accepts pre-defined values,
+    it will be set back to the nearest authorized value.  (run <i>set
+    &lt;devicename&gt; raw getcolordefaults</i> to know the accepted values).
+    The saturation will change to the accepted saturation for the color and
+    sat_index set.  If the bulb was in "white" mode, it will change to "color"
+    mode.  </li>
+
+  <li>saturation &lt;value&gt;<br>
+    Color saturation from 0 to 255. As the Fritzbox only accepts pre-defined
+    values, it will be set back to the nearest authorized value for the set
+    color (run <i>set &lt;devicename&gt; raw getcolordefaults</i> to know the
+    accepted values for each color).  If the bulb was in "white" mode, it will
+    change to "color" mode.  </li>
+
+  <li>raw ...<br>
+    Used for debugging.<br>
+    Sends switchcmd=..., further parameters are joined with &amp;.
+    </li>
+
   </ul>
   <br>
 
@@ -670,6 +1048,25 @@ FBDECT_Undef($$)
     Gew&uuml;nschte Temperatur beim Comet DECT setzen. 7.5 entspricht aus, 28.5
     bedeutet an.
     </li>
+
+  <li>boost &lt;Dauer&gt;<br>
+    Versetzt den Comet/Fritz DECT 301 in boost Modus f&uuml;r Dauer in Sekunden.
+    0 deaktiviert den boost Modus.
+    </li>
+
+  <li>windowopen &lt;Dauer&gt;<br>
+    Versetzt den Comet/Fritz DECT 301 in windowopen Modus f&uuml;r Dauer in
+    Sekunden. 0 deaktiviert den windowopen Modus.
+    </li>
+
+  <li>dim &lt;value&gt;<br>
+    Helligkeit oder Rolladenstand (zwischen 0 und 100, in Prozent) setzen.
+    </li>
+
+  <li>open/close/stop<br>
+    Rollade &ouml;ffnen, schlie&szlig;en oder stoppen.
+    </li>
+
   <li>
     Die <a href="#setExtensions">set extensions</a> werden
     unterst&uuml;tzt.
@@ -677,6 +1074,50 @@ FBDECT_Undef($$)
   <li>msgInterval &lt;sec&gt;<br>
     Anzahl der Sekunden zwischen den Sensornachrichten (nur mit FBAHA als
     IODev).
+    </li>
+    
+  <li>color &lt;colorname&gt;<br>
+    Farbname f&uuml;r Farbbirnen: rot, orange, gelb, grassgr&uuml;n, gr&uuml;n,
+    t&uuml;rkis, cyan, himmelblau, blau, violett, magenta, rosa .  Wenn die
+    Gl&uuml;hbirne im "white" Modus war, wechselt sie in den Modus "color"
+    </li>
+
+  <li>colortemperature &lt;Temperatur&gt;<br>
+    Farbtemperatur in Kelvin wenn &gt; 2000 sonst mireds. Da die Fritzbox nur
+    vordefinierte Werte unterst&uuml;tzt, wird sie auf den n&auml;chstliegenden
+    unterst&uuml;tzten Wert in Kelvin zur&uuml;ckgesetzt (um die
+    unterst&uuml;tzte Werte zu kennen, <i>set &lt;devicename&gt; raw
+    getcolordefaults</i> ausführen).  Wenn die Gl&uuml;hbirne im "color" Modus
+    war, wechselt sie in den Modus "white", ausser wenn die in mireds
+    eingegebene Temperatur zu keine Aenderung der Temperatur in Kelvin
+    f&uuml;hrt.  </li>
+
+  <li>sat_index &lt;index&gt;<br>
+    Index von 1 bis 3 der akzeptierten S&auml;ttigungsstufen. Setzt die
+    Gl&uuml;hbirne auf die entsprechende S&auml;ttigung f&uuml;r die
+    eingestellte Farbe.  Wenn die Gl&uuml;hbirne im "white" Modus war, wechselt
+    sie in den Modus "color" </li>
+
+  <li>hue &lt;huevalue&gt;<br>
+    Hue Wert von 0 bis 359. Da die Fritzbox nur vordefinierte Werte
+    unterst&uuml;tzt, wird sie auf den n&auml;chstliegenden unterst&uuml;tzten
+    Wert zur&uuml;ckgesetzt (um die unterst&uuml;tzte Werte zu kennen, <i>set
+    &lt;devicename&gt; raw getcolordefaults</i> ausführen).  Die
+    S&auml;ttigung wird auf die f&uuml;r die Farbe und sat_index akzeptierte
+    S&auml;ttigung ge&auml;ndert.  Wenn die Gl&uuml;hbirne im "white" Modus
+    war, wechselt sie in den Modus "color" </li>
+
+  <li>saturation &lt;Wert&gt;<br>
+    Farbs&auml;ttigung von 0 bis 255. Da die Fritzbox nur vordefinierte Werte
+    unterst&uuml;tzt, wird sie auf den n&auml;chstliegenden unterst&uuml;tzten
+    Wert zur&uuml;ckgesetzt (um die unterst&uuml;tzte Werte zu kennen, <i>set
+    &lt;devicename&gt; raw getcolordefaults</i> ausf&uuml;hren).  Wenn die
+    Gl&uuml;hbirne im "white" Modus war, wechselt sie in den Modus "color"
+    </li>
+
+  <li>raw ...<br>
+    Dient zum debuggen.<br>
+    Sendet switchcmd=..., weitere Parameter werden per &amp; zusammengeklebt.
     </li>
   </ul>
   <br>

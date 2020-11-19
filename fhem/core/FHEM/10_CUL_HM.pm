@@ -1,7 +1,7 @@
 ##############################################
 ##############################################
 # CUL HomeMatic handler
-# $Id: 10_CUL_HM.pm 20633 2019-12-01 13:24:15Z martinp876 $
+# $Id: 10_CUL_HM.pm 23117 2020-11-08 16:37:38Z martinp876 $
 
 package main;
 
@@ -28,6 +28,7 @@ my $culHmRegChan          =\%HMConfig::culHmRegChan;
 
 my $culHmGlobalGets       =\%HMConfig::culHmGlobalGets;
 my $culHmVrtGets          =\%HMConfig::culHmVrtGets;
+
 my $culHmSubTypeGets      =\%HMConfig::culHmSubTypeGets;
 my $culHmModelGets        =\%HMConfig::culHmModelGets;
 my $culHmGlobalGetsDev    =\%HMConfig::culHmGlobalGetsDev;
@@ -143,6 +144,8 @@ sub CUL_HM_autoReadReady($);
 sub CUL_HM_calcDisWm($$$);
 sub CUL_HM_statCnt(@);
 sub CUL_HM_trigLastEvent($$$$$);
+sub CUL_HM_rmOldRegs($$);
+sub CUL_HM_SetList($$);
 
 # ----------------modul globals-----------------------
 my $respRemoved; # used to control trigger of stack processing
@@ -157,7 +160,7 @@ my $mIdReverse = 0; # CUL_HM model ID reverse search is not supported by default
 sub CUL_HM_Initialize($) {
   my ($hash) = @_;
 
-  my @modellist;
+  my @modellist = ();
   foreach my $model (keys %{$culHmModel}){
     next if (!$model);
     push @modellist,$culHmModel->{$model}{name};
@@ -175,17 +178,19 @@ sub CUL_HM_Initialize($) {
 
   $hash->{Attr}{dev} =  "ignore:1,0 dummy:1,0 "  # -- device only attributes
                        ."IODev IOList IOgrp "        
-                       ."rssiLog:1,0 "         # enable writing RSSI to Readings (device only)
+                       ."hmKey hmKey2 hmKey3 "  # required for VCCU
                        ."actCycle "            # also for action detector    
-                       ."hmKey hmKey2 hmKey3 "  
                        ."readingOnDead:multiple,noChange,state,periodValues,periodString,channels "
                        ."subType:"   .join(",",CUL_HM_noDup(map { $culHmModel->{$_}{st} } keys %{$culHmModel}))." "
                        ."modelForce:".join(",", sort @modellist)." "
                        .".mId "
                        ;
+  $hash->{Attr}{devVrt} = 
+                        "logIDs:multiple,none,sys,all,broadcast ";
   $hash->{Attr}{devPhy} =    # -- physical device only attributes
                         "serialNr firmware .stc .devInfo "
                        ."actStatus "
+                       ."rssiLog:1,0 "         # enable writing RSSI to Readings (device only)
                        ."autoReadReg:0_off,1_restart,2_pon-restart,3_onChange,4_reqStatus,5_readMissing,8_stateOnly "
                        ."burstAccess:0_off,1_auto "
                        ."msgRepeat "                      
@@ -200,7 +205,7 @@ sub CUL_HM_Initialize($) {
                        ;
   $hash->{Attr}{glb} =  "do_not_notify:1,0 showtime:1,0 "
                        ."rawToReadable unit "#"KFM-Sensor" only
-                       ."expert:0_defReg,1_allReg,2_defReg+raw,3_allReg+raw,4_off,8_templ+default,12_templOnly,251_anything "
+                       ."expert:multiple,defReg,allReg,rawReg,templ,none "
                        ."param "
                        ."readOnly:0,1 "                       
                        ."actAutoTry:0_off,1_on "
@@ -209,6 +214,7 @@ sub CUL_HM_Initialize($) {
                        ;
   $hash->{AttrList}  =  $hash->{Attr}{glb}
                        .$hash->{Attr}{dev}
+                       .$hash->{Attr}{devVrt}
                        .$hash->{Attr}{devPhy}
                        .$hash->{Attr}{chn}
                        .$readingFnAttributes
@@ -239,6 +245,8 @@ sub CUL_HM_Initialize($) {
   $hash->{hmIoMaxDly}     = 60;# poll timeout - stop poll and discard
   $hash->{hmAutoReadScan} = 4; # delay autoConf readings
   $hash->{helper}{hmManualOper} = 0;# default automode
+  $modules{CUL_HM}{helper}{verbose}{none} = 1; # init hash
+
 }
 
 sub CUL_HM_updateConfig($){##########################
@@ -258,7 +266,7 @@ sub CUL_HM_updateConfig($){##########################
       if ($attr{$_}{subType} && $attr{$_}{subType} eq "virtual"){
         $attr{$_}{model} = "VIRTUAL" if (!$attr{$_}{model} || $attr{$_}{model} =~ m/virtual_/);
       }
-      if ($attr{$_}{".mId"} && $culHmModel->{$attr{$_}{".mId"}}){ #if mId is  available set model to its original value -at least temporarliy
+      if ($attr{$_}{".mId"} && $culHmModel->{$attr{$_}{".mId"}}){ #if mId is available set model to its original value -at least temporarliy
         $attr{$_}{model} = $culHmModel->{$attr{$_}{".mId"}}{name};
       }
       else{#if mId is not available use attr model and assign it. 
@@ -266,7 +274,7 @@ sub CUL_HM_updateConfig($){##########################
           $attr{$_}{".mId"} = CUL_HM_getmIdFromModel($attr{$_}{model});
         }
       }
-      CUL_HM_updtDeviceModel($_,AttrVal($_,"modelForce",AttrVal($_,"model",""))) if($attr{$_}{".mId"});
+      CUL_HM_updtDeviceModel($_,AttrVal($_,"modelForce",AttrVal($_,"model","")),1) if($attr{$_}{".mId"});
     }
   }
   foreach my $name (@{$modules{CUL_HM}{helper}{updtCfgLst}}){
@@ -287,27 +295,30 @@ sub CUL_HM_updateConfig($){##########################
       $attr{$name}{"event-on-change-reading"} = 
                 AttrVal($name, "event-on-change-reading", ".*")
                 if(!$nAttr);
-      $attr{$name}{".mId"}  = CUL_HM_getmIdFromModel("0000");
+      $attr{$name}{".mId"}  = CUL_HM_getmIdFromModel("ACTIONDETECTOR");
       $attr{$name}{model}   = $culHmModel->{"0000"}{name};
       $attr{$name}{subType} = $culHmModel->{"0000"}{st};
       delete $hash->{IODev};
       delete $hash->{helper}{role};
       delete $attr{$name}{$_}
-            foreach ( "autoReadReg","actCycle","actStatus","burstAccess","serialNr"
+            foreach ( "autoReadReg","actStatus","burstAccess","serialNr"
                      ,"IODev","IOList","IOgrp","hmProtocolEvents","rssiLog"); 
       $hash->{helper}{role}{vrt} = 1;
-      #$hash->{helper}{role}{dev} = 1;
+      $hash->{helper}{role}{dev} = 1;
+      delete $hash->{helper}{mId};
+
       next;
     }
     CUL_HM_ID2PeerList($name,"",1); # update peerList out of peerIDs
     CUL_HM_getMId($hash); # need to set regLst in helper
     
     my $chn = substr($id."00",6,2);
-    my $st  = CUL_HM_Get($hash,$name,"param","subType");
-    my $md  = CUL_HM_Get($hash,$name,"param","model");
+    my $st  = CUL_HM_getAttr($name,"subType","");
+    my $md  = CUL_HM_getAttr($name,"model","");
     
     my $dHash = CUL_HM_getDeviceHash($hash);
     $dHash->{helper}{role}{prs} = 1 if($hash->{helper}{regLst} && $hash->{helper}{regLst} =~ m/3p/);
+    delete $hash->{helper}{mId};
 
     foreach my $rName ("D-firmware","D-serialNr",".D-devInfo",".D-stc"){
       # move certain attributes to readings for future handling
@@ -317,9 +328,11 @@ sub CUL_HM_updateConfig($){##########################
       CUL_HM_UpdtReadSingle($hash,$rName,$aVal,0)
            if (!defined ReadingsVal($name,$rName,undef));
     }
+
     if    ($md =~ /(HM-CC-TC|ROTO_ZEL-STG-RM-FWT)/){
       $hash->{helper}{role}{chn} = 1 if (length($id) == 6); #tc special
-    }
+      delete $hash->{helper}{mId};
+   }
     elsif ($md =~ m/^HM-CC-RT-DN/){
       $hash->{helper}{shRegR}{"07"} = "00" if ($chn eq "04");# shadowReg List 7 read from CH 0
       $hash->{helper}{shRegW}{"07"} = "04" if ($chn eq "00");# shadowReg List 7 write to CH 4
@@ -343,6 +356,7 @@ sub CUL_HM_updateConfig($){##########################
     }
     elsif ($md =~ m/^(CCU-FHEM)/){
       $hash->{helper}{role}{vrt} = 1;
+      delete $hash->{helper}{mId};
       if($hash->{helper}{role}{dev}){
         CUL_HM_UpdtCentral($name); # first update, then keys
 
@@ -405,6 +419,7 @@ sub CUL_HM_updateConfig($){##########################
     }
     elsif ($st eq "virtual" ) {#setup virtuals
       $hash->{helper}{role}{vrt} = 1;
+      delete $hash->{helper}{mId};
       if (   $hash->{helper}{fkt} 
           && $hash->{helper}{fkt} =~ m/^(vdCtrl|virtThSens)$/){
         my $vId = substr($id."01",0,8);
@@ -416,19 +431,24 @@ sub CUL_HM_updateConfig($){##########################
           $hash->{helper}{vd}{idl} = 0;
           $hash->{helper}{vd}{idh} = 0;
         }
-        my $d =ReadingsVal($name,"valvePosTC","");
-        $d =~ s/ %//;
-        CUL_HM_Set($hash,$name,"valvePos",$d);
-        CUL_HM_Set($hash,$name,"virtTemp",ReadingsVal($name,"temperature",""));
-        CUL_HM_Set($hash,$name,"virtHum" ,ReadingsVal($name,"humidity",""));
-        CUL_HM_UpdtReadSingle($hash,"valveCtrl","restart",1) if (ReadingsVal($name,"valvePosTC",""));
-        RemoveInternalTimer("valvePos:$vId");
-        RemoveInternalTimer("valveTmr:$vId");
-        InternalTimer($hash->{helper}{vd}{next}
-                     ,"CUL_HM_valvePosUpdt","valvePos:$vId",0);
+        if ($hash->{helper}{fkt} eq "vdCtrl"){
+          my $d = ReadingsVal($name,"valvePosTC","");
+          $d =~ s/ %//;
+          CUL_HM_Set($hash,$name,"valvePos",$d);
+          CUL_HM_UpdtReadSingle($hash,"valveCtrl","restart",1) if ($d =~ m/^[-+]?[0-9]+\.?[0-9]*$/);
+          RemoveInternalTimer("valvePos:$vId");
+          RemoveInternalTimer("valveTmr:$vId");
+          InternalTimer($hash->{helper}{vd}{next},"CUL_HM_valvePosUpdt","valvePos:$vId",0);
+        }
+        elsif($hash->{helper}{fkt} eq "virtThSens"){
+          my $d = ReadingsVal($name,"temperature","");
+          CUL_HM_Set($hash,$name,"virtTemp",$d) if($d =~ m/^[-+]?[0-9]+\.?[0-9]*$/);
+          $d = ReadingsVal($name,"humidity","");
+          CUL_HM_Set($hash,$name,"virtHum" ,$d) if($d =~ m/^[-+]?[0-9]+\.?[0-9]*$/);
+        }
+
         # delete - virtuals dont have regs 
-        delete $attr{$name}{$_}
-            foreach ("autoReadReg","actCycle","actStatus","burstAccess","serialNr"); 
+        delete $attr{$name}{$_} foreach ("autoReadReg","actCycle","actStatus","burstAccess","serialNr"); 
       }
     }
     elsif ($st eq "sensRain") {
@@ -440,7 +460,7 @@ sub CUL_HM_updateConfig($){##########################
     # --- set default attributes if missing ---
     if ($hash->{helper}{role}{dev}){
       if( $st ne "virtual"){
-        $attr{$name}{expert}     = AttrVal($name,"expert"     ,"2_raw");
+        $attr{$name}{expert}     = AttrVal($name,"expert"     ,"rawReg");
         $attr{$name}{autoReadReg}= AttrVal($name,"autoReadReg","4_reqStatus");
         CUL_HM_hmInitMsg($hash);
       }
@@ -448,19 +468,24 @@ sub CUL_HM_updateConfig($){##########################
         $attr{$name}{msgRepeat} = 1 if (!$attr{$name}{msgRepeat});
       }
     }
-    CUL_HM_Attr("attr",$name,"expert",$attr{$name}{expert}) 
-          if ($attr{$name}{expert});#need update after readings are available
+    if ($attr{$name}{expert}){
+      CUL_HM_Attr("set",$name,"expert",$attr{$name}{expert});
+    }
+    else{
+      CUL_HM_Attr("del",$name,"expert"); # need to update settings and readings
+    }
+          ;#need update after readings are available
     if ($chn eq "03" && 
         $md =~ /(-TC|ROTO_ZEL-STG-RM-FWT|HM-CC-RT-DN)/){
       $attr{$name}{stateFormat} = "last:trigLast";
     }
+    #remove invalid attributes
     foreach(keys %{$attr{$name}}){
-      delete $attr{$name}{$_} if(CUL_HM_AttrCheck($name,$_));
+      delete $attr{$name}{$_} if (CUL_HM_AttrCheck($name,$_));  
     }
-    CUL_HM_chgExpLvl($hash);# need to update expert visib as of device
     # -+-+-+-+-+ add default web-commands
     my $webCmd;
-    $webCmd  = AttrVal($name,"webCmd",undef);
+    $webCmd = AttrVal($name,"webCmd",undef);
     if(!defined $webCmd){
       if    ($st eq "virtual"      ){
         if   ($hash->{helper}{fkt} && $hash->{helper}{fkt} eq "sdLead1")   {$webCmd="teamCall:alarmOn:alarmOff";}
@@ -510,7 +535,8 @@ sub CUL_HM_updateConfig($){##########################
     }
     $attr{$name}{webCmd} = $webCmd if ($webCmd);
 
-    CUL_HM_qStateUpdatIfEnab($name);
+    CUL_HM_SetList($name,"") if (!defined $defs{$name}{helper}{cmds}{cmdLst});
+    CUL_HM_qStateUpdatIfEnab($name) if($hash->{helper}{role}{dev});
     next if (0 == (0x07 & CUL_HM_getAttrInt($name,"autoReadReg")));
     if(CUL_HM_peerUsed($name) == 2){
       CUL_HM_qAutoRead($name,1);
@@ -524,40 +550,25 @@ sub CUL_HM_updateConfig($){##########################
         }
       }
     }
-    #remove invalid attributes
-    if (!$hash->{helper}{role}{dev}){
-      my @l = split(" ",$modules{CUL_HM}{Attr}{dev});
-      map {$_ =~ s/\:.*//} @l; 
-      foreach (@l){
-        delete $attr{$name}{$_} if (defined $attr{$name}{$_});
-      }
-    }
-    else{# force new calculation for of rxType and mId
-      delete $hash->{helper}{rxType};
-      CUL_HM_getRxType($hash); 
-    }
-    if (!$hash->{helper}{role}{chn}){
-      my @l = split(" ",$modules{CUL_HM}{Attr}{chn});
-      map {$_ =~ s/\:.*//} @l; 
-      foreach (@l){
-        delete $attr{$name}{$_} if (defined $attr{$name}{$_});
-      }
-    }
     
     CUL_HM_complConfig($name);
+    CUL_HM_setAssotiat($name);
   }
   delete $modules{CUL_HM}{helper}{updtCfgLst};
+  $modules{CUL_HM}{helper}{initDone} = 1;# we made init once - now we are operational. Check with HMInfo as well
+  ## configCheck will be issues by HMInfo once
 }
+
 sub CUL_HM_Define($$) {##############################
   my ($hash, $def) = @_;
   my @a = split("[ \t][ \t]*", $def);
   my $HMid = uc($a[2]);
-
   return "wrong syntax: define <name> CUL_HM 6-digit-hex-code [Raw-Message]"
         if(!(int(@a)==3 || int(@a)==4) || $HMid !~ m/^[A-F0-9]{6}([A-F0-9]{2})?$/i );
   return  "HMid DEF already used by " . CUL_HM_id2Name($HMid)
         if ($modules{CUL_HM}{defptr}{$HMid});
   my $name = $hash->{NAME};
+  
   if(length($HMid) == 8) {# define a channel
     my $devHmId = substr($HMid, 0, 6);
     my $chn = substr($HMid, 6, 2);
@@ -570,9 +581,10 @@ sub CUL_HM_Define($$) {##############################
     $devHash->{"channel_$chn"} = $name;     #reference in device as well
     $attr{$name}{model}        = AttrVal($devName, "model", undef);
     $hash->{helper}{role}{chn} = 1;
+    delete $hash->{helper}{mId};
     if($chn eq "01"){
-      $attr{$name}{peerIDs}            = AttrVal($devName, "peerIDs", "");
-      $hash->{READINGS}{peerList}{VAL} = ReadingsVal($devName,"peerList","");
+      $attr{$name}{peerIDs}            = AttrVal($devName, "peerIDs", "peerUnread");
+      $hash->{READINGS}{peerList}{VAL} = ReadingsVal($devName,"peerList","peerUnread");
       $hash->{peerList}                = $devHash->{peerList} if($devHash->{peerList});
 
       delete $devHash->{helper}{role}{chn};#device no longer
@@ -584,6 +596,7 @@ sub CUL_HM_Define($$) {##############################
   }
   else{# define a device
     $hash->{helper}{role}{dev}   = 1;
+    delete $hash->{helper}{mId};
     $hash->{helper}{role}{chn}   = 1;# take role of chn 01 until it is defined
     $hash->{helper}{q}{qReqConf} = ""; # queue autoConfig requests 
     $hash->{helper}{q}{qReqStat} = ""; # queue statusRequest for this device
@@ -606,6 +619,10 @@ sub CUL_HM_Define($$) {##############################
 
     CUL_HM_assignIO($hash)if (!$init_done && $HMid ne "000000");
   }
+
+  $hash->{helper}{cmds}{cmdKey}   = "";
+  $hash->{helper}{cmds}{TmplKey}  = "";
+  
   $modules{CUL_HM}{defptr}{$HMid} = $hash;
   $hash->{NOTIFYDEV} = "global";
 
@@ -628,7 +645,8 @@ sub CUL_HM_Undef($$) {###############################
   if ($chn){# delete a channel
     my $devHash = $defs{$devName};
     delete $devHash->{"channel_$chn"} if ($devName);
-    $devHash->{helper}{role}{chn}=1 if($chn eq "01");# return chan 01 role
+    $devHash->{helper}{role}{chn} = 1 if($chn eq "01");# return chan 01 role
+    delete $hash->{helper}{mId};
   }
   else{# delete a device
      CommandDelete(undef,$hash->{$_}) foreach (grep(/^channel_/,keys %{$hash}));
@@ -692,11 +710,40 @@ sub CUL_HM_Attr(@) {#################################
   my $chk = ($cmd eq "set") ? CUL_HM_AttrCheck($name, $attrName) : "";
   my $hash = CUL_HM_name2Hash($name);
   return $chk if ($chk);
-  
   my $updtReq = 0;
-  if   ($attrName eq "expert"){#[0,1,2]
-    $attr{$name}{$attrName} = $attrVal;
-    CUL_HM_chgExpLvl($_) foreach ((map{CUL_HM_id2Hash($_)} CUL_HM_getAssChnIds($name)),$defs{$name});
+  if   ($attrName eq "expert"){
+    if   ($init_done){
+      my $ret = 0;
+      if ($cmd eq "set"){
+        my @expLst = ();
+        if ($attrVal =~ m/^(\d+)/){# old style
+          push @expLst, "defReg" if(!($1 & 0x04));#default register on
+          push @expLst, "allReg" if( ($1 & 0x01));#detail register on
+          push @expLst, "rawReg" if( ($1 & 0x02));#raw register on
+          push @expLst, "templ"  if( ($1 & 0x08));#template on
+          push @expLst, "none"   if( ($1 & 0x0F) == 0x04);#all off
+          $ret = 1;
+        }
+        else{
+          $modules{CUL_HM}{AttrList} =~ m/.*expert:multiple,(.*?) .*/;
+          my $expOpts = $1;
+          foreach (split(",",$attrVal)){
+             if($expOpts =~ m/\b$_\b/){
+               push @expLst,$_ ;
+             }
+             else{
+               $ret = 1;
+             }
+          }
+        }
+        $attr{$name}{$attrName} = join(",",@expLst);
+      }
+      else{#delete
+        delete $attr{$name}{$attrName};
+      }
+      CUL_HM_chgExpLvl($_) foreach ((map{CUL_HM_id2Hash($_)} CUL_HM_getAssChnIds($name)),$defs{$name});
+      return $attr{$name}{$attrName} if ($ret);
+    }
   }
   elsif($attrName eq "readOnly"){#[0,1]
     if ($cmd eq "set"){
@@ -707,20 +754,33 @@ sub CUL_HM_Attr(@) {#################################
     if ($cmd eq "set"){
       if (CUL_HM_name2Id($name) eq $K_actDetID){
         return "$attrName must be higher then 30, $attrVal not allowed"
-              if ($attrVal < 30);
+              if ($attrVal < 10);
+        #update and sync to new timing
+
+        RemoveInternalTimer("ActionDetector");
+        InternalTimer(gettimeofday()+5,"CUL_HM_ActCheck", "ActionDetector", 0);
       }
       else{
         return "attribut not allowed for channels"
                       if (!$hash->{helper}{role}{dev});
         return if (!$init_done); # will do at updateConfig
-        CUL_HM_ActAdd(CUL_HM_name2Id($name),$attrVal);
-      }
+        my($h,$m) = split(":",$attrVal);
+        $h = int($h);
+        $m = int($m);
+        return "format hhh:mm required. $attrVal incorrect" if( $h > 999 || $h < 0
+                                                             || $m > 59  || $m < 0
+                                                             || $h + $m <= 0);
+        my $attrValNew  = sprintf("%03d:%02d",$h,$m); 
+        CUL_HM_ActAdd(CUL_HM_name2Id($name),$attrValNew);
+        $attr{$name}{$attrName} = $attrValNew;
+        return "reformated input:$attrValNew" if($attrValNew ne $attrVal);
+        }
     }
     $updtReq = 1;
   }
   elsif($attrName eq "param"){
-    my $md  = CUL_HM_Get($hash,$name,"param","model");
-    my $st  = CUL_HM_Get($hash,$name,"param","subType");
+    my $md  = CUL_HM_getAttr($name,"model","");
+    my $st  = CUL_HM_getAttr($name,"subType","");
     my $chn = substr(CUL_HM_hash2Id($hash),6,2);
     if    ($md eq "HM-SEN-RD-O"    && $chn eq "02"){
       delete $hash->{helper}{param};
@@ -789,6 +849,11 @@ sub CUL_HM_Attr(@) {#################################
   elsif($attrName eq "peerIDs"){
     if ($cmd eq "set"){
       return "$attrName not usable for devices" if(!$hash->{helper}{role}{chn});
+      my @peers = split(',',$attrVal);
+      foreach (split(',',$attrVal)){
+        return "$attrName val:$attrVal element $_ not a peerID. User (peerUnread|[0-9a-fA-Fx]{8})" if($_ !~ m/^(peerUnread|[0-9a-fA-Fx]{8})$/);
+      }
+      return "$attrName val:$attrVal invalid. peerUnread invalid if peers are assigned" if($attrVal =~ m/peerUnread/ && $attrVal ne "peerUnread");
       my $id = $hash->{DEF};
       if ($id ne $K_actDetID && $attrVal){# if not action detector
         my @ids = grep /......../,split(",",$attrVal);
@@ -820,17 +885,18 @@ sub CUL_HM_Attr(@) {#################################
         CUL_HM_UpdtCentral($name);
     }
     else{
-      return "$attrName must not be changed by User. \nUse modelForce instead" if ($init_done);
+      return "$attrName must not be changed by User. \nUse modelForce instead" if ($init_done && AttrVal($name,$attrName,"empty") !~ m/(empty|$attrVal)/);
       delete $hash->{helper}{rxType}; # needs new calculation
       delete $hash->{helper}{mId};
       CUL_HM_hmInitMsg($hash);# will update mId, rxType and others
+      CUL_HM_updtDeviceModel($name,$attrVal) if($init_done);
     }
     $attr{$name}{$attrName} = $attrVal if ($cmd eq "set");
   }
   elsif($attrName eq "modelForce"){
     if ($init_done){# while init allow anything. Correct with CUL_HM_updateConfig after init_done
       if ($cmd eq "set"){
-        return "invalid model name:$attrVal. Please check options" if (!CUL_HM_getmIdFromModel($attrVal));
+        return "invalid model name$cmd. Please check options" if (!CUL_HM_getmIdFromModel($attrVal));
         if (!defined $attr{$name}{".mId"} && defined $attr{$name}{model}){ # set .mId in case it is missing
           $attr{$name}{".mId"} = CUL_HM_getmIdFromModel($attr{$name}{model});
         }
@@ -846,7 +912,7 @@ sub CUL_HM_Attr(@) {#################################
     return "$attrName must not be changed by User. \nUse modelForce instead" if ($init_done);
   }
   elsif($attrName eq "subType"){
-    return "$attrName must not be changed by User. \nUse modelForce instead" if ($init_done);
+    return "$attrName must not be changed by User. \nUse modelForce instead" if ($init_done && AttrVal($name,$attrName,"empty") !~ m/(empty|$attrVal)/);
     $updtReq = 1;
   }
   elsif($attrName eq "aesCommReq" ){
@@ -933,7 +999,7 @@ sub CUL_HM_Attr(@) {#################################
   }
   elsif($attrName eq "levelRange" ){
     if ($cmd eq "set"){
-      return "use $attrName only for dimmer" if ((CUL_HM_Get($defs{$name},$name,"param","subType") ne "dimmer")
+      return "use $attrName only for dimmer" if (CUL_HM_getAttr($name,"subType","") ne "dimmer"
                                                   && $init_done );
       my ($min,$max) = split (",",$attrVal);
       return "use format min,max" if (!defined $max);
@@ -1012,7 +1078,67 @@ sub CUL_HM_Attr(@) {#################################
     }
     return $retVal;
   }
-  
+  elsif($attrName eq "logIDs"){
+    my $retVal= "";
+    return "use $attrName only for vccu device" 
+            if (!$hash->{helper}{role}{dev}
+                || AttrVal($name,"model","CCU-FHEM") !~ "CCU-FHEM");
+    if ($cmd eq "set"){
+      my $newVal = "";
+      my @logIds = split (",",$attrVal);
+      if (grep /^none$/,@logIds){
+        $newVal = "none";
+      }
+      else{
+        if (grep /^all$/,@logIds){
+          $newVal = "all";
+        }
+        else{
+          $newVal = join(",",
+                       grep!/^(IO:|ingore)/,
+                       map{if(   defined $defs{$_} 
+                              && $defs{$_}{TYPE} eq "CUL_HM"
+                              && $defs{$_}{DEF} =~ m/^......$/){
+                                $defs{$_}{DEF}
+                              }
+                            else{
+                                "ingore"
+                              }
+                           } 
+                       @logIds
+                      );
+        }
+        if (grep /^sys$/,@logIds){
+          $newVal = "sys"
+                    .($newVal != "" ? ",$newVal" :"");
+        }
+        if (grep /^broadcast$/,@logIds){
+          $newVal = "broadcast"
+                    .($newVal != "" ? ",$newVal" :"");
+        }
+        
+      }
+      my @IOlst = map{(my $foo = $_) =~ s/^IO://; $foo;} grep/^IO:/,split(",",$attrVal);
+      if (scalar @IOlst){
+        foreach my $IOname (split(",",AttrVal($name,"IOList",""))){
+          CommandAttr(undef, "$IOname logIDs none")
+                                          if (  defined $defs{$IOname} 
+                                             && $modules{$defs{$IOname}{TYPE}}{AttrList} =~  m/logIDs/
+                                             && grep !/$IOname/,@IOlst);
+        }
+      }
+      else{ # IOlist is full list
+        @IOlst = split(",",AttrVal($name,"IOList",""));
+      }
+      
+      foreach my $IOname  (@IOlst){
+        next if (   !defined $defs{$IOname});
+        next if (   $modules{$defs{$IOname}{TYPE}}{AttrList} !~  m/logIDs/);
+        my $r = CommandAttr(undef, "$IOname logIDs $newVal");
+      }
+    }
+  }
+ 
   CUL_HM_queueUpdtCfg($name) if ($updtReq);
   return;
 }
@@ -1024,13 +1150,20 @@ sub CUL_HM_AttrCheck(@) {############################
     return " $attrName illegal for virtual devices"
       if ($modules{CUL_HM}{Attr}{devPhy} =~ m/$attrName\b/);
   }
+  else{
+    return " $attrName only for for virtual devices"
+      if ($modules{CUL_HM}{Attr}{devVrt} =~ m/$attrName\b/);
+  }
   if (!$defs{$name}{helper}{role}{chn}){
     return " $attrName only valid for channels"
       if ($modules{CUL_HM}{Attr}{chn} =~ m/$attrName\b/);
   }
   if (!$defs{$name}{helper}{role}{dev}){
+    my $x = $modules{CUL_HM}{Attr}{dev}
+          .$modules{CUL_HM}{Attr}{devPhy}
+          .$modules{CUL_HM}{Attr}{devVrt};
     return " $attrName only valid for devices"
-      if (($modules{CUL_HM}{Attr}{dev}.$modules{CUL_HM}{Attr}{devPhy}) =~ m/$attrName\b/);
+      if ( $x     =~ m/$attrName\b/);
   }
   return undef;
 }
@@ -1071,7 +1204,7 @@ sub CUL_HM_hmInitMsg($){ #define device init msg for HMLAN
   }
   $hash->{helper}{io}{newChn} = "";
   $hash->{helper}{io}{rxt} = (($rxt & 0x18)            #wakeup || #lazyConfig
-                             && AttrVal($name,"model",0) ne "HM-WDS100-C6-O") #Todo - not completely clear how it works
+                             && AttrVal($name,"model",0) !~ m/HM-WDS100-C6-O/) #Todo - not completely clear how it works - O and O2
                                  ?2:0;
   $hash->{helper}{io}{p} = \@p;
   CUL_HM_hmInitMsgUpdt($hash);
@@ -1157,6 +1290,7 @@ sub CUL_HM_setupHMLAN(@){#################################
                 , txt08_2=>15,txt09_1=>16,txt09_2=>17,txt10_1=>18,txt10_2=>19
                 );
 
+
 sub CUL_HM_Parse($$) {#########################################################
   my ($iohash, $msgIn) = @_;
   
@@ -1218,7 +1352,7 @@ sub CUL_HM_Parse($$) {#########################################################
   ####################  attack alarm detection#####################
   if (   $mh{dstH} && $mh{dst} ne "000000"
       && !CUL_HM_getAttrInt($mh{dstN},"ignore")
-      && ($mh{mTp} eq '01' || $mh{mTp} eq '11'
+      && ($mh{mTp} =~ m/^(01|11|3E)$/
       )){
     my $ioId = AttrVal($mh{dstH}->{IODev}{NAME},"hmId","-");
     if($ioId ne $mh{src}){
@@ -1232,17 +1366,17 @@ sub CUL_HM_Parse($$) {#########################################################
       push @evtEt,[$mh{dstH},1,"sabotageAttackId_ErrIoId_$mh{src}: cnt:$evntCnt"];
     }
     my $tm = substr($mh{msg},8);
-    if( defined $mh{dstH}->{helper}{cSnd} && 
+    if( !defined $mh{dstH}->{helper}{cSnd} || 
           $mh{dstH}->{helper}{cSnd} !~ m/$tm/){
       if (   !defined $mh{dstH}->{"prot"."ErrIoAttack"} 
-          && ReadingsVal($mh{dstN},"sabotageAttack_ErrIoAttack cnt:",undef)){
+          && ReadingsVal($mh{dstN},"sabotageAttack_ErrIoAttack_cnt:",undef)){
         $mh{dstH}->{"prot"."ErrIoAttack"} =
-          ReadingsVal($mh{dstN},"sabotageAttack_ErrIoAttack cnt:",undef);
+          ReadingsVal($mh{dstN},"sabotageAttack_ErrIoAttack_cnt:",undef);
       }
       Log3 $mh{dstN},2,"CUL_HM $mh{dstN} attack:$mh{dstH}->{helper}{cSnd}:".$tm;
       CUL_HM_eventP($mh{dstH},"ErrIoAttack");
       my ($evntCnt,undef) = split(' last_at:',$mh{dstH}->{"prot"."ErrIoAttack"},2);
-      push @evtEt,[$mh{dstH},1,"sabotageAttack_ErrIoAttack cnt:$evntCnt"];
+      push @evtEt,[$mh{dstH},1,"sabotageAttack_ErrIoAttack_cnt:$evntCnt"];
     }
   }
   ###########
@@ -1561,7 +1695,7 @@ sub CUL_HM_Parse($$) {#########################################################
   elsif($mh{md} =~ m/^(KS550|KS888|HM-WDS100-C6-O)/) { ########################
     if($mh{mTp} eq "70") {
       my ($t,$h,$r,$w,$wd,$s,$b) = map{hex($_)} unpack 'A4A2A4A4(A2)*',$mh{p};
-      push @evtEt,[$mh{devH},1,"battery:". (($t & 0x8000)?"low"  :"ok"  )] if ($mh{md} eq "HM-WDS100-C6-O-2"); #has no battery
+    push @evtEt,[$mh{devH},1,"battery:". (($t & 0x8000)?"low"  :"ok"  )] if ($mh{md} =~ m/^HM-WDS100-C6-O-2/); #has no battery
       my $tsgn = ($t & 0x4000);
       $t = ($t & 0x3fff)/10;
       $t = sprintf("%0.1f", $t-1638.4) if($tsgn);
@@ -1593,7 +1727,7 @@ sub CUL_HM_Parse($$) {#########################################################
       push @evtEt,[$mh{cHash},1,"storm:$txt"];
       push @evtEt,[$mh{devH} ,1,"trig_$mh{chnHx}:$mh{dstN}"];
       my $err = $chn & 0x80;
-      push @evtEt,[$mh{devH},1,"battery:". ($err?"low"  :"ok"  )] if ($mh{md} eq "HM-WDS100-C6-O-2"); #has no battery
+      push @evtEt,[$mh{devH},1,"battery:". ($err?"low"  :"ok"  )] if ($mh{md} =~ m/^HM-WDS100-C6-O-2/); #has no battery
     }
     else {
       push @evtEt,[$mh{shash},1,"unknown:$mh{p}"];
@@ -2142,7 +2276,7 @@ sub CUL_HM_Parse($$) {#########################################################
         my $vDim = $mh{cHash}->{helper}{vDim}; #shortcut
         if ($vDim->{idPhy} &&
             CUL_HM_id2Hash($vDim->{idPhy})){   #has virt chan
-          RemoveInternalTimer("sUpdt:".$mh{src}.$mh{chnM});
+          RemoveInternalTimer("sUpdt:".CUL_HM_id2Name($mh{src}.$mh{chnM}));
           if ($mh{mTp} eq "10"){               #valid PhysLevel
             foreach my $tmpKey ("idPhy","idV2","idV3",){#update all virtuals
               my $vh = ($vDim->{$tmpKey} ? CUL_HM_id2Hash($vDim->{$tmpKey}) : "");
@@ -2939,7 +3073,7 @@ sub CUL_HM_Parse($$) {#########################################################
   if(   AttrVal($mh{dstN}, "subType", "none") eq "virtual"
      && AttrVal($mh{dstN}, "model", "none") =~ m/^(virtual_|VIRTUAL)/){# see if need for answer
     my $sendAck = 0;
-    if($mh{mTp} =~ m/^4/ && @mI > 1) { #Push Button event
+    if   ($mh{mTp} =~ m/^4/ && @mI > 1) { #Push Button event
       my ($recChn,$trigNo) = (hex($mI[0]),hex($mI[1]));# button number/event count
       my $longPress = ($recChn & 0x40)?"long":"short";
       my $recId = $mh{src}.sprintf("%02X",($recChn&0x3f));
@@ -2947,7 +3081,7 @@ sub CUL_HM_Parse($$) {#########################################################
         next if (!$modules{CUL_HM}{defptr}{$dChId});
         my $dChNo = substr($dChId,6,2);
         my $dChName = CUL_HM_id2Name($dChId);
-        if(($attr{$dChName}{peerIDs}?$attr{$dChName}{peerIDs}:"") =~ m/$recId/){
+        if(($attr{$dChName}{peerIDs} ? $attr{$dChName}{peerIDs} : "peerUnread") =~ m/$recId/){
           my $dChHash = $defs{$dChName};
           $sendAck = 1;
           $dChHash->{helper}{trgLgRpt} = 0
@@ -3071,7 +3205,20 @@ sub CUL_HM_parseCommon(@){#####################################################
                              $devHlpr->{HM_CMDNR} < 250 && 
                              $devHlpr->{HM_CMDNR} > 5);# this is power on
   $devHlpr->{HM_CMDNR} = hex($mhp->{mNo});# sync msgNo prior to any sending
-  if($rxt & 0x08){ #wakeup device
+  if($rxt & 0x10){             # lazy config
+    if($mhp->{mFlgH} & 0x02    # wakeup message
+       && $devHlpr->{prt}{sleeping}
+       && (   $defs{$mhp->{devH}{IODev}{NAME}}{helper}{VTS_LZYCFG} # for TSCUL VTS0.34 up
+           || $defs{$mhp->{devH}{IODev}{NAME}}{TYPE} =~ m/^(?:HMLAN|HMUARTLGW)$/s )){
+      CUL_HM_appFromQ($mhp->{devN},"cf");# stack cmds if waiting
+      $devHlpr->{prt}{sleeping} = 0;
+      CUL_HM_ProcessCmdStack($mhp->{devH});
+    }
+    else{
+      $devHlpr->{prt}{sleeping} = 1 if (!$devHlpr->{prt}{sProc}); # set back to sleeping with next trigger, if nothing to do
+    }
+  }  
+  elsif($rxt & 0x08){ #wakeup device
     if(($mhp->{mFlgH} & 0xA2) == 0x82){ #wakeup signal
       CUL_HM_appFromQ($mhp->{devN},"wu");# stack cmds if waiting
       if ($mhp->{devH}{cmdStack}){
@@ -3084,18 +3231,6 @@ sub CUL_HM_parseCommon(@){#####################################################
       $devHlpr->{prt}{sleeping} = 1 if($mhp->{mFlgH} & 0x20) ;
     }
   }
-  if($rxt & 0x10 && $devHlpr->{prt}{sleeping}){ # lazy config
-    if($mhp->{mFlgH} & 0x02                  #wakeup device
-       && $defs{$mhp->{devH}{IODev}{NAME}}{TYPE} =~ m/^(HMLAN|HMUARTLGW)$/){
-      $devHlpr->{io}{newCh} = 1 if ($devHlpr->{prt}{sProc} == 2);
-      CUL_HM_appFromQ($mhp->{devN},"cf");# stack cmds if waiting
-      $devHlpr->{prt}{sleeping} = 0;
-      CUL_HM_ProcessCmdStack($mhp->{devH});
-    }
-    else{
-      $devHlpr->{prt}{sleeping} = 1;
-    }
-  }  
   
   my $repeat;
   $devHlpr->{supp_Pair_Rep} = 0 if ($mhp->{mTp} ne "00"); # noansi: reset pairing suppress flag as we got something different from device 
@@ -3367,6 +3502,7 @@ sub CUL_HM_parseCommon(@){#####################################################
         if (grep /00000000/,@peers) {# last entry, peerList is complete
           # check for request to get List3 data
           my $reqPeer = $chnhash->{helper}{getCfgList};
+          my $readCont = 0;    # more to read?
           if ($reqPeer){
             my $flag = 'A0';
             my $ioId = CUL_HM_IoId($mhp->{devH});
@@ -3375,11 +3511,12 @@ sub CUL_HM_parseCommon(@){#####################################################
               next if (!$l);
               my $listNo = "0".$l;
               foreach my $peer (grep (!/00000000/,@peerID)){
-                next if ($peer =~ m/0x$/);
+                next if ($peer =~ m/0x$/ || $peer eq "unread");
                 $peer .="01" if (length($peer) == 6); # add the default
                 if ($peer &&($peer eq $reqPeer || $reqPeer eq "all")){
                   CUL_HM_PushCmdStack($mhp->{devH},sprintf("++%s01%s%s%s04%s%s",
                           $flag,$ioId,$mhp->{src},$chn,$peer,$listNo));# List3 or 4
+                  $readCont = 1;
                 }
               }
             }
@@ -3387,7 +3524,7 @@ sub CUL_HM_parseCommon(@){#####################################################
           CUL_HM_respPendRm($mhp->{devH});
           delete $chnhash->{helper}{getCfgList};
           delete $chnhash->{helper}{getCfgListNo};
-          CUL_HM_rmOldRegs($chnName);
+          CUL_HM_rmOldRegs($chnName,$readCont);
           $chnhash->{READINGS}{".peerListRDate"}{VAL} = $chnhash->{READINGS}{".peerListRDate"}{TIME} = $mhp->{tmStr};
         }
         else{
@@ -3445,13 +3582,14 @@ sub CUL_HM_parseCommon(@){#####################################################
           delete $mhp->{cHash}{helper}{shadowReg}{$regLNp};   #rm shadow
           # peerChannel name from/for user entry. <IDorName> <deviceID> <ioID>
           CUL_HM_updtRegDisp($mhp->{cHash},$list,CUL_HM_peerChId($peer,$mhp->{devH}{DEF}));
+          CUL_HM_cfgStateDelay($mhp->{cHash}{NAME});
         }
         else{
           CUL_HM_respPendToutProlong($mhp->{devH});#wasn't last - reschedule timer
         }
       }
       else{
-        Log 1,"waiting for: $pendType, got:RegisterRead # await msgNo:$rspWait->{mNo}, rec:$mNoInt";
+        Log 4,"waiting for: $pendType, got:RegisterRead # await msgNo:".(defined $rspWait->{mNo} ? $rspWait->{mNo} :"-no msgNo").", rec:$mNoInt";
       }
       $ret = "done";
     }
@@ -3468,6 +3606,7 @@ sub CUL_HM_parseCommon(@){#####################################################
       
       if($data eq "00"){#update finished for mStp 05. Now update display
         CUL_HM_updtRegDisp($fHash,$list,$peerID);
+        CUL_HM_cfgStateDelay($fName);
       }
       else{
         my $regLNp = "RegL_".$list.".".$peer;
@@ -3500,7 +3639,10 @@ sub CUL_HM_parseCommon(@){#####################################################
             $shdwReg =~ s/ $a:..// if ($shdwReg);# confirmed: remove from shadow
           }
           CUL_HM_UpdtReadSingle($fHash,$regLN,$rCur,0);
-          CUL_HM_updtRegDisp($fHash,$list,$peerID) if ($mhp->{mStp} eq "04");
+          if ($mhp->{mStp} eq "04"){
+            CUL_HM_updtRegDisp($fHash,$list,$peerID);
+            CUL_HM_cfgStateDelay($fName);
+          }
         }
       }
       $ret= "parsed"; # send ACK 
@@ -3810,12 +3952,12 @@ sub CUL_HM_Get($@) {#+++++++++++++++++ get command+++++++++++++++++++++++++++++
   return "" if(!$hash->{NAME});
 
   my $name = $hash->{NAME};
-  return ""
-        if (CUL_HM_getAttrInt($name,"ignore"));
+#  return ""
+#        if (CUL_HM_getAttrInt($name,"ignore"));
 
   my $devName = InternalVal($name,"device",$name);
   my $st      = defined $defs{$devName}{helper}{mId} ? $culHmModel->{$defs{$devName}{helper}{mId}}{st}   : AttrVal($devName, "subType", "");
-  my $md      = defined $defs{$devName}{helper}{mId} ? $culHmModel->{$defs{$devName}{helper}{mId}}{name} : AttrVal($devName, "model"  , "");
+  my $md      = CUL_HM_getAliasModel($hash);
 
   my $cmd   = $a[1];
   
@@ -3823,67 +3965,82 @@ sub CUL_HM_Get($@) {#+++++++++++++++++ get command+++++++++++++++++++++++++++++
   my $roleD = $hash->{helper}{role}{dev}?1:0;
   my $roleV = $hash->{helper}{role}{vrt}?1:0;
   my $fkt   = $hash->{helper}{fkt}?$hash->{helper}{fkt}:"";
-  
+
   my ($dst,$chn) = unpack 'A6A2',$hash->{DEF}.($roleC?'01':'00');
 
-  my $h = undef;
-  $h = $culHmGlobalGets->{$cmd}       if(!$roleV      &&($roleD || $roleC));
-  $h = $culHmVrtGets->{$cmd}          if(!defined($h) && $roleV);
-  $h = $culHmSubTypeGets->{$st}{$cmd} if(!defined($h) && $culHmSubTypeGets->{$st});
-  $h = $culHmModelGets->{$md}{$cmd}   if(!defined($h) && $culHmModelGets->{$md});
-  $h = $culHmGlobalGetsDev->{$cmd}    if(!defined($h) && $roleD);
-  $h = ""                             if(!defined($h) && (eval "defined(&HMinfo_GetFn)" && $cmd eq "regTable"));
+  CUL_HM_SetList($name               # refresh command options
+                 ,  "$roleC"
+                  .":$roleD"
+                  .":$roleV"
+                  .":$fkt"
+                  .":$devName"
+                  .":".($defs{$devName}{helper}{mId} ? $defs{$devName}{helper}{mId}:"")
+                  .":$chn"
+                  .":".InternalVal($name,"peerList","")
+                 );# update cmds entry in case
+  
 
-  my @h;
-  @h = split(" ", $h) if($h);
 
-  if(!defined($h)) {
-    my @arr = ();
-    if(!$roleV &&($roleD || $roleC)){foreach(keys %{$culHmGlobalGets}        ){push @arr,"$_:".$culHmGlobalGets->{$_}          }};
-    if($roleV)                      {foreach(keys %{$culHmVrtGets}           ){push @arr,"$_:".$culHmVrtGets->{$_}             }};
-    if($culHmSubTypeGets->{$st})    {foreach(keys %{$culHmSubTypeGets->{$st}}){push @arr,"$_:".${$culHmSubTypeGets->{$st}}{$_} }};
-    if($culHmModelGets->{$md})      {foreach(keys %{$culHmModelGets->{$md}}  ){push @arr,"$_:".${$culHmModelGets->{$md}}{$_}   }};
-    if($roleD)                      {foreach(keys %{$culHmGlobalGetsDev}     ){push @arr,"$_:".$culHmGlobalGetsDev->{$_}       }};
-    if(eval"defined(&HMinfo_GetFn)"){                                         {push @arr,"regTable:"                           }};
-   
-    foreach(@arr){
-      my ($cmdS,$val) = split(":",$_,2);
-      if (!$val){
-        $_ = "$cmdS:noArg";
+  if(!defined $hash->{helper}{cmds}{rtrvLst}{$cmd}) { ### unknown - return the commandlist
+    my @cmdPrep = ();
+    foreach my $cmdS (keys%{$hash->{helper}{cmds}{rtrvLst}}){
+      my $val = $hash->{helper}{cmds}{rtrvLst}{$cmdS};
+      if($val eq "noArg"){
+          $val = ":$val";
       }
-      elsif (
-          $val !~ m/^\[.*\]$/ ||
-          $val =~ m/\[.*\[/   ||
-          $val =~ m/(\<|\>)]/
-          ){
-        $_ = $cmdS;
+      elsif($val =~ m/^(\[?)-([a-zA-Z]*?)-\]? *$/){#add relacements if available
+        my ($null,$repl) = ($1,$2);
+        if (defined $hash->{helper}{cmds}{lst}{$repl}){
+          $null = $null ? "noArg," : ""; # if "optional" add "noArg" to optionList
+          $val =~ s/\[?-$repl-\]?/:$null$hash->{helper}{cmds}{lst}{$repl}/; 
+          next if ($hash->{helper}{cmds}{lst}{$repl} eq "");# no options - no command
+        }
+        else{
+          $val = "";
+        }
       }
-      else{
-        $val =~ s/(\[|\])//g;
-        my @vArr = split('\|',$val);
-        foreach (@vArr){
+      elsif($val =~ m/^[\(\[]*([-+a-zA-Z0-9_|\.\{\}]*)[\]\)]*$/){#(xxx|yyy) as optionlist - new
+        my $v1 = $1;
+        $v1 =~ s/[\{\}]//g;#remove default marking
+        my @lst1;
+        foreach(split('\|',$v1)){
           if ($_ =~ m/(.*)\.\.(.*)/ ){
             my @list = map { ($_.".0", $_+0.5) } (($1+0)..($2+0));
             pop @list;
-            $_ = join(",",@list);
+            push @lst1,@list;
           }
+          else{
+            push @lst1,$_;
+          }     
         }
-        $_ = "$cmdS:".join(",",@vArr);
+        $val = ":".join(",",@lst1);
       }
+      else      {
+        $val = "";
+      }
+      push @cmdPrep,"$cmdS$val";
     }
-
-    my $usg = "Unknown argument $cmd, choose one of ".join(" ",sort @arr);
-
+    @cmdPrep = ("--") if (!scalar @cmdPrep);
+    my $usg = "Unknown argument $cmd, choose one of ".join(" ",sort @cmdPrep)." ";
+    Log3 $name,(defined $modules{CUL_HM}{helper}{verbose}{allGetVerb} ? 0:5),"CUL_HM get $name $cmd";
     return $usg;
   }
-  elsif($h eq "" && @a != 2) {
-    return "$cmd requires no parameters";
 
+  my $paraOpts = $hash->{helper}{cmds}{rtrvLst}{$cmd};
+  if($paraOpts eq "noArg"){ # no argument allowed
+     return "$cmd no params required" if(@a != 2);
   }
-  elsif($h !~ m/\.\.\./ && @h != @a-2) {
-    return "$cmd requires parameter: $h";
+  elsif(@a == 2){# no arguments - is this ok?
+    if($paraOpts !~ m/\.\.\./ && $paraOpts !~ m/^\[.*?\] *$/ ){# argument required
+      return "$cmd parameter required:$paraOpts";  
+    }
+    else{
+      push @a,"noArg";
+    }
   }
+
   my $devHash = CUL_HM_getDeviceHash($hash);
+  Log3 $name,(defined $modules{CUL_HM}{helper}{verbose}{allGet} ? 0:4),"CUL_HM get $name " . join(" ", @a[1..$#a]);
 
   #----------- now start processing --------------
   if   ($cmd eq "param") {  ###################################################
@@ -3899,8 +4056,8 @@ sub CUL_HM_Get($@) {#+++++++++++++++++ get command+++++++++++++++++++++++++++++
   }
   elsif($cmd =~ m/^(reg|regVal)$/) {  #########################################
     my (undef,undef,$regReq,$list,$peerId) = (@a,0,0);
-    return if(!defined $regReq);
-    if ($regReq eq 'all'){
+
+    if (!defined $regReq or $regReq eq 'all'){
       my @regArr = CUL_HM_getRegN($st,$md,($roleD?"00":""),($roleC?$chn:""));
 
       my @peers; # get all peers we have a reglist
@@ -3931,12 +4088,13 @@ sub CUL_HM_Get($@) {#+++++++++++++++++ get command+++++++++++++++++++++++++++++
         }
       }
       my $addInfo = "";
-      if    ($md =~ m/^(HM-CC-TC|ROTO_ZEL-STG-RM-FWT)/ && $chn eq "02"){$addInfo = CUL_HM_TCtempReadings($hash)}
+      if    ($md =~ m/^(HM-CC-TC|ROTO_ZEL-STG-RM-FWT)/ && $chn eq "02")
+                                                    {$addInfo = CUL_HM_TCtempReadings($hash)}
       elsif ($md =~ m/^HM-CC-RT-DN/ && $chn eq "04"){$addInfo = CUL_HM_TCITRTtempReadings($hash,$md,7)}
       elsif ($md =~ m/^HM-TC-IT/    && $chn eq "02"){$addInfo = CUL_HM_TCITRTtempReadings($hash,$md,7,8,9)}
-      elsif ($md =~ m/^(^HM-PB-4DIS-WM|HM-DIS-WM55|HM-RC-DIS-H-X-EU|ROTO_ZEL-STG-RM-DWT-10)/)
-                                                   {$addInfo = CUL_HM_4DisText($hash)}
-      elsif ($md eq "HM-SYS-SRP-PL")               {$addInfo = CUL_HM_repReadings($hash)}
+      elsif (ReadingsVal($name,".RegL_01.",ReadingsVal($name,"RegL_01.","")) =~ m / 36:/){#add text
+                                                    $addInfo = CUL_HM_4DisText($hash)}
+      elsif ($md eq "HM-SYS-SRP-PL")                {$addInfo = CUL_HM_repReadings($hash)}
 
       return $name." type:".$st." - \n".
              $regHeader.join("",sort(@regValList)).
@@ -3956,38 +4114,88 @@ sub CUL_HM_Get($@) {#+++++++++++++++++ get command+++++++++++++++++++++++++++++
     return CUL_HM_getRegInfo($name) ;
   }
   elsif($cmd eq "cmdList") {  #################################################
+    my $long = (defined $a[2] && $a[2] eq "long" ? 1 : 0);
+    
     my   @arr;
 
     if(!$roleV) {push @arr,"$_ $culHmGlobalGets->{$_}"    foreach (keys %{$culHmGlobalGets}   )};
     if($roleV)  {push @arr,"$_ $culHmVrtGets->{$_}"       foreach (keys %{$culHmVrtGets}      )};
+
     if($roleD)  {push @arr,"$_ $culHmGlobalGetsDev->{$_}" foreach (keys %{$culHmGlobalGetsDev})};
 
     push @arr,"$_ $culHmSubTypeGets->{$st}{$_}" foreach (keys %{$culHmSubTypeGets->{$st}});
     push @arr,"$_ $culHmModelGets->{$md}{$_}"   foreach (keys %{$culHmModelGets->{$md}});
-    my   @arr1;
-    if (defined $hash->{helper}{regLst}){
-      foreach my $rl(grep /./,split(",",$hash->{helper}{regLst})){  
-        next if (!defined $culHmReglSets->{$rl});
-                                              foreach(keys %{$culHmReglSets->{$rl}}      ){push @arr1,"$_:".$culHmReglSets->{$rl}{$_}         };
-      }
-    }
-    else{#ignore e.g. for virtuals
-    }
-    if( !$roleV &&($roleD || $roleC)        ){foreach(keys %{$culHmGlobalSets}           ){push @arr1,"$_:".$culHmGlobalSets->{$_}            }};
-    if(( $roleV|| !$st||$st eq"no")&& $roleD){foreach(keys %{$culHmGlobalSetsVrtDev}     ){push @arr1,"$_ ".$culHmGlobalSetsVrtDev->{$_}      }};
-    if( !$roleV                    && $roleD){foreach(keys %{$culHmSubTypeDevSets->{$st}}){push @arr1,"$_ ".${$culHmSubTypeDevSets->{$st}}{$_}}};
-    if( !$roleV                    && $roleC){foreach(keys %{$culHmGlobalSetsChn}        ){push @arr1,"$_ ".$culHmGlobalSetsChn->{$_}         }};
-    if( $culHmSubTypeSets->{$st}   && $roleC){foreach(keys %{$culHmSubTypeSets->{$st}}   ){push @arr1,"$_ ".${$culHmSubTypeSets->{$st}}{$_}   }};
-    if( $culHmModelSets->{$md})              {foreach(keys %{$culHmModelSets->{$md}}     ){push @arr1,"$_ ".${$culHmModelSets->{$md}}{$_}     }};
-    if( $culHmChanSets->{$md."00"} && $roleD){foreach(keys %{$culHmChanSets->{$md."00"}} ){push @arr1,"$_ ".${$culHmChanSets->{$md."00"}}{$_} }};
-    if( $culHmChanSets->{$md."xx"} && $roleC){foreach(keys %{$culHmChanSets->{$md."xx"}} ){push @arr1,"$_ ".${$culHmChanSets->{$md."xx"}}{$_} }};
-    if( $culHmChanSets->{$md.$chn} && $roleC){foreach(keys %{$culHmChanSets->{$md.$chn}} ){push @arr1,"$_ ".${$culHmChanSets->{$md.$chn}}{$_} }};
-    if( $culHmFunctSets->{$fkt}    && $roleC){foreach(keys %{$culHmFunctSets->{$fkt}}    ){push @arr1,"$_ ".${$culHmFunctSets->{$fkt}}{$_}    }};
 
     my $info .= " Gets ------\n";
     $info .= join("\n",sort @arr);
     $info .= "\n\n Sets ------\n";
-    $info .= join("\n",sort @arr1);
+    $hash->{helper}{cmds}{TmplTs}=gettimeofday();# force re-arrange of template commands
+    $hash->{helper}{cmds}{cmdKey}=""; 
+
+    CUL_HM_SetList($name
+                   ,  "$roleC"
+                    .":$roleD"
+                    .":$roleV"
+                    .":$fkt"
+                    .":$devName"
+                    .":".($defs{$devName}{helper}{mId} ? $defs{$devName}{helper}{mId}:"")
+                    .":$chn"
+                    .":".InternalVal($name,"peerList","")
+                   );
+    $info .= join("\n",map{"$_:".$hash->{helper}{cmds}{cmdLst}{$_}} sort (keys%{$hash->{helper}{cmds}{cmdLst}}));
+
+    if ($long){
+      $info .= "\n Options:";
+      foreach my $opt (sort keys %{$hash->{helper}{cmds}{lst}}){
+        $info .= "\n -${opt}- : ";
+        my @vals = sort split (',',$hash->{helper}{cmds}{lst}{$opt});
+        
+        for (my $val=0; $val < scalar(@vals);$val++){
+          $info .= sprintf("\t%-15s,",$vals[$val]);
+          $info .= "\n         " if (($val + 1) % 5 == 0);
+        }
+      }
+      $info = "command syntax:"
+            ."\n"."[optional]         : optional = the parameter is optional"
+            ."\n"."(valX|valY)        : list     = one value valX or valY must be given"
+            ."\n"."[(valX|{valY})]    : default  = one value valX or valY CAN be given. If non is given it defaults to valY"
+            ."\n"."-peer-             : other    = the name of a peer needs to be given"
+            ."\n"."[(-peer-|{self01})]: default  = a peername can be given. If emty the command will use 'self01'"
+            ."\n".""
+            ."\n".""
+           .$info;
+    }
+    return $info;
+  }
+  elsif($cmd eq "tplInfo"){  ##################################################
+    my $info;
+    my @tplCmd = split(" ",CUL_HMTmplSetCmd($name));
+    my %tplH;
+    my %tplTyp = (dev  =>"device templates"
+                 ,ls   =>"templates for peerings serving short OR long press"
+                 ,both =>"templates for peerings serving short AND long press"
+    );
+    foreach my $tplSet (split(" ",CUL_HMTmplSetCmd($name))){
+      my ($tplDst,$tplOpt) = split(":",$tplSet);
+      my @tplLst = sort split(",",$tplOpt);
+      if ($tplDst eq "tplSet_0"){#none peer template
+        @{$tplH{dev}} = @tplLst;
+      }
+      else{
+        @{$tplH{both}} = grep!/(.*)_(short|long)/,@tplLst;
+        @{$tplH{ls}}   = map{(my $foo = $_) =~ s/_(short|long)//; $foo;}
+                         grep/(.*)_(short|long)/,@tplLst;
+      }
+    }
+    foreach my $tt (sort keys %tplTyp){
+      if (defined $tplH{$tt}){
+        $info .= "\n$tplTyp{$tt}:";
+        foreach (@{$tplH{$tt}}){
+          my ($r)=split("\n",HMinfo_templateList($_));
+          $info .= "\n   ".$r;
+        }
+      }
+    }
     return $info;
   }
   elsif($cmd eq "saveConfig"){  ###############################################
@@ -4100,13 +4308,25 @@ sub CUL_HM_Get($@) {#+++++++++++++++++ get command+++++++++++++++++++++++++++++
 
     if(!$roleV){
       $ret   .= " - activity:".$act if ($act ne "-");
-      $ret   .= "\n   protState\t: "     .InternalVal($devName,"protState"  ,(!$roleC ? InternalVal($devName,"STATE","unknown"):"unknown"));
+      $ret   .= "\n   protState\t: "     .ReadingsVal($devName,"commState"  ,"unknown");
       $ret   .= " pending: ".InternalVal($devName,"protCmdPend","none"   );
       $ret   .= "\n";
     }
     if ($infoTypeLong){
       foreach (grep(/^channel_/,sort keys %{$defs{$devName}})){
         $ret .= "\n   "     .$defs{$devName}{$_}."\t state:".InternalVal($defs{$devName}{$_},"STATE","unknown");
+      }
+    }
+
+    my $cfgState = ReadingsVal($name,"cfgState","unknown");
+    $ret .= "\n configuration check: $cfgState";
+    if ($cfgState =~ m/(unknown|ok)/){
+    }
+    else{
+      foreach(sort keys %{$hash->{helper}{cfgChk}}){
+        my( $Fkt,$shtxt,$txt) = HMinfo_getTxt2Check($_);
+        $ret .= "\n   $shtxt: $txt";
+        $ret .= "\n      =>$_" foreach(split("\n",$hash->{helper}{cfgChk}{$_}));
       }
     }
     return $ret;
@@ -4118,8 +4338,139 @@ sub CUL_HM_Get($@) {#+++++++++++++++++ get command+++++++++++++++++++++++++++++
   CUL_HM_ProcessCmdStack($devHash) if ($rxType & 0x03);#burst/all
   return "";
 }
+
+sub CUL_HM_TemplateModify(){
+   $modules{CUL_HM}{helper}{tmplTimestamp} = time();
+}
+sub CUL_HM_getTemplateModify(){
+   return (defined $modules{CUL_HM}{helper}{tmplTimestamp} ? $modules{CUL_HM}{helper}{tmplTimestamp} : 'no');
+}
+sub CUL_HM_SetList($$) {#+++++++++++++++++ get command basic list+++++++++++++++
+  my($name,$cmdKey)=@_;
+  my $hash = $defs{$name};
+  
+  if(!$cmdKey){
+    my $devName = InternalVal($name,"device",$name);
+    my (undef,$chn) = unpack 'A6A2',$hash->{DEF}.'01';#default to chn 01 for dev
+    $cmdKey =        ($hash->{helper}{role}{chn}?1:0)
+                .":".($hash->{helper}{role}{dev}?1:0)
+                .":".($hash->{helper}{role}{vrt}?1:0)
+                .":".($hash->{helper}{fkt}?$hash->{helper}{fkt}:"")
+                .":".$devName
+                .":".($defs{$devName}{helper}{mId} ? $defs{$devName}{helper}{mId}:"")
+                .":".$chn
+                .":".InternalVal($name,"peerList","")
+               ;# update cmds entry in case
+  }
+  if( $hash->{helper}{cmds}{cmdKey} ne $cmdKey){
+    my ($roleC,$roleD,$roleV,$fkt,$devName,$mId,$chn,$peerLst) = split(":", $cmdKey);
+    my $st      = $mId ne "" ? $culHmModel->{$mId}{st}   : AttrVal($devName, "subType", "");
+    my $md      = $mId ne "" ? $culHmModel->{$mId}{name} : AttrVal($devName, "model"  , "");
+    my @arr1 = ();
+    delete $hash->{helper}{cmds}{cmdLst}{$_} foreach(grep!/^tpl(Set|Para)/,keys%{$hash->{helper}{cmds}{cmdLst}});
+    if (defined $hash->{helper}{regLst}){
+      foreach my $rl(grep /./,split(",",$hash->{helper}{regLst})){        
+        next if (!defined $culHmReglSets->{$rl});
+        foreach(keys %{$culHmReglSets->{$rl}}      ){push @arr1,"$_:".$culHmReglSets->{$rl}{$_}         };
+      }
+    }
+    
+    if( !$roleV &&($roleD || $roleC)        ){push @arr1,map{"$_:".$culHmGlobalSets->{$_}            }keys %{$culHmGlobalSets}           };
+    if(( $roleV||!$st||$st eq "no")&& $roleD){push @arr1,map{"$_:".$culHmGlobalSetsVrtDev->{$_}      }keys %{$culHmGlobalSetsVrtDev}     };
+    if( !$roleV                    && $roleD){push @arr1,map{"$_:".${$culHmSubTypeDevSets->{$st}}{$_}}keys %{$culHmSubTypeDevSets->{$st}}};
+    if( !$roleV                    && $roleC){push @arr1,map{"$_:".$culHmGlobalSetsChn->{$_}         }keys %{$culHmGlobalSetsChn}        };
+    if( $culHmSubTypeSets->{$st}   && $roleC){push @arr1,map{"$_:".${$culHmSubTypeSets->{$st}}{$_}   }keys %{$culHmSubTypeSets->{$st}}   };
+    if( $culHmModelSets->{$md})              {push @arr1,map{"$_:".${$culHmModelSets->{$md}}{$_}     }keys %{$culHmModelSets->{$md}}     };
+    if( $culHmChanSets->{$md."00"} && $roleD){push @arr1,map{"$_:".${$culHmChanSets->{$md."00"}}{$_} }keys %{$culHmChanSets->{$md."00"}} };
+    if( $culHmChanSets->{$md."xx"} && $roleC){push @arr1,map{"$_:".${$culHmChanSets->{$md."xx"}}{$_} }keys %{$culHmChanSets->{$md."xx"}} };
+    if( $culHmChanSets->{$md.$chn} && $roleC){push @arr1,map{"$_:".${$culHmChanSets->{$md.$chn}}{$_} }keys %{$culHmChanSets->{$md.$chn}} };
+    if( $culHmFunctSets->{$fkt}    && $roleC){push @arr1,map{"$_:".${$culHmFunctSets->{$fkt}}{$_}    }keys %{$culHmFunctSets->{$fkt}}    };
+
+    $hash->{helper}{cmds}{lst}{peerOpt} = CUL_HM_getPeerOption($name);
+    push @arr1,"peerSmart:-peerOpt-" if ($hash->{helper}{cmds}{lst}{peerOpt}); 
+   
+    my @cond = ();
+    push @cond,map{$lvlStr{md}{$md}{$_}}         keys%{$lvlStr{md}{$md}}         if (defined $lvlStr{md}{$md});
+    push @cond,map{$lvlStr{mdCh}{"$md$chn"}{$_}} keys%{$lvlStr{mdCh}{"$md$chn"}} if (defined $lvlStr{mdCh}{"$md$chn"});
+    push @cond,map{$lvlStr{st}{$st}{$_}}         keys%{$lvlStr{st}{$st}}         if (defined $lvlStr{st}{$st});
+    push @cond,"slider,0,1,255" if (!scalar @cond);
+    $hash->{helper}{cmds}{lst}{condition} = join(",",sort grep /./,@cond);
+
+    $hash->{helper}{cmds}{lst}{peer} = join",",sort grep/./,split",",InternalVal($name,"peerList","");
+    if (grep /^press:/,@arr1){
+      if ($roleV){
+        push @arr1,"pressS:[(-peer-|{all})]";
+        push @arr1,"pressL:[(-peer-|{all})]";
+      }
+      elsif ($peerLst ne ""){
+        push @arr1,"pressS:[(-peer-|{self})]";
+        push @arr1,"pressL:[(-peer-|{self})]";
+      }
+      else{#remove command
+        @arr1 = grep !/(trg|)(press|event|Press|Event)[SL]\S*?/,@arr1;
+      }
+    }
+
+    delete $hash->{helper}{cmds}{cmdList} ;
+    foreach(@arr1){
+      my ($cmdS,$val) = split(":",$_,2);
+      $val =~ s/\{self\}/\{self$chn\}/;
+      $hash->{helper}{cmds}{cmdLst}{$cmdS} = (defined $val && $val ne "") ? $val : "noArg";
+    }
+
+    #---------------- gets ---------------
+    my @gets = ();
+    if(!$roleV)                              {push @gets,map{"$_:".$culHmGlobalGets->{$_}            }keys %{$culHmGlobalGets}              };
+    if($roleV)                               {push @gets,map{"$_:".$culHmVrtGets->{$_}               }keys %{$culHmVrtGets}              };
+    if($culHmSubTypeGets->{$st})             {push @gets,map{"$_:".${$culHmSubTypeGets->{$st}}{$_}   }keys %{$culHmSubTypeGets->{$st}}   };
+    if($culHmModelGets->{$md})               {push @gets,map{"$_:".${$culHmModelGets->{$md}}{$_}     }keys %{$culHmModelGets->{$md}}     };
+    if($roleD)                               {push @gets,map{"$_:".$culHmGlobalGetsDev->{$_}         }keys %{$culHmGlobalGetsDev}        };
+
+    delete $hash->{helper}{cmds}{rtrvLst};
+    foreach(@gets){
+      my ($cmdS,$val) = split(":",$_,2);
+      $hash->{helper}{cmds}{rtrvLst}{$cmdS} = (defined $val && $val ne "") ? $val : "noArg";
+    }
+    $hash->{helper}{cmds}{cmdKey}  = $cmdKey;
+  }
+
+  my $tmplStamp = CUL_HM_getTemplateModify();
+  my $tmplAssTs = (defined $hash->{helper}{cmds}{TmplTs} ? $hash->{helper}{cmds}{TmplTs}:"noAssTs");# template assign timestamp
+  my $peerLst = InternalVal($name,"peerList","");
+  if($hash->{helper}{cmds}{TmplKey} ne $peerLst.":$tmplStamp:$tmplAssTs" ){
+    my @arr1 =  map{"$_:-value-"}split(" ",CUL_HMTmplSetParam($name));
+    delete $hash->{helper}{cmds}{cmdLst}{$_} foreach(grep/^tpl(Set|Para)/,keys%{$hash->{helper}{cmds}{cmdLst}});
+    
+    CUL_HMTmplSetCmd($name);
+    push @arr1, "tplSet_0:-tplChan-" if(defined $hash->{helper}{cmds}{lst}{tplChan});
+    if(defined $hash->{helper}{cmds}{lst}{tplPeer}){
+      push @arr1, "tplSet_$_:-tplPeer-" foreach(split(",",$peerLst));
+    }
+    $hash->{helper}{cmds}{lst}{tplDel} = join(",",keys%{$hash->{helper}{tmpl}});
+
+    foreach(@arr1){
+      my ($cmdS,$val) = split(":",$_,2);
+      $hash->{helper}{cmds}{cmdLst}{$cmdS} = (defined $val && $val ne "") ? $val : "noArg";
+    }
+
+    $hash->{helper}{cmds}{TmplKey}  = $peerLst
+                                     .":$tmplStamp"
+                                     .":$tmplAssTs"
+                                     ;   
+  }
+
+  return;
+}
+sub CUL_HM_SearchCmd($$) {#+++++++++++++++++ is command supported?+++++++++++++++
+  my($name,$findCmd)=@_;
+  CUL_HM_SetList($name,"") if ($defs{$name}{helper}{cmds}{cmdKey} eq "");
+  return defined $defs{$name}{helper}{cmds}{cmdLst}{$findCmd} ? 1 : 0;
+}
+
+
 sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
   my ($hash, @a) = @_;
+#  my $T0 = gettimeofday();
   return "no value specified" if(@a < 2);
   return "FW update in progress - please wait" 
         if ($modules{CUL_HM}{helper}{updating});
@@ -4130,7 +4481,7 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
   my $st      = defined $defs{$devName}{helper}{mId} ? $culHmModel->{$defs{$devName}{helper}{mId}}{st}   : AttrVal($devName, "subType", "");
   my $md      = defined $defs{$devName}{helper}{mId} ? $culHmModel->{$defs{$devName}{helper}{mId}}{name} : AttrVal($devName, "model"  , "");
   my $flag    = 'A0'; #set flag
-  my $cmd     = $a[1];
+
   my ($dst,$chn) = unpack 'A6A2',$hash->{DEF}.'01';#default to chn 01 for dev
   return "" if (!defined $chn);
 
@@ -4138,139 +4489,173 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
   my $roleD = $hash->{helper}{role}{dev}?1:0;
   my $roleV = $hash->{helper}{role}{vrt}?1:0;
   my $fkt   = $hash->{helper}{fkt}?$hash->{helper}{fkt}:"";
-  
-  my $oCmd = $cmd;# we extend press to press/L/S if press is defined
-  $cmd = "press" if ($cmd =~ m/^press/);# substitude pressL/S with press for cmd search
-  my $h = undef;
-  $h = $culHmGlobalSets->{$cmd}         if(                !$roleV                    &&($roleD || $roleC));
-  $h = $culHmGlobalSetsVrtDev->{$cmd}   if(!defined($h) &&( $roleV|| !$st||$st eq"no")&& $roleD);
-  $h = $culHmSubTypeDevSets->{$st}{$cmd}if(!defined($h) && !$roleV                    && $roleD);
-  $h = $culHmGlobalSetsChn->{$cmd}      if(!defined($h) && !$roleV                    && $roleC);
-  $h = $culHmSubTypeSets->{$st}{$cmd}   if(!defined($h) && $culHmSubTypeSets->{$st}   && $roleC);
-  $h = $culHmModelSets->{$md}{$cmd}     if(!defined($h) && $culHmModelSets->{$md}  );
-  $h = $culHmChanSets->{$md."00"}{$cmd} if(!defined($h) && $culHmChanSets->{$md."00"} && $roleD);
-  $h = $culHmChanSets->{$md."xx"}{$cmd} if(!defined($h) && $culHmChanSets->{$md."xx"} && $roleC); 
-  $h = $culHmChanSets->{$md.$chn}{$cmd} if(!defined($h) && $culHmChanSets->{$md.$chn} && $roleC); 
-  $h = $culHmFunctSets->{$fkt}{$cmd}    if(!defined($h) && $culHmFunctSets->{$fkt});
+ 
+  CUL_HM_SetList($name               # refresh command options
+                 ,  "$roleC"
+                  .":$roleD"
+                  .":$roleV"
+                  .":$fkt"
+                  .":$devName"
+                  .":".($defs{$devName}{helper}{mId} ? $defs{$devName}{helper}{mId}:"")
+                  .":$chn"
+                  .":".InternalVal($name,"peerList","")
+                 );# update cmds entry in case
 
-  $h = "parameter" if ($cmd =~ m/^tplPara..._/);
-  $h = "template"  if ($cmd =~ m/^tplSet_/);
-  $h = "peerSmart" if ($cmd eq "peerSmart" && defined $hash->{helper}{peerFriend} );
-
-  if( !defined($h) && defined $hash->{helper}{regLst}){
-    foreach my $rl(grep /./,split(",",$hash->{helper}{regLst})){        
-      next if (!defined $culHmReglSets->{$rl});
-      $h = $culHmReglSets->{$rl}{$cmd};
-      last if (defined($h));
-    }
-  }
-
-  $cmd = $oCmd;# necessary for press/S/L - check better implementation
-
-  my @h;
-  @h = split(" ", $h) if($h);
-  my @postCmds=(); #Commands to be appended after regSet (ugly...)
-
-  if   (!defined($h) && defined($culHmSubTypeSets->{$st}{pct}) && $cmd =~ m/^\d+/) {
+  my $cmd     = $a[1];
+  if (defined($hash->{helper}{cmds}{cmdLst}{pct}) && $cmd =~ m/^\d+\.?\d*$/) {# is cmd "pct"?
     splice @a, 1, 0,"pct";#insert the actual command
+    $cmd = "pct";
   }
-  elsif(!defined($h)) { ### unknown - return the commandlist
-    my @arr1 = ();
-    if (defined $hash->{helper}{regLst}){
-      foreach my $rl(grep /./,split(",",$hash->{helper}{regLst})){        
-        next if (!defined $culHmReglSets->{$rl});
-                                              foreach(keys %{$culHmReglSets->{$rl}}      ){push @arr1,"$_:".$culHmReglSets->{$rl}{$_}         };
+
+  if(!defined $hash->{helper}{cmds}{cmdLst}{$cmd}) { ### unknown - return the commandlist
+    my @cmdPrep = ();
+    foreach my $cmdS (keys%{$hash->{helper}{cmds}{cmdLst}}){
+      my $val = $hash->{helper}{cmds}{cmdLst}{$cmdS};
+
+      if($cmdS =~ m/^(pct|pctSlat)$/){
+        $val = ":slider,0,1,100";
       }
-    }
-    else{#ignore e.g. for virtuals
-    }
-    if( !$roleV &&($roleD || $roleC)        ){foreach(keys %{$culHmGlobalSets}           ){push @arr1,"$_:".$culHmGlobalSets->{$_}            }};
-    if(( $roleV||!$st||$st eq "no")&& $roleD){foreach(keys %{$culHmGlobalSetsVrtDev}     ){push @arr1,"$_:".$culHmGlobalSetsVrtDev->{$_}      }};
-    if( !$roleV                    && $roleD){foreach(keys %{$culHmSubTypeDevSets->{$st}}){push @arr1,"$_:".${$culHmSubTypeDevSets->{$st}}{$_}}};
-    if( !$roleV                    && $roleC){foreach(keys %{$culHmGlobalSetsChn}        ){push @arr1,"$_:".$culHmGlobalSetsChn->{$_}         }};
-    if( $culHmSubTypeSets->{$st}   && $roleC){foreach(keys %{$culHmSubTypeSets->{$st}}   ){push @arr1,"$_:".${$culHmSubTypeSets->{$st}}{$_}   }};
-    if( $culHmModelSets->{$md})              {foreach(keys %{$culHmModelSets->{$md}}     ){push @arr1,"$_:".${$culHmModelSets->{$md}}{$_}     }};
-    if( $culHmChanSets->{$md."00"} && $roleD){foreach(keys %{$culHmChanSets->{$md."00"}} ){push @arr1,"$_:".${$culHmChanSets->{$md."00"}}{$_} }};
-    if( $culHmChanSets->{$md."xx"} && $roleC){foreach(keys %{$culHmChanSets->{$md."xx"}} ){push @arr1,"$_:".${$culHmChanSets->{$md."xx"}}{$_} }};
-    if( $culHmChanSets->{$md.$chn} && $roleC){foreach(keys %{$culHmChanSets->{$md.$chn}} ){push @arr1,"$_:".${$culHmChanSets->{$md.$chn}}{$_} }};
-    if( $culHmFunctSets->{$fkt}    && $roleC){foreach(keys %{$culHmFunctSets->{$fkt}}    ){push @arr1,"$_:".${$culHmFunctSets->{$fkt}}{$_}    }};
-    @arr1 = CUL_HM_noDup(@arr1);
-    foreach(@arr1){
-      next if(!$_);
-      my ($cmdS,$val) = split(":",$_,2);
-      if (!$val){ # no agruments possible
-        $_ = "$cmdS:noArg";
-      }
-      elsif($val !~ m/^\[.*\]$/ ||
-            $val =~ m/\[.*\[/   ||
-            $val =~ m/(\<|\>)]/
-            ){
-        $_ = $cmdS;
-      }
-      else{
-        $val =~ s/(\[|\])//g;
-        my @vArr = split('\|',$val);
-        foreach (@vArr){
-          if ($_ =~ m/(.*)\.\.(.*)/ ){
-            my @list = map { ($_.".0", $_+0.5) } (($1+0)..($2+0));
-            pop @list;
-            $_ = join(",",@list);
+      elsif($val !~ m/ /){#no space - this is a single param command (or less)
+        my $opt  = ($val =~ s/^\[(.*)\] *$/$1/ ? "noArg" : "");
+        $val =~ s/^\((.*)\)$/$1/;
+        my $dflt = ($val =~ s/\{(.*)\}// ? $1 : "");
+
+        if   ($val eq "noArg"){
+            $val = ":$val";
+        }
+        elsif($cmdS eq "color"){
+          $val = ":colorpicker,HUE,0,0.5,100";
+        }
+        elsif($val eq "-tempTmpl-"){
+          if(!defined $modules{CUL_HM}{tempListTmplLst}){
+            $val = "";
+          }
+          else{
+            $val = ":$modules{CUL_HM}{tempListTmplLst}";
           }
         }
-        $_ = "$cmdS:".join(",",@vArr);
+        elsif($val =~ m/^-([a-zA-Z]*?)-\|?(.*)$/){#add relacements if available plus default
+          my ($repl,$def) = ($1,$2);
+          $def = "" if (!defined $def);
+          if (defined $hash->{helper}{cmds}{lst}{$repl}){
+            $repl = $hash->{helper}{cmds}{lst}{$repl};
+            next if ($repl.$dflt.$opt eq "");# - options
+            $val = ":".join(",",grep/./,( $dflt
+                                         ,$opt
+                                         ,$repl
+                                         ,$def));
+          }
+          else{
+            $val = "";
+          }
+        }
+        elsif($val =~ m/^([a-zA-Z0-9\;_\-\|\.]*)$/){#(xxx|yyy) as optionlist - new
+          my $v1 = $1;
+          my @lst1;
+          foreach(split('\|',$v1)){
+            if ($_ =~ m/(.*)\.\.(.*)/ ){
+              my ($min,$max,$step) = ($1,$2,0.5);
+              if ($max =~ m/(.*);(.*)/){
+                ($max,$step) = ($1,$2);
+              }
+              my $f = 0;
+              ($f) = map{(my $foo = $_) =~ s/.*\.//;length($foo)}($step) if ($step =~ m/\./);
+              my $m = ($max - $min)/$step;
+              push @lst1, map{sprintf("%.${f}f",$min + $_ * $step)}(0..$m);
+            }
+            else{
+              push @lst1,$_;
+            }     
+          }
+          $val = ":".join(",",grep/./,($dflt,$opt,@lst1));
+        }
+        else    {# no shortcut
+          $val = "";
+        }
       }
+      else      {# multi-parameter - no quick select
+        $val = "";
+      }
+      push @cmdPrep,"$cmdS$val";
     }
-    @arr1 = ("--") if (!scalar @arr1);
-    my $usg = "Unknown argument $cmd, choose one of ".join(" ",sort @arr1)." ";
+    @cmdPrep = ("--") if (!scalar @cmdPrep);
+    Log3 $name,(defined $modules{CUL_HM}{helper}{verbose}{allSetVerb} ? 0:5),"CUL_HM set $name $cmd";
+    return "Unknown argument $cmd, choose one of ".join(" ",@cmdPrep)." ";
+  }
 
-    my $pl = CUL_HM_getPeerOption($name);
-    $usg .= " peerSmart:$pl" if ($pl); 
+  ###------------------- commands parameter parsing -------------------###
+  if (1){
+    my @parIn = grep!/noArg/,@a[2..$#a];
+    my $paraOpts = $hash->{helper}{cmds}{cmdLst}{$cmd};
+    $paraOpts =~ s/(\.\.\.|noArg|\'.*?\')//g;#remove comment, "..." and noArg
+    my @optLst = split(" ",$paraOpts);#[...] would leave an empty list
+    #my $max = $hash->{helper}{cmds}{cmdLst}{$cmd} =~ m/\.\.\./ ? 99 : scalar(@optLst);
+    $paraOpts =~ s/(\[.*?\])//g; # remove optionals
+    my $pCnt = 0;
+    my $paraFail = "";
+    foreach my $param (@optLst){ # check each parameter
+      my $optional = $param =~ s/^\[(.*)\]$/$1/ ? 1:0; # is parameter optional?
+      if($param =~ m/^\((.*)\)$/ ){                 # list of options?
+        my @parLst = split('\|',$1);
+        if(  defined $parIn[$pCnt]){                # user param provided
+          my ($tmp1) = map{my$foo=$_;$foo =~ s/([\?\*\+])/\\$1/g;$foo}($parIn[$pCnt]);       
+          if( $parIn[$pCnt] !~ m/[:\{\[\(]/ && grep/$tmp1/,@parLst){ # parameter not comparable or matched 
+          }
+          elsif($param =~ m/([\-\d\.]*)\.\.([\-\d\.]*)/ ){# we check for min/max but not for step
+            my ($min,$max) = ($1,$2);
+            if ($parIn[$pCnt] !~ m/^[-+]?[0-9]+\.?[0-9]*$/){
+              $paraFail = "\'$parIn[$pCnt]\' not numeric";
+            }
+            elsif ($parIn[$pCnt] < $min || $parIn[$pCnt] > $max ){
+              $paraFail = "\'$parIn[$pCnt]\' out of range min:$min max:$max";
+            }
+          }
+          else{                                     # user param no match
+            if($param =~ m/-.*-/){                  #    but not distinct
+            }
+            elsif($optional && $param =~ m/\{(.*?)\}/){# no match, distinct but optional with default
+              my $default = $1;
+              splice @parIn, $pCnt, 0,$default;#insert the default
+            }
+            else{                                   # no match, distinct, not optional or no default => fail
+              $paraFail = "$parIn[$pCnt] does not match options";
+            }
+          }
+        }
+        else{                                       # no user param
+          if($optional){                            # optional
+            if($param =~ m/\{(.*)\}/){              #   defaut available, use it
+              my $default = $1;
+              splice @parIn, $pCnt, 0,$default;#insert the default
+            }
+            else{                                   # insert "noArg"
+              splice @parIn, $pCnt, 0,"noArg";
+            }
+          }
+          else{                                     # no user param, no default => fail
+            $paraFail = "is not optional. No dafault identifies";
+          }
+        }
+      }
+      $paraFail = "is required but missing" if(!defined $parIn[$pCnt] && !$optional);
+      if($paraFail){
+        $paraFail = "param $pCnt:'$optLst[$pCnt]' => $paraFail"
+                    ."\n$cmd: $hash->{helper}{cmds}{cmdLst}{$cmd}";
+        Log3 $name,(defined $modules{CUL_HM}{helper}{verbose}{allSet} ? 0:3),"CUL_HM reject-set $name $cmd: $paraFail ";
+        return $paraFail;
+      }
+
+      $pCnt++;
+    }
+
+    splice @parIn, $pCnt, 0,"noArg" if(scalar(@parIn) == 0);
+    @a = ($a[0],$cmd,@parIn);
     
-    $usg =~ s/ pct/ pct:slider,0,1,100/;
-    $usg =~ s/ pctSlat/ pctSlat:slider,0,1,100/;
-    $usg =~ s/ virtual/ virtual:slider,1,1,50/;
-    $usg =~ s/ color/ color:colorpicker,HUE,0,0.5,100/;
-	if ($usg =~ m/ tempTmplSet/){
-      my $tl = $modules{CUL_HM}{AttrList}."";
-      my $ok = ($tl =~ s/.* (tempListTmpl)(\:.*? ).*/$2/);
-	  $tl = $ok ? $tl : "";
-      $usg =~ s/ tempTmplSet/ tempTmplSet$tl/;
-	}
+  }
+  Log3 $name,(defined $modules{CUL_HM}{helper}{verbose}{allSet} ? 0:3),"CUL_HM set $name " . join(" ", @a[1..$#a]);
 
-    $usg .= CUL_HMTmplSetParam($name);   
-    $usg .= CUL_HMTmplSetCmd($name);
-	if (   $usg =~ m/ tplDel/ 
-        && eval "defined(&HMinfo_templateDel)"
-        && keys %{$hash->{helper}{tmpl}}){
-      my $tl = join(",",(sort keys %{$hash->{helper}{tmpl}}));
-      $usg =~ s/ tplDel/ tplDel:$tl/;
-	}
-    else{
-      $usg =~ s/ tplDel//;#not an option
-    }
-	if ( $usg =~ m/ (press|event|trgPress|trgEvent)/){
-      my $peers = join",",grep/./,split",",InternalVal($name,"peerList","");
-      if ($peers){
-        $usg =~ s/ press/ press pressS:$peers pressL:$peers/g;
-        $usg =~ s/ (trgPress.:)-peer-/ $1/g;
-        $usg =~ s/ (trgPress.:)/ $1all,$peers/g;
-      }
-      else{#remove command
-        $usg =~ s/(press|event)[SL]\S*? //g;
-        $usg =~ s/trg(Press|Event)[SL]\S*? //g;
-      }
-	}
-    return $usg;
-  }
-  elsif($h eq "" && @a != 2) {
-    return "$cmd requires no parameters";
-  }
-  elsif($h !~ m/\.\.\./ && @h != @a-2) {
-    return "$cmd requires parameter: $h";
-  }
-
+  my @postCmds=(); #Commands to be appended after regSet (ugly...)
   my $id; # define id of IO device for later usage
-  
   ###------------------- commands requiring no IO action -------------------###
   my $nonIOcmd = 1;
   if(   $cmd eq "clear") { ####################################################
@@ -4316,8 +4701,10 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
       }
       elsif($sect eq "oldRegs"){
         my @cN = ($name);
-        push @cN,$hash->{$_} foreach(grep /^channel/,keys %{$hash});      
-        CUL_HM_refreshRegs($_) foreach (@cN);
+        push @cN,$hash->{$_} foreach(grep /^channel/,keys %{$hash});     
+        foreach (@cN){
+          CUL_HM_refreshRegs($_);
+        }
       }
       elsif($sect eq "msgEvents"){
         CUL_HM_respPendRm($hash);
@@ -4359,6 +4746,7 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
             foreach (grep /^sabotageAttack/,keys %{$hash->{READINGS}});
      }
     }
+
   }
   elsif($cmd eq "defIgnUnknown") { ############################################
     foreach (map {substr($_,8)} 
@@ -4712,13 +5100,14 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
       $prep = $a[2];
       splice  @a,2,1;#remove prep
     }
-
     my (undef,undef,$regName,$data,$peerChnIn) = @a;
     $state = "";
-    my @regArr = CUL_HM_getRegN($st,$md,($roleD?"00":""),($roleC?$chn:""));
+    my $mdAl  = CUL_HM_getAliasModel($hash);
+    my @regArr = CUL_HM_getRegN($st,$mdAl,($roleD?"00":""),($roleC?$chn:""));
     
+    my ($tmp1) = map{my$foo=$_;$foo =~ s/([\+\?\*])/\\$1/g;$foo}($regName); # we need to consider spacial chars
     return "$regName failed: supported register are ".join(" ",sort @regArr)
-            if (!grep /^$regName$/,@regArr );
+            if (!grep /^$tmp1$/,@regArr );
 
     my $reg  = $culHmRegDefine->{$regName};
     my $conv = $reg->{c};
@@ -4740,6 +5129,7 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     return "value:$data out of range $reg->{min} to $reg->{max} for Reg \""
            .$regName."\""
             if (!($conv =~ m/^(lit|hex|min2time)$/)&&
+                $data !~ m/^set_/ &&
                 ($data < $reg->{min} ||$data > $reg->{max})); # none number
     return"invalid value. use:". join(",",sort keys%{$reg->{lit}})
             if ($conv eq 'lit' && !defined($reg->{lit}{$data}));
@@ -5321,15 +5711,15 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
                   .ReadingsVal( InternalVal($devName,"channel_$ch","no")
                                 ,"text$ln","unkown");
       }
-      $ret .= "\n      off nc(no change)"
+      $ret .= "\n      nc(no change), off(no text)"
              ."\ncolor:".join(",",sort keys %disColor)
-             ."\n      nc(no change)"
+             ."\n      nc(no change), off(no color)"
              ."\nicon :".join(",",sort keys %disIcon)
+             ."\n      nc(no change), noIcon(no Icon)"
              ;
       return $ret;
     }
 
-    return "$a[2] not valid - choose short or long" if($a[2] !~ m/^(short|long)$/);
     my $type = $a[2] eq "short"?"s":"l";
 
     if(!defined $hash->{helper}{dispi}{$type}{"l1"}{d}){# setup if one is missing
@@ -5342,38 +5732,39 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
       return "please add a text " if(!$a[4]);
       my $lnRd = "disp_$a[2]_l$lnNr";# reading assotiated with this entry
       my $dh = $hash->{helper}{dispi}{$type}{"l$lnNr"};
-      if ($a[4] eq "off"){ #no display in this line
-        delete $dh->{txt};
-      }
-      elsif($a[4] =~ m/^e:/){ # equation
+
+      if($a[4] =~ m/^e:/){ # equation
         $dh->{d} = 2; # mark as equation
         $dh->{exe} = $a[4];
         $dh->{exe} =~ s/^e://;
         ($dh->{txt},$a[5],$a[6]) = eval $dh->{exe};
         return "define eval must return 3 values:" if(!defined $a[6]);
       }
-      elsif($a[4] ne "nc"){ # new text
-        return "text too long " .$a[4]   if (length($a[4])>12);
-        $dh->{txt}=$a[4];
-      }
+      else{
+        if ($a[4] eq "off"){ #no display in this line
+          $dh->{d} = 0; # mark as none
+          delete $dh->{txt};
+        }
+        elsif($a[4] ne "nc"){ # new text
+          return "text too long " .$a[4]   if (length($a[4])>12);
+          $dh->{d} = 1; # mark as none
+          $dh->{txt}=$a[4];
+        }
 
-      if($a[5]){ # set new color
-        if($a[5] eq "off"){ # set new color
+        if($a[5] eq "off"){ # set color off
           delete $dh->{col};
         }
         elsif($a[5] ne "nc"){ # set new color
           return "color wrong $a[5] use:".join(",",sort keys %disColor) if (!defined $disColor{$a[5]});
-          $dh->{col}=$a[5];
+          $dh->{col} = $a[5];
         }
-      }
-
-      if($a[6]){ # new icon
+        
         if($a[6] eq "noIcon"){ # new icon
           delete $dh->{icn};
         }
         elsif($a[6] ne "nc"){ # new icon
-          return "icon wrong $a[6] use:".join(",",sort keys %disIcon)  if (!defined $disIcon {$a[6]});
-          $dh->{icn}=$a[6];
+          return "icon wrong $a[6] use:".join(",",sort keys %disIcon)  if (!defined $disIcon{$a[6]});
+          $dh->{icn} = $a[6];
         }
       }
     }
@@ -5436,12 +5827,13 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     if($msg eq 'help'){ # display command info
       return      "command options:"
                  ."\n  line1,icon1:line2,icon2:line3,icon3 sound repeat pause signal"
+                 ."\n  "
                  ."\n  line: 12 char text to be dispalyed. No change if empty."
-                 ."\n  icon: icon per line: ".join(" ",keys(%disp_icons))
-                 ."\n  sound: ".join(" ",keys(%disp_sounds))
-                 ."\n  repeat: 1..16 default=1"
-                 ."\n  pause: 1..160 default=10"
-                 ."\n  signal: ".join(" ",keys(%disp_signals))
+                 ."\n  icon: per line: ".join(", ",keys(%disp_icons))
+                 ."\n  sound: ".join(", ",keys(%disp_sounds))
+                 ."\n  repeat: 1..16 default = 1"
+                 ."\n  pause: 1..160 default = 10"
+                 ."\n  signal: ".join(", ",keys(%disp_signals))
                  ."\n "
                  ."\n  check for param reWriteDisplayxx: "
                  ."\n  translate chars: "
@@ -5796,8 +6188,7 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     my $sId = $roleV ? $dst : $id;  # ID of cmd-source must not be a physical
                                     # device. It can cause trouble with 
                                     # subsequent alarming 
-
-    $hash->{TESTNR} = ($a[2] ? $a[2] : ($hash->{TESTNR} + 1))%255;
+    $hash->{TESTNR} = (($a[2] && $a[2] ne "noArg") ? $a[2] : ($hash->{TESTNR} + 1))%255;
     if ($fkt eq "sdLead1"){# ($md eq "HM-CC-SCD")
       my $tstNo = sprintf("%02X",$hash->{TESTNR});
       my $val = ($cmd eq "teamCallBat")? "80" : "00";
@@ -5836,80 +6227,112 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
    }
   }
 
-  elsif($cmd =~ m/^(press|event)(S|L)/) { #####################################
-    #press          =>"-peer-        [-repCount(long only)-] [-repDelay-] ..."
-    #event          =>"-peer- -cond- [-repCount(long only)-] [-repDelay-] ..."
-    my ($trig,$type,$peer) = ($1,$2,$a[2]);
-    my ($cond,$repCnt,$repDly,$modeCode,$mode) = (0,0,0);
-    if ($st ne 'virtual'){
-      return "no peer defined" if (!defined $a[2]);
-      return "$peer not peered to $name" if (InternalVal($name,"peerList","") !~ m/$peer/);
+  elsif($cmd =~ m/^(press|event)/) { #####################################
+    #press          =>"[(long|{short})] [(-peer-|{all})] [(-repCount-|{0})] [(-repDelay-|{0.25})]" 
+    #press          =>"[(long|{short})] [(noBurst|{Burst})] [(-peer-|{all})] [(-repCount-|{0})] [(-repDelay-|{0.25})]" 
+    #press[LS]      =>"-peer-"
+    #event[LS]      =>"-peer- -cond-"
+
+    my ($trig,$type,$peer      ,$cond,$mode,$modeCode,$repCnt,$repDly,$Burst) = 
+       ($1   ,"S"  ,"self".$chn,""   ,0    ,"40"     ,1      ,0.25   ,1)          ;#defaults
+    
+    if ($cmd =~ m/^(press|event)(L|S)/){# set short/long and remove from Params
+      $type = $2;
+      foreach(2,3,4,5,6){$a[$_] = "noArg" if(!defined $a[$_])}
     }
     else{
-      splice @a, 2, 0,"";# shift the array, similate a peer for virtuals
+      if   ($a[2] eq "long") {$type = "L";splice @a,2,1;}
+      elsif($a[2] eq "short"){$type = "S";splice @a,2,1;}
     }
-    if ($trig eq "event"){
-      return "condition missing" if (!defined $a[3]);
-      ($cond,$repCnt,$repDly,$modeCode) = ($a[3],$a[4],$a[5],"41");
-      return "condition $cond out of range. Chooose 0...255" if ($cond < 0 || $cond > 255);
-      $cond = sprintf("%02X",$cond);
-    }
-    else{
-      ($cond,$repCnt,$repDly,$modeCode) = ("",$a[3],$a[4],"40");
+
+    $peer = $a[2] if ($a[2] ne "noArg");
+    splice @a,2,1; # remove long/short or  (no)Burst
+   
+    if ($roleV){ # burst (just for virtuals) could be given
+      $Burst = 0 if($a[2] eq "noBurst");
+      splice @a,2,1; # remove long/short or  (no)Burst
     }
     
-    if ($type eq "L"){
-      $mode = 64;
-      $repCnt      = 1    if (!defined $repCnt     );
-      $repDly      = 0.25 if (!defined $repDly     );
-      return "repeatCount $repCnt invalid. use value 1 - 255"     if ($repCnt < 1    || $repCnt>255 );
-      return "repDelay $repDly invalid. use value 0.25 - 1.00"    if ($repDly < 0.25 || $repDly>1 );
+    if ($type eq "event"){# set condition for event (blank for press)
+      $modeCode = "41";
+      if ($a[2] < 0 || $a[2] > 255){
+        $cond = sprintf("%02X",$a[2]);
+      }
+      else{
+        return "event requires a condition between 0 and 255";
+      }
     }
-    else{#short
-      ($repCnt,$repDly,$mode) = (0,0,0);
+    else{# type = press
+      if($type eq "L"){# set timing if releated
+        $mode = 64;
+        if($a[2] ne "noArg"){
+          return "repeat count must be numeric:$a[2] is illegal" if ($a[2] !~ m/^\d*$/);
+          $repCnt = $a[2];
+        }
+        splice @a,2,1; # remove repeat count
+
+        if($a[2] ne "noArg"){
+          return "repeatDelay count must be numeric e.g. 0.25:$a[2] is illegal" if ($a[2] !~ m/^\d*\.?\d+$/);
+          $repDly = $a[2];
+        }
+        splice @a,2,1; # remove repeat count
+      }
     }
 
     $hash->{helper}{count} = (!$hash->{helper}{count} ? 1 
                                                       : $hash->{helper}{count}+1)%256;
-    if ($st eq 'virtual'){#serve all peers of virtual button
-      my @peerLchn = split(',',AttrVal($name,"peerIDs",""));
-      my @peerList = map{substr($_,0,6)} @peerLchn;
-      @peerList = grep !/000000/,grep !/^$/,CUL_HM_noDup(@peerList);
+    if ($roleV){#serve all peers of virtual button
+      $peer = ".*" if ($peer eq "all");
+      my @peerLchn = map{CUL_HM_name2Id($_)}
+                     grep/$peer/,
+                     split(',',InternalVal($name,"peerList",""));
+      my @peerList = grep !/000000/,grep !/^$/
+                 ,CUL_HM_noDup(map{substr($_,0,6)} @peerLchn); # peer device IDs - clean
+
       my $pc =  sprintf("%02X%02X",hex($chn)+$mode,$hash->{helper}{count});# msg end
       my $snd = 0;
-      foreach my $peer (sort @peerList){
-        my ($pHash,$peerFlag,$rxt);
-        $pHash = CUL_HM_id2Hash($peer);
+      my @trigDest;
+      foreach my $peerDev (@peerList){# send once to each device (not each channel)
+        my $pHash = CUL_HM_id2Hash($peerDev);
         next if (   !$pHash 
                  || !$pHash->{helper}{role}
                  || !$pHash->{helper}{role}{prs});
-        $rxt = CUL_HM_getRxType($pHash);
-        $peerFlag = ($rxt & 0x02) ? "B4" : "A4"; #burst
-        CUL_HM_PushCmdStack($pHash,"++${peerFlag}$modeCode$dst$peer$pc");
+        my $rxt = CUL_HM_getRxType($pHash);
+        $rxt = $rxt & 0x7d if (!$Burst); # if noBurst is requested just stript this options
+        my $peerFlag = ($rxt & 0x02) ? "B4" : "A4"; #burst
+        CUL_HM_PushCmdStack($pHash,"++${peerFlag}$modeCode$dst$peerDev$pc");
         $snd = 1;
-        foreach my $pCh(grep /$peer/,@peerLchn){
+        foreach my $pCh(grep /$peerDev/,@peerLchn){
           my $n = CUL_HM_id2Name($pCh);
           next if (!$n);
           $n =~ s/_chn-\d\d$//;
           delete $defs{$n}{helper}{dlvl};#stop desiredLevel supervision
           CUL_HM_stateUpdatDly($n,10);
+          push @trigDest,$n;
         }
         if ($rxt & 0x80){#burstConditional
-          CUL_HM_SndCmd($pHash, "++B112$id".substr($peer,0,6));
+          CUL_HM_SndCmd($pHash, "++B112$id".$peerDev);
         }
         else{
           CUL_HM_ProcessCmdStack($pHash);
         }
       }
       if(!$snd){# send 2 broadcast if no relevant peers 
+        push @trigDest,"broadcast";
         CUL_HM_SndCmd($hash,"++8440${dst}000000$pc");
       }
+      my $readVal =  ($type eq "S" ? "short":"long")
+                    .($Burst       ? ""     :" :noBurst")
+                    .($type eq "S" ? ""     :" count:$repCnt dly:$repDly")
+                    ." cnt: $hash->{helper}{count}"
+                    ;
+      CUL_HM_UpdtReadBulk($hash,1,map{"${trig}_$_:$readVal"} @trigDest);
     }
     else{#serve internal channels for actor
       my ($pDev,$pCh) = unpack 'A6A2',CUL_HM_name2Id($peer,$devHash)."01";
       return "button cannot be identified" if (!$pCh);
       delete $hash->{helper}{dlvl};#stop desiredLevel supervision
-      my $msg = sprintf("3E%s%s%s%s%02X%02X",
+      my $msg = sprintf("3E%s%s%s%s%02X%02X%s",
                                      $id,$dst,$pDev,$modeCode
                                     ,hex($pCh)+$mode
                                     ,$hash->{helper}{count}
@@ -5919,176 +6342,39 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
         select(undef, undef, undef, $repDly);
       }
       CUL_HM_PushCmdStack($hash, "++${flag}$msg"); # send thru commandstack
-      CUL_HM_stateUpdatDly($name,10);#check status after 10 sec
+      CUL_HM_stateUpdatDly($name,10);#check status after 10 sec latest
    }
-  }
-  elsif($cmd =~ m/^press(.*)/) { ##############################################
-    # [long|short] [<peer>] [<repCount(long only)>] [<repDelay>] [<forceTiming[0|1]>] ...
-    my ($repCnt,$repDly,$forceTiming,$mode) = (0,0,0,0);
-    if($cmd eq "pressL"){
-      splice @a,2,0, ("long");
-    }
-    elsif($cmd eq "pressS"){
-      splice @a,2,0, ("short");
-    }
-    
-    if ($a[2]){
-      ##############################
-      if ($a[2] eq "long"){
-        $mode = 64;
-        splice @a,2,1;
-        (undef,undef,undef,$repCnt,$repDly,$forceTiming) = @a;
-        $repCnt      = 1    if (!defined $repCnt     );
-        $repDly      = 0.25 if (!defined $repDly     );
-        $forceTiming = 1    if (!defined $forceTiming);
-        return "repeatCount $repCnt invalid. use value 1 - 255"     if ($repCnt < 1    || $repCnt>255 );
-        return "repDelay $repDly invalid. use value 0.25 - 1.00"    if ($repDly < 0.25 || $repDly>1 );
-        return "forceTiming $forceTiming invalid. use value 0 or 1" if ($forceTiming ne "0" && $forceTiming ne "1" );
-      }
-      elsif($a[2] eq "short"){
-        splice @a,2,1;
-      }
-    }
-    my $vChn = $a[2]?$a[2]:"";
-    
-    my $pressCnt = (!$hash->{helper}{count}?1:$hash->{helper}{count}+1)%256;
-    $hash->{helper}{count}=$pressCnt;# remember for next round
-    if ($st eq 'virtual'){#serve all peers of virtual button
-      my @peerLchn = split(',',AttrVal($name,"peerIDs",""));
-      my @peerList = map{substr($_,0,6)} @peerLchn;
-      @peerList = grep !/000000/,grep !/^$/,CUL_HM_noDup(@peerList);
-      my $pc =  sprintf("%02X%02X",hex($chn)+$mode,$pressCnt);# msg end
-      my $snd = 0;
-      foreach my $peer (sort @peerList){
-        my ($pHash,$peerFlag,$rxt);
-        $pHash = CUL_HM_id2Hash($peer);
-        next if (   !$pHash 
-                 || !$pHash->{helper}{role}
-                 || !$pHash->{helper}{role}{prs});
-        $rxt = CUL_HM_getRxType($pHash);
-        $peerFlag = ($rxt & 0x02)?"B4":"A4" if($vChn ne "noBurst");#burst
-        CUL_HM_PushCmdStack($pHash,"++${peerFlag}40$dst$peer$pc");
-        $snd = 1;
-        foreach my $pCh(grep /$peer/,@peerLchn){
-          my $n = CUL_HM_id2Name($pCh);
-          next if (!$n);
-          $n =~ s/_chn-\d\d$//;
-          delete $defs{$n}{helper}{dlvl};#stop desiredLevel supervision
-          CUL_HM_stateUpdatDly($n,10);
-        }
-        if ($rxt & 0x80){#burstConditional
-          CUL_HM_SndCmd($pHash, "++B112$id".substr($peer,0,6))
-                if($vChn ne "noBurst");
-        }
-        else{
-          CUL_HM_ProcessCmdStack($pHash);
-        }
-      }
-      if(!$snd){# send 2 broadcast if no relevant peers 
-        CUL_HM_SndCmd($hash,"++8440${dst}000000$pc");
-      }
-    }
-    else{#serve internal channels for actor
-      #which button shall be simulated? We offer
-      # on/off: self button - on is even/off odd number. Obey channel
-      # name of peer
-      my $pId;
-      if ($vChn =~ m/^(on|off)$/ && $st =~ m/^(blindActuator|dimmer)$/){
-        $pId = $dst.sprintf("%02X",(($vChn eq "off")?-1:0) + $chn*2);
-      }
-      elsif($vChn){
-        $pId = CUL_HM_name2Id($vChn,$devHash)."01";#01 is default for devices
-      }
-      else{
-        $pId = $dst.sprintf("%02X",$chn);
-      }
-      my ($pDev,$pCh) = unpack 'A6A2',$pId;
-      return "button cannot be identified" if (!$pCh);
-      delete $hash->{helper}{dlvl};#stop desiredLevel supervision
-
-      my $msg = sprintf("3E%s%s%s40%02X%02X",
-                                     $id,$dst,$pDev,
-                                     hex($pCh)+$mode,
-                                     $pressCnt);
-      for (my $cnt = 1;$cnt < $repCnt; $cnt++ ){
-        CUL_HM_SndCmd($hash, "++80$msg"); # send direct Wont work for burst!
-        select(undef, undef, undef, $repDly);
-      }
-      CUL_HM_PushCmdStack($hash, "++${flag}$msg"); # send thru commandstack
-    }
   }
   elsif($cmd =~ m/^trg(Press|Event)(.)/) { ####################################
     $state = "";
     my ($trig,$type) = ($1,$2);
     my $peer = $a[2];
-    return "$peer not defined" if(!defined$defs{$peer} && $peer ne "all" );
-    my @peers;
-    if ($peer eq "all"){
-      @peers  = grep/./,split",",InternalVal($name,"peerList","");
-    }
-    else{
-      push @peers,$a[2];
-    }
-
+    $peer = "." if ($peer =~ m/(noArg|all)/);
     if($trig eq "Event"){
       return "no condition level defined" if (!defined $a[3]);
       return "condition $a[3] out of range. limit to 0..255" if ($a[3]<0 || $a[3]>255);
     }
-    foreach my $peerSet(@peers){
-      next if (!defined($peerSet) || !defined($defs{$peerSet}) );
-      if($trig eq "Event"){CUL_HM_Set($defs{$peerSet},$peerSet,"event$type",$name,$a[3]);}
-      else                {CUL_HM_Set($defs{$peerSet},$peerSet,"press$type",$name);}
-    }
-  }
-  elsif($cmd eq "fwUpdate") { #################################################
-    if ($a[2] eq "onlyEnterBootLoader") {
-      Log3 $name,2,"CUL_HM entering bootloader for $name";
-      CUL_HM_SndCmd($hash, sprintf("%02X",$modules{CUL_HM}{helper}{updateNbr})
-                                  ."3011$id${dst}CA");
-      return ("",1);
-    }
-    return "no filename given" if (!$a[2]);
-#    return "only thru CUL " if (!$hash->{IODev}->{TYPE}
-#                                 ||($hash->{IODev}->{TYPE} ne "CUL"));
-    # todo add version checks of CUL
-    my ($fName,$pos,$enterBL) = ($a[2],0,($a[3] ? $a[3]+0 : 10));
-    my @imA; # image array: image[block][msg]
-
-    return "Illegal waitTime $enterBL - enter a value between 10 and 300" 
-         if ($enterBL < 10 || $enterBL>300);    
-
-    open(aUpdtF, $fName) || return("Can't open $fName: $!");
-    while(<aUpdtF>){
-      my $line = $_;
-      my $fs = length($line);
-      while ($fs>$pos){
-        my $bs = hex(substr($line,$pos,4))*2+4;	  
-        return "file corrupt. length:$fs expected:".($pos+$bs) 
-              if ($fs<$pos+$bs);
-        my @msg = grep !/^$/,unpack '(A60)*',substr($line,$pos,$bs);
-        push @imA,\@msg; # image[block][msg]
-        $pos += $bs;
+    my @peers = ();
+    foreach my $peerItem (grep/$peer/,split",",InternalVal($name,"peerList","")){
+      if($defs{$peerItem}{helper}{role}{vrt}){
+      }
+      elsif($defs{$peerItem}{helper}{role}{chn}){
+        push @peers,$peerItem;  
+      }
+      elsif($defs{$peerItem}{helper}{role}{dev}){
+        push @peers,CUL_HM_getAssChnNames($peerItem);  
       }
     }
-    close(aUpdtF);
-    # --- we are prepared start update---
-    CUL_HM_protState($hash,"CMDs_FWupdate");
-    $modules{CUL_HM}{helper}{updating} = 1;
-    $modules{CUL_HM}{helper}{updatingName} = $name;
-    $modules{CUL_HM}{helper}{updateData} = \@imA;
-    $modules{CUL_HM}{helper}{updateStep} = 0;
-    $modules{CUL_HM}{helper}{updateDst} = $dst;
-    $modules{CUL_HM}{helper}{updateId} = $id;
-    $modules{CUL_HM}{helper}{updateNbr} = 10;
-    Log3 $name,2,"CUL_HM fwUpdate started for $name";
-    CUL_HM_SndCmd($hash, sprintf("%02X",$modules{CUL_HM}{helper}{updateNbr})
-                        ."3011$id${dst}CA");
-                        
-    $hash->{helper}{io}{newChnFwUpdate} = $hash->{helper}{io}{newChn};#temporary hide init message
-    $hash->{helper}{io}{newChn} = "";
+    my $peerCnt = 0;
+    foreach my $peerSet(@peers){
+      next if (!defined($peerSet) || !defined($defs{$peerSet}) );
+      next if (!defined $defs{$peerSet}{helper}{cmds}{cmdLst}{press});
+      if($trig eq "Event"){CUL_HM_Set($defs{$peerSet},$peerSet,"event$type",$name,$a[3]);}
+      else                {CUL_HM_Set($defs{$peerSet},$peerSet,"press$type",$name);}
+      $peerCnt++;
+    }
+    return "no target peer found" if(!$peerCnt);
 
-    InternalTimer(gettimeofday()+$enterBL,"CUL_HM_FWupdateEnd","fail:notInBootLoader",0);
-    #InternalTimer(gettimeofday()+0.3,"CUL_HM_FWupdateSim",$dst."00000000",0);
   }
   elsif($cmd eq "postEvent") { ################################################
     my (undef,undef,$cond) = @a;
@@ -6157,6 +6443,56 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
                             ,"trigLast:$name:$cond");
     }
   }
+  elsif($cmd eq "fwUpdate") { #################################################
+    if ($a[2] eq "onlyEnterBootLoader") {
+      Log3 $name,2,"CUL_HM entering bootloader for $name";
+      CUL_HM_SndCmd($hash, sprintf("%02X",$modules{CUL_HM}{helper}{updateNbr})
+                                  ."3011$id${dst}CA");
+      return ("",1);
+    }
+    return "no filename given" if (!$a[2]);
+#    return "only thru CUL " if (!$hash->{IODev}->{TYPE}
+#                                 ||($hash->{IODev}->{TYPE} ne "CUL"));
+    # todo add version checks of CUL
+    my ($fName,$pos,$enterBL) = ($a[2],0,($a[3] ? $a[3]+0 : 10));
+    my @imA; # image array: image[block][msg]
+
+    return "Illegal waitTime $enterBL - enter a value between 10 and 300" 
+         if ($enterBL < 10 || $enterBL>300);    
+
+    open(aUpdtF, $fName) || return("Can't open $fName: $!");
+    while(<aUpdtF>){
+      my $line = $_;
+      my $fs = length($line);
+      while ($fs>$pos){
+        my $bs = hex(substr($line,$pos,4))*2+4;	  
+        return "file corrupt. length:$fs expected:".($pos+$bs) 
+              if ($fs<$pos+$bs);
+        my @msg = grep !/^$/,unpack '(A60)*',substr($line,$pos,$bs);
+        push @imA,\@msg; # image[block][msg]
+        $pos += $bs;
+      }
+    }
+    close(aUpdtF);
+    # --- we are prepared start update---
+    CUL_HM_protState($hash,"CMDs_FWupdate");
+    $modules{CUL_HM}{helper}{updating} = 1;
+    $modules{CUL_HM}{helper}{updatingName} = $name;
+    $modules{CUL_HM}{helper}{updateData} = \@imA;
+    $modules{CUL_HM}{helper}{updateStep} = 0;
+    $modules{CUL_HM}{helper}{updateDst} = $dst;
+    $modules{CUL_HM}{helper}{updateId} = $id;
+    $modules{CUL_HM}{helper}{updateNbr} = 10;
+    Log3 $name,2,"CUL_HM fwUpdate started for $name";
+    CUL_HM_SndCmd($hash, sprintf("%02X",$modules{CUL_HM}{helper}{updateNbr})
+                        ."3011$id${dst}CA");
+                        
+    $hash->{helper}{io}{newChnFwUpdate} = $hash->{helper}{io}{newChn};#temporary hide init message
+    $hash->{helper}{io}{newChn} = "";
+
+    InternalTimer(gettimeofday()+$enterBL,"CUL_HM_FWupdateEnd","fail:notInBootLoader",0);
+    #InternalTimer(gettimeofday()+0.3,"CUL_HM_FWupdateSim",$dst."00000000",0);
+  }
 
   elsif($cmd eq "peerIODev") { ################################################
     # peerIODev [IO] <chn> [set|unset]...
@@ -6182,6 +6518,7 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     my ($bNo,$peerN,$single,$set,$target) = ($a[2],$a[3],($a[4]?$a[4]:"dual"),
                                                          ($a[5]?$a[5]:"set"),
                                                          ($a[6]?$a[6]:"both"));
+
     $state = "";
     if ($roleD){
       $bNo = 1 if ($bNo == 0 && $roleC); # role device and channel => button=1
@@ -6219,7 +6556,7 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     return "use - single - for ".$st                              if(($st =~ m/^(threeStateSensor|motionDetector)$/) && ($single ne "single"));
     return "TC WindowRec only peers to channel 01 single"         if( $pmd =~ m/^(HM-CC-TC|ROTO_ZEL-STG-RM-FWT)/ && $pCh[1] eq "03" && $chn ne "01" && $set eq "set");
 
-    my $pSt = CUL_HM_Get($peerHash,$peerHash->{NAME},"param","subType");
+    my $pSt = CUL_HM_getAttr($peerHash->{NAME},"subType","");
 
     
     if ($set eq "unset"){$set = 0; $cmdB ="02";}
@@ -6369,13 +6706,13 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
           next;
         }
         else{
-          Log3 $name,2,"peering execute:$PInfo{$pNo}{name} to $PInfo{$myNo}{name}";
+          Log3 $name,4,"peering execute:$PInfo{$pNo}{name} to $PInfo{$myNo}{name}";
         }
         CUL_HM_PushCmdStack($PInfo{$myNo}{hash},"++".$flag."01${id}$PInfo{$myNo}{DId}"
                             .$PInfo{$myNo}{chn}
                             .$cmdB
                             .$PInfo{$pNo}{DId}
-                            .($PInfo{$pNo}{st}     eq "smokeDetector" ? "00" : $PInfo{$pNo}{chn})
+                            .($PInfo{$pNo}{st}     eq "smokeDetector" ? "01" : $PInfo{$pNo}{chn})
                             .($PInfo{$pNo}{remote} eq "remote"        
                             ||$PInfo{$pNo}{st}     eq "smokeDetector" ? "00" : $PInfo{$pNo}{chn})
                             );
@@ -6409,7 +6746,7 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
       }
     }    
   }
-################################################################################################################
+###############################################################################
   elsif($cmd  =~ m/^(pair|getVersion)$/) { ####################################
     $state = "";
     my $serial = ReadingsVal($name, "D-serialNr", undef);
@@ -6523,12 +6860,11 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     $tTyp =   ($tPeer eq "0" ? "" 
             : ($tTyp  eq "0" ? ":both"
             :  ":".$tTyp)); 
-            
     my ($hm) = devspec2array("TYPE=HMinfo");
     return "no HMinfo defined" if (!defined $defs{$hm});
 
     my @par =  map{$params{$_}} sort keys%params;
-    my $ret = HMinfo_SetFn($defs{hm},$hm,"templateSet",$name,$tpl,"$tPeer$tTyp",@par);
+    my $ret = HMinfo_SetFn($defs{$hm},$hm,"templateSet",$name,$tpl,"$tPeer$tTyp",@par);
     return $ret;
   }
   elsif($cmd =~ m/tplPara(..)(.)_.*/) { #######################################
@@ -6551,14 +6887,30 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     return $ret;
   }
 
+  elsif (eval "defined(&CUL_HM_Set${cmd})"){###################################
+    no strict "refs";
+    my ($re,$stat,@msgs) = &{"CUL_HM_Set${cmd}"}($name,$cmd,@a);
+    use strict "refs";
+    if ($re == 1){
+        return $stat;
+    }
+    elsif($re == 0){
+      $state = $stat;
+
+      CUL_HM_PushCmdStack($hash,"++${flag}$_") foreach (map {(my $foo = $_) =~ s/xADDRESSx/$id$dst/; $foo;}@msgs);
+    }
+    else{
+        return "unknown reply from CUL_HM_Set${cmd}";
+    }
+  }
+
   else{
     return "$cmd not implemented - contact sysop";
   }
-
   CUL_HM_UpdtReadSingle($hash,"state",$state,1) if($state);
 
   my $rxType = CUL_HM_getRxType($devHash);
-  Log3 $name,3,"CUL_HM set $name $act";
+#  Log3 $name,3,"CUL_HM set $name $act";
   if($rxType & 0x01){#always
     CUL_HM_ProcessCmdStack($devHash);
   }
@@ -6581,6 +6933,28 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     }
   }
   return ("",1);# no not generate trigger out of command
+}
+sub CUL_HM_Ping($) {
+  my($defN) = @_;
+  return 0 if (CUL_HM_getRxType($defs{$defN}) & 0xe3 == 0);     # no ping for config devices
+  return 1 if (defined $defs{$defN}{protCmdPend});              # cmds are already pending - that is ping enough
+  if(CUL_HM_SearchCmd($defN,"sysTime")){
+    CUL_HM_Set($defs{$defN},$defN,"sysTime"); 
+    return 1; 
+  }
+
+  foreach my $chnN($defN,map{$defs{$defN}{$_}}grep(/^channel_/,keys %{$defs{$defN}})){
+    next if (!CUL_HM_SearchCmd($chnN,"statusRequest"));
+    my (undef, $nres) = CUL_HM_Set($defs{$chnN},$chnN,"statusRequest");
+    return 1; 
+  }
+
+  if (CUL_HM_SearchCmd($defN,"getSerial")){
+    CUL_HM_Set($defs{$defN},$defN,"getSerial");
+    return 1;
+  }
+
+  return 0;
 }
 
 #+++++++++++++++++ set/get support subroutines+++++++++++++++++++++++++++++++++
@@ -6719,8 +7093,8 @@ sub CUL_HM_infoUpdtDevData($$$) {#autoread config
                               ".D-devInfo:$devInfo",
                               ".D-stc:$stc");
 }
-sub CUL_HM_updtDeviceModel($$) {#change the model for a device - obey overwrite modelForce
-  my($name,$model) = @_;
+sub CUL_HM_updtDeviceModel($$@) {#change the model for a device - obey overwrite modelForce
+  my($name,$model,$fromUpdate) = @_;
   my $hash = $defs{$name};
   $attr{$name}{model} = $model;
   delete $hash->{helper}{rxType};
@@ -6730,7 +7104,6 @@ sub CUL_HM_updtDeviceModel($$) {#change the model for a device - obey overwrite 
   # autocreate undefined channels
   my %chanExist;
   %chanExist = map { $_ => 0 } CUL_HM_getAssChnIds($name);
-  
   if ($attr{$name}{subType} eq "virtual"){# do not apply all possible channels for virtual
     $attr{CUL_HM_id2Name($_)}{model} = $model foreach(keys %chanExist);
   }
@@ -6741,15 +7114,17 @@ sub CUL_HM_updtDeviceModel($$) {#change the model for a device - obey overwrite 
       my $chnNoTyp = 1;
       for (my $chnNoAbs = $chnStart; $chnNoAbs <= $chnEnd;$chnNoAbs++){
         my $chnId = $hash->{DEF}.sprintf("%02X",$chnNoAbs);
-        if (!$modules{CUL_HM}{defptr}{$chnId}){# not existing by now - create
+        if (!$modules{CUL_HM}{defptr}{$chnId} && !$fromUpdate){# not existing by now - create if not init phase
           my $chnName = $name."_".$chnTpName.(($chnStart == $chnEnd)?''
                                                                     :'_'.sprintf("%02d",$chnNoTyp));
                                   
           CommandDefine(undef,$chnName.' CUL_HM '.$chnId);
           Log3 $name,3,"CUL_HM_update: $name add channel ID: $chnId name: $chnName";
         }
-        $attr{CUL_HM_id2Name($chnId)}{model} = $model;
-        $chanExist{$chnId} = 1; # mark this channel as required
+        if(defined $modules{CUL_HM}{defptr}{$chnId}){
+          $attr{CUL_HM_id2Name($chnId)}{model} = $model ;
+          $chanExist{$chnId} = 1; # mark this channel as required
+        }
         $chnNoTyp++;
       }
     }
@@ -6763,8 +7138,9 @@ sub CUL_HM_updtDeviceModel($$) {#change the model for a device - obey overwrite 
       CommandDelete(undef,CUL_HM_id2Name($_));
       Log3 $name,3,"CUL_HM_update: $name delete channel name: $_";
     }
-    CUL_HM_ActAdd($hash->{DEF},AttrVal($name,"actCycle", $culHmModel->{$mId}{cyc}))if ($culHmModel->{$mId}{cyc});
-    CUL_HM_queueUpdtCfg($name);
+    my $CycTime = AttrVal($name,"actCycle", $culHmModel->{$mId}{cyc});
+    CUL_HM_ActAdd($hash->{DEF},$CycTime)if ($CycTime);
+    CUL_HM_queueUpdtCfg($name) if(!$fromUpdate);
   }
 }
 
@@ -6781,11 +7157,13 @@ sub CUL_HM_getConfig($){
   my @chnIdList = CUL_HM_getAssChnIds($name);
   delete $hash->{READINGS}{$_}
         foreach (grep /^[\.]?(RegL_)/,keys %{$hash->{READINGS}});
+  CUL_HM_UpdtReadSingle($hash,"cfgState","updating",1);
   foreach my $channel (@chnIdList){
     my $cHash = CUL_HM_id2Hash($channel);
     my $chn = substr($channel,6,2);
     delete $cHash->{READINGS}{$_}
           foreach (grep /^[\.]?(RegL_)/,keys %{$cHash->{READINGS}});
+    CUL_HM_UpdtReadSingle($cHash,"cfgState","updating",1);
     my $lstAr = $culHmModel->{CUL_HM_getMId($cHash)}{lst};
     if($lstAr){ 
       my $pReq = 0; # Peer request not issued, do only once for channel
@@ -6988,6 +7366,7 @@ sub CUL_HM_pushConfig($$$$$$$$@) {#generate messages to config data to register
     }
     #########
   }
+  CUL_HM_cfgStateDelay($hash->{NAME});
   if ($changed){
     CUL_HM_complConfig($hash->{NAME},1);
     CUL_HM_qAutoRead($hash->{NAME},3) ;
@@ -7012,7 +7391,7 @@ sub CUL_HM_ProcessCmdStack($) {
   my $hash = CUL_HM_getDeviceHash($chnhash);
   if (!defined $hash->{helper}{prt}{rspWait} or ! defined $hash->{helper}{prt}{rspWait}{cmd}){
     if($hash->{cmdStack} && @{$hash->{cmdStack}}){
-     CUL_HM_SndCmd($hash, shift @{$hash->{cmdStack}});
+      CUL_HM_SndCmd($hash, shift @{$hash->{cmdStack}});
     }
     elsif($hash->{helper}{prt}{sProc} != 0){
       CUL_HM_protState($hash,"CMDs_done");                                    
@@ -7058,13 +7437,12 @@ sub CUL_HM_responseSetup($$) {#store all we need to handle the response
   my (undef,$mNo,$mFlg,$mTp,$src,$dst,$chn,$sTp,$dat) = 
         unpack 'A4A2A2A2A6A6A2A2A*',$cmd;
   $mFlg = hex($mFlg);
-
   if (($mFlg & 0x20) && ($dst ne '000000')){#msg wants ack
     my $rss = $hash->{helper}{prt}{wuReSent}
                        ? $hash->{helper}{prt}{wuReSent}
                        :1;#resend counter start value - may need preloaded for WU device
 
-    if   ($mTp eq '01' && $sTp)        {
+    if   ($mTp =~ m/^(01|3E)$/ && $sTp)        {
       if   ($sTp eq "03"){ #PeerList-----------
         #--- remember request params in device level
         CUL_HM_respWaitSu ($hash,"Pending:=PeerList"
@@ -7629,8 +8007,10 @@ sub CUL_HM_eventP($$) {#handle protocol events
   my ($hash, $evntType) = @_;
   return if (!defined $hash);
   if ($evntType eq "Rcv"){
-    $hash->{"protLastRcv"} = TimeNow();
-    CUL_HM_UpdtReadSingle($hash,".protLastRcv",$hash->{"protLastRcv"},0);
+    my $t = TimeNow();
+    $hash->{"protLastRcv"} = $t;
+    $t =~ s/[\:\-\ ]//g;
+    CUL_HM_UpdtReadSingle($hash,".protLastRcv",$t,0);
 #    return;
   }
   my $evnt = $hash->{"prot".$evntType} ? $hash->{"prot".$evntType} : "0";
@@ -7662,13 +8042,10 @@ sub CUL_HM_eventP($$) {#handle protocol events
 }
 sub CUL_HM_protState($$){
   my ($hash,$state) = @_;
-  if (!$hash || !$hash->{NAME}){#General remove when fixed
-    Log 4,"CUL_HM protstate undeviced hash to set $state";
-    return;
-  }
   my $name = $hash->{NAME};
 
   my $sProcIn = $hash->{helper}{prt}{sProc};
+  $sProcIn = 0 if(!defined $sProcIn);
   if ($sProcIn == 3){#FW update processing
     # do not change state - commandstack is bypassed
     return if ( $state !~ m/(Info_Cleared|_FWupdate)/);
@@ -7697,6 +8074,7 @@ sub CUL_HM_protState($$){
     $hash->{helper}{prt}{sProc} = 3;
   }
   $hash->{protState} = $state;
+  CUL_HM_UpdtReadSingle($hash,"commState",$state,1);
   if (!$hash->{helper}{role}{chn}){
     CUL_HM_UpdtReadSingle($hash,"state",$state,
                           ($hash->{helper}{prt}{sProc} == 1)?0:1);
@@ -7712,7 +8090,8 @@ sub CUL_HM_protState($$){
 ################### Peer Handling ################
 sub CUL_HM_ID2PeerList ($$$) {
   my($name,$peerID,$set) = @_;
-  my $peerIDs = AttrVal($name,"peerIDs","");
+  my $peerIDs = AttrVal($name,"peerIDs","peerUnread");
+  $peerIDs =~ s/peerUnread//;
   return if (!$peerID && !$peerIDs); # nothing to do
   my $hash = $defs{$name};
   $peerIDs =~ s/$peerID//g;          #avoid duplicate, support unset
@@ -7728,7 +8107,7 @@ sub CUL_HM_ID2PeerList ($$$) {
     next if ($pId eq "00000000");                   # and end detection
     $peerNames .= CUL_HM_peerChName($pId,$dId).",";
   }
-  $attr{$name}{peerIDs} = $peerIDs;                 # make it public
+  $attr{$name}{peerIDs} = $peerIDs ? $peerIDs : "peerUnread";                 # make it public
 
   my $dHash = CUL_HM_getDeviceHash($hash);
   my $st = AttrVal($dHash->{NAME},"subType","");
@@ -7810,7 +8189,8 @@ sub CUL_HM_ID2PeerList ($$$) {
         CUL_HM_UpdtReadSingle($hash,"state","unpeered");
       }
     }
- }
+  }
+  CUL_HM_setAssotiat($name);
 }
 sub CUL_HM_peerChId($$) {  #in:<IDorName> <deviceID>, out:channelID
   my($pId,$dId)=@_;
@@ -7871,6 +8251,13 @@ sub CUL_HM_getmIdFromModel($){ # enter model and receive the corresponding ID
   }
   return $mId;
 }
+sub CUL_HM_getAliasModel($){ # 
+  my $hash = shift;
+  my $dHash = CUL_HM_getDeviceHash($hash);
+  return "" if(!defined $dHash || !defined $dHash->{helper}|| !defined $dHash->{helper}{mId});
+  return $culHmModel->{$dHash->{helper}{mId}}{name};
+}
+
 sub CUL_HM_getRxType($) {      #in:hash(chn or dev) out:binary coded Rx type
  # Will store result in device helper
   my ($hash) = @_;
@@ -8134,6 +8521,15 @@ sub CUL_HM_lstCh($$$){
   }
   return $c;
 }
+sub CUL_HM_setAssotiat($) {##########################
+  my $name = shift;
+  my @list = (CUL_HM_getAssChnNames(CUL_HM_getDeviceName($name))
+             ,CUL_HM_getDeviceName($name)
+             ,grep!/self/,split(",",InternalVal($name,"peerList","")));
+  CUL_HM_UpdtReadSingle($defs{$name},".associatedWith"
+                       ,join(",",@list)
+                       ,0);
+}
 
 #+++++++++++++++++ debug ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 sub CUL_HM_DumpProtocol($$@) {
@@ -8207,6 +8603,7 @@ sub CUL_HM_getRegFromStore($$$$@) {#read a register from backup data
     return "invalid:regname or address" if($addr < 1 ||$addr > 255);
     $peerRq = hex($peerId) != 0 ? "y":"n";
   }
+
   return "invalid:no peer for this register" if((hex($peerId) != 0 && $peerRq eq "n" )
                                               ||(hex($peerId) == 0 && $peerRq eq "y"));
   my $dst = substr(CUL_HM_name2Id($name),0,6);
@@ -8273,8 +8670,16 @@ sub CUL_HM_getRegFromStore($$$$@) {#read a register from backup data
 sub CUL_HMTmplSetCmd($){
   my $name = shift;
   return "" if(not scalar devspec2array("TYPE=HMinfo"));
+  my $devId = substr($defs{$name}{DEF},0,6);
   my %a;
-  foreach my $peer(split(",",InternalVal($name,"peerList","")),"0"){
+  my %tpl;
+
+  my   @peers = map{CUL_HM_id2Name($_)}   grep !/^(00000000|peerUnread|$devId)/,split(",",AttrVal($name,"peerIDs",""));
+  push @peers,  map{"self".substr($_,-2)} grep /^$devId/                       ,split(",",AttrVal($name,"peerIDs",""));
+  foreach my $peer($peers[0],"0"){ 
+    next if (!defined $peer);
+    $peer = "self".substr($peer,-2) if($peer =~ m/^${name}_chn-..$/);
+    $peer = "self".substr($peer,-2) if($peer =~ m/^${name}_chn-..$/);
     my $ps = $peer eq "0" ? "R-" : "R-$peer-";
     my %b = map { $_ => 1 }map {(my $foo = $_) =~ s/.?$ps//; $foo;} grep/.?$ps/,keys%{$defs{$name}{READINGS}};
     foreach my $t(keys %HMConfig::culHmTpl){
@@ -8287,15 +8692,28 @@ sub CUL_HMTmplSetCmd($){
       }
       if($f == 0){
         if($typShLg){
-          $a{$peer}{$t."_short"} = 1;
-          $a{$peer}{$t."_long"} = 1;
+          foreach my $pAss (@peers){
+            $a{$pAss}{$t."_short"} = 1;
+            $a{$pAss}{$t."_long"} = 1;
+            $tpl{p}{$t."_short"}  = 1;
+            $tpl{p}{$t."_long"}   = 1;
+          }
         }
         else{
-          $a{$peer}{$t} = 1;
+          if ($peer eq "0"){
+            $a{$peer}{$t} = 1;
+            $tpl{0}{$t} = 1;
+          }
+          else{
+            $a{$_}{$t} = 1  foreach(map{$_ =~ m/^${name}_chn-..$/ ? "self".substr($peer,-2) : $_}@peers);
+            $tpl{p}{$t} = 1;
+          }
         }
       }
     }
-  }
+  };
+  $defs{$name}{helper}{cmds}{lst}{tplPeer} = join(",",keys%{$tpl{p}});
+  $defs{$name}{helper}{cmds}{lst}{tplChan} = join(",",keys%{$tpl{0}});
   return (scalar keys %a ? " tplSet_".join(" tplSet_",map{"$_:".join(",",sort keys%{$a{$_}})} keys %a)
                          : "")#no template
          ;
@@ -8311,17 +8729,20 @@ sub CUL_HMTmplSetParam($){
       my @pv = split(" ",$defs{$name}{helper}{tmpl}{$t});
       my $pCnt = 0;     #parameter count
       $t =~ s/[:>]/_/g; # replace illegal chars for command
-      for my $pm (split(" ",$HMConfig::culHmTpl{$tn}{p})){
-        my $pvi = $pm.":".$pv[$pCnt];# current value
+      next if(!defined $HMConfig::culHmTpl{$tn}||
+              !defined $HMConfig::culHmTpl{$tn}{p});
+      my $tnH = $HMConfig::culHmTpl{$tn};
+      
+      for my $pm (split(" ",$tnH->{p})){
         my ($reg1) = map{(my $foo = $_) =~ s/:.*//; $foo;}
                      grep/p$pCnt/,
-                     map{$_.":".$HMConfig::culHmTpl{$tn}{reg}{$_}}
-                     keys%{$HMConfig::culHmTpl{$tn}{reg}}
+                     map{$_.":".$tnH->{reg}{$_}}
+                     keys%{$tnH->{reg}}
                      ;
-                     #c eq "lit"
         my $literals = "";
-        if(defined $culHmRegDefine->{$reg1}{c} && $culHmRegDefine->{$reg1}{c} eq "lit"){
-          $literals = ":".join(",",keys%{$culHmRegDefine->{$reg1}{lit}})
+        my $reglH = $culHmRegDefine->{$reg1};
+        if(defined $reglH->{c} && $reglH->{c} eq "lit"){
+          $literals = ":".join(",",keys%{$reglH->{lit}})
         }
         push @tCmd,"tplPara".sprintf("%02d%d_",$tCnt,$pCnt++).join("_",$t,$pm).$literals;
       }
@@ -8333,49 +8754,58 @@ sub CUL_HMTmplSetParam($){
 
 sub CUL_HM_chgExpLvl($){# update visibility and set internal values for expert 
   my $tHash = shift;
-  my $exLvl = CUL_HM_getAttrInt($tHash->{NAME},"expert");
-  $tHash->{helper}{expert}{def} = (!($exLvl & 0x04))?1:0;#default register on
-  $tHash->{helper}{expert}{det} = ( ($exLvl & 0x01))?1:0;#detail register on
-  $tHash->{helper}{expert}{raw} = ( ($exLvl & 0x02))?1:0;#raw register on
-  $tHash->{helper}{expert}{tpl} = ( ($exLvl & 0x08))?1:0;#template on
-  my ($nTag,$grp);
 
-  if ($tHash->{helper}{expert}{def}){($nTag,$grp) = ("",".R-")}
-  else{                              ($nTag,$grp) = (".","R-")}
-  foreach my $rdEntry (grep /^$grp/   ,keys %{$tHash->{READINGS}}){
-    my $reg = $rdEntry;
-    my $p = "";
-    $p = "-".$1 if($rdEntry =~ m/R-(.*)-(lg|sh)/);
-    $reg =~ s/^\.?R-(.*?-)?//;
-    next if(!$culHmRegDefine->{$reg} || $culHmRegDefine->{$reg}{d} eq '0');
-    $tHash->{READINGS}{$nTag."R$p-".$reg} = $tHash->{READINGS}{$rdEntry};
-    delete $tHash->{READINGS}{$rdEntry};
+  delete $tHash->{helper}{expert};
+  $tHash->{helper}{expert}{def} = 0;
+  $tHash->{helper}{expert}{det} = 0;
+  $tHash->{helper}{expert}{raw} = 0;
+  $tHash->{helper}{expert}{tpl} = 0;
+  foreach my $expSet (split(",",CUL_HM_getAttr($tHash->{NAME},"expert","defReg"))){
+    $tHash->{helper}{expert}{def} = 1 if($expSet eq "defReg"
+                                       ||$expSet eq "allReg");#default register on
+    $tHash->{helper}{expert}{det} = 1 if($expSet eq "allReg");#detail register on
+    $tHash->{helper}{expert}{raw} = 1 if($expSet eq "rawReg");#raw register on
+    $tHash->{helper}{expert}{tpl} = 1 if($expSet eq "templ") ;#template on
+  }
+  my ($det,$def,$raw) = ($tHash->{helper}{expert}{det}
+                        ,$tHash->{helper}{expert}{def}
+                        ,$tHash->{helper}{expert}{raw});
+  foreach my $rdEntry (grep /^(\.R|R)-/   ,keys %{$tHash->{READINGS}}){
+    my $rdEntryPure = $rdEntry;
+    $rdEntryPure =~ s/^\.//;
+
+    my $reg = $rdEntryPure;
+    $reg =~ s/-temp$/##temp/; # rescue ugly registernames prior  to replacement
+    $reg =~ s/^R.*-//;
+    $reg =~ s/##temp$/-temp/; # and revert
+    next if(!$culHmRegDefine->{$reg});
+    
+    my $nTag = (( $culHmRegDefine->{$reg}{d} && $def)
+            ||  (!$culHmRegDefine->{$reg}{d} && $det))
+               ? ""
+               : "."
+               ;
+    if ($nTag.$rdEntryPure ne $rdEntry){# have to change
+      $tHash->{READINGS}{$nTag.$rdEntryPure} = $tHash->{READINGS}{$rdEntry};
+      delete $tHash->{READINGS}{$rdEntry};
+    }
   }
 
-  if ($tHash->{helper}{expert}{det}){($nTag,$grp) = ("",".R-")}
-  else{                              ($nTag,$grp) = (".","R-")}
-  foreach my $rdEntry (grep /^$grp/   ,keys %{$tHash->{READINGS}}){
-    my $reg = $rdEntry;
-    my $p = "";
-    $p = "-".$1 if($rdEntry =~ m/R-(.*)-(lg|sh)/);
-    $reg =~ s/^\.?R-(.*-)?//;
-    next if(!$culHmRegDefine->{$reg} || $culHmRegDefine->{$reg}{d} eq '1');
-    $tHash->{READINGS}{$nTag."R$p-".$reg} = $tHash->{READINGS}{$rdEntry};
-    delete $tHash->{READINGS}{$rdEntry};
-  }
+  my $nTag = $raw ? "":".";
 
-  if ($tHash->{helper}{expert}{raw}){($nTag,$grp) = ("",".RegL_")}
-  else{                              ($nTag,$grp) = (".","RegL_")}
-  foreach my $rdEntry (grep /^$grp/   ,keys %{$tHash->{READINGS}}){
+  foreach my $rdEntry (grep /^(\.R|R)egL_/   ,keys %{$tHash->{READINGS}}){
     my $reg = $rdEntry;
     $reg =~ s/^\.//;
-    $tHash->{READINGS}{$nTag.$reg} = $tHash->{READINGS}{$rdEntry};
-    delete $tHash->{READINGS}{$rdEntry};
+    if ($nTag.$reg ne $rdEntry){# have to change
+      $tHash->{READINGS}{$nTag.$reg} = $tHash->{READINGS}{$rdEntry};
+      delete $tHash->{READINGS}{$rdEntry};
+    }
   }
   CUL_HM_setTmplDisp($tHash);
 }
 sub CUL_HM_setTmplDisp($){ # remove register if outdated
   my $tHash = shift;
+  $tHash->{helper}{cmds}{TmplTs} = gettimeofday(); #set marker to update command list
   delete $tHash->{READINGS}{$_} foreach (grep /^tmpl_/ ,keys %{$tHash->{READINGS}});
   if ($tHash->{helper}{expert}{tpl} && (%HMConfig::culHmTpl)){
     foreach (keys %{$tHash->{helper}{tmpl}}){
@@ -8396,7 +8826,7 @@ sub CUL_HM_setTmplDisp($){ # remove register if outdated
 }
 sub CUL_HM_updtRegDisp($$$) {
   my($hash,$list,$peerId)=@_;
-  my $listNo = $list+0;
+  my $listNo = $list + 0;
   my $name = $hash->{NAME};
   my $devId = substr(CUL_HM_name2Id($name),0,6);
   my $ioId = CUL_HM_IoId(CUL_HM_id2Hash($devId));
@@ -8405,9 +8835,10 @@ sub CUL_HM_updtRegDisp($$$) {
               : "";
   $pReg =~ s/:/-/;
   $pReg = "R-".$pReg;
+#  $pReg =~ s/_chn-..//;
   my $devName =CUL_HM_getDeviceHash($hash)->{NAME};# devName as protocol entity
   my $st = $attr{$devName}{subType} ?$attr{$devName}{subType} :"";
-  my $md = $attr{$devName}{model}   ?$attr{$devName}{model}   :"";
+  my $md = CUL_HM_getAliasModel($hash);
   my $chn = $hash->{DEF};
   $chn = (length($chn) == 8)?substr($chn,6,2):"";
   my @regArr = CUL_HM_getRegN($st,$md,$chn);
@@ -8442,8 +8873,8 @@ sub CUL_HM_updtRegDisp($$$) {
   elsif ($md =~ m/^HM-TC-IT-WM-W-EU/){#handle temperature readings
     CUL_HM_TCITRTtempReadings($hash,$md,$list)  if ($list >= 7 && $chn eq "02");
   }
-  elsif ($md =~ m/(^HM-PB-4DIS-WM|HM-DIS-WM55|HM-DIS-EP-WM55|HM-RC-DIS-H-X-EU|ROTO_ZEL-STG-RM-DWT-10)/){#add text
-   CUL_HM_4DisText($hash)  if ($list == 1) ;
+  elsif (ReadingsVal($name,".RegL_01.",ReadingsVal($name,"RegL_01.","")) =~ m / 36:/){#add text
+    CUL_HM_4DisText($hash)  if ($list == 1) ;
   }
   elsif ($st eq "repeater"){
     CUL_HM_repReadings($hash) if ($list == 2);
@@ -8451,14 +8882,32 @@ sub CUL_HM_updtRegDisp($$$) {
   elsif ($md eq "HM-SEC-SD-2"){
     CUL_HM_SD_2($hash) if ($list == 0);
   }
-  #  CUL_HM_dimLog($hash) if(CUL_HM_Get($hash,$name,"param","subType") eq "dimmer");
+
 }
-sub CUL_HM_rmOldRegs($){ # remove register i outdated
-  #will remove register for deleted peers
+sub CUL_HM_cfgStateDelay($) {#update cfgState timer 
   my $name = shift;
+  $name = CUL_HM_getDeviceName($name);
+#  stacktrace();
+  RemoveInternalTimer("cfgStateUpdate:$name");
+  if (InternalVal($name,"protCmdPend","none"   ) eq "none"){
+    CUL_HM_cfgStateUpdate("cfgStateUpdate:$name");
+  }
+  else{
+    InternalTimer(gettimeofday()+ 30,"CUL_HM_cfgStateUpdate","cfgStateUpdate:$name", 0);     
+  }
+}
+sub CUL_HM_cfgStateUpdate($) {#update cfgState
+  my $tmrId = shift;
+  my (undef,$name) = split(':',$tmrId,2);
+  my ($hm) = devspec2array("TYPE=HMinfo");
+  HMinfo_GetFn($defs{$hm},$hm,"configCheck","-f","^(".join("|",(CUL_HM_getAssChnNames($name),$name)).")\$") if(defined $hm);  
+}
+
+sub CUL_HM_rmOldRegs($$){ # remove register i outdated
+  #will remove register for deleted peers
+  my ($name,$readCont) = @_;
   my $hash = $defs{$name};
   return if (!$hash->{peerList});# so far only peer-regs are removed
-  my @pList = split",",$hash->{peerList};
   my @rpList;
   foreach(grep /^R-(.*)-/,keys %{$hash->{READINGS}}){
     push @rpList,$1 if ($_ =~ m/^R-(.*)-/);
@@ -8466,9 +8915,14 @@ sub CUL_HM_rmOldRegs($){ # remove register i outdated
   @rpList = CUL_HM_noDup(@rpList);
   return if (!@rpList);
   foreach my $peer(@rpList){
+    $peer =~ s/_chn-..$//;
     next if($hash->{peerList} =~ m/\b$peer\b/);
-    delete $hash->{READINGS}{$_} foreach (grep /^R-$peer-/,keys %{$hash->{READINGS}})
+    delete $hash->{READINGS}{$_} foreach (grep /^R-${peer}-/,keys %{$hash->{READINGS}});
+    delete $hash->{READINGS}{$_} foreach (grep /^R-${peer}_chn-..-/,keys %{$hash->{READINGS}});
   }
+  if($readCont){
+    CUL_HM_cfgStateDelay($name);
+ }
 }
 sub CUL_HM_refreshRegs($){ # renew all register readings from Regl_
   my $name = shift;
@@ -8489,6 +8943,7 @@ sub CUL_HM_refreshRegs($){ # renew all register readings from Regl_
       delete $defs{$name}{READINGS}{$_};# peer for This List not found
     }
   }
+  CUL_HM_cfgStateDelay($name);
 }
 
 #############################
@@ -8563,10 +9018,9 @@ sub CUL_HM_secSince2000() {#####################
 }
 sub CUL_HM_getChnLvl($){# in: name out: vit or phys level
   my $name = shift;
-  my $curVal = ReadingsVal($name,"level",undef);
-  $curVal = ReadingsVal($name,".level",0)if (!defined $curVal);
-  $curVal =~ s/set_//;
-  $curVal =~ s/ .*//;#strip unit
+  my $curVal = ReadingsVal($name,"level",ReadingsVal($name,".level",0));
+  $curVal =~ s/.*?(\d+\.?\d*).*/$1/;
+  $curVal = 0 if ($curVal eq "" || $curVal <0 || $curVal >100 );
   return $curVal;
 }
 
@@ -8659,9 +9113,9 @@ sub CUL_HM_getRegInfo($) { #
   my $hash = $defs{$name};
   my $devHash = CUL_HM_getDeviceHash($hash);
   my $st  = AttrVal    ($devHash->{NAME},"subType", "" );
-  my $md  = AttrVal    ($devHash->{NAME},"model"  , "" );
-  my $roleD  = $hash->{helper}{role}{dev};
-  my $roleC  = $hash->{helper}{role}{chn};
+  my $md  = CUL_HM_getAliasModel($hash);#AttrVal    ($devHash->{NAME},"model"  , "" );
+  my $roleD  = $hash->{helper}{role}{dev} ? 1 : 0;
+  my $roleC  = $hash->{helper}{role}{chn} ? 1 : 0;
   my $chn = $roleD ? "00" : InternalVal($hash->{NAME}   ,"chanNo" ,"00");
   my @regArr = CUL_HM_getRegN($st,$md,$chn);
 
@@ -8699,6 +9153,7 @@ sub CUL_HM_getRegN($$@){ # get list of register for a model
   my @regArr = keys %{$culHmRegGeneral};
   push @regArr, keys %{$culHmRegType->{$st}}      if($culHmRegType->{$st});
   push @regArr, keys %{$culHmRegModel->{$md}}     if($culHmRegModel->{$md});
+ 
   foreach (@chn){
     push @regArr, keys %{$culHmRegChan->{$md.$_}} if($culHmRegChan->{$md.$_});
   }
@@ -8892,14 +9347,14 @@ sub CUL_HM_TCtempReadings($) {# parse TC temperature readings
   { #update readings in device - oldfashioned style, copy from Readings
     my @histVals;
     foreach my $var ("displayMode","displayTemp","controlMode","decalcDay","displayTempUnit","day-temp","night-temp","party-temp"){
-      my $varV = ReadingsVal($name,"R-".$var,"???");
+      my $varV = ReadingsVal($name,"R-".$var,ReadingsVal($name,".R-".$var,"???"));
       
       foreach my $e( grep {${$_}[2] =~ m/$var/}# see if change is pending
                      grep {$hash eq ${$_}[0]}
                      grep {scalar(@{$_} == 3)}
                      @evtEt){
         $varV = ${$e}[2];
-        $varV =~ s/^R-$var:// ;
+        $varV =~ s/^\.?R-$var:// ;
       }
       push @histVals,"$var:$varV";
     }
@@ -9193,21 +9648,24 @@ sub CUL_HM_ActAdd($$) {# add an HMid to list for activity supervision
   $timeout = 0 if (!$timeout);
   return $devId." is not an HM device - action detection cannot be added"
        if (length($devId) != 6);
-  my ($cycleString,undef)=CUL_HM_time2sec($timeout);
   my $devName = CUL_HM_id2Name($devId);
   my $devHash = $defs{$devName};
+  return "not for virtuals" if($timeout !~ m/^\d\d\d:\d\d/);
+  my ($cycleString,undef) = CUL_HM_time2sec($timeout);
   $attr{$devName}{actCycle} = $cycleString;
-  $attr{$devName}{actStatus}=""; # force trigger
+  $attr{$devName}{actStatus}="unset"; # force trigger
   my $actHash = CUL_HM_ActGetCreateHash();
   $actHash->{helper}{$devId}{start} = TimeNow();
+  $actHash->{helper}{$devId}{start} =~ s/[\:\-\ ]//g;
+  
+  if(defined $devHash->{READINGS}{".protLastRcv"}){
+    $devHash->{READINGS}{".protLastRcv"}{VAL} =~ s/[\:\-\ ]//g;
+  }
+
   $actHash->{helper}{peers} = CUL_HM_noDupInString(
                        ($actHash->{helper}{peers}?$actHash->{helper}{peers}:"")
                        .",$devId");
-  Log3 $actHash, 3,"Device ".$devName." added to ActionDetector with "
-      .$cycleString." time";
-  #run ActionDetector
-  RemoveInternalTimer("ActionDetector");
-  CUL_HM_ActCheck("add");
+  Log3 $actHash, 3,"Device ".$devName." added to ActionDetector with $cycleString time";
   return;
 }
 sub CUL_HM_ActDel($) {# delete HMid for activity supervision
@@ -9237,6 +9695,7 @@ sub CUL_HM_ActCheck($) {# perform supervision
   my @event;
   my ($cntUnkn,$cntAliv,$cntDead,$cnt_Off) =(0,0,0,0);
   my $autoTry = CUL_HM_getAttrInt($actName,"actAutoTry",0);
+  
   foreach my $devId (split(",",$peerIDs)){
     next if (!$devId);
     my $devName = CUL_HM_id2Name($devId);
@@ -9258,28 +9717,22 @@ sub CUL_HM_ActCheck($) {# perform supervision
     else{
       my $tLast = ReadingsVal($devName,".protLastRcv",0);
       my @t = localtime($tod - $tSec); #time since when a trigger is expected
-      my $tSince = sprintf("%04d-%02d-%02d %02d:%02d:%02d",
+      my $tSince = sprintf("%04d%02d%02d%02d%02d%02d",
                              $t[5]+1900, $t[4]+1, $t[3], $t[2], $t[1], $t[0]);
-
       if (!$tLast                  #cannot determine time
           || $tSince gt $tLast){   #no message received in window
-        if ($actHash->{helper}{$devId}{start} lt $tSince){  
+        if ($actHash->{helper}{$devId}{start} < $tSince){  
           if($autoTry) { #try to send a statusRequest?
-            if (!$actHash->{helper}{$devId}{try} || $actHash->{helper}{$devId}{try} < 4){
-              $actHash->{helper}{$devId}{try} = $actHash->{helper}{$devId}{try}
-                                                 ? ($actHash->{helper}{$devId}{try} + 1)
-                                                 : 1;
-              my $cmds = CUL_HM_Set($defs{$devName},$devName,"help");
-              if ($cmds =~ m/(statusRequest|getSerial)/){
-                # send statusrequest if possible
-                CUL_HM_Set($defs{$devName},$devName,
-                           ($cmds =~ m/statusRequest/ ? "statusRequest"
-                                                       : "getSerial" ));
-                $state = $oldState eq "unset" ? "unknown" 
-                                              : $oldState;
+            my $try = $actHash->{helper}{$devId}{try} ? $actHash->{helper}{$devId}{try} : 0;
+            
+            $actHash->{helper}{$devId}{try} = $try + 1;
+            if ($try < 3 || !($try % 4)){#try 3 times, then reduce speed
+              if (CUL_HM_Ping($devName)){
+                $state = $oldState;
+                Log3 $actHash,4,"$devName uncertain. state:$state. Send pings $actHash->{helper}{$devId}{try}";
               }
               else{
-                $actHash->{helper}{$devId}{try} = 99;
+                $actHash->{helper}{$devId}{try} = 999;
                 $state = "dead";
               }
             }
@@ -9292,6 +9745,10 @@ sub CUL_HM_ActCheck($) {# perform supervision
           }
         }
         else{
+          if(!$actHash->{helper}{$devId}{try}){# try once
+            CUL_HM_Ping($devName);
+            $actHash->{helper}{$devId}{try} = 901;
+          }
           $state = "unknown";
         }
       }
@@ -9302,7 +9759,7 @@ sub CUL_HM_ActCheck($) {# perform supervision
     }
     if ($oldState ne $state){
       CUL_HM_ActDepRead($devName,$state,$oldState);
-      Log3 $actHash,4,"Device ".$devName." is ".$state;
+      Log3 $actHash,4,"Device: $devName changed from:$oldState to-> $state";
     }
     if    ($state eq "unknown")    {$cntUnkn++;} 
     elsif ($state eq "alive")      {$cntAliv++;} 
@@ -9325,9 +9782,9 @@ sub CUL_HM_ActCheck($) {# perform supervision
   CUL_HM_UpdtReadBulk($actHash,1,@event);
 
   $actHash->{helper}{actCycle} = AttrVal($actName,"actCycle",600);
+  Log3 $actHash,5,"next ActionDetector check in $actHash->{helper}{actCycle} sec";
   RemoveInternalTimer("ActionDetector");
-  InternalTimer(gettimeofday()+$actHash->{helper}{actCycle}
-                                      ,"CUL_HM_ActCheck", "ActionDetector", 0);
+  InternalTimer(gettimeofday()+$actHash->{helper}{actCycle},"CUL_HM_ActCheck", "ActionDetector", 0);
 }
 sub CUL_HM_ActInfo() {# print detailed status information
   my $actHash = CUL_HM_ActGetCreateHash();
@@ -9345,12 +9802,11 @@ sub CUL_HM_ActInfo() {# print detailed status information
     my $state;
     my (undef,$tSec)=CUL_HM_time2sec($attr{$devName}{actCycle});
     if ($tSec != 0){
-      my $tLast = ReadingsVal($devName,".protLastRcv",0);
-      $tLast =~ /(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)/;
-      my $x =  $2*30*24*3600 + $3*24*3600 + $4*3600 + $5*60 +$6;
+      my ($Y,$Mth,$D,$H,$Min,$S) =  unpack 'A4A2A2A2A2A2',ReadingsVal($devName,".protLastRcv","00000000000000");
+
       my @t = localtime($tod - $tSec); #time since when a trigger is expected
 
-      my $y =  $x -
+      my $y =  $Mth*30*24*3600 + $D*24*3600 + $H*3600 + $Min*60 +$S -
                ((  $t[4]+1)*30*24*3600
                  + $t[3]*24*3600 
                  + $t[2]*3600 
@@ -9360,17 +9816,29 @@ sub CUL_HM_ActInfo() {# print detailed status information
       if ($y < 0){
         $sign = "late -";
         $y *= -1;
+        $y = 0 if($Y == 0);
       }
-      
+      my $try = (defined $actHash->{helper}{$devId}{try} ? $actHash->{helper}{$devId}{try} : 0);
+      my $pingNext = "";
+      if    ($try == 0 || $try == 901){$pingNext = "";}
+      elsif ($try < 4 ){               $pingNext = 1;}
+      else{                            $pingNext = 4 - $try % 4;}
+
       my @c;      
-      $c[1] = int($y/3600);$y -= $c[1] * 3600;
-      $c[0] = int($y/60)  ;$y -= $c[0] * 60;
-      
-      $state .= sprintf("%-8s %s %s %3d:%02d:%02d %s"
+      $c[2] = int($y/(3600*24));$y -= $c[2] * 3600 * 24;
+      $c[1] = int($y/3600)     ;$y -= $c[1] * 3600;
+      $c[0] = int($y/60)       ;$y -= $c[0] * 60;
+ 
+      $state .= sprintf("%-8s %6s %3d-%02d:%02d:%02d : %04d.%02d.%02d %02d:%02d:%02d  %6s %3s %4s %s"
                               ,ReadingsVal($devName,"Activity","")
-                              ,$tLast,$sign,$c[1],$c[0],$y
-                              ,$devName);
-   }
+                              ,$sign,$c[2],$c[1],$c[0],$y
+                              ,$Y,$Mth,$D,$H,$Min,$S
+                              ,AttrVal($devName,"actCycle","")
+                              ,(defined $actHash->{helper}{$devId}{try} ? $actHash->{helper}{$devId}{try} : "")
+                              ,$pingNext
+                              ,$devName
+                              );
+    }
     else{
       $state = sprintf ("%-8s :%30s : "
                                       ,ReadingsVal($devName,"Activity","")
@@ -9378,11 +9846,23 @@ sub CUL_HM_ActInfo() {# print detailed status information
     }
     push @info,$state;
   }
-  return sprintf ("%-8s %-19s %s %s\n\n","state"
-                                              ,"last"
-                                              ,"next     h:mm:ss"
-                                              ,"name").
-         join("\n", sort @info);
+  return sprintf ("%-8s %-6s %12s : %-19s  %-6s %3s %4s %s\n"
+                                           ,"state"
+                                           ,"next/","latest in "
+                                           ,"last message"
+                                           ,"cycle"
+                                           ,"try"
+                                           ,"ping"
+                                           ,"dev name")
+        .sprintf ("%-8s %-6s %12s : %-19s  %-6s %3s %4s %s\n"
+                                           ,""
+                                           ,"late","d-hh:mm:ss"
+                                           ,"received"
+                                           ,"set"
+                                           ,"cnt"
+                                           ,"next"
+                                           ,"")
+        .join("\n", sort @info);
 }
 sub CUL_HM_ActDepRead($$$){# Action detector update dependant readings
   #readings may be changed if the device is dead. This is controlled by an 
@@ -9395,10 +9875,9 @@ sub CUL_HM_ActDepRead($$$){# Action detector update dependant readings
   else{
     my %deadH = map{$_ =>1}split(",",$deadAction);
     $defs{$name}{READINGS}{Activity}{VAL} = $oldState if (not defined $defs{$name}{READINGS}{Activity});
-    my $deadVal       = $state   eq "dead" ? "dead" : "notDead";
+    my $deadVal       = $state   eq "dead"    ? "dead"    : "notDead";
     my $deadValsearch = $deadVal eq "notDead" ? "^dead\$" : ".*";
     my @nullReads;
-    my @deadReads;
     push @nullReads,( "measured-temp"
                      ,"humidity"
                      ,"ValvePosition"
@@ -9415,14 +9894,14 @@ sub CUL_HM_ActDepRead($$$){# Action detector update dependant readings
                      ,"phyLevel"
                      ,"mLevel"
                     )         if ($deadH{periodValues} && $state eq "dead" );
+    my $grepNull = "^(" .join("|",@nullReads) .")\$";
+    my @deadReads;
     push @deadReads,  "state" if ($deadH{state});
     push @deadReads,( "eState"
                      ,"motion"
                      ,"battery"
                     )         if ($deadH{periodString});
     push @deadReads,grep!/^(state|periodValues|periodString|channels)$/,keys %deadH;# add customer readings to be updated
-    
-    my $grepNull = "^(" .join("|",@nullReads) .")\$";
     my $grepDead = "^(" .join("|",@deadReads) .")\$";
 
     my @entities;
@@ -9432,6 +9911,7 @@ sub CUL_HM_ActDepRead($$$){# Action detector update dependant readings
       my @readNull = map{"$_:0"}        grep/$grepNull/,keys %{$defs{$e}{READINGS}};
       my @readDead = map{"$_:$deadVal"} grep/$grepDead/,map{$defs{$e}{READINGS}{$_}{VAL} =~ m/$deadValsearch/ ? $_:"no"} keys %{$defs{$e}{READINGS}};
       push @readDead,"Activity:$state" if ($e eq $name);
+      next if (!(scalar(@readNull) + scalar(@readDead)));
       CUL_HM_UpdtReadBulk($defs{$e},1,@readNull,@readDead);
     }
   }
@@ -9608,7 +10088,12 @@ sub CUL_HM_UpdtCentral($){
       }
     }
   }
-  
+  my $logOpt = 
+                "logIDs:multiple,none,sys,all,broadcast,"
+               .join(",",map{"IO:$_"}split(",",AttrVal($name,"IOList",""))).","
+               .join(",",devspec2array("TYPE=CUL_HM:FILTER=DEF=......:FILTER=subType!=virtual"))
+               ." ";
+  $modules{CUL_HM}{AttrList} =~ s/logIDs:.*? /$logOpt/;
   CUL_HM_UpdtCentralState($name);
 }
 sub CUL_HM_UpdtCentralState($){
@@ -9758,11 +10243,16 @@ sub CUL_HM_qStateUpdatIfEnab($@){#in:name or id, queue stat-request
   $name = substr($name,6) if ($name =~ m/^sUpdt:/);
   $name = CUL_HM_id2Name($name) if ($name =~ m/^[A-F0-9]{6,8}$/i);
   $name =~ s/_chn-\d\d$//;
-  return if (  !$defs{$name}                  #device unknown, ignore
-             || CUL_HM_Set($defs{$name},$name,"help") !~ m/statusRequest/);
-  if ($force || ((CUL_HM_getAttrInt($name,"autoReadReg") & 0x0f) > 3)){
-    CUL_HM_qEntity($name,"qReqStat") ;
+  my $ret = 0;
+  foreach my $chNm(CUL_HM_getAssChnNames($name)){
+    next if (  !$defs{$chNm}                  #device unknown, ignore
+               || 0 == CUL_HM_SearchCmd($chNm,"statusRequest"));
+    if ($force || ((CUL_HM_getAttrInt($chNm,"autoReadReg") & 0x0f) > 3)){
+      CUL_HM_qEntity($chNm,"qReqStat");
+      $ret = 1;
+    }
   }
+  return $ret;
 }
 sub CUL_HM_qAutoRead($$){
   my ($name,$lvl) = @_;
@@ -9774,8 +10264,9 @@ sub CUL_HM_qAutoRead($$){
 sub CUL_HM_unQEntity($$){# remove entity from q
   my ($name,$q) = @_;
   my $devN = CUL_HM_getDeviceName($name);
-
+  
   return if (AttrVal($devN,"subType","") eq "virtual");
+
   my $dq = $defs{$devN}{helper}{q};
   RemoveInternalTimer("sUpdt:$name") if ($q eq "qReqStat");#remove delayed
   return if ($dq->{$q} eq "");
@@ -9800,9 +10291,9 @@ sub CUL_HM_unQEntity($$){# remove entity from q
 sub CUL_HM_qEntity($$){  # add to queue
   my ($name,$q) = @_;
   return if ($modules{CUL_HM}{helper}{hmManualOper});#no autoaction when manual
-
   my $devN = CUL_HM_getDeviceName($name);
   return if (AttrVal($devN,"subType","") eq "virtual");
+
   $name =  $devN if ($defs{$devN}{helper}{q}{$q} eq "00"); #already requesting all
   if ($devN eq $name){#config for all device
     $defs{$devN}{helper}{q}{$q}="00";
@@ -9813,11 +10304,14 @@ sub CUL_HM_qEntity($$){  # add to queue
                                       .",".substr(CUL_HM_name2Id($name),6,2));
   }
   $q .= "Wu" if (!(CUL_HM_getRxType($defs{$name}) & 0x03));#normal or wakeup q?
-  $q = $modules{CUL_HM}{helper}{$q};
-  @{$q} = CUL_HM_noDup(@{$q},$devN); #we only q device - channels are stored in the device
+  my $qa = $modules{CUL_HM}{helper}{$q};
+  @{$qa} = CUL_HM_noDup(@{$qa},$devN); #we only q device - channels are stored in the device
   my $wT = (@{$modules{CUL_HM}{helper}{qReqStat}})?
                               "1":
                               $modules{CUL_HM}{hmAutoReadScan};
+
+  CUL_HM_cfgStateDelay($devN)  if($q eq "qReqConf");
+
   RemoveInternalTimer("CUL_HM_procQs");
   InternalTimer(gettimeofday()+ $wT,"CUL_HM_procQs","CUL_HM_procQs", 0);
 }
@@ -9832,51 +10326,59 @@ sub CUL_HM_procQs($){#process non-wakeup queues
   # --- verify send is possible
 
   my $mq = $modules{CUL_HM}{helper};
+  my $Qexec = "none";
   foreach my $q ("qReqStat","qReqConf"){
     if   (@{$mq->{$q}}){
-      my $devN = ${$mq->{$q}}[0];
-      my $devH = $defs{$devN};
-      CUL_HM_assignIO($devH); 
-      next  if(!defined $devH->{IODev}{NAME});
-      my $ioName = $devH->{IODev}{NAME};   
-
-      if (   (   ReadingsVal($ioName,"cond","") =~ m/^(ok|Overload-released|Warning-HighLoad|init)$/
-              && $q eq "qReqStat")
-           ||(   CUL_HM_autoReadReady($ioName)
-              && !$devH->{cmdStack}
-              && $q eq "qReqConf")){
-        my $dq = $devH->{helper}{q};
-        my @chns = split(",",$dq->{$q});
-        my $nOpen = scalar @chns;
-        if (@chns > 1){$dq->{$q} = join ",",@chns[1..$nOpen-1];}
-        else{          $dq->{$q} = "";
-                       @{$mq->{$q}} = grep !/^$devN$/,@{$mq->{$q}};
-        }
-        my $dId = CUL_HM_name2Id($devN);
-        my $eN=($chns[0] && $chns[0]ne "00")?CUL_HM_id2Name($dId.$chns[0]):$devN;
-        next if(!defined $defs{$eN});
-        if ($q eq "qReqConf"){
-          $mq->{autoRdActive} = $devN;
-          CUL_HM_Set($defs{$eN},$eN,"getConfig");
-        }
-        else{
-           CUL_HM_Set($defs{$eN},$eN,"statusRequest");
-           CUL_HM_unQEntity($eN,"qReqStat") if (!$dq->{$q});
-           InternalTimer(gettimeofday()+20,"CUL_HM_readStateTo","sUpdt:$eN",0);
+      my ($devN,$devH);
+      foreach my $devNtmp (@{$mq->{$q}}){ # search for next possible device
+        $devH = $defs{$devNtmp};
+        CUL_HM_assignIO($devH); 
+        if(   defined $devH->{IODev}{NAME}
+           && (  (   ReadingsVal($devH->{IODev}{NAME},"cond","ok") =~ m/^(ok|Overload-released|Warning-HighLoad|init)$/
+                  && $q eq "qReqStat")
+               ||(   CUL_HM_autoReadReady($devH->{IODev}{NAME})
+                  && !$devH->{cmdStack}
+                  && $q eq "qReqConf")
+              )
+            ){# got next device
+          $devN = $devNtmp;
+          last;
         }
       }
+      next  if(!defined $devN);# no device found for this queue
+  
+      my $dq = $devH->{helper}{q};
+      my @chns = split(",",$dq->{$q});
+      my $nOpen = scalar @chns;
+      if (@chns > 1){$dq->{$q} = join ",",@chns[1..$nOpen-1];}
+      else{          $dq->{$q} = "";
+                     @{$mq->{$q}} = grep !/^$devN$/,@{$mq->{$q}};
+      }
+      my $dId = CUL_HM_name2Id($devN);
+      my $eN=($chns[0] && $chns[0]ne "00") ? CUL_HM_id2Name($dId.$chns[0]) : $devN;
+      next if(!defined $defs{$eN});
+      if ($q eq "qReqConf"){
+        $mq->{autoRdActive} = $devN;
+        CUL_HM_Set($defs{$eN},$eN,"getConfig");
+      }
+      else{
+         if (!CUL_HM_getAttrInt($eN,"ignore")){
+           CUL_HM_Set($defs{$eN},$eN,"statusRequest");
+           InternalTimer(gettimeofday()+20,"CUL_HM_readStateTo","sUpdt:$eN",0);
+         }
+         CUL_HM_unQEntity($eN,"qReqStat") if (!$dq->{$q});
+      }
+      $Qexec = $q;
       last; # execute only one!
     }
   }
-
-  delete $mq->{autoRdActive}
-        if ($mq->{autoRdActive} &&
-            $defs{$mq->{autoRdActive}}{helper}{prt}{sProc} != 1);
+  my $delayAdd = $Qexec eq 'none' ? 10 : 0; # if no device was identified wait at least
+  delete $mq->{autoRdActive}  if ($mq->{autoRdActive} &&
+                                  $defs{$mq->{autoRdActive}}{helper}{prt}{sProc} != 1);
   my $next;# how long to wait for next timer
   if    (@{$mq->{qReqStat}}){$next = 1}
   elsif (@{$mq->{qReqConf}}){$next = $modules{CUL_HM}{hmAutoReadScan}}
-  InternalTimer(gettimeofday()+$next,"CUL_HM_procQs","CUL_HM_procQs",0)
-      if ($next);
+  InternalTimer(gettimeofday()+$next+$delayAdd,"CUL_HM_procQs","CUL_HM_procQs",0) if ($next);
 }
 sub CUL_HM_appFromQ($$){#stack commands if pend in WuQ
   my ($name,$reason) = @_;
@@ -10094,7 +10596,7 @@ sub CUL_HM_complConfig($;$)  {# read config if enabled and not complete
   if ($defs{$devN}{helper}{prt}{sProc} != 0){# we wait till device is idle. 
     CUL_HM_complConfigTest($name);           # requeue and wait patient
   }
-  elsif (CUL_HM_peerUsed($name) == 2){
+  elsif (CUL_HM_peerUsed($name) == 2){# 2: peer list incomplete
     CUL_HM_qAutoRead($name,0) if(!$dly);
     CUL_HM_complConfigTest($name);
     delete $modules{CUL_HM}{helper}{cfgCmpl}{$name};
@@ -10183,7 +10685,7 @@ sub CUL_HM_tempListTmpl(@) { ##################################################
                  ,"R_6_tempListFri"){      
           my $nv = ReadingsVal($eN,$_,"empty");
           $nv = join(" ",split(" ",$nv));
-          push @entryFail,$eN." :".$_." mismatch $val ne $nv ##" if ($val ne $nv);
+          push @entryFail,$eN.": ".$_." mismatch $val ne $nv ##" if ($val ne $nv);
         }
         $dlf{1}{Sat} = 1;
         $dlf{1}{Sun} = 1;
@@ -10258,7 +10760,7 @@ sub CUL_HM_tempListTmpl(@) { ##################################################
             $val = join(" ",map{(my $foo = $_) =~ s/^(.\.)/0$1/;$foo} split(" ",$val));
             my $nv = ReadingsVal($eN,$tln,"empty");
             $nv = join(" ",map{(my $foo = $_) =~ s/^(.\.)/0$1/;$foo} split(" ",$nv));
-            push @entryFail,$eN." :".$tln." mismatch $val ne $nv ##" if ($val ne $nv);
+            push @entryFail,$eN.": ".$tln." mismatch $val ne $nv ##" if ($val ne $nv);
           }
           elsif($action eq "restore"){
             $val = lc($1)." ".$val if ($tln =~ m/(P.)_._tempList/);
@@ -10278,7 +10780,7 @@ sub CUL_HM_tempListTmpl(@) { ##################################################
     $ret .= "$tmpl not found in file $fName";
   }
   else{
-    if(CUL_HM_Get($defs{$name},$name,"param","model") ne "HM-TC-IT-WM-W-EU02"){
+    if(CUL_HM_getAttr($name,"model","") ne "HM-TC-IT-WM-W-EU02"){
       delete $dlf{2};
       delete $dlf{3};
     }
@@ -10395,9 +10897,7 @@ sub CUL_HM_tempListTmpl(@) { ##################################################
             known. fhem will extract the device type from a "pairing request"
             message, even if it won't respond to it (see <a
             href="#hmPairSerial">hmPairSerial</a> and <a
-            href="#hmPairForSec">hmPairForSec</a> to enable pairing).
-            As an alternative, set the correct subType and model attributes, for a
-            list of possible subType values see "attr hmdevice ?".</li>
+            href="#hmPairForSec">hmPairForSec</a> to enable pairing).</li>
         <a name="HMAES"></a>
         <li>The so called "AES-Encryption" is in reality a signing request: if it is
             enabled, an actor device will only execute a received command, if a
@@ -11874,9 +12374,7 @@ sub CUL_HM_tempListTmpl(@) { ##################################################
           bekannt ist. FHEM erh&auml;lt den Ger&auml;tetyp aus einer"pairing request"
           Nachricht, selbst wenn es darauf keine Antwort erh&auml;lt (siehe <a
           href="#hmPairSerial">hmPairSerial</a> und <a
-          href="#hmPairForSec">hmPairForSec</a> um Parinig zu erm&ouml;glichen).
-          Alternativ, setzen des richtigen subType sowie Modelattributes, f&uuml;r eine Liste der
-          m&ouml;glichen subType-Werte siehe "attr hmdevice ?".</li>
+          href="#hmPairForSec">hmPairForSec</a> um Parinig zu erm&ouml;glichen).</li>
         <a name="HMAES"></a>
         <li>Die sogenannte "AES-Verschl&uuml;sselung" ist eigentlich eine Signaturanforderung: Ist sie
           aktiviert wird ein Aktor den erhaltenen Befehl nur ausf&uuml;hren falls er die korrekte

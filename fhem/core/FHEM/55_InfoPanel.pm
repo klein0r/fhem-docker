@@ -1,4 +1,4 @@
-# $Id: 55_InfoPanel.pm 19497 2019-05-30 15:28:41Z betateilchen $
+# $Id: 55_InfoPanel.pm 21562 2020-03-31 18:53:47Z betateilchen $
 
 =for comment
 ##############################################
@@ -61,7 +61,7 @@
 # 2016-09-04 - 12114 - added:   movecalculated
 #
 # 2018-05-06 - 16695 - changed: check plotName exists
-# 2018-05-28 - $Rev: 19497 $ - changed: remove misleading link in commandref
+# 2018-05-28 - $Rev: 21562 $ - changed: remove misleading link in commandref
 #
 ##############################################
 =cut
@@ -133,18 +133,20 @@ sub btIP_getURL;
 
 ######################################
 
-sub InfoPanel_Initialize($) {
+sub InfoPanel_Initialize {
     my ($hash) = @_;
 
-    eval "use MIME::Base64";
+## no critic
+    eval "use MIME::Base64" ;
     $useImgTools = 0 if($@);
     Log3(undef,4,"InfoPanel: MIME::Base64 missing.") unless $useImgTools;
     eval "use Image::Info qw(image_info dim)";
     $useImgTools = 0 if($@);
     Log3(undef,4,"InfoPanel: Image::Info missing.") unless $useImgTools;
+## use critic
 
     $hash->{DefFn}     = "btIP_Define";
-	$hash->{UndefFn}   = "btIP_Undef";
+    $hash->{UndefFn}   = "btIP_Undef";
     $hash->{SetFn}     = "btIP_Set";
     $hash->{GetFn}     = "btIP_Get";
     $hash->{NotifyFn}  = "btIP_Notify";
@@ -153,7 +155,7 @@ sub InfoPanel_Initialize($) {
     $hash->{AttrList} .= "title noscript showTime:1,0 ";
     $hash->{AttrList} .= " bgcenter:1,0 bgdir bgopacity tmin" if $useImgTools;
 
-    return undef;
+    return;
 }
 
 sub btIP_Define {
@@ -171,7 +173,7 @@ sub btIP_Define {
   btIP_readLayout($hash);
 
   readingsSingleUpdate($hash,'state','defined',1);
-  return undef;
+  return;
 }
 
 sub btIP_Undef {
@@ -179,7 +181,7 @@ sub btIP_Undef {
     # check if last device
     my $url = '/btip';
     delete $data{FWEXT}{$url} if int(devspec2array('TYPE=InfoPanel')) == 1;
-	return undef;
+	return;
 }
 
 sub btIP_Set {
@@ -252,7 +254,7 @@ sub btIP_Notify {
 
   Log3(undef, 4, "InfoPanel: $hash->{NAME} reread layout after edit.");
   undef = btIP_readLayout($hash);
-  return undef;
+  return;
 }
 
 sub btIP_readLayout {
@@ -529,7 +531,8 @@ sub btIP_itemLine {
 sub btIP_itemLongpoll {
   my ($id,$x,$y,$text,%params)= @_;
   my ($iconName,undef,undef) = FW_dev2image($id);
-  my $iconURL = FW_IconURL($iconName) if defined($iconName);
+  my $iconURL;
+     $iconURL = FW_IconURL($iconName) if defined($iconName);
   my $color   = substr($params{rgb},0,6);
   my $opacity = hex(substr($params{rgb},6,2))/255;
   my $output  = "<div informId=\"$id\" style=\"position:absolute; top:${y}px; left:${x}px; ";
@@ -779,10 +782,10 @@ sub btIP_FileRead {
    if(!$counter) {
       Log3(undef,4,"InfoPanel: reading from filesystem");
       my $length = -s "$file";
-      open(GRAFIK, "<", $file) or die("File not found $!");
-      binmode(GRAFIK);
-      $counter = read(GRAFIK, $data, $length);
-      close(GRAFIK);
+      open(my $GRAFIK, "<", $file) or die("File not found $!");
+      binmode($GRAFIK);
+      $counter = read($GRAFIK, $data, $length);
+      close($GRAFIK);
       Log3(undef,4,"InfoPanel: file not found in filesystem") unless $counter;
    }
    return "" unless $counter;

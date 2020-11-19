@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 01_FHEMWEB.pm 20818 2019-12-23 20:12:15Z rudolfkoenig $
+# $Id: 01_FHEMWEB.pm 23162 2020-11-15 11:52:59Z rudolfkoenig $
 package main;
 
 use strict;
@@ -14,6 +14,7 @@ use Time::HiRes qw(gettimeofday);
 sub FW_IconURL($);
 sub FW_addContent(;$);
 sub FW_addToWritebuffer($$@);
+sub FW_alias($$);
 sub FW_answerCall($);
 sub FW_confFiles($);
 sub FW_dev2image($;$);
@@ -180,6 +181,8 @@ FHEMWEB_Initialize($)
     iconPath
     longpoll:0,1,websocket
     longpollSVG:1,0
+    logDevice
+    logFormat
     menuEntries
     mainInputLength
     nameDisplay
@@ -305,6 +308,8 @@ FW_Define($$)
       }
     }, $hash, 0);
   }
+  $hash->{BYTES_READ} = 0;
+  $hash->{BYTES_WRITTEN} = 0;
 
   return $ret;
 }
@@ -362,11 +367,15 @@ FW_Read($$)
                   (defined($ret) ? 'EOF' : $!);
       return;
     }
+    my $sh = $defs{$FW_wname};
+    $sh->{BYTES_READ} += length($buf);
+
     $hash->{BUF} .= $buf;
     if($hash->{SSL} && $c->can('pending')) {
       while($c->pending()) {
         sysread($c, $buf, 1024);
         $hash->{BUF} .= $buf;
+        $sh->{BYTES_READ} += length($buf);
       }
     }
   }
@@ -421,6 +430,10 @@ FW_Read($$)
 
 
   if(!$hash->{HDR}) {
+    if(length($hash->{BUF}) > 1000000) {
+      Log3 $FW_wname, 2, "Too much header, terminating $hash->{PEER}";
+      return TcpServer_Close($hash, 1);
+    }
     return if($hash->{BUF} !~ m/^(.*?)(\n\n|\r\n\r\n)(.*)$/s);
     $hash->{HDR} = $1;
     $hash->{BUF} = $3;
@@ -429,6 +442,7 @@ FW_Read($$)
     }
   }
 
+  Log3 $FW_wname, 5, $hash->{HDR};
   my $POSTdata = "";
   if($hash->{CONTENT_LENGTH}) {
     return if(length($hash->{BUF})<$hash->{CONTENT_LENGTH});
@@ -522,7 +536,9 @@ FW_Read($$)
                 "&fwcsrf=".$defs{$FW_wname}{CSRFTOKEN} : "");
      
   if($FW_use{sha} && $method eq 'GET' &&
-     $FW_httpheader{Connection} && $FW_httpheader{Connection} =~ /Upgrade/i) {
+     $FW_httpheader{Connection} && $FW_httpheader{Connection} =~ /Upgrade/i &&
+     $FW_httpheader{Upgrade} && $FW_httpheader{Upgrade} =~ /websocket/i &&
+     $FW_httpheader{'Sec-WebSocket-Key'}) {
 
     my $shastr = Digest::SHA::sha1_base64($FW_httpheader{'Sec-WebSocket-Key'}.
                                 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
@@ -550,28 +566,21 @@ FW_Read($$)
   Log3 $FW_wname, 4, "$name $method $arg; BUFLEN:".length($hash->{BUF});
   my $pf = AttrVal($FW_wname, "plotfork", undef);
   $pf = 1 if(!defined($pf) && AttrVal($FW_wname, "plotEmbed", 0) == 2);
-  if($pf) {   # 0 disables
-    # Process SVG rendering as a parallel process
+  if($pf) {
     my $p = $data{FWEXT};
     if(grep { $p->{$_}{FORKABLE} && $arg =~ m+^$FW_ME$_+ } keys %{$p}) {
       my $pid = fhemFork();
-      if($pid) { # success, parent
+      if($pid) {                                # success, parent
         use constant PRIO_PROCESS => 0;
         setpriority(PRIO_PROCESS, $pid, getpriority(PRIO_PROCESS,$pid) + $pf)
           if($^O !~ m/Win/);
-        # a) while child writes a new request might arrive if client uses
-        # pipelining or
-        # b) parent doesn't know about ssl-session changes due to child writing
-        # to socket
-        # -> have to close socket in parent... so that its only used in this
-        # child.
         TcpServer_Disown( $hash );
         delete($defs{$name});
         delete($attr{$name});
         FW_Read($hash, 1) if($hash->{BUF});
         return;
 
-      } elsif(defined($pid)){ # child
+      } elsif(defined($pid)){                   # child
         delete $hash->{BUF};
         $hash->{isChild} = 1;
 
@@ -615,6 +624,7 @@ FW_finishRead($$$)
   my $expires = ($cacheable ?
          "Expires: ".FmtDateTimeRFC1123($hash->{LASTACCESS}+900)."\r\n" : 
          "Cache-Control: no-cache, no-store, must-revalidate\r\n");
+  FW_log($arg, $length) if(AttrVal($FW_wname, "logDevice", undef));
   Log3 $FW_wname, 4,
         "$FW_wname: $arg / RL:$length / $FW_RETTYPE / $compressed / $expires";
   if( ! FW_addToWritebuffer($hash,
@@ -712,6 +722,7 @@ FW_addToWritebuffer($$@)
       }
     }
   }
+  $defs{$hash->{SNAME}}{BYTES_WRITTEN} += length($txt);
   return addToWritebuffer($hash, $txt, $callback, $nolimit);
 }
 
@@ -856,7 +867,7 @@ FW_answerCall($)
     $ldir = "$attr{global}{modpath}/docs" if($dir eq "docs");
 
     # pgm2 check is for jquery-ui images
-    my $static = ($ext =~ m/(css|js|png|jpg)/i || $dir =~ m/^pgm2/);
+    my $static = ($ext =~ m/(css|js|png|jpg|html|svg)/i || $dir =~ m/^pgm2/);
     my $fname = ($ext ? "$file.$ext" : $file);
     return FW_serveSpecial($file, $ext, $ldir, ($arg =~ m/nocache/) ? 0 : 1)
       if(-r "$ldir/$fname" || $static); # no return for FLOORPLAN
@@ -864,6 +875,9 @@ FW_answerCall($)
 
   } elsif($arg =~ m/^$FW_ME(.*)/s) {
     $arg = $1; # The stuff behind FW_ME, continue to check for commands/FWEXT
+
+  } elsif($arg =~ m,^/favicon.ico$,) {
+    return FW_serveSpecial("favicon", "ico", "$FW_icondir/default", 1);
 
   } else {
     Log3 $FW_wname, 4, "$FW_wname: redirecting $arg to $FW_ME";
@@ -911,6 +925,22 @@ FW_answerCall($)
 
   #If we are in XHR or json mode, execute the command directly
   if($FW_XHR || $FW_jsonp) {
+    if($FW_webArgs{asyncCmd}) {
+      my $pid = fhemFork();
+      if($pid) {                                # success, parent
+        TcpServer_Disown( $me );
+        delete($defs{$FW_cname});
+        delete($attr{$FW_cname});
+        FW_Read($me, 1) if($me->{BUF});
+        return -2;
+
+      } elsif(defined($pid)){                   # child
+        delete $me->{BUF};
+        $me->{isChild} = 1;
+
+      } 
+    }
+
     $FW_cmdret = $docmd ? FW_fC($cmd, $cmddev) : undef;
     $FW_RETTYPE = $FW_chash->{contenttype} ?
         $FW_chash->{contenttype} : "text/plain; charset=$FW_encoding";
@@ -977,9 +1007,9 @@ FW_answerCall($)
     return -1;
   }
 
-  if($FW_lastWebName ne $FW_wname || $FW_lastHashUpdate != $lastDefChange) {
+  if($FW_lastWebName ne $FW_cname || $FW_lastHashUpdate != $lastDefChange) {
     FW_updateHashes();
-    $FW_lastWebName = $FW_wname;
+    $FW_lastWebName = $FW_cname;
     $FW_lastHashUpdate = $lastDefChange;
   }
 
@@ -1141,9 +1171,10 @@ FW_answerCall($)
       $srVal = FW_showRoom(); 
 
     } else {
-      my $motd = AttrVal("global","motd","none");
-      if($motd ne "none") {
-        FW_addContent("><pre class='motd'>$motd</pre></div");
+      my $motd = AttrVal("global", "motd", "");
+      my $gie = $defs{global}{init_errors};
+      if($motd ne "none" && ($motd || $gie)) {
+        FW_addContent("><pre class='motd'>$motd\n$gie</pre></div");
       }
     }
   }
@@ -1430,14 +1461,14 @@ FW_doDetail($)
   my ($d) = @_;
 
   return if($FW_hiddenroom{detail});
-  return if(!defined($defs{$d}));
+  return if(!defined($defs{$d}) || !devspec2array($d,$FW_chash));#check allowed
   my $h = $defs{$d};
   my $t = $h->{TYPE};
   $t = "MISSING" if(!defined($t));
   FW_addContent();
 
   if($FW_ss) {
-    my $webCmd = AttrVal($d, "webCmd", undef);
+    my $webCmd = AttrVal($d, "webCmd", $h->{webCmd});
     if($webCmd) {
       FW_pO "<table class=\"webcmd\">";
       foreach my $cmd (split(":", $webCmd)) {
@@ -1540,12 +1571,14 @@ FW_makeTableFromArray($$@) {
   my ($txt,$class,@obj) = @_;
   if (@obj>0) {
     my $row=1;
+    my $nameDisplay = AttrVal($FW_wname,"nameDisplay",undef);
     FW_pO "<div class='makeTable wide'>";
     FW_pO "<span class='mkTitle'>$txt</span>";
     FW_pO "<table class=\"block wide $class\">";
     foreach (sort @obj) {
       FW_pF "<tr class=\"%s\"><td>", (($row++)&1)?"odd":"even";
-      FW_pH "detail=$_", $_;
+      my $alias = FW_alias($_, $nameDisplay);
+      FW_pH "detail=$_", $alias eq $_ ? $_ : "$_ <span>($alias)</span>";
       FW_pO "</td><td>";
       FW_pO $defs{$_}{STATE} if(defined($defs{$_}{STATE}));
       FW_pO "</td><td>";
@@ -1766,14 +1799,14 @@ FW_roomOverview($)
 }
 
 sub
-FW_alias($)
+FW_alias($$)
 {
-  my ($d) = @_;
-  if($FW_room) {
-    return AttrVal($d, "alias_$FW_room", AttrVal($d, "alias", $d));
-  } else {
-    return AttrVal($d, "alias", $d);
-  }
+  my ($DEVICE,$nameDisplay) = @_;
+  my $ALIAS = AttrVal($DEVICE, "alias", $DEVICE);
+  $ALIAS = AttrVal($DEVICE, "alias_$FW_room", $ALIAS) if($FW_room);
+  $ALIAS = eval $nameDisplay if(defined($nameDisplay));
+
+  return $ALIAS;
 }
 
 sub
@@ -1783,12 +1816,9 @@ FW_makeDeviceLine($$$$$)
   my $rf = ($FW_room ? "&amp;room=$FW_room" : ""); # stay in the room
 
   FW_pF "\n<tr class=\"%s\">", ($row&1)?"odd":"even";
-  my $devName = FW_alias($d);
-  if(defined($nameDisplay)) {
-    my ($DEVICE, $ALIAS) = ($d, $devName);
-    $devName = eval $nameDisplay;
-  }
-  my $icon = AttrVal($d, "icon", "");
+  my $devName = FW_alias($d,$nameDisplay);
+  my $icon = AttrVal($d, "icon", $defs{$d}{icon});
+  $icon = "" if(!defined($icon));
   $icon = FW_makeImage($icon,$icon,"icon") . "&nbsp;" if($icon);
 
   $devName="" if($modules{$defs{$d}{TYPE}}{FW_hideDisplayName}); # Forum 88667
@@ -1814,14 +1844,16 @@ FW_makeDeviceLine($$$$$)
   # Commands, slider, dropdown
   my $smallscreenCommands = AttrVal($FW_wname, "smallscreenCommands", "");
   if((!$FW_ss || $smallscreenCommands) && $cmdlist) {
-    my @a = split("[: ]", AttrVal($d, "cmdIcon", ""));
+    my @a = split("[: ]", AttrVal($d, "cmdIcon", 
+                                $defs{$d}{cmdIcon} ? $defs{$d}{cmdIcon} : ""));
     Log 1, "ERROR: bad cmdIcon definition for $d" if(@a % 2);
     my %cmdIcon = @a;
 
     my @cl = split(":", $cmdlist);
-    my @wcl = split(":", AttrVal($d, "webCmdLabel", ""));
+    my $wclDefault = $defs{$d}{webCmdLabel} ? $defs{$d}{webCmdLabel} : "";
+    my @wcl = split(":", AttrVal($d, "webCmdLabel", $wclDefault));
     my $nRows;
-    $nRows = split("\n", AttrVal($d, "webCmdLabel", "")) if(@wcl);
+    $nRows = split("\n", AttrVal($d, "webCmdLabel", $wclDefault)) if(@wcl);
     @wcl = () if(@wcl != @cl);  # some safety
 
     for(my $i1=0; $i1<@cl; $i1++) {
@@ -2100,8 +2132,8 @@ sub
 FW_fileList($;$)
 {
   my ($fname,$mtime) = @_;
-  $fname =~ s/%L/$attr{global}{logdir}/g #Forum #89744
-        if($fname =~ m/%/ && $attr{global}{logdir});
+  my $logdir = Logdir();
+  $fname =~ s/%L/$logdir/g; #Forum #89744
   $fname =~ m,^(.*)/([^/]*)$,; # Split into dir and file
   my ($dir,$re) = ($1, $2);
   return $fname if(!$re);
@@ -2322,7 +2354,7 @@ FW_fileNameToPath($)
   } elsif($name =~ m/.*gplot$/) {
     return "$FW_gplotdir/$name";
   } elsif($name =~ m/.*log$/) {
-    return AttrVal("global", "logdir", "log")."/$name";
+    return Logdir()."/$name";
   } else {
     return "$MW_dir/$name";
   }
@@ -2699,7 +2731,7 @@ FW_Attr(@)
   my $retMsg;
 
   if($type eq "set" && $attrName eq "HTTPS" && $param[0]) {
-    TcpServer_SetSSL($hash);
+    InternalTimer(1, "TcpServer_SetSSL", $hash, 0); # Wait for sslCertPrefix
   }
 
   if($type eq "set") { # Converting styles
@@ -2870,7 +2902,7 @@ FW_dev2image($;$)
   my ($name, $state) = @_;
   my $d = $defs{$name};
   return "" if(!$name || !$d);
-  my $devStateIcon = AttrVal($name, "devStateIcon", undef);
+  my $devStateIcon = AttrVal($name, "devStateIcon", $d->{devStateIcon});
   return "" if(defined($devStateIcon) && lc($devStateIcon)  eq 'none');
 
   my $type = $d->{TYPE};
@@ -3083,6 +3115,7 @@ FW_Notify($$)
     #Add READINGS
     if($events) {    # It gets deleted sometimes (?)
       my $tn = TimeNow();
+      my $ct = $dev->{CHANGETIME};
       my $max = int(@{$events});
       for(my $i = 0; $i < $max; $i++) {
         if($events->[$i] !~ /: /) {
@@ -3098,7 +3131,8 @@ FW_Notify($$)
         next if($readingName !~ m/^[A-Za-z\d_\.\-\/:]+$/); # Forum #70608,70844
         push @data, FW_longpollInfo($h->{fmt},
                                 "$dn-$readingName", $readingVal,$readingVal);
-        push @data, FW_longpollInfo($h->{fmt}, "$dn-$readingName-ts", $tn, $tn);
+        my $t = (($ct && $ct->[$i]) ? $ct->[$i] : $tn);
+        push @data, FW_longpollInfo($h->{fmt}, "$dn-$readingName-ts", $t, $t);
       }
     }
   }
@@ -3110,10 +3144,12 @@ FW_Notify($$)
         my ($seconds, $microseconds) = gettimeofday();
         $tn .= sprintf(".%03d", $microseconds/1000);
       }
+      my $ct = $dev->{CHANGETIME};
       my $max = int(@{$events});
       my $dt = $dev->{TYPE};
       for(my $i = 0; $i < $max; $i++) {
-        my $line = "$tn $dt $dn ".$events->[$i]."<br>";
+        my $t = (($ct && $ct->[$i]) ? $ct->[$i] : $tn);
+        my $line = "$t $dt $dn ".$events->[$i]."<br>";
         eval { 
           my $ok;
           if($h->{filterType} && $h->{filterType} eq "notify") {
@@ -3176,26 +3212,29 @@ FW_devState($$@)
   my ($hasOnOff, $link);
   return ("","","") if(!$FW_wname);
 
-  my $cmdList = AttrVal($d, "webCmd", "");
+  my $cmdList = AttrVal($d, "webCmd", $defs{$d}{webCmd});
+  $cmdList = "" if(!defined($cmdList));
   my $allSets = FW_widgetOverride($d, getAllSets($d, $FW_chash));
   my $state = $defs{$d}{STATE};
   $state = "" if(!defined($state));
 
   my $txt = $state;
-  my $dsi = ($attr{$d} && ($attr{$d}{stateFormat} || $attr{$d}{devStateIcon}));
+  my ($ad,$hash) = ($attr{$d}, $defs{$d});
+  my $dsi = ($ad && ($ad->{stateFormat}||$ad->{webCmd}||$ad->{devStateIcon})) ||
+             $hash->{webCmd} || $hash->{devStateIcon};
 
   $hasOnOff = ($allSets =~ m/(^| )on(:[^ ]*)?( |$)/i &&
                $allSets =~ m/(^| )off(:[^ ]*)?( |$)/i);
   if(AttrVal($d, "showtime", undef)) {
-    my $v = $defs{$d}{READINGS}{state}{TIME};
+    my $v = $hash->{READINGS}{state}{TIME};
     $txt = $v if(defined($v));
 
   } elsif(!$dsi && $allSets =~ m/\bdesired-temp:/) {
-    $txt = "$1 &deg;C" if($txt =~ m/^measured-temp: (.*)/);      # FHT fix
+    $txt = "$1 &deg;C" if($txt =~ m/^measured-temp: (.*)/);
     $cmdList = "desired-temp" if(!$cmdList);
 
   } elsif(!$dsi && $allSets =~ m/\bdesiredTemperature:/) {
-    $txt = ReadingsVal($d, "temperature", "");  # ignores stateFormat!!!
+    $txt = ReadingsVal($d, "temperature", ""); 
     $txt =~ s/ .*//;
     $txt .= "&deg;C";
     $cmdList = "desiredTemperature" if(!$cmdList);
@@ -3267,19 +3306,17 @@ FW_devState($$@)
     $txt = $html;
   }
 
-  my $style = AttrVal($d, "devStateStyle", "");
+  my $style = AttrVal($d, "devStateStyle", $hash->{devStateStyle});
+  $style = "" if(!defined($style));
 
   $state =~ s/"//g;
   $state =~ s/<.*?>/ /g; # remove HTML tags for the title
   $txt = "<div id=\"$d\" $style title=\"$state\" class=\"col2\">$txt</div>";
 
-  my $type = $defs{$d}{TYPE};
+  my $type = $hash->{TYPE};
   my $sfn = $modules{$type}{FW_summaryFn};
   if($sfn) {
-    if(!defined($extPage)) {
-       my %hash;
-       $extPage = \%hash;
-    }
+    $extPage = {} if(!defined($extPage));
     no strict "refs";
     my $newtxt = &{$sfn}($FW_wname, $d, $rf ? $FW_room : "", $extPage);
     use strict "refs";
@@ -3467,6 +3504,37 @@ FW_show($$)
   $FW_room = "#devspec=$param";
   return undef;
 }
+
+sub
+FW_log($$)
+{
+  my ($arg, $length) = @_;
+
+  my $c = $defs{$FW_cname};
+  my $fmt = AttrVal($FW_wname, "logFormat", '%h %l %u %t "%r" %>s %b');
+  my $rc = $FW_httpRetCode;
+  $rc =~ s/ .*//;
+  $arg = substr($arg,0,5000)."..." if(length($arg) > 5000);
+
+  my @t = localtime;
+  my %cp = (
+    h=>$c->{PEER},
+    l=>"-",
+    u=>$c->{AuthenticatedUser} ? $c->{AuthenticatedUser} : "-",
+    t=>"[".strftime("%d/%b/%Y:%H:%M:%S %z",@t)."]",
+    r=>$arg,
+    ">s"=>$rc,
+    b=>$length
+  );
+
+  $fmt =~ s/%\{([^" ]*)\}i/
+        defined($FW_httpheader{$1}) ? $FW_httpheader{$1} : "-" /gex;
+  $fmt =~ s/%([^" ]*)/defined($cp{$1}) ? $cp{$1} : "-"/ge;
+
+  my $ld = AttrVal($FW_wname, "logDevice", undef);
+  CallFn($ld, "LogFn", $defs{$ld}, $fmt) if($defs{$ld});
+}
+
 
 1;
 
@@ -3844,8 +3912,12 @@ FW_show($$)
         <ul>
         mkdir certs<br>
         cd certs<br>
-        openssl req -new -x509 -nodes -out server-cert.pem -days 3650 -keyout server-key.pem
+        openssl req -new -x509 -nodes -out server-cert.pem -days 3650
+                -keyout server-key.pem
         </ul>
+        These commands are automatically executed if there is no certificate.
+        Because of this automatic execution, the attribute sslCertPrefix should
+        be set, if necessary, before this attribute.
       <br>
     </li>
 
@@ -3878,6 +3950,20 @@ FW_show($$)
          attr WEB JavaScripts codemirror/fhem_codemirror.js<br>
          attr WEB codemirrorParam { "theme":"blackboard", "lineNumbers":true }
        </code></ul>
+       </li><br>
+
+    <a name="logDevice"></a>
+    <li>logDevice fileLogName<br>
+       Name of the FileLog instance, which is used to log each FHEMWEB access.
+       To avoid writing wrong lines to this file, the FileLog regexp should be
+       set to &lt;WebName&gt;:Log
+       </li><br>
+
+    <a name="logFormat"></a>
+    <li>logFormat ...<br>
+        Default is the Apache common Format (%h %l %u %t "%r" %>s %b).
+        Currently only these "short" place holders are replaced. Additionally,
+        each HTTP Header X can be accessed via %{X}i.
        </li><br>
 
     <a name="longpoll"></a>
@@ -4585,7 +4671,9 @@ FW_show($$)
         openssl req -new -x509 -nodes -out server-cert.pem -days 3650 -keyout
         server-key.pem
         </ul>
-
+        Diese Befehle werden beim Setzen des Attributes automatisch
+        ausgef&uuml;rht, falls kein Zertifikat gefunden wurde. Deswegen, falls
+        n&ouml;tig, sslCertPrefix vorher setzen.
       <br>
     </li>
 
@@ -4621,6 +4709,21 @@ FW_show($$)
          attr WEB codemirrorParam { "theme":"blackboard", "lineNumbers":true }
        </code></ul>
        </li><br>
+
+    <a name="logDevice"></a>
+    <li>logDevice fileLogName<br>
+       Name einer FileLog Instanz, um Zugriffe zu protokollieren.
+       Um das Protokollieren falscher Eintr&auml;ge zu vermeiden, sollte das
+       FileLog Regexp der Form &lt;WebName&gt;:Log sein.
+       </li><br>
+
+    <a name="logFormat"></a>
+    <li>logFormat ...<br>
+        Voreinstellung ist das Apache common Format (%h %l %u %t "%r" %>s %b).
+        Z.Zt. werden nur diese "kurzen" Platzhalter ersetzt, weiterhin kann man
+        mit %{X} den HTTP-Header-Eintrag X spezifizieren.
+       </li><br>
+
 
     <a name="longpoll"></a>
     <li>longpoll [0|1|websocket]<br>

@@ -1,5 +1,5 @@
 ###############################################################################
-# $Id: msgSchema.pm 20113 2019-09-06 10:47:01Z loredo $
+# $Id: msgSchema.pm 21075 2020-01-29 19:46:59Z CoolTux $
 package main;
 sub msgSchema_Initialize() { }
 
@@ -342,7 +342,7 @@ my $db = {
             },
         },
 
-        'LGTV_WEBOS' => {
+        'LGTV_WebOS' => {
             'Normal' => 'set %DEVICE% screenMsg %MSG%',
             'High'   => 'set %DEVICE% screenMsg %MSG%',
             'Low'    => 'set %DEVICE% screenMsg %MSG%',

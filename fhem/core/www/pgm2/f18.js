@@ -1,5 +1,5 @@
 "use strict";
-FW_version["f18.js"] = "$Id: f18.js 20818 2019-12-23 20:12:15Z rudolfkoenig $";
+FW_version["f18.js"] = "$Id: f18.js 22644 2020-08-22 10:22:29Z rudolfkoenig $";
 
 // TODO: hierMenu+Pin,SVGcolors,floorplan
 // Known bugs: AbsSize is wrong for ColorSlider
@@ -72,6 +72,7 @@ $(document).ready(function(){
   
   f18_setWrapColumns();
   f18_setFixedInput();
+  f18_setWidePortrait();
 });
 
 function
@@ -372,6 +373,8 @@ f18_special()
     addHider("fixedInput", false, "Fixed input and menu", f18_setFixedInput);
     addHider("wrapcolumns",false,"Wrap columns<br>on small screen",
                         f18_setWrapColumns);
+    addHider("widePortrait",true,"Show all columns<br>in portrait mode",
+                        f18_setWidePortrait);
 
     $("div.f18colors").css("margin-top", "20px");
     $("tr.f18 div.fileList").each(function(e){ f18_addPinToStyleDiv(this) });
@@ -395,6 +398,12 @@ function
 f18_setWrapColumns()
 {
   $("table.block").toggleClass("wrapcolumns", f18_getAttr("wrapcolumns"));
+}
+
+function
+f18_setWidePortrait()
+{
+  $("#content").toggleClass("slim", !f18_getAttr("widePortrait"));
 }
 
 function
@@ -859,6 +868,7 @@ f18_textInput()
   $("#"+n).dialog({
     dialogClass:"no-close", modal:true, width:"auto", closeOnEscape:true, 
     maxWidth:$(window).width()*0.9, maxHeight:$(window).height()*0.9,
+    position: { my: "right", at: "center" },
     buttons: [
     {text:"Execute",click:function(){ FW_execRawDef( ta.val()) }},
     {text:"Close", click:function(){ $(this).remove(); }},

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_FHZ.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
+# $Id: 00_FHZ.pm 21071 2020-01-29 10:48:49Z rudolfkoenig $
 package main;
 
 use strict;
@@ -517,7 +517,7 @@ FHZ_ReadAnswer($$$)
       my $nfound = select($rin, undef, undef, $to);
       if($nfound < 0) {
         next if ($! == EAGAIN() || $! == EINTR() || $! == 0);
-        die("Select error $nfound / $!\n");
+        return "FHZ_ReadAnswer select error: $nfound / $!";
       }
       return "Timeout reading answer for get $arg"
         if($nfound == 0);

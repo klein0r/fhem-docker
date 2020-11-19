@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 99_SUNRISE_EL.pm 18732 2019-02-25 13:15:34Z rudolfkoenig $
+# $Id: 99_SUNRISE_EL.pm 22789 2020-09-18 19:00:46Z rudolfkoenig $
 # This code is derived from DateTime::Event::Sunrise, version 0.0501.
 # Simplified and removed further package # dependency (DateTime,
 # Params::Validate, etc). For comments see the original code.
@@ -28,13 +28,22 @@ my $defaultaltit  = "-6";        # Civil twilight
 my $RADEG  = ( 180 / 3.1415926 );
 my $DEGRAD = ( 3.1415926 / 180 );
 my $INV360 = ( 1.0 / 360.0 );
-my %alti = (REAL => 0, CIVIL => -6, NAUTIC => -12, ASTRONOMIC => -16); # or HORIZON <number>
+my %alti = (REAL=>0, CIVIL=>-6, NAUTIC=>-12, ASTRONOMIC=>-16); # or HORIZON=<nr>
 
 
 sub
 SUNRISE_EL_Initialize($)
 {
   my ($hash) = @_;
+
+  InternalTimer(1, sub() {
+    my $long = AttrVal("global", "longitude", undef);
+    my $lat  = AttrVal("global", "latitude",  undef);
+    if(( defined($long) && !defined($lat)) ||
+       (!defined($long) &&  defined($lat))) {
+      Log 1, "SUNRISE: set both longitude and latitude or none of them";
+    }
+  }, undef);
 }
 
 
@@ -52,24 +61,31 @@ sr($$$$$$)
 }
 
 sub
-sr_alt($$$$$$$$$)
+sr_alt($$$$$$$$$;$$)
 {
-  my $nt=shift;
-  my $rise=shift;
-  my $isrel=shift;
-  my $daycheck=shift;
-  my $nextDay=shift;
-  my $altit = defined($_[0]) ? $_[0] : "";
-  if(exists $alti{uc($altit)}) {
-      $altit=$alti{uc($altit)};
-      shift;
+  my $nt      = shift;
+  my $rise    = shift;
+  my $isrel   = shift;
+  my $daycheck= shift;
+  my $nextDay = shift;
+  my $altit   = shift;
+
+  $altit = defined($altit) ? uc($altit) : "";
+  if(exists $alti{$altit}) {
+    $altit = $alti{$altit};
   } elsif($altit =~ /HORIZON=([\-\+]*[0-9\.]+)/i) {
-      $altit=$1;
-      shift;
+    $altit=$1;
   } else {
-      $altit=-6; #default
+    unshift @_, $altit; # make altit optional.
+    $altit=-6;          # default
   }
-  my($seconds, $min, $max)=@_;
+
+  my $seconds = shift;
+  my $min     = shift;
+  my $max     = shift;
+  $lat        = shift;
+  $long       = shift;
+
   my $needrise = ($rise || $daycheck) ? 1 : 0;
   my $needset = (!$rise || $daycheck) ? 1 : 0;
   $seconds = 0 if(!$seconds);
@@ -78,8 +94,8 @@ sr_alt($$$$$$$$$)
    # If set in global, use longitude/latitude
    # from global, otherwise set Frankfurt/Germany as
    # default
-   $long = AttrVal("global", "longitude", "8.686");
-   $lat  = AttrVal("global", "latitude", "50.112");
+   $long = AttrVal("global", "longitude", "8.686") if(!defined($long));
+   $lat  = AttrVal("global", "latitude", "50.112") if(!defined($lat));
    Log3 undef, 5, "Compute sunrise/sunset for latitude $lat , longitude $long";
  
 

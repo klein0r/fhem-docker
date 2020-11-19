@@ -1,6 +1,6 @@
 "use strict";
 var FW_version={};
-FW_version["fhemweb.js"] = "$Id: fhemweb.js 20554 2019-11-20 20:53:04Z rudolfkoenig $";
+FW_version["fhemweb.js"] = "$Id: fhemweb.js 23090 2020-11-03 19:53:34Z rudolfkoenig $";
 
 var FW_serverGenerated;
 var FW_serverFirstMsg = (new Date()).getTime()/1000;
@@ -36,6 +36,7 @@ var FW_widgets = {
   textField:         { createFn:FW_createTextField },
   textFieldNL:       { createFn:FW_createTextField, second:true },
   "textField-long":  { createFn:FW_createTextField, second:true },
+  "textFieldNL-long":{ createFn:FW_createTextField, second:true },
   bitfield:          { createFn:FW_createBitfield },
 };
 
@@ -306,7 +307,12 @@ FW_jqueryReadyFn()
       $("#content")
         .append("<div id='workbench' style='display:none'></div>");
       $("#content > #workbench").html(data);
-      var aTag = $("#content > #workbench").find("a[name="+val+"]");
+
+      var mtype = $("#content > #workbench a[name]").attr("name"), aTag;
+      if(mtype)
+        aTag = $("#content > #workbench").find("a[name="+mtype+val+"]");
+      if(!$(aTag).length) // old style syntax without type
+        aTag = $("#content > #workbench").find("a[name="+val+"]");
       if($(aTag).length) {
         var liTag = $(aTag).next("li");
         if(!$(liTag).length)
@@ -579,6 +585,7 @@ FW_errmsg(txt, timeout)
 function
 FW_okDialog(txt, parent, removeFn)
 {
+  $("#FW_okDialog").remove();
   var div = $("<div id='FW_okDialog'>");
   $(div).html(txt);
   $("body").append(div);
@@ -789,10 +796,9 @@ FW_inlineModify()       // Do not generate a new HTML page upon pressing modify
         return FW_okDialog(resp);
       }
       if(isDef) {
+        newDef = FW_htmlQuote(newDef);
         if(newDef.indexOf("\n") >= 0)
           newDef = '<pre>'+newDef+'</pre>';
-        else
-          newDef = FW_htmlQuote(newDef);
         $("div#disp").html(newDef).css("display", "");
         $("div#edit").css("display", "none");
       }
@@ -892,9 +898,8 @@ FW_execRawDef(data)
       return doNext();
     }
     if(str != "") {
-      str = str.replace(/\\\n/g, "\n")
-               .replace(/;;/g, ";");
-      FW_cmd(FW_root+"?cmd.x="+encodeURIComponent(str)+"&XHR=1",
+      str = str.replace(/\\\n/g, "\n");
+      FW_cmd(FW_root+"?cmd="+encodeURIComponent(str)+"&XHR=1",
       function(r){
         if(r)
           return FW_okDialog('<pre>'+r+'</pre>');
@@ -997,7 +1002,7 @@ FW_escapeSelector(s)
 {
   if(typeof s != 'string')
     return s;
-  return s.replace(/[ .#\[\]>]/g, function(r) { return '\\'+r });
+  return s.replace(/[ .#\[\]>,]/g, function(r) { return '\\'+r });
 }
 
 /*************** LONGPOLL START **************/
@@ -1051,7 +1056,8 @@ FW_doUpdate(evt)
   if(typeof WebSocket == "function" && evt && evt.target instanceof WebSocket) {
     if(evt.type == 'close' && !FW_leaving) {
       FW_errmsg(errstr, retryTime-100);
-      FW_pollConn.close();
+      if(FW_pollConn) // Race-condition(?) # 112181
+        FW_pollConn.close();
       FW_pollConn = undefined;
       setTimeout(FW_longpoll, retryTime);
       return;
@@ -1383,7 +1389,7 @@ FW_queryValue(cmd, el)
 function
 FW_createTextField(elName, devName, vArr, currVal, set, params, cmd)
 {
-  if(vArr.length != 1 ||
+  if(vArr.length > 2 ||
      (vArr[0] != "textField" && 
       vArr[0] != "textFieldNL" &&
       vArr[0] != "textField-long" &&
@@ -1413,7 +1419,7 @@ FW_createTextField(elName, devName, vArr, currVal, set, params, cmd)
     $(inp).unbind("blur");
     $('body').append(
       '<div id="editdlg" style="display:none">'+
-        '<textarea id="td_longText" rows="25" cols="60" style="width:99%"/>'+
+        '<textarea id="td_longText" style="width:100%;height:100%;"/>'+
       '</div>');
 
     var txt = $(inp).val();
@@ -1425,9 +1431,11 @@ FW_createTextField(elName, devName, vArr, currVal, set, params, cmd)
       AddCodeMirror($("#td_longText"), function(pcm) {cm = pcm;});
     }
 
+    var sz = vArr[1] ? parseInt(vArr[1]) : 75;
     $('#editdlg').dialog(
-      { modal:true, closeOnEscape:true, width:$(window).width()*3/4,
-        height:$(window).height()*3/4,
+      { modal:true, closeOnEscape:true, 
+        width:$(window).width()*(sz/100),
+        height:$(window).height()*(sz/100),
         close:function(){ $('#editdlg').remove(); },
         buttons:[
         { text:"Cancel", click:function(){
@@ -1513,7 +1521,7 @@ FW_createSelectNumbers(elName, devName, vArr, currVal, set, params, cmd)
     for(var j=min; j <= max; j+=stp) {
       var o = document.createElement('option');
       o.text = o.value = j.toFixed(dp);
-      vHash[j.toString()] = 1;
+      vHash[o.text] = 1;
       newEl.options[k] = o;
       k++;
     }
@@ -1540,7 +1548,11 @@ FW_createSelectNumbers(elName, devName, vArr, currVal, set, params, cmd)
     $(newEl).attr('name', elName);
   if(cmd)
     $(newEl).change(function(arg) { cmd($(newEl).val()) });
-  newEl.setValueFn = function(arg) { if(vHash[arg]) $(newEl).val(arg); };
+  newEl.setValueFn = function(arg) { 
+    arg = parseFloat(arg).toFixed(dp);
+    if(vHash[arg]) 
+      $(newEl).val(arg);
+  };
   return newEl;
 }
 
@@ -1682,7 +1694,7 @@ FW_createSlider(elName, devName, vArr, currVal, set, params, cmd)
   sh.ontouchstart = function(e) { touchFn(e, mouseDown); }
 
   newEl.setValueFn = function(arg) {
-    var res = arg.match(/[\d.\-]+/); // extract first number
+    var res = arg.match(/-?[\d.]+/); // extract first number
     currVal = (res ? parseFloat(res[0]) : min);
     if(currVal < min || currVal > max)
       currVal = min;
@@ -2021,9 +2033,11 @@ FW_getSVG(emb)
   <li>textField - show an input field.<br>
       Example: attr WEB widgetOverride room:textField</li>
   <li>textFieldNL - show the input field and hide the label.</li>
-  <li>textField-long - show an input-field, but upon
-      clicking on the input field open a textArea (60x25).</li>
-  <li>textFieldNL-long - the behaviour is the same
+  <li>textField-long[,sizePct] - show an input-field, but upon
+      clicking on the input field open a textArea.
+      sizePct specifies the size of the dialog relative to the screen, in
+      percent. Default is 75</li>
+  <li>textFieldNL-long[,sizePct] - the behaviour is the same
       as :textField-long, but no label is displayed.</li>
   <li>slider,&lt;min&gt;,&lt;step&gt;,&lt;max&gt;[,1] - show
       a JavaScript driven slider. The optional ,1 at the end
@@ -2053,8 +2067,13 @@ FW_getSVG(emb)
       Beispiel: attr FS20dev widgetOverride on-till:time</li>
   <li>textField - zeigt ein Eingabefeld.<br>
       Beispiel: attr WEB widgetOverride room:textField</li>
-  <li>textField-long - ist wie textField, aber beim Click im Eingabefeld wird
-      ein Dialog mit einer HTML textarea (60x25) wird ge&ouml;ffnet.</li>
+  <li>textFieldNL - Eingabefeld ohne Label.</li>
+  <li>textField-long[,sizePct] - ist wie textField, aber beim Click im
+      Eingabefeld wird ein Dialog mit einer HTML textarea wird
+      ge&ouml;ffnet.  sizePct ist die relative Gr&ouml;&szlig;e des Dialogs,
+      die Voreinstellung ist 75.</li>
+  <li>textFieldNL-long[,sizePct] - wi textField-long, aber kein Label wir
+      angezeigt.</li>
   <li>slider,&lt;min&gt;,&lt;step&gt;,&lt;max&gt;[,1] - zeigt einen
       Schieberegler. Das optionale 1 (isFloat) vermeidet eine Rundung der
       Fliesskommazahlen.</li>

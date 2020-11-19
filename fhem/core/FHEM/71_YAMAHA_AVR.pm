@@ -1,4 +1,4 @@
-# $Id: 71_YAMAHA_AVR.pm 17547 2018-10-16 18:17:01Z markusbloch $
+# $Id: 71_YAMAHA_AVR.pm 21538 2020-03-29 09:12:10Z markusbloch $
 ##############################################################################
 #
 #     71_YAMAHA_AVR.pm
@@ -625,7 +625,14 @@ YAMAHA_AVR_Set($@)
                     {
                         if(YAMAHA_AVR_isModel_DSP($hash))
                         {
-                            YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"PUT\"><$zone><Surr><Pgm_Sel><Pgm>$command</Pgm></Pgm_Sel></Surr></$zone></YAMAHA_AV>", $what, $a[2]);
+                            if($hash->{MODEL} eq "RX-V2065")
+                            {
+                                YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"PUT\"><$zone><Surr><Pgm_Sel>$command</Pgm_Sel></Surr></$zone></YAMAHA_AV>", $what, $a[2]);
+                            }
+                            else
+                            {
+                                YAMAHA_AVR_SendCommand($hash, "<YAMAHA_AV cmd=\"PUT\"><$zone><Surr><Pgm_Sel><Pgm>$command</Pgm></Pgm_Sel></Surr></$zone></YAMAHA_AV>", $what, $a[2]);
+                            }
                         }
                         else
                         {

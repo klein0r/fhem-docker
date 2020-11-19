@@ -1,5 +1,5 @@
 ##############################################
-# $Id: myUtilsTemplate.pm 7570 2015-01-14 18:31:44Z rudolfkoenig $
+# $Id: myUtilsTemplate.pm 21509 2020-03-25 11:20:51Z rudolfkoenig $
 #
 # Save this file as 99_myUtils.pm, and create your own functions in the new
 # file. They are then available in every Perl expression.
@@ -8,7 +8,6 @@ package main;
 
 use strict;
 use warnings;
-use POSIX;
 
 sub
 myUtils_Initialize($$)

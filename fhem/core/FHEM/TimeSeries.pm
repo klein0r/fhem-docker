@@ -1,4 +1,4 @@
-# $Id: TimeSeries.pm 10907 2016-02-21 17:38:02Z borisneubert $
+# $Id: TimeSeries.pm 22980 2020-10-17 09:21:43Z neubert $
 
 ##############################################################################
 #
@@ -43,6 +43,9 @@
 #     29.01.2016 Jens Beyer (jensb at forum dot fhem dot de)
 #       modified: method elapsed reverted to version from 2015-01-31 to provide downsampling and buffering through fhem.pl
 #       modified: method _housekeeping does not reset time series if hold time is specified
+#
+#     17.10.2020 Boris Neubert
+#       modified: fix for calculation of standard deviation
 #
 ##############################################################################
 
@@ -240,12 +243,13 @@ sub trimToHoldTime() {
 sub _updatestat($$) {
   my ($self, $V)= @_;
 
-  # see Donald Knuth, The Art of Computer Programming, ch. 4.2.2, formulas 14ff.
+  # see Donald Knuth, The Art of Computer Programming, ch. 4.2.2, p. 232ff, formulas 14ff.
+  # https://doc.lagout.org/science/0_Computer%20Science/2_Algorithms/The%20Art%20of%20Computer%20Programming%20%28vol.%202_%20Seminumerical%20Algorithms%29%20%283rd%20ed.%29%20%5BKnuth%201997-11-14%5D.pdf
   my $n= ++$self->{n};
   if($n> 1) {
     my $M= $self->{_M};
     $self->{_M}= $M + ($V - $M) / $n;
-    $self->{_S}= $self->{_S} + ($V - $M) * ($V - $M);
+    $self->{_S}= $self->{_S} + ($V - $M) * ($V - $self->{_M});
     $self->{integral}+= $V;
     #main::Debug("V= $V M= $M _M= ".$self->{_M}." _S= " .$self->{_S}." int= ".$self->{integral});
   } else {

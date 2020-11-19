@@ -1,8 +1,11 @@
 ##############################################
-# $Id: DevIo.pm 20174 2019-09-16 18:04:03Z rudolfkoenig $
+# $Id: DevIo.pm 22629 2020-08-19 07:56:03Z rudolfkoenig $
 package main;
 
+use strict;
+
 sub DevIo_CloseDev($@);
+sub DevIo_DecodeWS($$);
 sub DevIo_Disconnected($);
 sub DevIo_Expect($$$);
 sub DevIo_OpenDev($$$;$);
@@ -75,6 +78,8 @@ DevIo_SimpleRead($)
     DevIo_Disconnected($hash);
     return undef;
   }
+
+  return DevIo_DecodeWS($hash, $buf) if($hash->{WEBSOCKET});
   return $buf;
 }
 
@@ -113,11 +118,127 @@ DevIo_TimeoutRead($$;$$)
     my $nfound = select($rin, undef, undef, $timeout);
     last if($nfound <= 0);      # timeout
     my $r = DevIo_DoSimpleRead($hash);
-    last if(!defined($r) || ($r == "" && $hash->{TCPDev}));
+    last if(!defined($r) || ($r eq "" && $hash->{TCPDev}));
     $answer .= $r;
-    last if(length($anser) >= $maxlen || ($regexp && $answer =~ m/$regexp/));
+    last if(length($answer) >= $maxlen || ($regexp && $answer =~ m/$regexp/));
   }
   return $answer;
+}
+
+sub
+DevIo_MaskWS($$)
+{
+  my ($opcode,$msg) = @_;
+  $opcode = pack("C",$opcode|0x80);
+
+  my $len = length($msg);
+  my $lb;
+  if($len < 126) {
+    $lb = chr(0x80+$len);
+  } else {
+    if ($len < 65536) {
+      $lb = chr(0xFE).pack('n',$len);
+    } else {
+      $lb = chr(0xFF).chr(0x00).chr(0x00).chr(0x00).chr(0x00).pack('N',$len);
+    }
+  }
+
+  my $mask = pack("L",rand(2**32));
+  my @m = unpack("C*", $mask);
+  my $idx = 0;
+  $msg = pack("C*", map { $_ ^ $m[$idx++ % 4] } unpack("C*", $msg));
+  return $opcode.$lb.$mask.$msg;
+}
+
+my %wsCloseCode = (
+  1000=>"normal",
+  1001=>"going away",
+  1002=>"protocol error",
+  1003=>"cannot accept datatype",
+  1007=>"inconsistent data",
+  1008=>"policy violation",
+  1009=>"too big",
+  1010=>"missing extension",
+  1011=>"unexpected condition"
+);
+
+sub
+DevIo_Ping($;$)
+{
+  my ($hash,$msg) = @_;
+  $msg="" if(!defined($msg));
+  syswrite($hash->{TCPDev}, DevIo_MaskWS(0x9, $msg)) if($hash->{WEBSOCKET});
+}
+
+sub
+DevIo_DecodeWS($$)
+{
+  my ($hash, $buf) = @_;
+  # https://tools.ietf.org/html/rfc6455
+  $hash->{".WSBUF"} = "" if(!defined($hash->{".WSBUF"}));
+  $hash->{".WSBUF"} .= $buf;
+  my $data = $hash->{".WSBUF"};
+  return "" if(length($data) < 2);
+
+  my $fin  = (ord(substr($data,0,1)) & 0x80)?1:0;
+  my $op   = (ord(substr($data,0,1)) & 0x0F);
+  my $mask = (ord(substr($data,1,1)) & 0x80)?1:0;
+  my $len  = (ord(substr($data,1,1)) & 0x7F);
+  my $i = 2;
+
+  if( $len == 126 ) {
+    return "" if(length($data) < 4);
+    $len = unpack('n', substr($data, $i, 2));
+    $i += 2;
+  } elsif( $len == 127 ) {
+    return "" if(length($data) < 10);
+    $len = unpack( 'q', substr($hash->{".WSBUF"},$i,8) );
+    $i += 8;
+  }
+
+  my @m;
+  if($mask) {
+    return "" if(length($data) < $i+4);
+    @m = unpack("C*", substr($data,$i,4));
+    $i += 4;
+  }
+  return "" if(length($data) < $i+$len);
+
+  $hash->{".WSBUF"} = substr($data, $i+$len);
+  $data = substr($data, $i, $len);
+  if($mask) {
+    my $idx = 0;
+    $data = pack("C*", map { $_ ^ $m[$idx++ % 4] } unpack("C*", $data));
+  }
+
+  # $op: 0=>Continuation, 1=>Text, 2=>Binary, 8=>Close, 9=>Ping, 10=>Pong
+  Log3 $hash, 5, "Websocket msg: OP:$op LEN:$len MASK:$mask FIN:$fin";
+  if($op == 8) {         # Close
+    my $clCode = unpack("n", substr($data,0,2));
+    $clCode = "$clCode ($wsCloseCode{$clCode})" if($wsCloseCode{$clCode});
+    $clCode .= " ".substr($data, 2) if($len > 2);
+    Log3 $hash, 5, "Websocket close, reason: $clCode";
+    syswrite($hash->{TCPDev}, DevIo_MaskWS(0x8,$data));
+    DevIo_CloseDev($hash);
+    return undef;
+
+  } elsif($op == 9) {   # Ping
+    syswrite($hash->{TCPDev}, DevIo_MaskWS(0xA, $data)); # Pong
+    Log3 $hash, 5, "Websocket ping: $data" if($data);
+    return DevIo_DecodeWS($hash, "");
+
+  } elsif($op == 10) {   # Pong
+    Log3 $hash, 5, "Websocket pong: $data" if($data);
+    return ""
+
+  }
+
+  if(length($hash->{".WSBUF"})) { # There is more data to digest
+    my $nd = DevIo_DecodeWS($hash, "");
+    $data .= $nd if(defined($nd));
+  }
+
+  return $data;
 }
 
 ########################
@@ -137,6 +258,7 @@ DevIo_SimpleWrite($$$;$)
     $hash->{USBDev}->write($msg);
 
   } elsif($hash->{TCPDev}) {
+    $msg = DevIo_MaskWS($hash->{binary} ? 0x2:0x1, $msg) if($hash->{WEBSOCKET});
     syswrite($hash->{TCPDev}, $msg);
 
   } elsif($hash->{DIODev}) { 
@@ -208,7 +330,8 @@ DevIo_Expect($$$)
 # Open a device for reading/writing data.
 # Possible values for $hash->{DeviceName}:
 # - device@baud[78][NEO][012] => open device, set serial-line parameters
-# - hostname:port => TCP/IP client connection
+# - hostname:port => TCP/IP client connection (set $hash->{SSL}=>1 for TLS)
+# - ws:hostname:port => websocket connection (wss: sets $hash->{SSL}=1)
 # - device@directio => open device without additional "magic"
 # - UNIX:(SEQPACKET|STREAM):filename => Open filename as a UNIX socket
 # - FHEM:DEVIO:IoDev[:IoPort] => Cascade I/O over another FHEM Device
@@ -232,8 +355,10 @@ DevIo_OpenDev($$$;$)
   my $doCb = sub ($) {
     my ($r) = @_;
     Log3 $name, 1, "$name: Can't connect to $dev: $r" if(!$reopen && $r);
+    no strict "refs";
     $callback->($hash,$r) if($callback);
-    return $r;
+    use strict "refs";
+    return ($callback ? undef : $r);
   };
 
   # Call initFn
@@ -245,7 +370,9 @@ DevIo_OpenDev($$$;$)
     my $ret;
     if($initfn) {
       my $hadFD = defined($hash->{FD});
+      no strict "refs";
       $ret = &$initfn($hash);
+      use strict "refs";
       if($ret) {
         if($hadFD && !defined($hash->{FD})) { # Forum #54732 / ser2net
           DevIo_Disconnected($hash);
@@ -271,6 +398,7 @@ DevIo_OpenDev($$$;$)
     return undef;
   };
   
+  $baudrate = "" if(!defined($baudrate));
   if($baudrate =~ m/(\d+)(,([78])(,([NEO])(,([012]))?)?)?/) {
     $baudrate = $1 if(defined($1));
     $databits = $3 if(defined($3));
@@ -329,7 +457,20 @@ DevIo_OpenDev($$$;$)
       DevIo_setStates($hash, "disconnected");
       return &$doCb("");
     }
-  } elsif($dev =~ m/^(.+):([0-9]+)$/) {       # host:port
+
+  } elsif($dev =~ m,^(ws:|wss:)?([^/:]+):([0-9]+)(.*?)$,) {# TCP or websocket
+   
+    my ($proto, $host, $port, $path) = ($1 ? $1 : "", $2, $3, $4);
+    my $hp = "$host:$port";
+    if($proto eq "wss:")  {
+      $hash->{SSL} = 1;
+      $proto = "ws:";
+    }
+    if($proto eq "ws:")  {
+      require MIME::Base64;
+      return &$doCb('websocket is only supported with callback') if(!$callback);
+    }
+    $path = "/" if(!defined($path) || $path eq "");
 
     # This part is called every time the timeout (5sec) is expired _OR_
     # somebody is communicating over another TCP connection. As the connect
@@ -342,7 +483,6 @@ DevIo_OpenDev($$$;$)
     delete($readyfnlist{"$name.$dev"});
     my $timeout = $hash->{TIMEOUT} ? $hash->{TIMEOUT} : 3;
 
-    
     # Do common TCP/IP "afterwork":
     # if connected: set keepalive, fill selectlist, FD, TCPDev.
     # if not: report the error and schedule reconnect
@@ -361,6 +501,7 @@ DevIo_OpenDev($$$;$)
         return 0;
       }
 
+      $hash->{WEBSOCKET} = 1 if($proto eq "ws:");
       $hash->{TCPDev} = $conn;
       $hash->{FD} = $conn->fileno();
       $hash->{CD} = $conn;
@@ -370,14 +511,33 @@ DevIo_OpenDev($$$;$)
 
     if($callback) { # reuse the nonblocking connect from HttpUtils.
       use HttpUtils;
+
+      my %header = ();
+      if($proto eq "ws:") {
+        %header = (
+          "Connection" => "Upgrade",
+          "Upgrade" => "websocket",
+          "Sec-WebSocket-Key"=>encode_base64(pack("H*",createUniqueId()),""),
+          "Sec-WebSocket-Version" => 13
+        );
+      }
+      map { $header{$_} = $hash->{header}{$_} } keys %{$hash->{header}}
+        if($hash->{header});
+
       my $err = HttpUtils_Connect({     # Nonblocking
         timeout => $timeout,
-        url     => $hash->{SSL} ? "https://$dev/" : "http://$dev/",
+        url     => $hash->{SSL} ? "https://$hp$path" : "http://$hp$path",
         NAME    => $hash->{NAME},
         sslargs => $hash->{sslargs} ? $hash->{sslargs} : {},
-        noConn2 => 1,
+        noConn2 => $proto eq "ws:" ? 0 : 1,
+        keepalive=>$proto eq "ws:" ? 1 : 0,
+        httpversion=>$proto eq "ws:" ? "1.1" : "1.0",
+        header  => \%header,
+        sslargs => $hash->{sslargs},
         callback=> sub() {
           my ($h, $err, undef) = @_;
+          $err = "HTTP CODE $h->{code}"
+                if($proto eq "ws:" && !$err && $h->{code} != 101);
           &$doTcpTail($err ? undef : $h->{conn});
           return &$doCb($err ? $err : &$doTailWork());
         }
@@ -387,8 +547,8 @@ DevIo_OpenDev($$$;$)
 
     } else {    # blocking connect
       my $conn = $haveInet6 ? 
-          IO::Socket::INET6->new(PeerAddr => $dev, Timeout => $timeout) :
-          IO::Socket::INET ->new(PeerAddr => $dev, Timeout => $timeout);
+          IO::Socket::INET6->new(PeerAddr => $hp, Timeout => $timeout) :
+          IO::Socket::INET ->new(PeerAddr => $hp, Timeout => $timeout);
       return "" if(!&$doTcpTail($conn)); # no callback: no doCb
     }
 
@@ -510,6 +670,8 @@ DevIo_CloseDev($@)
       $hash->{TCPDev}->close();
     }
     delete($hash->{TCPDev});
+    delete($hash->{".WSBUF"});
+    delete($hash->{WEBSOCKET});
 
   } elsif($hash->{USBDev}) {
     if($isFork) { # SerialPort close resets the serial parameters.

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: TcpServerUtils.pm 19138 2019-04-07 10:17:21Z rudolfkoenig $
+# $Id: TcpServerUtils.pm 22894 2020-10-01 19:49:32Z rudolfkoenig $
 
 package main;
 use strict;
@@ -170,9 +170,35 @@ TcpServer_SetSSL($)
   if($@) {
     Log3 $hash, 1, $@;
     Log3 $hash, 1, "Can't load IO::Socket::SSL, falling back to HTTP";
-  } else {
-    $hash->{SSL} = 1;
+    return;
   }
+
+  my $name = $hash->{NAME};
+  my $cp = AttrVal("global", "modpath", ".")."/".
+           AttrVal($name, "sslCertPrefix", "certs/server-");
+  if(! -r "${cp}key.pem") {
+
+    Log 1, "$name: Server certificate missing, trying to create one";
+    if($cp =~ m,^(.*)/(.*?), && ! -d $1 && !mkdir($1)) {
+      Log 1, "$name: failed to create $1: $!, falling back to HTTP";
+      return;
+    }
+
+    if(!open(FH,">certreq.txt")) {
+      Log 1, "$name: failed to create certreq.txt: $!, falling back to HTTP";
+      return;
+    }
+    print FH "[ req ]\nprompt = no\ndistinguished_name = dn\n\n".
+             "[ dn ]\nC = DE\nO = FHEM\nCN = home.localhost\n\n";
+    close(FH);
+
+    my $cmd = "openssl req -new -x509 -days 3650 -nodes -newkey rsa:2048 ".
+                "-config certreq.txt -out ${cp}cert.pem -keyout ${cp}key.pem";
+    Log 1, "Executing $cmd";
+    `$cmd`;
+    unlink("certreq.txt");
+  }
+  $hash->{SSL} = 1;
 }
 
 
@@ -187,14 +213,21 @@ TcpServer_Close($@)
     delete($hash->{CD}); 
     delete($selectlist{$name});
     delete($hash->{FD});  # Avoid Read->Close->Write
-    delete $attr{$name} if($dodel);
-    delete $defs{$name} if($dodel);
+    removeFromNtfyHash($name);
   }
+
   if(defined($hash->{SERVERSOCKET})) {          # Server
     close($hash->{SERVERSOCKET});
     $name = $name . "." . $hash->{PORT};
     delete($selectlist{$name});
     delete($hash->{FD});  # Avoid Read->Close->Write
+  }
+
+  if($dodel) {
+    delete $attr{$name};
+    delete $defs{$name};
+  } else {
+    $hash->{stacktrace} = stacktraceAsString(1);
   }
   return undef;
 }
@@ -217,6 +250,7 @@ TcpServer_Disown($)
     delete($hash->{CD});
     delete($selectlist{$name});
     delete($hash->{FD});  # Avoid Read->Close->Write
+    $hash->{stacktrace} = stacktraceAsString(1);
   }
 
   return;
@@ -283,6 +317,12 @@ TcpServer_WriteBlocking($$)
 {
   my( $hash, $txt ) = @_;
 
+  if($hash->{WriteFn}) { # FWTP needs it
+    no strict "refs";
+    return &{$hash->{WriteFn}}($hash, \$txt);
+    use strict "refs";
+  }
+
   my $sock = $hash->{CD};
   return undef if(!$sock);
   my $off = 0;
@@ -304,6 +344,8 @@ TcpServer_WriteBlocking($$)
 
     if( defined $ret ){
       $off += $ret;
+      my $sh = $defs{$hash->{SNAME}};
+      $sh->{BYTES_WRITTEN} += $ret if(defined($sh->{BYTES_WRITTEN}));
 
     } elsif( $! == EWOULDBLOCK ){
       $hash->{wantRead} = 1

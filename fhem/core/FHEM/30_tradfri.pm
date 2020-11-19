@@ -1,5 +1,5 @@
 
-# $Id: 30_tradfri.pm 20862 2020-01-01 16:01:46Z justme1968 $
+# $Id: 30_tradfri.pm 21079 2020-01-30 16:12:23Z justme1968 $
 
 package main;
 
@@ -16,6 +16,8 @@ use Data::Dumper;
 
 use POSIX;
 use Socket;
+
+require "$attr{global}{modpath}/FHEM/31_HUEDevice.pm";
 
 use vars qw(%modules);
 use vars qw(%defs);
