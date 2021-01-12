@@ -5,7 +5,7 @@
 #  FHEM module to communicate with Shelly switch/roller actor devices
 #  Prof. Dr. Peter A. Henning, 2018
 # 
-#  $Id: 36_Shelly.pm 21949 2020-05-16 04:35:35Z phenning $
+#  $Id: 36_Shelly.pm 23391 2020-12-20 18:06:23Z phenning $
 #
 ########################################################################################
 #
@@ -39,7 +39,7 @@ use vars qw{%attr %defs};
 sub Log($$);
 
 #-- globals on start
-my $version = "2.13";
+my $version = "2.20";
 
 #-- these we may get on request
 my %gets = (
@@ -93,7 +93,7 @@ my %setsrgbwc = (
   "rgbw"          => "A",
   "hsv"           => "H",
   "rgb:colorpicker,HSV" => "R",
-  "white:slider,0,1,100" => "W"
+  "white:slider,0,1,255" => "W"
 ); 
 
 my %shelly_models = (
@@ -105,7 +105,8 @@ my %shelly_models = (
     "shellyplug" => [1,0,0,1],
     "shelly4" => [4,0,0,4],
     "shellyrgbw" => [0,0,4,1],
-    "shellydimmer" => [0,0,1,1]
+    "shellydimmer" => [0,0,1,1],
+    "shellyem" => [1,0,0,2]
     );
     
 my %shelly_regs = (
@@ -131,11 +132,11 @@ sub Shelly_Initialize ($) {
   
   $hash->{DefFn}    = "Shelly_Define";
   $hash->{UndefFn}  = "Shelly_Undef";
+  $hash->{DeleteFn} = "Shelly_Delete";
   $hash->{AttrFn}   = "Shelly_Attr";
   $hash->{GetFn}    = "Shelly_Get";
   $hash->{SetFn}    = "Shelly_Set";
-  #$hash->{NotifyFn} = "Shelly_Notify";
-  #$hash->{InitFn}   = "Shelly_Init";
+  $hash->{RenameFn} = "Shelly_Rename";
 
   $hash->{AttrList}= "verbose model:".join(",",(keys %shelly_models))." mode:relay,roller,white,color defchannel maxtime maxpower interval pct100:open,closed shellyuser ".
                      $readingFnAttributes;
@@ -191,6 +192,21 @@ sub Shelly_Define($$) {
 
 #######################################################################################
 #
+# Shelly_Delete - Implements DeleteFn function
+#
+# Parameter hash = hash of device addressed
+#
+#######################################################################################
+
+sub Shelly_Delete ($) {
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+  my ($err, $sh_pw) = setKeyValue("SHELLY_PASSWORD_$name", undef);
+  return undef;
+}
+
+#######################################################################################
+#
 # Shelly_Undef - Implements UndefFn function
 #
 # Parameter hash = hash of device addressed
@@ -202,7 +218,28 @@ sub Shelly_Undef ($) {
   my $name = $hash->{NAME};
   delete($modules{Shelly}{defptr}{NAME});
   RemoveInternalTimer($hash);
-  my ($err, $sh_pw) = setKeyValue("SHELLY_PASSWORD_$name", undef);
+  return undef;
+}
+
+#######################################################################################
+#
+# Shelly_Rename - Implements RenameFn function
+#
+# Parameter hash = hash of device addressed
+#
+#######################################################################################
+
+sub Shelly_Rename ($$) {
+  my ( $new_name, $old_name ) = @_;
+
+  my $old_index = "Module_Shelly_".$old_name."_data";
+  my $new_index = "Module_Shelly_".$new_name."_data";
+
+  my ($err, $old_pwd) = getKeyValue($old_index);
+  return undef unless(defined($old_pwd));
+
+  setKeyValue($new_index, $old_pwd);
+  setKeyValue($old_index, undef);
   return undef;
 }
 
@@ -391,7 +428,7 @@ sub Shelly_Get ($@) {
     if( ($model =~ /shelly2.*/) && ($mode eq "roller") ){
       $txt = "roller";
     }elsif( $model eq "shellydimmer" ){
-      $txt = "lights";
+      $txt = "light";
     }elsif( ($model eq "shellyrgbw") && ($mode eq "white") ){
       $txt = "white";
     }elsif( ($model eq "shellyrgbw") && ($mode eq "color") ){
@@ -419,7 +456,7 @@ sub Shelly_Get ($@) {
     if( ($model =~ /shelly2.*/) && ($mode eq "roller") ){
       $pre .= "roller/0?";
     }elsif( $model eq "shellydimmer" ){
-      $pre .= "lights/0?";
+      $pre .= "light/0?";
     }elsif( ($model eq "shellyrgbw") && ($mode eq "white") ){
       $pre .= "white/0?";
     }elsif( ($model eq "shellyrgbw") && ($mode eq "color") ){
@@ -464,6 +501,48 @@ sub Shelly_Set ($@) {
   my $mode  =  AttrVal($name,"mode","");
   my ($channel,$time);
   
+  #-- command password independent of Shelly type
+  if($cmd eq "password") {
+  my $user = AttrVal($name, "shellyuser", '');
+    if(!$user){
+      my $msg = "Error: password can be set only if attribute shellyuser is set";
+      Log3 $name,1,"[Shelly_Set] ".$msg;
+      return $msg;
+    }
+    setKeyValue("SHELLY_PASSWORD_$name", $value);
+    return undef;
+  }
+  
+  #-- command config largely independent of Shelly type 
+  if($cmd eq "config") {
+    my $reg = $value;
+    my ($val,$chan);
+    if( int(@a) == 2 ){
+      $chan = $a[1];
+      $val = $a[0];
+    }elsif( int(@a) == 1 ){
+      $chan = 0;
+      $val = $a[0];
+    }else{
+      my $msg = "Error: wrong number of parameters";
+      Log3 $name,1,"[Shelly_Set] ".$msg;
+      return $msg;
+    }
+    my $pre = "settings/";
+    if( ($model =~ /shelly2.*/) && ($mode eq "roller") ){
+      $pre .= "roller/0?";
+    }elsif( ($model eq "shellyrgbw") && ($mode eq "white") ){
+      $pre .= "white/0?";
+    }elsif( ($model eq "shellyrgbw") && ($mode eq "color") ){
+      $pre .= "color/0?";
+    }else{
+      $pre .= "relay/$chan?";
+    }
+    $v = Shelly_configure($hash,$pre.$reg."=".$val);
+    return undef;
+  }
+  
+  #-- commands strongly dependent on Shelly type
   #-- we have a Shelly 1,4 or ShellyPlug switch type device
   #-- or we have a Shelly 2 switch type device
   if( ($model =~ /shelly1.*/) || ($model eq "shelly4") || ($model eq "shellyplug") || (($model =~ /shelly2.*/) && ($mode eq "relay")) ){ 
@@ -734,45 +813,7 @@ sub Shelly_Set ($@) {
       Shelly_dim($hash,"color/0","?".$cmd);
     }
   }  
-  
-  #-- configuration register
-  if($cmd eq "config") {
-    my $reg = $value;
-    my ($val,$chan);
-    if( int(@a) == 2 ){
-      $chan = $a[1];
-      $val = $a[0];
-    }elsif( int(@a) == 1 ){
-      $chan = 0;
-      $val = $a[0];
-    }else{
-      my $msg = "Error: wrong number of parameters";
-      Log3 $name,1,"[Shelly_Set] ".$msg;
-      return $msg;
-    }
-    my $pre = "settings/";
-    if( ($model =~ /shelly2.*/) && ($mode eq "roller") ){
-      $pre .= "roller/0?";
-    }elsif( ($model eq "shellyrgbw") && ($mode eq "white") ){
-      $pre .= "white/0?";
-    }elsif( ($model eq "shellyrgbw") && ($mode eq "color") ){
-      $pre .= "color/0?";
-    }else{
-      $pre .= "relay/$chan?";
-    }
-    $v = Shelly_configure($hash,$pre.$reg."=".$val);
-  }
-  
-  #-- password
-  if($cmd eq "password") {
-  my $user = AttrVal($name, "shellyuser", '');
-    if(!$user){
-      my $msg = "Error: password can be set only if attribute shellyuser is set";
-      Log3 $name,1,"[Shelly_Set] ".$msg;
-      return $msg;
-    }
-    setKeyValue("SHELLY_PASSWORD_$name", $value);
-  }
+ 
   return undef;
 }
 
@@ -913,8 +954,8 @@ sub Shelly_pwd($){
   readingsBeginUpdate($hash);
   readingsBulkUpdateIfChanged($hash,"network","<html>connected to <a href=\"http://".$hash->{TCPIP}."\">".$hash->{TCPIP}."</a></html>",1);
   
-  #-- we have a Shelly 1/1pw, Shelly 4, Shelly 2/2.5  or ShellyPlug switch type device
-  if( ($model =~ /shelly1.*/) || ($model eq "shellyplug") || ($model eq "shelly4") || (($model =~ /shelly2.*/) && ($mode eq "relay")) ){
+  #-- we have a Shelly 1/1pw, Shelly 4, Shelly 2/2.5,  ShellyPlug or ShellyEM switch type device
+  if( ($model =~ /shelly1.*/) || ($model eq "shellyplug") || ($model eq "shelly4") || ($model eq "shellyem") || (($model =~ /shelly2.*/) && ($mode eq "relay")) ){
     for( my $i=0;$i<$channels;$i++){
       $subs = (($channels == 1) ? "" : "_".$i);
       $ison       = $jhash->{'relays'}[$i]{'ison'};
@@ -922,19 +963,25 @@ sub Shelly_pwd($){
       $ison =~ s/1|(true)/on/;
       $overpower = $jhash->{'relays'}[$i]{'overpower'};
       readingsBulkUpdateIfChanged($hash,"relay".$subs,$ison);
-      readingsBulkUpdateIfChanged($hash,"overpower".$subs,$overpower);
+      readingsBulkUpdateIfChanged($hash,"overpower".$subs,$overpower)
+        if(defined($overpower));
       if($model =~ /shelly(1|(plug)).*/){
         readingsBulkUpdateIfChanged($hash,"state",$ison)
       }else{
         readingsBulkUpdateIfChanged($hash,"state","OK");
       } 
     }
+    my $metern = ($model eq "shellyem")?"emeters":"meters";
     for( my $i=0;$i<$meters;$i++){
       $subs  = ($meters == 1) ? "" : "_".$i;
-      $power = $jhash->{'meters'}[$i]{'power'};
-      $energy = int($jhash->{'meters'}[$i]{'total'}/6)/10;
+      $power = $jhash->{$metern}[$i]{'power'};
+      $energy = int($jhash->{$metern}[$i]{'total'}/6)/10;
       readingsBulkUpdateIfChanged($hash,"power".$subs,$power);
       readingsBulkUpdateIfChanged($hash,"energy".$subs,$energy);
+      if ($model eq "shellyem") {
+        my $voltage = $jhash->{$metern}[$i]{'voltage'};
+        readingsBulkUpdateIfChanged($hash,'voltage'.$subs,$voltage);
+      }
     }
     
   #-- we have a Shelly 2 roller type device
@@ -1008,13 +1055,14 @@ sub Shelly_pwd($){
       $ison =~ s/0|(false)/off/;
       $ison =~ s/1|(true)/on/;
       my $bri    = $jhash->{'lights'}[$i]{'brightness'};
-      $power     = $jhash->{'lights'}[$i]{'power'};
       $overpower = $jhash->{'lights'}[$i]{'overpower'};
-     
+      $power     = $jhash->{'meters'}[$i]{'power'};
+      $energy = (defined($jhash->{'meters'}[$i]{'total'}))?int($jhash->{'meters'}[$i]{'total'}/6)/10:"undefined";  
       readingsBulkUpdateIfChanged($hash,"state".$subs,$ison);
       readingsBulkUpdateIfChanged($hash,"pct".$subs,$bri);
-      readingsBulkUpdateIfChanged($hash,"power".$subs,$power); 
       readingsBulkUpdateIfChanged($hash,"overpower".$subs,$overpower);  
+      readingsBulkUpdateIfChanged($hash,"power".$subs,$power); 
+      readingsBulkUpdateIfChanged($hash,"energy".$subs,$energy);   
     }  
     readingsBulkUpdateIfChanged($hash,"state","OK")
       if ($dimmers > 1);
@@ -1435,7 +1483,7 @@ sub Shelly_updown2($){
                 <br />set the value of a configuration register</li>
         <li>password &lt;password&gt;<br>This is the only way to set the password for the Shelly web interface</li>
         </ul>
-        For Shelly switching devices (model=shelly1|shelly1pm|shelly4|shellyplug or (model=shelly2/2.5 and mode=relay)) 
+        For Shelly switching devices (model=shelly1|shelly1pm|shelly4|shellyplug|shellyem or (model=shelly2/2.5 and mode=relay)) 
         <ul>
             <li>
                 <code>set &lt;name&gt; on|off|toggle  [&lt;channel&gt;] </code>

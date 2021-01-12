@@ -1,4 +1,4 @@
-FW_version["fhemweb_weekprofile.js"] = "$Id: fhemweb_weekprofile.js 18161 2019-01-06 12:11:26Z Risiko $";
+FW_version["fhemweb_weekprofile.js"] = "$Id: fhemweb_weekprofile.js 23481 2021-01-06 19:15:46Z Risiko $";
 
 var language = 'de';
 //for tooltip
@@ -584,10 +584,16 @@ function FW_weekprofileEditDay(widget,day)
     for (var k=tempOff; k <= tempOn; k+=.5)
     {
         var selected = (k == temps[i]) ? "selected " : "";
-        if (k == widget.TEMP_OFF)
+        if (k == widget.TEMP_OFF) {
+          // currently weekprofile save on|off into json data
+          selected = (temps[i] == "off") ? "selected " : "";
           html += "<option "+selected+"value=\"off\">off</option>";
-        else if (k == widget.TEMP_ON)
+        }
+        else if (k == widget.TEMP_ON) {
+          // currently weekprofile save on|off into json data
+          selected = (temps[i] == "on") ? "selected " : "";  
           html += "<option "+selected+"value=\"on\">on</option>";
+        }
         else
           html += "<option "+selected+"value=\""+k.toFixed(1)+"\">"+k.toFixed(1)+"</option>";
     }
@@ -878,6 +884,10 @@ FW_weekprofileCreate(elName, devName, vArr, currVal, set, params, cmd)
   //inform profile_count changed
   var prfCnt = $('<div informid="'+devName+'-profile_count" style="display:none">').get(0);
   prfCnt.setValueFn = function(arg){
+    if (widget.MODE == 'EDIT') {
+      // do not update profile data in edit mode
+      return;
+    }
     if (widget.USETOPICS == 1) {
       FW_cmd(FW_root+'?cmd=get '+devName+' topic_names&XHR=1',function(data){FW_weekprofileGetValues(devName,"TOPICNAMES",data);});
     } else {

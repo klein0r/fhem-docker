@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_SVG.pm 22703 2020-08-31 16:21:08Z rudolfkoenig $
+# $Id: 98_SVG.pm 23480 2021-01-06 18:50:45Z rudolfkoenig $
 package main;
 
 use strict;
@@ -195,7 +195,7 @@ SVG_getplotsize($)
 sub
 SVG_embed()
 {
-  return AttrVal($FW_wname, "plotEmbed", 0);
+  return AttrVal($FW_wname, "plotEmbed", ($numCPUs>1 ? 2:0));
 }
 
 sub
@@ -1099,7 +1099,7 @@ SVG_doShowLog($$$$;$)
 
   my ($err, $cfg, $plot, $srcDesc) = SVG_readgplotfile($wl, $gplot_pgm, $pm);
   if($err || !$defs{$d}) {
-    my $msg = ($err ? $err : "No Logdevice >$d<");
+    my $msg = ($err ? $err : "No Logdevice /$d/");
     Log3 $FW_wname, 1, $msg;
 
     if($pm && $pm =~ m/SVG/) { # FW_fatal for SVG:

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_MQTT2_DEVICE.pm 23171 2020-11-17 18:40:22Z rudolfkoenig $
+# $Id: 10_MQTT2_DEVICE.pm 23382 2020-12-19 11:40:59Z rudolfkoenig $
 package main;
 
 use strict;
@@ -116,6 +116,21 @@ MQTT2_DEVICE_checkSubscr()
 
 #############################
 sub
+MQTT2_DEVICE_getRegexpHash($$$)
+{
+  my ($step, $cid, $topic) = @_;
+
+  return $modules{MQTT2_DEVICE}{defptr}{"re:$cid"}
+    if($step == 1); # regexp for cid:topic:msg
+  return $modules{MQTT2_DEVICE}{defptr}{"re"}
+    if($step == 2); # regExp for topic:msg
+  return $modules{MQTT2_DEVICE}{defptr}{"re:$cid:$topic"}
+    if($step == 3); # regExp for msg, for specific cid:topic
+  return $modules{MQTT2_DEVICE}{defptr}{"re:*:$topic"}
+    if($step == 4); # regExp for msg, for specific topic
+}
+
+sub
 MQTT2_DEVICE_Parse($$)
 {
   my ($iodev, $msg) = @_;
@@ -139,9 +154,12 @@ MQTT2_DEVICE_Parse($$)
   }
 
   my ($cid, $topic, $value) = split("\0", $msg, 3);
-  for my $step (1,2) {
-    next if($step == 1 && !$modules{MQTT2_DEVICE}{defptr}{"re:$cid"});
-    my $dp = $modules{MQTT2_DEVICE}{defptr}{$step==1 ? "re:$cid" : "re"};
+  return "" if(!defined($topic));
+  for my $step (1,2,3,4) {
+
+    my $dp = MQTT2_DEVICE_getRegexpHash($step, $cid, $topic);
+    next if(!$dp);
+
     foreach my $re (keys %{$dp}) {
       my $reAll = $re;
       $reAll =~ s/\$DEVICETOPIC/\.\*/g;
@@ -418,6 +436,7 @@ MQTT2_DEVICE_Attr($$)
 
   if($attrName eq "devicetopic") {
     $hash->{DEVICETOPIC} = ($type eq "del" ? $hash->{NAME} : $param);
+    MQTT2_DEVICE_addReading($dev, AttrVal($dev, "readingList", ""));
     return undef;
   }
 
@@ -561,16 +580,17 @@ MQTT2_DEVICE_delReading($)
   my ($name) = @_;
   my $cid = $defs{$name}{CID};
   $cid = "" if(!defined($cid));
-  for my $step (1,2) {
-    next if($step == 1 && !$modules{MQTT2_DEVICE}{defptr}{"re:$cid"});
-    my $dp = $modules{MQTT2_DEVICE}{defptr}{$step==1 ? "re:$cid" : "re"};
+  for my $key1 (sort keys %{$modules{MQTT2_DEVICE}{defptr}}) {
+    next if($key1 !~ m/^re/);
+    my $dp = $modules{MQTT2_DEVICE}{defptr}{$key1};
     foreach my $re (keys %{$dp}) {
-      foreach my $key (keys %{$dp->{$re}}) {
-        if($key =~ m/^$name,/) {
-          delete($dp->{$re}{$key});
-          delete($dp->{$re}) if(!int(keys %{$dp->{$re}}));
-        }
+      foreach my $key2 (keys %{$dp->{$re}}) {
+        delete($dp->{$re}{$key2}) if($key2 =~ m/^$name,/);
       }
+      delete($dp->{$re}) if(!int(keys %{$dp->{$re}}));
+    }
+    if(!int(keys %{$modules{MQTT2_DEVICE}{defptr}{$key1}}) && $key1 ne "re") {
+      delete($modules{MQTT2_DEVICE}{defptr}{$key1});
     }
   }
 }
@@ -581,15 +601,27 @@ MQTT2_DEVICE_addReading($$)
   my ($name, $param) = @_;
   MQTT2_DEVICE_delReading($name);
   my $cid = $defs{$name}{CID};
+  my $dt = $defs{$name}{DEVICETOPIC};
   foreach my $line (split("\n", $param)) {
+    next if($line eq "");
     my ($re,$code) = split(" ", $line,2);
-    return "Bad line >$line< for $name" if(!defined($code));
+    return "ERROR: empty code in line >$line< for $name" if(!defined($code));
     my $errMsg = CheckRegexp($re, "readingList attribute for $name");
     return $errMsg if($errMsg);
+
+    $re =~ s/\$DEVICETOPIC/$dt/g;
     if($cid && $re =~ m/^$cid:/) {
-      $modules{MQTT2_DEVICE}{defptr}{"re:$cid"}{$re}{"$name,$code"} = 1;
+      if($re =~ m/^$cid:([^\\\?.*\[\](|)]+):\.\*$/) { # cid:topic:.*
+        $modules{MQTT2_DEVICE}{defptr}{"re:$cid:$1"}{$re}{"$name,$code"} = 1;
+      } else {
+        $modules{MQTT2_DEVICE}{defptr}{"re:$cid"}{$re}{"$name,$code"} = 1;
+      }
     } else {
-      $modules{MQTT2_DEVICE}{defptr}{re}{$re}{"$name,$code"} = 1;
+      if($re =~ m/^([^\?.*\[\](|)]+):\.\*$/) {
+        $modules{MQTT2_DEVICE}{defptr}{"re:*:$1"}{$re}{"$name,$code"} = 1;
+      } else {
+        $modules{MQTT2_DEVICE}{defptr}{re}{$re}{"$name,$code"} = 1;
+      }
     }
   }
   return undef;
@@ -944,16 +976,17 @@ zigbee2mqtt_devStateIcon255($;$$)
         <a href="#disabledForIntervals">disabledForIntervals</a></li><br>
 
     <a name="getList"></a>
-    <li>getList cmd [topic|perl-Expression] ...<br>
-      When the FHEM command cmd is issued, publish the topic, wait for the
-      answer (the specified reading), and show it in the user interface.
-      Multiple triples can be specified, each of them separated by newline, the
-      newline does not have to be entered in the FHEMWEB frontend.<br>
+    <li>getList cmd reading [topic|perl-Expression] ...<br>
+      When the FHEM command cmd is issued, publish the topic (and optional
+      message, which is separated by space from the topic), wait for the answer
+      which must contain the specified reading, and show the result in the user
+      interface.<br>
+      Multiple triples can be specified, each of them separated by newline.
       Example:<br>
       <code>
         &nbsp;&nbsp;attr dev getList\<br>
         &nbsp;&nbsp;&nbsp;&nbsp;temp temperature myDev/cmd/getstatus\<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;hum  hum  myDev/cmd/getStatus
+        &nbsp;&nbsp;&nbsp;&nbsp;hum humReading myDev/cmd/getHumidity now
       </code><br>
       This example defines 2 get commands (temp and hum), which both publish
       the same topic, but wait for different readings to be set.<br>
@@ -1057,12 +1090,13 @@ zigbee2mqtt_devStateIcon255($;$$)
       Notes:
       <ul>
         <li>arguments to the set command will be appended to the message
-          published (not for the perl expression)</li>
+          published (this is not valid not for the perl expression)</li>
         <li>the command arguments are available as $EVENT, $EVTPART0, etc., 
           the name of the device as $NAME, both in the perl expression and the
           "normal" topic variant.</li>
         <li>the perl expression must return a string containing the topic and
-          the message separated by a space.</li>
+          the message separated by a space. If it returns "", undef or 0, no
+          MQTT message will be sent.</li>
         <li>SetExtensions is activated</li>
         <li>if the topic name ends with :r, then the retain flag is set</li>
       </ul>

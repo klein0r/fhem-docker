@@ -1,4 +1,4 @@
-# $Id: configDB.pm 22995 2020-10-20 09:10:09Z betateilchen $
+# $Id: configDB.pm 23411 2020-12-23 11:12:50Z betateilchen $
 
 =for comment
 
@@ -671,7 +671,7 @@ sub cfgDB_MigrationImport {
 
 # return SVN Id, called by fhem's CommandVersion
 sub cfgDB_svnId { 
-	return "# ".'$Id: configDB.pm 22995 2020-10-20 09:10:09Z betateilchen $' 
+	return "# ".'$Id: configDB.pm 23411 2020-12-23 11:12:50Z betateilchen $' 
 }
 
 # return filelist depending on directory and regexp
@@ -1124,7 +1124,7 @@ sub _cfgDB_findDef {
 }
 
 sub _cfgDB_type { 
-   return "$cfgDB_dbtype (b64)";
+   return $cfgDB_dbtype;
 }
 
 sub _cfgDB_dump {

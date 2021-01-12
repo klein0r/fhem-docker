@@ -1,12 +1,15 @@
 "use strict";
 var FW_version={};
-FW_version["fhemweb.js"] = "$Id: fhemweb.js 23090 2020-11-03 19:53:34Z rudolfkoenig $";
+FW_version["fhemweb.js"] = "$Id: fhemweb.js 23453 2021-01-01 18:10:12Z rudolfkoenig $";
 
 var FW_serverGenerated;
+var FW_jsLog;
 var FW_serverFirstMsg = (new Date()).getTime()/1000;
 var FW_serverLastMsg = FW_serverFirstMsg;
 var FW_isIE = (navigator.appVersion.indexOf("MSIE") > 0);
-var FW_isiOS = navigator.userAgent.match(/(iPad|iPhone|iPod)/);
+var FW_isiOS = navigator.userAgent.match(/(iPad|iPhone|iPod)/) ||
+               (navigator.platform === 'MacIntel' && 
+                navigator.maxTouchPoints > 1); /* iPad OS 13+ */
 var FW_scripts = {}, FW_links = {};
 var FW_docReady = false, FW_longpollType, FW_csrfToken, FW_csrfOk=true;
 var FW_root = "/fhem";  // root
@@ -80,9 +83,11 @@ FW_jqueryReadyFn()
   if(FW_docReady)       // loading fhemweb.js twice is hard to debug
     return;
   FW_docReady = true;
-  FW_serverGenerated = $("body").attr("generated");
 
+  FW_serverGenerated = $("body").attr("generated");
+  FW_jsLog = $("body").attr("data-jsLog");
   FW_longpollType = $("body").attr("longpoll");
+
   var ajs = $("body").attr("data-availableJs");
   if(ajs) {
     ajs = ajs.split(",");
@@ -307,12 +312,15 @@ FW_jqueryReadyFn()
       $("#content")
         .append("<div id='workbench' style='display:none'></div>");
       $("#content > #workbench").html(data);
-
       var mtype = $("#content > #workbench a[name]").attr("name"), aTag;
-      if(mtype)
-        aTag = $("#content > #workbench").find("a[name="+mtype+val+"]");
-      if(!$(aTag).length) // old style syntax without type
-        aTag = $("#content > #workbench").find("a[name="+val+"]");
+      if(mtype) {
+        var mv = (""+mtype+val).replace(/[^a-z0-9_]/ig,'_');
+        aTag = $("#content > #workbench").find("a[name="+mv+"]");
+      }
+      if(!$(aTag).length) { // old style syntax without type
+        var v = (val).replace(/[^a-z0-9_]/ig,'_');
+        aTag = $("#content > #workbench").find("a[name="+v+"]");
+      }
       if($(aTag).length) {
         var liTag = $(aTag).next("li");
         if(!$(liTag).length)
@@ -355,7 +363,8 @@ FW_getHelp(dev, fn)
   if(FW_helpData)
     return fn(FW_helpData);
   FW_cmd(FW_root+"?cmd=help "+dev+"&XHR=1", function(data) {
-    if(data.match(/^<html>No help found/)) // for our german only friends
+    if(data.match(/^<html>No help found/) &&
+       !dev.match(" DE")) // for our german only friends
       return FW_getHelp(dev+" DE", fn);
     FW_helpData = data;
     return fn(FW_helpData);
@@ -496,16 +505,27 @@ FW_delayedStart()
 }
     
 
-
+var FW_logStack=[];
 function
 log(txt)
 {
   var d = new Date();
   var ms = ("000"+(d.getMilliseconds()%1000));
   ms = ms.substr(ms.length-3,3);
-  txt = d.toTimeString().substring(0,8)+"."+ms+" "+txt;
+  var lTxt = d.toTimeString().substring(0,8)+"."+ms+" "+txt;
   if(typeof window.console != "undefined")
-    console.log(txt);
+    console.log(lTxt);
+
+  if(FW_jsLog==1 && FW_longpollType == "websocket") {
+    FW_logStack.push(txt);
+    if(FW_pollConn && FW_pollConn.readyState == FW_pollConn.OPEN) {
+      while(FW_logStack.length) {
+        txt = '{Log 1, "jsLog: '+FW_logStack.shift().replace(/"/g, "'")+'"}';
+        console.log(txt);
+        FW_pollConn.send(txt);
+      }
+    }
+  }
 }
 
 function
@@ -535,8 +555,9 @@ FW_csrfRefresh(callback)
   });
 }
 
+var FW_cmdStack=[];
 function
-FW_cmd(arg, callback)
+FW_cmd(arg, callback, rep)
 {
   if(arg.length < 120)
     log("FW_cmd:"+arg);
@@ -544,6 +565,8 @@ FW_cmd(arg, callback)
     log("FW_cmd:"+arg.substr(0,120)+"...");
   $.ajax({
     url:addcsrf(arg)+'&fw_id='+$("body").attr('fw_id'),
+    headers: { "cache-control": "no-cache" },
+    dataType: "text",
     method:'POST',
     success: function(data, textStatus, req){
       FW_csrfOk = true;
@@ -551,11 +574,23 @@ FW_cmd(arg, callback)
         callback(req.responseText);
       else if(req.responseText)
         FW_errmsg(req.responseText, 5000);
+      var todo = FW_cmdStack.shift();
+      if(todo) {
+        log("FW_cmd retry #"+todo.rep);
+        FW_cmd(todo.arg, todo.callback, todo.rep);
+      }
     },
     error:function(xhr, status, err) {
-      if(xhr.status == 400 && typeof FW_csrfToken != "undefined") {
+      // iOS 13+ is not queueing requests, have to do it myself. Forum #116962
+      if(xhr.status == 0 && xhr.readyState == 0 && (!rep || rep < 10)) {
+        FW_cmdStack.push({ arg:arg, callback:callback, rep:(rep?rep+1:1)});
+
+      } else if(xhr.status == 400 && typeof FW_csrfToken != "undefined") {
         FW_csrfToken = "";
         FW_csrfRefresh(function(){FW_cmd(arg, callback)});
+
+      } else {
+        log("FW_cmd error: "+status+"/"+JSON.stringify(xhr));
       }
     }
   });
@@ -1094,7 +1129,8 @@ FW_doUpdate(evt)
     var l = input.substr(FW_longpollOffset, nOff-FW_longpollOffset);
     FW_longpollOffset = nOff+1;
 
-    log("Rcvd: "+(l.length>132 ? l.substring(0,132)+"...("+l.length+")":l));
+    if(l != '[""]') // jsLog answer
+      log("Rcvd: "+(l.length>132 ? l.substring(0,132)+"...("+l.length+")":l));
     if(!l.length)
       continue;
     if(l.indexOf("<")== 0) {  // HTML returned by proxy, if FHEM behind is dead
@@ -1245,26 +1281,34 @@ FW_detailSelect(selEl, mayMissing)
   var div = $(selEl).closest("div.makeSelect");
   if(!div.attr("list"))      // hiddenRoom=input
     return;
-  var arg,
+  var argAndPar, fnd,
       listArr = $(div).attr("list").split(" "),
       devName = $(div).attr("dev"),
       cmd = $(div).attr("cmd");
 
-  var i1;
-  for(i1=0; i1<listArr.length; i1++) {
-    arg = listArr[i1];
-    if(arg.indexOf(selVal) == 0 &&
-       (arg.length == selVal.length || arg[selVal.length] == ':'))
-      break;
+  if(selVal != null && selVal != undefined) {
+    for(var i1=0; i1<listArr.length; i1++) {
+      var aap = listArr[i1].split(":");
+      try {
+        if(selVal.match(new RegExp("^"+aap[0]+"$"))) {
+          if(aap.length > 2) {
+            var re = aap.shift();
+            aap = [re, aap.join(":")];
+          }
+          argAndPar = aap;
+          fnd = true;
+        }
+      } catch(e){
+        log("Problem building regexp from "+listArr[i1]);
+      }
+    }
   }
 
   var vArr = [];
-  if(i1==listArr.length && !mayMissing)
+  if(!fnd && !mayMissing)
     return;
-  if(i1<listArr.length) {
-    if(arg.length > selVal.length)
-      vArr = arg.substr(selVal.length+1).split(","); 
-  }
+  if(fnd && argAndPar[1])
+    vArr = argAndPar[1].split(",");
 
   FW_replaceWidget($(selEl).next(), devName, vArr,undefined,selVal,
     undefined, undefined, undefined,
@@ -1470,9 +1514,9 @@ FW_createSelect(elName, devName, vArr, currVal, set, params, cmd)
   var vHash = {};
   for(var j=1; j < vArr.length; j++) {
     var o = document.createElement('option');
-    if(!vArr[j].match(/&#[0-9a-f]{1,4};/i))
+    if(!vArr[j].match(/&#[0-9a-f]{1,4};/i)) // how to reproduce?
       o.text = o.value = vArr[j].replace(/#/g," ");
-    vHash[vArr[j]] = 1;
+    vHash[o.value] = 1;
     newEl.options[j-1] = o;
   }
   if(currVal)

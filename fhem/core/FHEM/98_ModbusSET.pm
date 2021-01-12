@@ -1,6 +1,5 @@
-##############################################
-##############################################
-# $Id: 98_ModbusSET.pm 14230 2017-05-09 19:08:57Z StefanStrobel $
+################################################################################
+# $Id: 98_ModbusSET.pm 23484 2021-01-07 12:58:43Z StefanStrobel $
 #
 # fhem Modul für Wärmepumpen der Silent Serie von SET mit Modbus-Interface
 # verwendet Modbus.pm als Basismodul für die eigentliche Implementation des Protokolls.
@@ -53,6 +52,7 @@
 package main;
 use strict;
 use warnings;
+
 sub ModbusSET_Initialize($);
 
 my %SET10parseInfo = (
@@ -92,7 +92,7 @@ my %SET10parseInfo = (
                 },
     "h777"  =>  {   reading => "Hyst_Mode",         # Hex Adr 0309
                     name    => "ST10",
-                    map     => "0:mittig, 1:oberhalb, 2:unterhalb", 
+                    map     => "0:mittig, 1:über, 2:unterhalb", 
                     poll    => "once",              # only poll once (or after a set)
                     set     => 1,
                 },

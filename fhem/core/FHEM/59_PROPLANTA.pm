@@ -1,5 +1,5 @@
 ﻿####################################################################################################
-# $Id: 59_PROPLANTA.pm 18714 2019-02-24 16:08:46Z tupol $
+# $Id: 59_PROPLANTA.pm 23449 2021-01-01 09:56:49Z tupol $
 #
 #  59_PROPLANTA.pm 
 #
@@ -132,6 +132,8 @@ my $curReadingType = 0;
       ,["BD_15", "cloud15", 2]
       ,["BD_18", "cloud18", 2]
       ,["BD_21", "cloud21", 2]
+      ,["SA", "sunRise", 5]
+      ,["SU", "sunSet", 5]      
       ,["MA", "moonRise", 5]
       ,["MU", "moonSet", 5]      
       ,["WGRAD_0", "windDir00", 2]
@@ -520,7 +522,7 @@ sub PROPLANTA_Define($$)
    $hash->{STATE}          = "Initializing";
    $hash->{fhem}{LOCAL}    = 0;
    $hash->{INTERVAL}       = 3600;
-   $hash->{fhem}{modulVersion} = '$Date: 2019-02-24 17:08:46 +0100 (Sun, 24 Feb 2019) $';
+   $hash->{fhem}{modulVersion} = '$Date: 2021-01-01 10:56:49 +0100 (Fri, 01 Jan 2021) $';
    
    RemoveInternalTimer($hash);
    

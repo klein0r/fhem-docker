@@ -1,5 +1,5 @@
 ##############################################
-# $Id: TcpServerUtils.pm 22894 2020-10-01 19:49:32Z rudolfkoenig $
+# $Id: TcpServerUtils.pm 23472 2021-01-04 19:56:38Z rudolfkoenig $
 
 package main;
 use strict;
@@ -205,7 +205,7 @@ TcpServer_SetSSL($)
 sub
 TcpServer_Close($@)
 {
-  my ($hash, $dodel) = @_;
+  my ($hash, $dodel, $ignoreNtfy) = @_;
   my $name = $hash->{NAME};
 
   if(defined($hash->{CD})) { # Clients
@@ -213,7 +213,7 @@ TcpServer_Close($@)
     delete($hash->{CD}); 
     delete($selectlist{$name});
     delete($hash->{FD});  # Avoid Read->Close->Write
-    removeFromNtfyHash($name);
+    removeFromNtfyHash($name) if(!$ignoreNtfy); # can be expensive
   }
 
   if(defined($hash->{SERVERSOCKET})) {          # Server

@@ -1,6 +1,5 @@
 
-
-# $Id: 31_HUEDevice.pm 23164 2020-11-15 20:38:23Z justme1968 $
+# $Id: 31_HUEDevice.pm 23344 2020-12-13 17:05:33Z justme1968 $
 
 # "Hue Personal Wireless Lighting" is a trademark owned by Koninklijke Philips Electronics N.V.,
 # see www.meethue.com for more information.
@@ -111,6 +110,11 @@ my %hueModels = (
                                                                                     icon => 'hue_filled_hds', },
   ZGPSWITCH => {name => 'Hue Tap'               ,type => 'ZGPSwitch'               ,subType => 'sensor',
                                                                                     icon => 'hue_filled_tap', },
+
+  LCX002    => {name => 'Hue play gradient lightstrip'     ,type => 'Extended color light'    ,subType => 'extcolordimmer',
+                                                                                    icon => 'hue_filled_lightstrip', },
+  440400982841 => {name => 'Hue Play'           ,type => 'Extended color light'    ,subType => 'extcolordimmer',
+                                                                                    icon => 'hue_filled_play', },
 
  'FLS-H3'  => {name => 'dresden elektronik FLS-H lp'  ,type => 'Color temperature light' ,subType => 'ctdimmer',},
  'FLS-PP3' => {name => 'dresden elektronik FLS-PP lp' ,type => 'Extended color light'    ,subType => 'extcolordimmer', },
@@ -938,6 +942,7 @@ HUEDevice_Set($@)
 
   if( (my $joined = join(" ", @aa)) =~ /:/ ) {
     $joined =~ s/on-till\s+[^\s]+//g; #bad workaround for: https://forum.fhem.de/index.php/topic,61636.msg728557.html#msg728557
+    $joined =~ s/on-till-overnight\s+[^\s]+//g; #same bad workaround for: https://forum.fhem.de/index.php/topic,61636.msg1110193
     my @cmds = split(":", $joined);
     for( my $i = 0; $i <= $#cmds; ++$i ) {
       HUEDevice_SetParam($name, \%obj, split(" ", $cmds[$i]) );

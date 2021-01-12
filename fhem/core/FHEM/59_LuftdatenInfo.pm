@@ -1,5 +1,5 @@
 # Id ##########################################################################
-# $Id: 59_LuftdatenInfo.pm 21937 2020-05-14 14:44:32Z igami $
+# $Id: 59_LuftdatenInfo.pm 23228 2020-11-25 06:28:42Z igami $
 
 # copyright ###################################################################
 #
@@ -91,6 +91,8 @@ sub LuftdatenInfo_Define($$) {
   my $hadTemperature = 1 if(ReadingsVal($SELF, "temperature", undef));
 
   delete($hash->{READINGS});
+
+  $DEF =~ s/\s+/ /g;
 
   if($MODE eq "remote"){
     return("Usage: define <name> $TYPE $MODE <SENSORID1> [<SENSORID2> ...]")

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 90_at.pm 21639 2020-04-11 08:45:19Z rudolfkoenig $
+# $Id: 90_at.pm 23280 2020-12-02 13:54:35Z rudolfkoenig $
 package main;
 
 use strict;
@@ -61,7 +61,7 @@ at_Define($$)
   }
 
   return "Wrong timespec, use \"[+][*[{count}]]<time or func>\""
-                                        if($tm !~ m/^(\+)?(\*(\{\d+\})?)?(.*)$/);
+                                       if($tm !~ m/^(\+)?(\*(\{\d+\})?)?(.+)$/);
   my ($rel, $rep, $cnt, $tspec) = ($1, $2, $3, $4);
 
   my ($abstime, $err, $hr, $min, $sec, $fn);
@@ -74,10 +74,24 @@ at_Define($$)
 
   } else {
     ($err, $hr, $min, $sec, $fn) = GetTimeSpec($tspec);
-    return $err if($err);
+    if($err) { # $fn contains the result, try again
+      my $ntspec = ($fn ? $fn : "");
+      $fn = undef;
+      if($ntspec =~ m/^\d{10}$/) {
+        $abstime = $ntspec;
+
+      } elsif($ntspec =~ m/^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)$/) {
+        my ($y,$m,$d,$h,$m2,$s) = ($1,$2,$3,$4,$5,$6);
+        $abstime = mktime($s,$m2,$h,$d,$m-1,$y-1900, 0,0,-1);
+
+      } else {
+        return $err;
+      }
+
+    }
 
   }
-  return "datespec is not allowed with + or *" if($abstime && ($rel || $rep));
+  return "datespec is not allowed with +" if($abstime && $rel);
 
   if($hash->{CL}) {     # Do not check this for definition
     $err = perlSyntaxCheck($command, ());

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_MQTT2_SERVER.pm 23167 2020-11-16 09:10:44Z rudolfkoenig $
+# $Id: 00_MQTT2_SERVER.pm 23326 2020-12-11 17:47:10Z rudolfkoenig $
 package main;
 
 use strict;
@@ -381,6 +381,7 @@ MQTT2_SERVER_Read($@)
     if(!$hash->{answerScheduled}) {
       $hash->{answerScheduled} = 1;
       InternalTimer($hash->{lastMsgTime}+1, sub(){
+        return if(!$hash->{FD}); # Closed in the meantime, #114425
         delete($hash->{answerScheduled});
         my $r = $defs{$sname}{retain};
         foreach my $tp (sort { $r->{$a}{ts} <=> $r->{$b}{ts} } keys %{$r}) {
@@ -415,7 +416,7 @@ MQTT2_SERVER_Read($@)
 
   ####################################
   } else {
-    Log 1, "ERROR: Unhandled packet $cpt, disconneting $cname";
+    Log 1, "ERROR: Unhandled packet $cpt, disconnecting $cname";
     return CommandDelete(undef, $cname);
 
   }
@@ -488,7 +489,7 @@ MQTT2_SERVER_sendto($$$$)
   my ($shash, $hash, $topic, $val) = @_;
   return if(IsDisabled($hash->{NAME}));
   $val = "" if(!defined($val));
-  my $dump = (AttrVal($shash->{NAME},"verbose",1) >= 5) ? $shash->{NAME} :undef;
+  my $dump = (AttrVal($shash->{NAME},"verbose",1)>=5) ? $shash->{NAME} :undef;
   foreach my $s (keys %{$hash->{subscriptions}}) {
     my $re = $s;
     $re =~ s,^#$,.*,g;

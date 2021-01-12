@@ -1,5 +1,47 @@
 # Add changes at the top of the list. Keep it in ASCII, and 80-char wide.
 # Do not insert empty lines here, update check depends on it.
+ - change:  10_WS980: fix num vs. string
+ - change:  55_DWD_OpenData: logging (forum #83097 msg #1114070)
+ - feature: 74_Unifi: get deviceData hinzugefügt
+ - feature: 74_UnifiSwitch: new setter portProfile
+ - bugfix:  60_Watches: avoid JS error which appeared in seldom cases
+ - feature: 98_WeekdayTimer: Add options WDT_sendDelay and WDT_eventMap
+ - change:  98_WeekdayTimer: break compability to Heating_Control
+ - change:  59_Twilight: not triggering at startup
+ - bugfix:  98_weekprofile: do not update profile data in edit mode
+ - change:  93_DbRep: set fastStart as default for TYPE Client
+ - bugfix:  93_DbRep: sumValue - create 0 instaed of '-' if value of DS is 0
+ - feature: 49_TBot_List: new silentStart option
+ - change:  49_TBot_List: chat/groupid can be added in start
+ - bugfix:  98_weekprofile: Log ccutype not defined (forum #1113306)
+ - change:  Device::Firmata removed, use CPAN version (forum #114552)
+ - bugfix:  10_FRM: Device::Firmata check (forum #114552 msg #1112141)
+ - bugfix:  55_DWD_OpenData: forecast rotation (forum #83097 msg #1108423)
+ - feature: 02_RSS: added readings to show filename and type of background
+ - bugfix:  57_SSCal: accept calendar names which are contain umlauts
+ - feature: 98_weekprofile: add support for MQTT2_DEVICE (txl Beta-User)
+ - feature: 89_FULLY: Added support for sensor information
+ - bugfix: 98_weekprofile: HMCCU-HM send profile without prefix (Forum #1104569)
+ - bugfix:  70_DENON_AVR: serial connection issues
+ - feature: 77_SMAEM: attr serialNumber may contain multiple serial numbers
+ - feature: 57_SSCal: handle multiline code in description field if automatic
+                      creation of at-devices is used
+ - feature: 70_BOTVAC: add oauth2 workflow,
+                       support MyKobold app
+ - bugfix:  76_SMAPortal: fix problem that after call consumerMasterdata 
+                          delivers an error if haven't any consumer available
+ - bugfix:  72_FB_CALLMONITOR: fix reverse search for dasoertliche.de
+ - bugfix:  49_SSCam: fix cannot send snaps/recs if snapTelegramTxt + 
+                      snapChatTxt and no cacheType (cacheType=internal) is set
+ - bugfix:  50_SSChatBot: fix cannot send after receiving anything
+ - feature  76_SMAPortal: integrate SMA EV Charger
+ - change:  14_SD_BELL: revised code Perl::Critic
+ - feature: 14_SD_UT.pm 
+               model Novy_840039: added cmd reset_clean_led
+               revised code Perl::Critic
+ - change:  50_SSChatBot: do once event CHAT_INITIALIZED when users are loaded,
+                          (also update SMUtils.pm)
+ - bugfix:  93_DbRep: fix undefined ARRAY reference in reduceLog, Forum:#116057
  - feature: 93_DbRep: values next_day_begin, next_day_end for time attributes 
  - feature: 23_LUXTRONIK2: new set parameter opModeVentilation
  - feature: 93_DbRep: new attrbute avgDailyMeanGWSwithGTS for Grassland 

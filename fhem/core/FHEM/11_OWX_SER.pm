@@ -6,7 +6,7 @@
 #
 # Prof. Dr. Peter A. Henning
 #
-# $Id: 11_OWX_SER.pm 16671 2018-04-29 05:06:35Z phenning $
+# $Id: 11_OWX_SER.pm 23231 2020-11-25 16:25:09Z phenning $
 #
 ########################################################################################
 #
@@ -59,7 +59,7 @@ sub new($) {
 		#-- OWX device
 		hash => $hash,
 		#-- module version
-	    version => "7.11",
+	    version => "7.21",
 		#-- baud rate serial interface
 		baud => 9600,
 		#-- 16 byte search string

@@ -1,6 +1,6 @@
 ##############################################
 ##############################################
-# $Id: 98_HMinfo.pm 23022 2020-10-25 09:09:43Z martinp876 $
+# $Id: 98_HMinfo.pm 23446 2020-12-31 15:08:30Z martinp876 $
 package main;
 use strict;
 use warnings;
@@ -1671,7 +1671,7 @@ sub HMinfo_GetFn($@) {#########################################################
       $list =~ s/p//;
       my $chan = "";
       foreach (split",",$th->{$modelId}{chn}){
-        my ($n,$s,$e) = split(":",$modelId);
+        my ($n,$s,$e) = split(":",$_);
         $chan .= $s.(($s eq $e)?"":("-".$e))." ".$n.", ";
       }
       push @model,sprintf("%-16s %-24s %4s %-24s %-5s %-5s %s"

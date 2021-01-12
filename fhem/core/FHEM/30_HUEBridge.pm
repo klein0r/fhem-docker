@@ -1,5 +1,5 @@
 
-# $Id: 30_HUEBridge.pm 21366 2020-03-06 12:01:05Z justme1968 $
+# $Id: 30_HUEBridge.pm 23363 2020-12-16 09:35:18Z justme1968 $
 
 # "Hue Personal Wireless Lighting" is a trademark owned by Koninklijke Philips Electronics N.V.,
 # see www.meethue.com for more information.
@@ -410,12 +410,13 @@ sub HUEBridge_fillBridgeInfo($$)
 
   $hash->{name} = $config->{name};
   $hash->{modelid} = $config->{modelid};
+  $hash->{bridgeid} = $config->{bridgeid};
   $hash->{swversion} = $config->{swversion};
   $hash->{apiversion} = $config->{apiversion};
 
   if( defined($config->{websocketport}) ) {
     $hash->{websocketport} = $config->{websocketport};
-    HUEBridge_openWebsocket($hash);
+    HUEBridge_openWebsocket($hash) if( !defined($hash->{CD}) );
   }
 
   if( $hash->{apiversion} ) {
@@ -469,7 +470,8 @@ HUEBridge_OpenDev($)
       return;
     }
 
-  $hash->{mac} = $result->{'mac'};
+  $hash->{mac} = $result->{mac};
+  #$hash->{bridgeid} = $result->{bridgeid};
 
   readingsSingleUpdate($hash, 'state', 'connected', 1 );
   HUEBridge_GetUpdate($hash);

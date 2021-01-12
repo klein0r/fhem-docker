@@ -1,10 +1,17 @@
-# $Id: 37_echodevice.pm 23180 2020-11-18 18:51:12Z michael.winkler $
+# $Id: 37_echodevice.pm 23325 2020-12-11 15:33:38Z michael.winkler $
 #
 ##############################################
 #
+# 2020.12.11 v0.2.5
+# - FEATURE: Text Kommando an Amazon schicken "set textcommand"
+#            Unterstützung A2WN1FJ2HG09UN Ultimate Alexa
+#
+# 2020.11.19 v0.2.4
+# - CHANGE:  get custom-history-records Dialog angepasst
+# - FEATURE: Unterstützung A2U21SRK4QGSE1 Echo Dot Gen4
+#
 # 2020.11.18 v0.2.3
 # - FEATURE: get custom-history-records
-#            Unterstützung A3RMGO6LYLH7YN Echo Dot Gen4
 #            Unterstützung A2H4LV5GIZ1JFT Echo Dot Gen4 with Clock
 #            Unterstützung AVE5HX13UR5NO  Zero Touch (Logitech)
 #            Unterstützung A3GZUE7F9MEB4U Sony WH-100XM3
@@ -432,7 +439,7 @@ use Time::Piece;
 use lib ('./FHEM/lib', './lib');
 use MP3::Info;
 
-my $ModulVersion     = "0.2.3";
+my $ModulVersion     = "0.2.5";
 my $AWSPythonVersion = "0.0.3";
 my $NPMLoginTyp		 = "unbekannt";
 
@@ -855,6 +862,7 @@ sub echodevice_Set($@) {
 		else {
 			$usage .= 'volume:slider,0,1,100 play:noArg pause:noArg next:noArg previous:noArg forward:noArg rewind:noArg shuffle:on,off repeat:on,off dnd:on,off volume_alarm:slider,0,1,100 ';
 			$usage .= 'info:Beliebig_Auf_Wiedersehen,Beliebig_Bestaetigung,Beliebig_Geburtstag,Beliebig_Guten_Morgen,Beliebig_Gute_Nacht,Beliebig_Ich_Bin_Zuhause,Beliebig_Kompliment,Erzaehle_Geschichte,Erzaehle_Was_Neues,Erzaehle_Witz,Kalender_Heute,Kalender_Morgen,Kalender_Naechstes_Ereignis,Nachrichten,Singe_Song,Verkehr,Wetter sounds:glocken,kirchenglocke,summer,tuerklingel_1,tuerklingel_2,tuerklingel_3,jubelnde_menschenmenge,publikumsapplaus,flugzeug,katastrophenalarm,motoren_an,schilde_hoch,sirenen,zappen,boing_1,boing_2,kamera,lufthupe,quitschende_tuer,tickende_uhr,trompete,hahn,hundegebell,katzenmauzen,loewengebruell,wolfsgeheul,gruselig_quitschende_tuer,weihnachtsglocken tunein primeplaylist primeplaysender primeplayeigene primeplayeigeneplaylist alarm_normal alarm_repeat reminder_normal reminder_repeat speak speak_ssml tts tts_translate:textField-long playownmusic:textField-long saveownplaylist:textField-long ';
+			$usage .= 'textcommand ';
 			
 			$usage .= 'homescreen ' if ($hash->{model} eq "Echo Show 5" || $hash->{model} eq "Echo Show 8" || $hash->{model} eq "Echo Show" || $hash->{model} eq "Echo Show Gen2"); 
 			
@@ -1574,6 +1582,11 @@ sub echodevice_Set($@) {
 		return echodevice_getHelpText("no arg") if ( !defined($a[0]) );
 		echodevice_SendCommand($hash,$command,join(' ',@a));
 	}
+
+	elsif($command eq "textcommand"){
+		return echodevice_getHelpText("no arg") if ( !defined($a[0]) );
+		echodevice_SendCommand($hash,$command,join(' ',@a));
+	} 
 	
 	else {
 		echodevice_SendMessage($hash,$command,$parameter);
@@ -2086,6 +2099,15 @@ sub echodevice_SendCommand($$$) {
 		
 		$SendDataL = $SendData;	
 	
+	}
+	
+	elsif ($type eq "textcommand") {
+		$SendUrl   .= "/api/behaviors/preview";
+		$SendMetode = "POST";
+		my $Messagetext = $SendData;
+		$Messagetext =~ s/"/'/g;
+		$SendData   = '{"behaviorId":"PREVIEW","sequenceJson":"{\"@type\":\"com.amazon.alexa.behaviors.model.Sequence\",\"startNode\":{\"@type\": \"com.amazon.alexa.behaviors.model.OpaquePayloadOperationNode\",\"nodeState\": null,\"name\": null,\"type\": \"Alexa.TextCommand\",\"skillId\": \"amzn1.ask.1p.tellalexa\",\"operationPayload\": {\"customerId\": \"' . $hash->{helper}{".CUSTOMER"} .'\",\"deviceType\": \"' . $hash->{helper}{DEVICETYPE} . '\",\"deviceSerialNumber\": \"' . $hash->{helper}{".SERIAL"} . '\",\"text\": \"' . $Messagetext .'\",\"locale\": \"de-DE\"},\"presentationDataList\": null,\"clientData\": null,\"context\": null,\"tag\": null},\"sequenceId\":\"amzn1.alexa.sequence.8f5aa289-c6d4-4a6f-a1b9-5b182e23be1e\"}","status":"ENABLED"}';
+		$SendDataL = $SendData;
 	}
 	
 	else {
@@ -4289,6 +4311,7 @@ sub echodevice_LostConnect($$){
 ##########################
 sub echodevice_getModel($){
 	my ($ModelNumber) = @_;
+	my $name = $hash->{NAME};
 	
 	if   ($ModelNumber eq "AB72C64C86AW2"  || $ModelNumber eq "Echo")            		{return "Echo";}
 	elsif($ModelNumber eq "A3S5BH2HU6VAYF" || $ModelNumber eq "Echo Dot")        		{return "Echo Dot";}
@@ -4296,6 +4319,8 @@ sub echodevice_getModel($){
 	elsif($ModelNumber eq "A32DDESGESSHZA" || $ModelNumber eq "Echo Dot")				{return "Echo Dot Gen3";}
 	elsif($ModelNumber eq "A1RABVCI4QCIKC" || $ModelNumber eq "Echo Dot")				{return "Echo Dot Gen3";}
 	elsif($ModelNumber eq "A3RMGO6LYLH7YN" || $ModelNumber eq "Echo Dot")				{return "Echo Dot Gen4";}
+	elsif($ModelNumber eq "A2U21SRK4QGSE1" || $ModelNumber eq "Echo Dot")				{return "Echo Dot Gen4";}
+	 
 	elsif($ModelNumber eq "A2H4LV5GIZ1JFT" || $ModelNumber eq "Echo Dot")				{return "Echo Dot Gen4 with Clock";}
 	elsif($ModelNumber eq "A10A33FOX2NUBK" || $ModelNumber eq "Echo Spot")				{return "Echo Spot";}
 	elsif($ModelNumber eq "A1NL4BVLQ4L3N3" || $ModelNumber eq "Echo Show")				{return "Echo Show";}
@@ -4360,6 +4385,7 @@ sub echodevice_getModel($){
 	elsif($ModelNumber eq "A24Z7PEXY4MDTK" || $ModelNumber eq "Sony WF-1000X")			{return "Sony WF-1000X";}
 	elsif($ModelNumber eq "ABN8JEI7OQF61"  || $ModelNumber eq "Sony WF-1000XM3")		{return "Sony WF-1000XM3";}
 	elsif($ModelNumber eq "A7S41FQ5TWBC9"  || $ModelNumber eq "Sony WH-1000XM4")		{return "Sony WH-1000XM4";}
+	elsif($ModelNumber eq "A2WN1FJ2HG09UN" || $ModelNumber eq "Ultimate Alexa")	        {return "Ultimate Alexa";}
 	
 	elsif($ModelNumber eq "")               {return "";}
 	elsif($ModelNumber eq "ACCOUNT")        {return "ACCOUNT";}

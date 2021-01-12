@@ -867,11 +867,14 @@ Die folgenden lokalen Attribute werden von mehreren Ger&auml;ten verwendet:
 <a name="deletereading"></a>
 <h3>deletereading</h3>
 <ul>
-  <code>deletereading &lt;devspec&gt; &lt;readingname&gt;</code> <br>
+  <code>deletereading &lt;devspec&gt; &lt;readingname&gt;
+        [&lt;older-than-seconds&gt;]</code> <br>
   <br>
   Entfernt das Reading &lt;readingname&gt; f&uuml;r das spezifizierte
   Ger&auml;t.  &lt;readingname&gt; ist ein perl Regular-Expression, was den
   vollst&auml;ndigen Namen des Readings erfassen muss.
+  Falls &lt;older-than-seconds&gt; spezifiziert ist, werden nur readings
+  entfernt, die aelter als dieser Zahl (in Sekunden) sind.<br>
 
   Mit gr&ouml;&szlig;ter Sorgfalt verwenden! FHEM kann abst&uuml;rzen, falls
   man lebenswichtige Readings entfernt.<br>
@@ -1534,12 +1537,13 @@ Die folgenden lokalen Attribute werden von mehreren Ger&auml;ten verwendet:
   <b>Get</b><ul>N/A</ul><br>
 
   <b>Internals</b>
+  <ul>
     <a name="init_errors"></a>
     <li>init_errors<br>
         Konfigurations Fehlermeldungen beim FHEM Start und Security Meldungen werden
         hier gesammelt.
     </li><br>
-
+  </ul><br>
 
   <b>Attributes</b>
   <ul>
@@ -1917,14 +1921,6 @@ Die folgenden lokalen Attribute werden von mehreren Ger&auml;ten verwendet:
         Setzt die Verz&ouml;gerung beim Neustart mit shutdown restart, die
         Voreinstellung ist 2 (Sekunden).
     </li><br>
-
-    <a name="autosave"></a>
-    <li>autosave<br>
-        Erlaubt manchen Modulen save auszuf&uuml;hren, nach einer automatischen
-        &Auml;nderung der Konfiguration, z.Bsp. nachdem ein Ger&auml;t angelegt
-        wurde. Die Voreinstellung ist 1 (wahr), man kann es ausschalten, indem
-        man den Wert auf 0 setzt.
-    </li>
   </ul>
 
   <br><br>

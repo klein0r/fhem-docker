@@ -1,7 +1,7 @@
 ##############################################
 ##############################################
 # CUL HomeMatic handler
-# $Id: 10_CUL_HM.pm 23117 2020-11-08 16:37:38Z martinp876 $
+# $Id: 10_CUL_HM.pm 23421 2020-12-26 15:11:46Z martinp876 $
 
 package main;
 
@@ -423,7 +423,6 @@ sub CUL_HM_updateConfig($){##########################
       if (   $hash->{helper}{fkt} 
           && $hash->{helper}{fkt} =~ m/^(vdCtrl|virtThSens)$/){
         my $vId = substr($id."01",0,8);
-        $hash->{helper}{virtTC} = "00";
         $hash->{helper}{vd}{msgRed}= 0 if(!defined $hash->{helper}{vd}{msgRed});
         if(!defined $hash->{helper}{vd}{next}){
           ($hash->{helper}{vd}{msgCnt},$hash->{helper}{vd}{next}) = 
@@ -1138,6 +1137,35 @@ sub CUL_HM_Attr(@) {#################################
       }
     }
   }
+  elsif($attrName eq "ignore"){
+    if ($init_done){
+      if ($cmd eq "set"){
+        $attr{$name}{".ignoreSet"} = $attrVal; # remember user desire
+        foreach my $chNm(CUL_HM_getAssChnNames($name)){
+          if( $attrVal == 1){
+            $attr{$chNm}{$attrName} = 1;
+          }
+          elsif( defined $attr{$chNm}{".ignoreSet"}){
+            $attr{$chNm}{$attrName} = $attr{$chNm}{".ignoreSet"};
+          }
+          else{
+            delete $attr{$chNm}{$attrName};
+          }
+        }
+      }
+      else {
+        delete $attr{$name}{".ignoreSet"};
+        foreach my $chNm(CUL_HM_getAssChnNames($name)){
+          if( defined $attr{$chNm}{".ignoreSet"}){
+            $attr{$chNm}{$attrName} = $attr{$chNm}{".ignoreSet"};
+          }
+          else{
+            delete $attr{$chNm}{$attrName};
+          }
+        }
+      }
+    }
+  }
  
   CUL_HM_queueUpdtCfg($name) if ($updtReq);
   return;
@@ -1239,18 +1267,21 @@ sub CUL_HM_hmInitMsgUpdt($){ #update device init msg for HMLAN
 
 sub CUL_HM_Notify(@){#################################
   my ($ntfy, $dev) = @_;
-  return "" if ($dev->{NAME} ne "global");
-
-  my $events = deviceEvents($dev, AttrVal($ntfy->{NAME}, "addStateEvent", 0));
-  return undef if(!$events); # Some previous notify deleted the array.
-  return undef if (grep !/INITIALIZED/,@{$events});
-  delete $modules{CUL_HM}{NotifyFn};
-  # execute some cleanup after init
-  
-  CUL_HM_updateConfig("startUp");
-  InternalTimer(1,"CUL_HM_setupHMLAN", "initHMLAN", 0);#start asap once FHEM is operational
-
-  return undef;
+  if ($dev->{NAME} eq "global"){
+    my $events = deviceEvents($dev, AttrVal($ntfy->{NAME}, "addStateEvent", 0));
+    return undef if(!$events); # Some previous notify deleted the array.
+    return undef if (grep !/INITIALIZED/,@{$events});
+    delete $modules{CUL_HM}{NotifyFn};
+    # execute some cleanup after init
+    
+    CUL_HM_updateConfig("startUp");
+    InternalTimer(1,"CUL_HM_setupHMLAN", "initHMLAN", 0);#start asap once FHEM is operational
+    
+    return undef;
+  }
+  else {
+    return "";
+  }
 }
 
 sub CUL_HM_setupHMLAN(@){#################################
@@ -1373,6 +1404,7 @@ sub CUL_HM_Parse($$) {#########################################################
         $mh{dstH}->{"prot"."ErrIoAttack"} =
           ReadingsVal($mh{dstN},"sabotageAttack_ErrIoAttack_cnt:",undef);
       }
+      
       Log3 $mh{dstN},2,"CUL_HM $mh{dstN} attack:$mh{dstH}->{helper}{cSnd}:".$tm;
       CUL_HM_eventP($mh{dstH},"ErrIoAttack");
       my ($evntCnt,undef) = split(' last_at:',$mh{dstH}->{"prot"."ErrIoAttack"},2);
@@ -4331,6 +4363,18 @@ sub CUL_HM_Get($@) {#+++++++++++++++++ get command+++++++++++++++++++++++++++++
     }
     return $ret;
   }
+  elsif($cmd eq "list"){  ###############################################
+    my $globAttr = AttrVal("global","showInternalValues","undef");
+    $attr{global}{showInternalValues} = $a[2] eq "full" ? 1 : 0;
+    my $ret = CommandList(undef,$name);
+    if ($globAttr eq "undef"){
+      delete $attr{global}{showInternalValues};
+    }
+    else{
+      $attr{global}{showInternalValues} = $globAttr;
+    }
+    return $ret;
+  }
  
   Log3 $name,3,"CUL_HM get $name " . join(" ", @a[1..$#a]);
 
@@ -6129,7 +6173,7 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
           $hash->{helper}{vd}{typ} = 1; #valvePos
           my $idDev = substr($pId[0],0,6);
           $hash->{helper}{vd}{nDev}  =  CUL_HM_id2Name($idDev);
-          $hash->{helper}{vd}{id}  = $modules{CUL_HM}{defptr}{$pId[0]}
+          $hash->{helper}{vd}{id}    = $modules{CUL_HM}{defptr}{$pId[0]}
                                                 ?$pId[0]
                                                 :$idDev;
           $hash->{helper}{vd}{cmd} = "A258$dst$idDev";
@@ -6161,10 +6205,8 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
           $hash->{helper}{vd}{msgRed} = 0 if(!defined $hash->{helper}{vd}{msgRed});
 
           $hash->{helper}{virtTC}   = ($cmd eq "valvePos")?"03":"00";
-          CUL_HM_UpdtReadSingle($hash,"valveCtrl","init",1)
-                if ($cmd eq "valvePos");
-          $hash->{helper}{vd}{next} = ReadingsVal($name,".next",gettimeofday()) 
-                if (!defined $hash->{helper}{vd}{next});
+          CUL_HM_UpdtReadSingle($hash,"valveCtrl","init",1)                     if ($cmd eq "valvePos");
+          $hash->{helper}{vd}{next} = ReadingsVal($name,".next",gettimeofday()) if (!defined $hash->{helper}{vd}{next});
           CUL_HM_valvePosUpdt("valvePos:$dst$chn");
         }
         $hash->{helper}{virtTC} = ($cmd eq "valvePos")?"03":"00";
@@ -8088,27 +8130,22 @@ sub CUL_HM_protState($$){
 
 ###################-----------helper and shortcuts--------#####################
 ################### Peer Handling ################
-sub CUL_HM_ID2PeerList ($$$) {
+sub CUL_HM_ID2PeerList ($$$) { # {CUL_HM_ID2PeerList ("lvFrei","12345678",1)}
   my($name,$peerID,$set) = @_;
-  my $peerIDs = AttrVal($name,"peerIDs","peerUnread");
-  $peerIDs =~ s/peerUnread//;
-  return if (!$peerID && !$peerIDs); # nothing to do
-  my $hash = $defs{$name};
-  $peerIDs =~ s/$peerID//g;          #avoid duplicate, support unset
+  $peerID = ' ' if (!defined($peerID) || $peerID eq '');  # no peer
   $peerID =~ s/^000000../00000000/;  #correct end detector
-  $peerIDs.= $peerID."," if($set);
-  my %tmpHash = map { $_ => 1 } split(",",$peerIDs);#remove duplicates
-  $peerIDs = "";                                    #clear list
-  my $peerNames = "";                               #prepare names
+
   my $dId = substr(CUL_HM_name2Id($name),0,6);      #get own device ID
-  foreach my $pId (sort(keys %tmpHash)){
-    next if ($pId !~ m/^[0-9A-Fx]{8}$/);            #ignore non-channel IDs
-    $peerIDs .= $pId.",";                           #append ID
-    next if ($pId eq "00000000");                   # and end detection
-    $peerNames .= CUL_HM_peerChName($pId,$dId).",";
-  }
+  my $peerIDs = AttrVal($name,"peerIDs","peerUnread");
+  $peerIDs =~ s/(peerUnread|$peerID)//g;            #avoid duplicate, support unset
+  $peerIDs.= ",$peerID" if($set);
+
+  my %tmpHash   = map { $_ => 1 } grep/^[0-9A-Fx]{8}$/,split(",",$peerIDs);#remove duplicates
+  $peerIDs      = join(",",sort(keys %tmpHash)).',';
+  my $peerNames = join(",",map{CUL_HM_peerChName($_,$dId)} sort(grep !/00000000/,keys %tmpHash));
   $attr{$name}{peerIDs} = $peerIDs ? $peerIDs : "peerUnread";                 # make it public
 
+  my $hash = $defs{$name};
   my $dHash = CUL_HM_getDeviceHash($hash);
   my $st = AttrVal($dHash->{NAME},"subType","");
   my $md = AttrVal($dHash->{NAME},"model","");
@@ -8169,9 +8206,8 @@ sub CUL_HM_ID2PeerList ($$$) {
         CUL_HM_UpdtReadSingle($hash,"state","peered",0);
       }
     }
-    elsif( ($md =~ m/^HM-CC-RT-DN/     && $chn =~ m/^(03|06)$/)
-         ||($md eq "HM-TC-IT-WM-W-EU"  && $chn =~ m/^(03|06)$/)){
-      if (AttrVal($hash,"state","unpeered") eq "unpeered"){
+    elsif( $chn =~ m/^(03|06)$/ && $md =~ m/^(HM-CC-RT-DN|HM-TC-IT-WM-W-EU)/ ){
+      if (ReadingsVal($name,"state","unpeered") eq "unpeered"){ 
         CUL_HM_UpdtReadSingle($hash,"state","unknown",0);
       }
     }
@@ -11821,6 +11857,9 @@ sub CUL_HM_tempListTmpl(@) { ##################################################
            prior to rewrite data to an entity it is necessary to pair the device with FHEM.<br>
            restore will not delete any peered channels, it will just add peer channels.<br>
            </li>
+       <li><B>list (normal|hidden);</B><a name="CUL_HMlist"><br>
+           issue list command for the fiven entity normal or including the hidden parameter
+           </li>       
        <li><B>listDevice</B><br>
            <ul>
                 <li>when used with ccu it returns a list of Devices using the ccu service to assign an IO.<br>
@@ -13249,19 +13288,22 @@ sub CUL_HM_tempListTmpl(@) { ##################################################
         vor dem zur&uuml;ckschreiben der Daten eines Eintrags muss das Ger&auml;t mit FHEM verbunden werden.<br>
         "restore" l&ouml;scht keine verkn&uuml;pften Kan&auml;le, es f&uuml;gt nur neue Peers hinzu.<br>
       </li>
-      <li><B>listDevice</B><br>
-          <ul>
-              <li>bei einer CCU gibt es eine Liste der Devices, welche den ccu service zum zuweisen der IOs zurück<br>
-                </li>
-              <li>beim ActionDetector wird eine Komma geteilte Liste der Entities zurückgegeben<br>
-                  get ActionDetector listDevice          # returns alle assigned entities<br>
-                  get ActionDetector listDevice notActive# returns entities ohne status alive<br>
-                  get ActionDetector listDevice alive    # returns entities mit status alive<br>
-                  get ActionDetector listDevice unknown  # returns entities mit status unknown<br>
-                  get ActionDetector listDevice dead     # returns entities mit status dead<br>
-                  </li>
-              </ul>
-          </li>
+       <li><B>list (normal|hidden);</B><a name="CUL_HMlist"><br>
+           triggern des list commandos fuer die entity normal oder inclusive der verborgenen parameter
+           </li>       
+       <li><B>listDevice</B><br>
+           <ul>
+               <li>bei einer CCU gibt es eine Liste der Devices, welche den ccu service zum zuweisen der IOs zurück<br>
+                 </li>
+               <li>beim ActionDetector wird eine Komma geteilte Liste der Entities zurückgegeben<br>
+                   get ActionDetector listDevice          # returns alle assigned entities<br>
+                   get ActionDetector listDevice notActive# returns entities ohne status alive<br>
+                   get ActionDetector listDevice alive    # returns entities mit status alive<br>
+                   get ActionDetector listDevice unknown  # returns entities mit status unknown<br>
+                   get ActionDetector listDevice dead     # returns entities mit status dead<br>
+                   </li>
+               </ul>
+           </li>
     </ul><br>
     <a name="CUL_HMattr"></a><b>Attribute</b>
     <ul>

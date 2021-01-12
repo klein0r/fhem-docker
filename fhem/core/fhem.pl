@@ -19,7 +19,7 @@
 #
 #  Homepage:  http://fhem.de
 #
-# $Id: fhem.pl 23179 2020-11-18 18:02:38Z rudolfkoenig $
+# $Id: fhem.pl 23471 2021-01-04 19:24:21Z rudolfkoenig $
 
 
 use strict;
@@ -269,6 +269,7 @@ use vars qw(@authenticate);     # List of authentication devices
 use vars qw(@authorize);        # List of authorization devices
 use vars qw(@intAtA);           # Internal timer array
 use vars qw(@structChangeHist); # Contains the last 10 structural changes
+use vars qw($numCPUs);          # Number of CPUs on Linux, else 1
 
 use constant {
   DAYSECONDS    => 86400,
@@ -277,7 +278,7 @@ use constant {
 };
 
 $selectTimestamp = gettimeofday();
-$cvsid = '$Id: fhem.pl 23179 2020-11-18 18:02:38Z rudolfkoenig $';
+$cvsid = '$Id: fhem.pl 23471 2021-01-04 19:24:21Z rudolfkoenig $';
 
 my $AttrList = "alias comment:textField-long eventMap:textField-long ".
                "group room suppressReading userReadings:textField-long ".
@@ -306,6 +307,8 @@ $init_done = 0;
 $lastDefChange = 0;
 $readytimeout = ($^O eq "MSWin32") ? 0.1 : 5.0;
 $featurelevel = 6.0; # see also GlobalAttr
+$numCPUs = `grep -c ^processor /proc/cpuinfo 2>&1` if($^O eq "linux");
+$numCPUs = ($numCPUs && $numCPUs =~ m/(\d+)/ ? $1 : 1);
 
 
 $modules{Global}{ORDER} = -1;
@@ -414,8 +417,8 @@ my %ra = (
   "deleteattr" => { Fn=>"CommandDeleteAttr",
            Hlp=>"<devspec> [<attrname>],delete attribute for <devspec>" },
   "deletereading" => { Fn=>"CommandDeleteReading",
-            Hlp=>"<devspec> [<readingname>],delete user defined reading for ".
-                 "<devspec>" },
+            Hlp=>"<devspec> <readingname> [older-than-seconds],".
+                 "delete user defined readings" },
   "delete"  => { Fn=>"CommandDelete",
             Hlp=>"<devspec>,delete the corresponding definition(s)"},
   "displayattr"=> { Fn=>"CommandDisplayAttr",
@@ -529,6 +532,7 @@ if(int(@ARGV) > 1 && $ARGV[$#ARGV] ne "-i") {
     syswrite($client, $ARGV[$i]."\n");
   }
   shutdown($client, 1);
+  alarm(30); #117226
   while(sysread($client, $buf, 256) > 0) {
     $buf =~ s/\xff\xfb\x01Password: //;
     $buf =~ s/\xff\xfc\x01\r\n//;
@@ -1614,7 +1618,7 @@ CommandSetuuid($$)
   my ($cl, $param) = @_;
   return "setuuid cannot be used after FHEM is initialized" if($init_done);
   my @a = split(" ", $param);
-  return "Please define $param first" if(!defined($defs{$a[0]}));
+  return "setuuid: Please define $a[0] first" if(!defined($defs{$a[0]}));
   return "setuuid $a[0]: duplicate value, ignoring it" if($fuuidHash{$a[1]});
   $fuuidHash{$a[1]} = $a[1];
   $defs{$a[0]}{FUUID} = $a[1];
@@ -2378,11 +2382,14 @@ CommandDeleteReading($$)
     $def = $1;
   }
 
-  my @a = split(" ", $def, 2);
-  return "Usage: deletereading [-q] <name> <reading>\n$namedef" if(@a != 2);
+  my @a = split(" ", $def, 3);
+  return "Usage: deletereading [-q] <name> <reading> [older-than-seconds]\n".
+                $namedef if(@a < 2);
 
   eval { "" =~ m/$a[1]/ };
   return "Bad regexp $a[1]: $@" if($@);
+  return "Bad older-than-seconds format $a[2]"
+        if(defined($a[2]) && $a[2] !~ m/^\d+$/);
 
   my @rets;
   foreach my $sdev (devspec2array($a[0],$cl)) {
@@ -2397,6 +2404,7 @@ CommandDeleteReading($$)
 
     foreach my $reading (grep { /$readingspec/ }
                                 keys %{$defs{$sdev}{READINGS}} ) {
+      next if(defined($a[2]) && ReadingsAge($sdev, $reading, 0) <= $a[2]);
       readingsDelete($defs{$sdev}, $reading);
       push @rets, "Deleted reading $reading for device $sdev";
     }
@@ -3633,7 +3641,7 @@ GetTimeSpec($)
     my ($err, $fn2);
     ($err, $hr, $min, $sec, $fn2) = GetTimeSpec($tspec);
     return ("the function \"$fn\" must return a timespec and not $tspec.",
-                undef, undef, undef, undef) if($err);
+                undef, undef, undef, $tspec) if($err);
 
   } else {
     return ("Wrong timespec $tspec: either HH:MM:SS or {perlcode}",
@@ -3791,6 +3799,7 @@ CallFn(@)
   if(!$d || !$defs{$d}) {
     $d = "<undefined>" if(!defined($d));
     Log 0, "Strange call for nonexistent $d: $n";
+    stacktrace();
     return undef;
   }
   if(!$defs{$d}{TYPE}) {

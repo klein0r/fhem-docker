@@ -1,5 +1,5 @@
 ########################################################################################################################
-# $Id: SMUtils.pm 23109 2020-11-06 09:30:37Z DS_Starter $
+# $Id: SMUtils.pm 23425 2020-12-27 18:50:03Z DS_Starter $
 #########################################################################################################################
 #       SMUtils.pm
 #
@@ -25,6 +25,11 @@
 #
 #########################################################################################################################
 
+# Version History
+# 1.21.0   new sub timestringToTimestamp / createReadingsFromArray
+# 1.20.7   change to defined ... in sub _addSendqueueSimple
+# 1.20.6   delete $hash->{OPMODE} in checkSendRetry
+
 package FHEM::SynoModules::SMUtils;                                          
 
 use strict;           
@@ -42,13 +47,14 @@ use FHEM::SynoModules::ErrCodes qw(:all);                                 # Erro
 use GPUtils qw( GP_Import GP_Export ); 
 use Carp qw(croak carp);
 
-use version; our $VERSION = version->declare('1.20.5');
+use version; our $VERSION = version->declare('1.20.7');
 
 use Exporter ('import');
 our @EXPORT_OK = qw(
                      getClHash
                      delClHash
                      delReadings
+                     createReadingsFromArray
                      trim
                      slurpFile
                      moduleVersion
@@ -77,6 +83,7 @@ our @EXPORT_OK = qw(
                      checkSendRetry
                      purgeSendqueue
                      updQueueLength
+                     timestringToTimestamp
                    );
                      
 our %EXPORT_TAGS = (all => [@EXPORT_OK]);
@@ -96,6 +103,7 @@ BEGIN {
           CancelDelayedShutdown
           devspec2array
           FmtDateTime
+          fhemTimeLocal
           setKeyValue
           getKeyValue
           InternalTimer
@@ -263,6 +271,46 @@ sub slurpFile {
 return ($errorcode, $content);
 }
 
+###############################################################################
+#  einen Zeitstring YYYY-MM-TT hh:mm:ss in einen Unix 
+#  Timestamp umwandeln
+###############################################################################
+sub timestringToTimestamp {            
+  my $hash    = shift // carp $carpnohash                     && return; 
+  my $tstring = shift // carp "got no time string to convert" && return;
+  my $name    = $hash->{NAME};
+
+  my($y, $mo, $d, $h, $m, $s) = $tstring =~ /([0-9]{4})-([0-9]{2})-([0-9]{2})\s([0-9]{2}):([0-9]{2}):([0-9]{2})/xs;
+  return if(!$mo || !$y);
+  
+  my $timestamp = fhemTimeLocal($s, $m, $h, $d, $mo-1, $y-1900);
+  
+return $timestamp;
+}
+
+###############################################################################
+#                   Readings aus Array erstellen
+#       $daref:  Referenz zum Array der zu erstellenden Readings
+#                muß Paare <Readingname>:<Wert> enthalten
+#       $doevt:  1-Events erstellen, 0-keine Events erstellen
+###############################################################################
+sub createReadingsFromArray {
+  my $hash  = shift // carp $carpnohash                      && return;
+  my $daref = shift // carp "got no reading array reference" && return;
+  my $doevt = shift // 0;  
+  
+  readingsBeginUpdate($hash);
+  
+  for my $elem (@$daref) {
+      my ($rn,$rval) = split ":", $elem, 2;
+      readingsBulkUpdate($hash, $rn, $rval);      
+  }
+
+  readingsEndUpdate($hash, $doevt);
+  
+return;
+}
+
 #############################################################################################
 #     liefert die Versionierung des Moduls zurück
 #     Verwendung mit Packages:  use version 0.77; our $VERSION = moduleVersion ($params)
@@ -304,14 +352,14 @@ sub moduleVersion {
   if($modules{$type}{META}{x_prereqs_src} && !$hash->{HELPER}{MODMETAABSENT}) {          # META-Daten sind vorhanden
       $modules{$type}{META}{version} = "v".$v;                                           # Version aus META.json überschreiben, Anzeige mit {Dumper $modules{<TYPE>}{META}}
       
-      if($modules{$type}{META}{x_version}) {                                             # {x_version} nur gesetzt wenn $Id: SMUtils.pm 23109 2020-11-06 09:30:37Z DS_Starter $ im Kopf komplett! vorhanden
+      if($modules{$type}{META}{x_version}) {                                             # {x_version} nur gesetzt wenn $Id: SMUtils.pm 23425 2020-12-27 18:50:03Z DS_Starter $ im Kopf komplett! vorhanden
           $modules{$type}{META}{x_version} =~ s/1\.1\.1/$v/gx;
       } 
       else {
           $modules{$type}{META}{x_version} = $v; 
       }
       
-      FHEM::Meta::SetInternals($hash);                                                   # FVERSION wird gesetzt ( nur gesetzt wenn $Id: SMUtils.pm 23109 2020-11-06 09:30:37Z DS_Starter $ im Kopf komplett! vorhanden )
+      FHEM::Meta::SetInternals($hash);                                                   # FVERSION wird gesetzt ( nur gesetzt wenn $Id: SMUtils.pm 23425 2020-12-27 18:50:03Z DS_Starter $ im Kopf komplett! vorhanden )
   } 
   else {                                                                                 # herkömmliche Modulstruktur
       $hash->{VERSION} = $v;                                                             # Internal VERSION setzen
@@ -1450,15 +1498,15 @@ sub _addSendqueueSimple {
    };
    
    # optionale Zusatzfelder 
-   $entry->{params}   = $params    if($params);
-   $entry->{dest}     = $dest      if($dest);
-   $entry->{reqtype}  = $reqtype   if($reqtype);
-   $entry->{header}   = $header    if($header);
-   $entry->{postdata} = $postdata  if($postdata);
-   $entry->{lclFile}  = $lclFile   if($lclFile);
-   $entry->{remFile}  = $remFile   if($remFile);
-   $entry->{remDir}   = $remDir    if($remDir);
-   $entry->{timeout}  = $timeout   if($timeout);
+   $entry->{params}   = $params    if(defined $params);
+   $entry->{dest}     = $dest      if(defined $dest);
+   $entry->{reqtype}  = $reqtype   if(defined $reqtype);
+   $entry->{header}   = $header    if(defined $header);
+   $entry->{postdata} = $postdata  if(defined $postdata);
+   $entry->{lclFile}  = $lclFile   if(defined $lclFile);
+   $entry->{remFile}  = $remFile   if(defined $remFile);
+   $entry->{remDir}   = $remDir    if(defined $remDir);
+   $entry->{timeout}  = $timeout   if(defined $timeout);
    
    __addSendqueueEntry ($hash, $entry);                          # den Datensatz zur Sendqueue hinzufügen                                                       # updaten Länge der Sendequeue     
    
@@ -1601,7 +1649,10 @@ sub checkSendRetry {
   my $startfn    = shift // carp $carpnotfn            && return;
   my $hash       = $defs{$name};  
   my $idx        = $hash->{OPIDX};
+  my $opmode     = $hash->{OPMODE};
   my $type       = $hash->{TYPE};
+  
+  $hash->{OPMODE} = q{};
   
   my $forbidSend = q{};
   my $startfnref = \&{$startfn};
@@ -1620,7 +1671,7 @@ sub checkSendRetry {
   if(!$retry) {                                                                           # Befehl erfolgreich, Senden nur neu starten wenn weitere Einträge in SendQueue
       delete $hash->{OPIDX};
       delete $data{$type}{$name}{sendqueue}{entries}{$idx};
-      Log3($name, 4, qq{$name - Opmode "$hash->{OPMODE}" finished successfully, Sendqueue index "$idx" deleted.});
+      Log3($name, 4, qq{$name - Opmode "$opmode" finished successfully, Sendqueue index "$idx" deleted.});
       updQueueLength ($hash);
       
       if(keys %{$data{$type}{$name}{sendqueue}{entries}}) {
@@ -1642,10 +1693,9 @@ sub checkSendRetry {
           $forbidSend = expErrors($hash,$errorcode);                                      # Fehlertext zum Errorcode ermitteln
           $data{$type}{$name}{sendqueue}{entries}{$idx}{forbidSend} = $forbidSend;
           
-          Log3($name, 2, qq{$name - ERROR - "$hash->{OPMODE}" SendQueue index "$idx" not executed. It seems to be a permanent error. Exclude it from new send attempt !});
+          Log3($name, 2, qq{$name - ERROR - "$opmode" SendQueue index "$idx" not executed. It seems to be a permanent error. Exclude it from new send attempt !});
           
           delete $hash->{OPIDX};
-          delete $hash->{OPMODE};
           
           updQueueLength ($hash);                                                         # updaten Länge der Sendequeue
           
@@ -1662,7 +1712,7 @@ sub checkSendRetry {
               : 86400
               ;
           
-          Log3($name, 2, qq{$name - ERROR - "$hash->{OPMODE}" SendQueue index "$idx" not executed. Restart SendQueue in $rs s (retryCount $rc).});
+          Log3($name, 2, qq{$name - ERROR - "$opmode" SendQueue index "$idx" not executed. Restart SendQueue in $rs s (retryCount $rc).});
           
           my $rst = gettimeofday()+$rs;                                                  # resend Timer 
           updQueueLength       ($hash, $rst);                                            # updaten Länge der Sendequeue mit resend Timer

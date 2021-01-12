@@ -402,8 +402,6 @@ FHEM/76_msgDialog.pm         igami                Frontends/Sprachsteuerung
 FHEM/76_MSGFile.pm           gandy                Automatisierung
 FHEM/76_MSGMail.pm           gandy                Automatisierung
 FHEM/76_SMAInverter.pm       sct14675/DS_Starter  Sonstige Systeme
-FHEM/76_SMAPortal.pm         DS_Starter/Wzut      Sonstige Systeme
-FHEM/76_SMAPortalSPG.pm      DS_Starter           Sonstige Systeme
 FHEM/77_SMAEM.pm             VolkerKettenbach     Sonstige Systeme
 FHEM/77_SMASTP.pm            VolkerKettenbach     Sonstige Systeme
 FHEM/77_UWZ.pm               CoolTux              Unterstützende Dienste/Wettermodule
@@ -443,6 +441,7 @@ FHEM/93_DbLog.pm             DS_Starter           Automatisierung
 FHEM/93_DbRep.pm             DS_Starter           Sonstiges
 FHEM/93_FHEM2FHEM.pm         rudolfkoenig         Automatisierung
 FHEM/93_Log2Syslog.pm        DS_Starter           Automatisierung
+FHEM/93_InfluxDBLogger.pm    timmib               Unterstützende Dienste
 FHEM/93_PWMR.pm              jamesgo              Heizungssteuerung/Raumklima
 FHEM/94_PWM.pm               jamesgo              Heizungssteuerung/Raumklima
 FHEM/95_Alarm.pm             pahenning            Unterstützende Dienste

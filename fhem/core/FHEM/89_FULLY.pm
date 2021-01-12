@@ -1,8 +1,8 @@
 ##############################################################################
 #
-#  89_FULLY.pm 2.02
+#  89_FULLY.pm 2.1
 #
-#  $Id: 89_FULLY.pm 23087 2020-11-03 18:43:17Z zap $
+#  $Id: 89_FULLY.pm 23354 2020-12-15 13:46:01Z zap $
 #
 #  Control Fully browser on Android tablets from FHEM.
 #  Requires Fully App Plus license!
@@ -40,7 +40,7 @@ sub FULLY_Decrypt ($);
 sub FULLY_Ping ($$);
 sub FULLY_SetPolling ($$;$);
 
-my $FULLY_VERSION = '2.02';
+my $FULLY_VERSION = '2.1';
 
 # Timeout for Fully requests
 my $FULLY_TIMEOUT = 5;
@@ -827,8 +827,20 @@ sub FULLY_UpdateReadings ($$)
 	foreach my $rn (keys %$result) {
 		my $key = lc($rn);
 		next if (exists($readings{$key}) && $readings{$key} eq 'ignore');
-		readingsBulkUpdate ($hash, $key, exists($readings{$key}) && $readings{$key} eq 'bool' ?
-			($result->{$rn} eq '0' ? 'no' : 'yes') : $result->{$rn});
+		if (ref($result->{$rn}) eq 'ARRAY') {
+			if ($key eq 'sensorinfo') {
+				foreach my $e (@{$result->{$rn}}) {
+					$key = lc($e->{name});
+					$key =~ s/ /_/g;
+					my $rv = ref($e->{values}) eq 'ARRAY' ? join(',', @{$e->{values}}) : $e->{values};
+					readingsBulkUpdate ($hash, $key, $rv);
+				}
+			}
+		}
+		else {
+			readingsBulkUpdate ($hash, $key, exists($readings{$key}) && $readings{$key} eq 'bool' ?
+				($result->{$rn} eq '0' ? 'no' : 'yes') : $result->{$rn});
+		}
 	}
 	
 	my $screenOn = $result->{isScreenOn} // $result->{screenOn}; 

@@ -1,5 +1,5 @@
 #########################################################################
-# $Id: 98_HTTPMOD.pm 23017 2020-10-24 12:02:29Z StefanStrobel $
+# $Id: 98_HTTPMOD.pm 23483 2021-01-07 12:55:17Z StefanStrobel $
 # fhem Modul für Geräte mit Web-Oberfläche / Webservices
 #   
 #     This file is part of fhem.
@@ -21,6 +21,7 @@
 #   First version: 25.12.2013
 #
 #   Todo:       
+#               Attribute für Regex und LogLevel zum verstecken bestimmter Fehlermedungen von HttpUtils im ReadCallback
 #               setXYHintExpression zum dynamischen Ändern / Erweitern der Hints
 #               extractAllReadings mit Filter / Prefix
 #               get after set um readings zu aktualisieren
@@ -76,6 +77,7 @@ our %EXPORT_TAGS = (all => [@EXPORT_OK]);
 
 BEGIN {
     GP_Import( qw(
+        fhem
         CommandAttr
         CommandDeleteAttr
         addToDevAttrList
@@ -140,7 +142,7 @@ BEGIN {
     ));
 };
 
-my $Module_Version = '4.0.12 - 24.10.2020';
+my $Module_Version = '4.0.17 - 31.12.2020';
 
 my $AttrList = join (' ', 
       '(reading|get|set)[0-9]+(-[0-9]+)?Name', 
@@ -238,6 +240,9 @@ my $AttrList = join (' ',
       'sid[0-9]*ParseResponse:0,1',           # parse response as if it was a get
       'clearSIdBeforeAuth:0,1',
       'authRetries',
+      
+      'errLogLevelRegex',
+      'errLogLevel',
       
       'replacement[0-9]+Regex',
       'replacement[0-9]+Mode:reading,internal,text,expression,key',   # defaults to text
@@ -431,6 +436,7 @@ sub AttrFn {
     my $aVal  = shift;                  # attribute value
     my $hash  = $defs{$name};           # reference to the Fhem device hash
     
+    Log3 $name, 5, "$name: attr $name $aName $aVal";
     if ($cmd eq 'set') {        
         if ($aName =~ /^regexDecode$/) {
             delete $hash->{CompiledRegexes};        # recompile everything with the right decoding
@@ -827,17 +833,25 @@ sub DoReplacement {
         next if (!$regex);
 
         my $value = "";         # value can be specific for a get / set / auth step (with a number in $type)
+
+        #Log3 $name, 5, "$name: Replace: check value as ${type}Replacement${rNum}Value";
         if ($context && defined ($attr{$name}{"${type}Replacement${rNum}Value"})) {
             # get / set / auth mit individuellem Replacement für z.B. get01
             $value = $attr{$name}{"${type}Replacement${rNum}Value"};
-        } 
-        elsif ($context && defined ($attr{$name}{"${context}Replacement${rNum}Value"})) {
-            # get / set / auth mit generischem Replacement für alle gets / sets (without the number)
-            $value = $attr{$name}{"${context}Replacement${rNum}Value"};
-        } 
-        elsif (defined ($attr{$name}{"replacement${rNum}Value"})) {
-            # ganz generisches Replacement
-            $value = $attr{$name}{"replacement${rNum}Value"};
+        } else {
+            #Log3 $name, 5, "$name: Replace: check value as ${context}Replacement${rNum}Value";
+            if ($context && defined ($attr{$name}{"${context}Replacement${rNum}Value"})) {
+                # get / set / auth mit generischem Replacement für alle gets / sets (without the number)
+                $value = $attr{$name}{"${context}Replacement${rNum}Value"};
+            } else {
+                #Log3 $name, 5, "$name: Replace: check value as replacement${rNum}Value";
+                if (defined ($attr{$name}{"replacement${rNum}Value"})) {
+                    # ganz generisches Replacement
+                    $value = $attr{$name}{"replacement${rNum}Value"};
+                } else {
+                    #Log3 $name, 5, "$name: Replace: no matching value attribute found";
+                }
+            }
         }
         Log3 $name, 5, "$name: Replace called for type $type, regex $regex, mode $mode, " .
             ($value ? "value $value" : "empty value") . " input: $string";
@@ -873,7 +887,9 @@ sub DoReplacement {
             }
         } 
         elsif ($mode eq 'expression') {
-            local $SIG{__WARN__} = sub { Log3 $name, 3, "$name: Replacement $rNum with expression $value (s/$regex/$value/gee) created warning: @_"; };
+            $value = 'package main; ' . ($value // '');
+            local $SIG{__WARN__} = sub { Log3 $name, 3, "$name: Replacement $rNum with expression $value and regex $regex created warning: @_"; };
+            # if expression calls other fhem functions, creates readings or other, then the warning handler will create misleading messages!
             $match = eval { $string =~ s/$regex/$value/gee };
             if ($@) {
                 Log3 $name, 3, "$name: Replace: invalid regex / expression: /$regex/$value/gee - $@";
@@ -1382,7 +1398,7 @@ sub GetRegex {
     my ($name, $context, $num, $type, $default) = @_; 
     my $hash = $defs{$name};
     my $val;
-    my $regDecode  = AttrVal($name, 'regexDecode', "");                 # implement this even when not compiled regex
+    my $regDecode  = AttrVal($name, 'regexDecode', "");                 # implement this even when not compiled
     my $regCompile = AttrVal($name, 'regexCompile', 1);
 
     #Log3 $name, 5, "$name: Look for Regex $context$num$type";
@@ -1409,7 +1425,7 @@ sub GetRegex {
             $val = $hash->{CompiledRegexes}{$context . $type};
         }    
     } 
-    else {
+    else {                      # no attribute defined
         $val = $default;
         return if (!$val)       # default is not compiled - should only be "" or similar
     }
@@ -2262,7 +2278,7 @@ sub ReadCallback {
     my $type    = $request->{'type'};           # type of request that was sent (like get01, update or auth01)
     my $header  = $huHash->{httpheader} // '';  # HTTP headers received
     delete $huHash->{DEVHASH};
-    $hash->{HttpUtils} = $huHash;               # make the httpUtils hash available in case anyone wants tu use variables
+    $hash->{HttpUtils} = $huHash;               # make the httpUtils hash available in case anyone wants to use variables
     $hash->{BUSY}      = 0;
 
     Log3 $name, 5, "$name: ReadCallback called from " . FhemCaller();
@@ -2277,8 +2293,14 @@ sub ReadCallback {
         $body   = $2 // '';
         Log3 $name, 5, "$name: HTTPMOD ReadCallback split file body / header at $headerSplit";
     }
-
-    Log3 $name, 3, "$name: Read callback: Error: $err" if ($err);
+    if ($err) {
+        my $lvlRegex = GetRegex($name, '', '', 'errLogLevelRegex', '');
+        my $errLvl   = AttrVal($name, 'errLogLevel', 3);
+        Log3 $name, 5, "$name: Read callback Error LogLvl set to $errLvl, regex " . ($lvlRegex // '');
+        $errLvl      = 3 if ($lvlRegex && $err !~ $lvlRegex);
+        Log3 $name, $errLvl, "$name: Read callback: Error: $err";
+    }
+    
     Log3 $name, 4, "$name: Read callback: request type was $type" . 
         " retry $request->{retryCount}" .
         ($header ? ",\r\nheader: $header" : ", no headers") . 
@@ -3579,6 +3601,11 @@ sub AddToSendQueue {
             Please look into the module source to see how it works and don't use them if you are not sure what you are doing.
         <li><b>preProcessRegex</b></li>
             can be used to fix a broken HTTP response before parsing. The regex should be a replacement regex like s/match/replacement/g and will be applied to the buffer.
+            
+        <li><b>errorLogLevel</b></li>
+            allows to modify the loglevel used to log errors from HttpUtils. by default level 3 is used.
+        <li><b>errorLogLevelRegex</b></li>
+            restricts the effect of errorLogLevel to such error messages that match this regex.
 
         <li><b>Remarks regarding the automatically created userattr entries</b></li>
             Fhemweb allows attributes to be edited by clicking on them. However this does not work for attributes that match to a wildcard attribute. To circumvent this restriction HTTPMOD automatically adds an entry for each instance of a defined wildcard attribute to the device userattr list. E.g. if you define a reading[0-9]Name attribute as reading01Name, HTTPMOD will add reading01Name to the device userattr list. These entries only have the purpose of making editing in Fhemweb easier.

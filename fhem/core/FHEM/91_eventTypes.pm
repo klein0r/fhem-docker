@@ -1,11 +1,11 @@
 ##############################################
-# $Id: 91_eventTypes.pm 14888 2017-08-13 12:07:12Z rudolfkoenig $
+# $Id: 91_eventTypes.pm 23471 2021-01-04 19:24:21Z rudolfkoenig $
 package main;
 use IO::File;
 
 use strict;
 use warnings;
-sub et_addEvt($$$;$);
+sub et_addEvt($$$$);
 
 #####################################
 sub
@@ -16,6 +16,7 @@ eventTypes_Initialize($)
   $hash->{DefFn}    = "eventTypes_Define";
   $hash->{NotifyFn} = "eventTypes_Notify";
   $hash->{ShutdownFn}="eventTypes_Shutdown";
+  $hash->{UndefFn}  = "eventTypes_Undef";
   $hash->{GetFn}    = "eventTypes_Get";
   $hash->{SetFn}    = "eventTypes_Set";
   $hash->{AttrFn}   = "eventTypes_Attr";
@@ -24,10 +25,9 @@ eventTypes_Initialize($)
 
 
 sub
-et_addEvt($$$;$)
+et_addEvt($$$$)
 {
   my ($h, $name, $evt, $cnt) = @_;
-  return 0 if($h->{$name} && int(keys %{$h->{$name}}) > 200); # Forum #35658
   return 0 if($evt =~ m/ CULHM (SND|RCV) /); # HM
   return 0 if($evt =~ m/RAWMSG/);            # HM
   return 0 if($evt =~ m/^R-/);               # HM register values
@@ -52,17 +52,8 @@ et_addEvt($$$;$)
   $evt =~ s/HASH\(0x.*/.*/;                  # buggy event (Forum #36818)
   $evt =~ s/[\n\r].*//s;                     # typical ECMD problem
 
-  my $r = 1;
-  if($cnt) {
-    $r = 0 if($h->{$name}{$evt});
-    $h->{$name}{$evt} += $cnt;
-
-
-  } else {
-    $h->{$name}{$evt}++;
-
-  }
-  return $r;
+  $h->{$name}{_etCounter}++ if(!$h->{$name}{$evt});
+  $h->{$name}{$evt} += $cnt;
 }
 
 #####################################
@@ -77,6 +68,7 @@ eventTypes_Define($$)
   my $cnt = 0;
   my @t = localtime;
   my $f = ResolveDateWildcards($a[2], @t);
+  return "Only one eventTypes can be defined" if($modules{eventTypes}{ldata});
 
   my ($err, @content) = FileRead($f);
   my (%h1, %h2);
@@ -89,10 +81,11 @@ eventTypes_Define($$)
       Log3 undef, 2, "eventTypes: $f: bogus line $l";
       next;
     }
-    $cnt += et_addEvt(\%h1, $l[1], $l[2], $l[0]);
+    next if(!$h1{$l[1]} && !goodDeviceName($l[1])); # Sanitizing: 117259
+    et_addEvt(\%h1, $l[1], $l[2], $l[0]);
   }
 
-  Log3 undef, 2, "eventTypes: loaded $cnt events from $f";
+  Log3 undef, 2, "eventTypes: loaded ".int(@content)." lines from $f";
 
   $hash->{STATE} = "active";
   return undef;
@@ -115,6 +108,7 @@ eventTypes_Notify($$)
   return if($me->{ignoreList}{$n});
 
   my $h = $modules{eventTypes}{ldata};
+  return if($h->{$n} && $h->{$n}{_etCounter} && $h->{$n}{_etCounter} >= 200);
 
   if($n eq "global") {
     foreach my $oe (@{$events}) {
@@ -132,7 +126,7 @@ eventTypes_Notify($$)
   my $ret = "";
   foreach my $oe (@{$events}) {
     next if(!defined($oe) || $oe =~ m/^\s*$/);
-    et_addEvt($h, $n, $oe);
+    et_addEvt($h, $n, $oe, 1);
   }
   return undef;
 }
@@ -146,7 +140,7 @@ eventTypes_Attr(@)
   if($a[0] eq "set" && $a[2] eq "ignoreList") {
     my %h;
     my $ldata = $modules{eventTypes}{ldata};
-    foreach my $i (split(", ", $a[3])) {
+    foreach my $i (split(',', $a[3])) {
       $h{$i} = 1;
       delete $ldata->{$i};
     }
@@ -165,6 +159,13 @@ eventTypes_Attr(@)
 
 ###################################
 sub
+eventTypes_Undef()
+{
+  delete $modules{eventTypes}{ldata};
+  return undef;
+}
+
+sub
 eventTypes_Shutdown($$)
 {
   my ($hash, $name) = @_;
@@ -174,6 +175,7 @@ eventTypes_Shutdown($$)
   my $ldata = $modules{eventTypes}{ldata};
   foreach my $t (sort keys %{$ldata}) {
     foreach my $e (sort keys %{$ldata->{$t}}) {
+      next if($e eq "_etCounter");
       push @content, "$ldata->{$t}{$e} $t $e";
     }
   }
@@ -202,13 +204,15 @@ eventTypes_Get($@)
   my $cmd = (defined($a[1]) ? $a[1] : "");
   my $arg = $a[2];
 
-  return "Unknown argument $cmd, choose one of list" if($cmd ne "list");
+  return "Unknown argument $cmd, choose one of list listWithCounter" 
+        if($cmd ne "list" && $cmd ne "listWithCounter");
   my $out = "";
   my $ldata = $modules{eventTypes}{ldata};
   foreach my $t (sort keys %{$ldata}) {
     next if($arg && $t ne $arg);
     foreach my $e (sort keys %{$ldata->{$t}}) {
-      $out .= "$t $e\n";
+      next if($e eq "_etCounter");
+      $out .=$cmd eq "listWithCounter" ? "$t $e $ldata->{$t}{$e}\n" : "$t $e\n";
     }
   }
   return $out;
@@ -260,6 +264,7 @@ eventTypes_Get($@)
   <b>Get</b>
   <ul>
       <li>list [devicename]<br>
+      listWithCounter [devicename]<br>
         return the list of collected event types for all devices or for
         devicename if specified.
       </li>
@@ -269,12 +274,12 @@ eventTypes_Get($@)
   <a name="eventTypesattr"></a>
   <b>Attributes</b>
   <ul>
-    <li><a href="#disable">disable</a></li>
+    <li><a href="#disable">disable</a></li><br>
     <a name="ignoreList"></a>
     <li>ignoreList<br>
       Comma separated device names to ignore whe collecting the events.
       E.g. ECMD-Devices are used to post RAW data as events.
-      </li>
+      </li><br>
   </ul>
   <br>
 

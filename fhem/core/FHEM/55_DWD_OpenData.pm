@@ -1,5 +1,5 @@
 ﻿# -----------------------------------------------------------------------------
-# $Id: 55_DWD_OpenData.pm 22220 2020-06-21 15:47:47Z jensb $
+# $Id: 55_DWD_OpenData.pm 23506 2021-01-10 18:03:32Z jensb $
 # -----------------------------------------------------------------------------
 
 =encoding UTF-8
@@ -35,22 +35,23 @@ Julian date conversion:
   Copyright (C) 2012 E. G. Richards
     see Explanatory Supplement to the Astronomical Almanac, 3rd edition, S.E Urban and P.K. Seidelmann eds., chapter 15.11.3, Interconverting Dates and Julian Day Numbers, Algorithm 4
 
-This script is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-The GNU General Public License can be found at
-
-http://www.gnu.org/copyleft/gpl.html.
-
-A copy is found in the textfile GPL.txt and important notices to the license
-from the author is found in LICENSE.txt distributed with these scripts.
+This script is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
 
 This script is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this script; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+
+A copy of the GNU General Public License, Version 2 can also be found at
+
+http://www.gnu.org/licenses/old-licenses/gpl-2.0.
 
 This copyright notice MUST APPEAR in all copies of the script!
 
@@ -61,13 +62,13 @@ package AstroSun;
 use strict;
 use warnings;
 
-use Math::Trig ':pi';
-use POSIX;
-use Time::Local;
-use Time::Piece;
+use Math::Trig qw(pi pi2 asin acos tan);
+use POSIX 'floor';
+use Time::Local 'timegm';
+use Time::Piece 'gmtime';
 
 require Exporter;
-our $VERSION   = '1.000001';
+our $VERSION   = '1.000003';
 our @ISA       = qw(Exporter);
 our @EXPORT    = qw(AzimuthElevation RiseSet);
 our @EXPORT_OK = qw(EpochToJulianDate JulianDateToEpoch);
@@ -595,28 +596,28 @@ package DWD_OpenData;
 use strict;
 use warnings;
 
-use Encode;
-use File::Temp qw(tempfile);
+use Encode 'encode';
+use File::Temp 'tempfile';
 use IO::Uncompress::Unzip qw(unzip $UnzipError);
-use POSIX;
-use Scalar::Util qw(looks_like_number);
+use POSIX qw(floor strftime);
+use Scalar::Util 'looks_like_number';
 use Storable qw(freeze thaw);
 use Time::HiRes qw(gettimeofday usleep);
-use Time::Local;
-use Time::Piece;
+use Time::Local qw(timelocal timegm);
+use Time::Piece qw(localtime gmtime);
 
 use Blocking;
 use HttpUtils;
 
 use feature qw(switch);
-no if $] >= 5.017011, warnings => 'experimental';
+no if $] >= 5.010001, warnings => 'experimental::smartmatch';
 
 use constant UPDATE_DISTRICTS     => -1;
 use constant UPDATE_COMMUNEUNIONS => -2;
 use constant UPDATE_ALL           => -3;
 
 require Exporter;
-our $VERSION   = '1.014006';
+our $VERSION   = '1.016002';
 our @ISA       = qw(Exporter);
 our @EXPORT    = qw(GetForecast GetAlerts UpdateAlerts UPDATE_DISTRICTS UPDATE_COMMUNEUNIONS UPDATE_ALL);
 our @EXPORT_OK = qw(IsCommuneUnionWarncellId);
@@ -850,7 +851,7 @@ sub Shutdown {
       delete($hash->{".alertsFile".$communeUnion});
     }
   }
-  
+
   if (defined($hash->{".forecastBlockingCall"})) {
     ::BlockingKill($hash->{".forecastBlockingCall"});
   }
@@ -887,10 +888,10 @@ sub Attr {
   my ($command, $name, $attribute, $value) = @_;
   my $hash = $::defs{$name};
 
-  given($command) {
-    when("set") {
-      given($attribute) {
-        when("disable") {
+  for ($command) {
+    when ("set") {
+      for ($attribute) {
+        when ("disable") {
           # enable/disable polling
           if ($::init_done) {
             if ($value) {
@@ -902,7 +903,7 @@ sub Attr {
             }
           }
         }
-        when("forecastResolution") {
+        when ("forecastResolution") {
           if (defined($value) && looks_like_number($value) && $value > 0) {
             my $oldForecastResolution = ::AttrVal($name, 'forecastResolution', 6);
             if ($::init_done && defined($oldForecastResolution) && $oldForecastResolution != $value) {
@@ -912,18 +913,18 @@ sub Attr {
             return "invalid value for forecastResolution (possible values are 1, 3 and 6)";
           }
         }
-        when("forecastStation") {
+        when ("forecastStation") {
           my $oldForecastStation = ::AttrVal($name, 'forecastStation', undef);
           if ($::init_done && defined($oldForecastStation) && $oldForecastStation ne $value) {
             ::CommandDeleteReading(undef, "$name ^fc.*");
           }
         }
-        when("forecastWW2Text") {
+        when ("forecastWW2Text") {
           if ($::init_done && !$value) {
             ::CommandDeleteReading(undef, "$name ^fc.*wwd\$");
           }
         }
-        when("timezone") {
+        when ("timezone") {
           if (defined($value) && length($value) > 0) {
             $hash->{'.TZ'} = $value;
           } else {
@@ -933,25 +934,25 @@ sub Attr {
       }
     }
 
-    when("del") {
-      given($attribute) {
-        when("disable") {
+    when ("del") {
+      for ($attribute) {
+        when ("disable") {
           ::readingsSingleUpdate($hash, 'state', 'defined', 1);
           ::InternalTimer(gettimeofday() + 3, 'DWD_OpenData::Timer', $hash, 0);
         }
-        when("forecastResolution") {
+        when ("forecastResolution") {
           my $oldForecastResolution = ::AttrVal($name, 'forecastResolution', 6);
           if ($oldForecastResolution != 6) {
             ::CommandDeleteReading(undef, "$name ^fc.*");
           }
         }
-        when("forecastStation") {
+        when ("forecastStation") {
           ::CommandDeleteReading(undef, "$name ^fc.*");
         }
-        when("forecastWW2Text") {
+        when ("forecastWW2Text") {
           ::CommandDeleteReading(undef, "$name ^fc.*wwd\$");
         }
-        when("timezone") {
+        when ("timezone") {
           $hash->{'.TZ'} = $hash->{FHEM_TZ};
         }
       }
@@ -983,8 +984,8 @@ sub Get {
 
   my $result = undef;
   my $command = lc($a[1]);
-  given($command) {
-    when("alerts") {
+  for ($command) {
+    when ("alerts") {
       my $warncellId = $a[2];
       $warncellId = ::AttrVal($name, 'alertArea', undef) if (!defined($warncellId));
       if (defined($warncellId)) {
@@ -1004,7 +1005,7 @@ sub Get {
       }
     }
 
-    when("forecast") {
+    when ("forecast") {
       my $station = $a[2];
       $station = ::AttrVal($name, 'forecastStation', undef) if (!defined($station));
       if (defined($station)) {
@@ -1020,17 +1021,17 @@ sub Get {
       }
     }
 
-    when("updatealertscache") {
+    when ("updatealertscache") {
       my $updateMode = undef;
       my $option = lc($a[2]);
-      given($option) {
-        when("communeunions") {
+      for ($option) {
+        when ("communeunions") {
           $updateMode = UPDATE_COMMUNEUNIONS;
         }
-        when("districts") {
+        when ("districts") {
           $updateMode = UPDATE_DISTRICTS;
         }
-        when("all") {
+        when ("all") {
           $updateMode = UPDATE_ALL;
         }
         default {
@@ -1399,7 +1400,7 @@ sub RotateForecast {
   while (defined(::ReadingsVal($name, 'fc'.$daysAvailable.'_date', undef))) {
     $daysAvailable++;
   }
-  ::Log3 $name, 5, "$name: RotateForecast: $daysAvailable days exist with readings";
+  ::Log3 $name, 5, "$name: RotateForecast: START $daysAvailable day(s) exist";
 
   my $oT = ::ReadingsVal($name, 'fc0_date', undef);
   my $oldToday = defined($oT)? ParseDateLocal($hash, $oT) : undef;
@@ -1407,6 +1408,7 @@ sub RotateForecast {
   my $stationChanged = ::ReadingsVal($name, 'fc_station', '') ne $station;
   if ($stationChanged) {
     # different station, delete all existing readings
+    ::Log3 $name, 3, "$name: RotateForecast: station has changed, deleting exisiting readings";
     ::CommandDeleteReading(undef, "$name ^fc.*");
     $daysAvailable = 0;
   } elsif (defined($oldToday)) {
@@ -1418,7 +1420,7 @@ sub RotateForecast {
     }
 
     my $daysForward = sprintf("%0.0f", ($today - $oldToday)/86400.0);  # round() [s] -> [d]
-    ::Log3 $name, 5, "$name: RotateForecast: shifting forward by $daysForward day(s) ($oldToday -> $today)";
+    ::Log3 $name, $daysForward > 0? 4 : 5, "$name: RotateForecast: shifting forward by $daysForward day(s) ($oldToday -> $today)";
     if ($daysForward > 0) {
       # different day
       if ($daysForward < $daysAvailable) {
@@ -1437,16 +1439,24 @@ sub RotateForecast {
           push(@shiftProperties, $s.'_time');
           push(@shiftProperties, $s.'_wwd');
         }
-        # shift readings forward by days
+        # shift readings forward by days keeping reading timestamps
         for (my $d=0; $d<($daysAvailable - $daysForward); $d++) {
           my $sourcePrefix = 'fc'.($daysForward + $d).'_';
           my $destinationPrefix = 'fc'.$d.'_';
           foreach my $property (@shiftProperties) {
-            my $value = ::ReadingsVal($name, $sourcePrefix.$property, undef);
-            if (defined($value)) {
-              ::readingsBulkUpdate($hash, $destinationPrefix.$property, $value);
+            my $sourceReading = $sourcePrefix.$property;
+            my $destinationReading = $destinationPrefix.$property;
+            my $sourceValue = ::ReadingsVal($name, $sourceReading, undef);
+            if (defined($sourceValue)) {
+              my $timestamp = $hash->{READINGS}{$sourceReading}{TIME};
+              ::readingsBulkUpdate($hash, $destinationReading, $sourceValue);
+              $hash->{READINGS}{$destinationReading}{TIME} = $timestamp;
             } else {
-              ::CommandDeleteReading(undef, $destinationPrefix.$property);
+              my $destinationValue = ::ReadingsVal($name, $destinationReading, undef);
+              if (defined($destinationValue)) {
+                ::Log3 $name, 3, "$name: RotateForecast WARNING: deleting reading $destinationReading because the source value $sourceReading is undefined";
+                ::CommandDeleteReading(undef, "$name $destinationReading");
+              }
             }
           }
         }
@@ -1457,13 +1467,76 @@ sub RotateForecast {
         $daysAvailable -= $daysForward;
       } else {
         # nothing remains after shifting, delete existing day readings
+        ::Log3 $name, 3, "$name: RotateForecast WARNING: deleting all readings because no forecast data remains for rotation";
         ::CommandDeleteReading(undef, "$name ^fc\\d+.*");
         $daysAvailable = 0;
       }
     }
   }
 
+  ::Log3 $name, 5, "$name: RotateForecast: END $daysAvailable day(s) remain";
+
   return $daysAvailable;
+}
+
+=head2 PruneForecast($)
+
+find youngest reading of each day and delete all readings that are older than 1 day
+excluding the readings "day", "time" and "weekday"
+
+=over
+
+=item * param hash: hash of DWD_OpenData device
+
+=back
+
+=cut
+
+sub PruneForecast {
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+
+  if (::AttrVal($name, 'forecastPruning', 0) != 1) {
+    return;
+  }
+
+  ::Log3 $name, 5, "$name: PruneForecast: START";
+
+  my @readingNames = (grep {/^fc/} keys %{$hash->{READINGS}});
+
+  # find youngest timestamp per day
+  my %youngestTimestamps;
+  foreach my $readingName (@readingNames) {
+    if (!($readingName =~ m/^fc\d*_(day|time|weekday)$/)) {
+      my @parts = $readingName =~ /^fc(\d+)_.*/;
+      if (scalar(@parts) == 1) {
+        my $relativeDay = $parts[0];
+        my $timestamp = ::time_str2num($hash->{READINGS}{TIME});
+        my $youngestTimestamp = $youngestTimestamps{$relativeDay};
+        if (!defined($youngestTimestamp) || $timestamp > $youngestTimestamp) {
+          $youngestTimestamps{$relativeDay} = $timestamp;
+        }
+      }
+    }
+  }
+
+  # delete readings that are too old
+  foreach my $readingName (@readingNames) {
+    if (!($readingName =~ m/^fc\d*_(day|time|weekday)$/)) {
+      my @parts = $readingName =~ /^fc(\d+)_.*/;
+      if (scalar(@parts) == 1) {
+        my $relativeDay = $parts[0];
+        my $timestamp = ::time_str2num($hash->{READINGS}{TIME});
+        my $youngestTimestamp = $youngestTimestamps{$relativeDay};
+        if (defined($youngestTimestamp) && $timestamp < ($youngestTimestamp - 86400)) {
+          ::Log3 $name, 3, "$name: PruneForecast WARNING: deleting reading $readingName because it is more than 1 day older than all other readings of the same day";
+          ::CommandDeleteReading(undef, "$name $readingName");
+        }
+      }
+    }
+  }
+
+  ::Log3 $name, 5, "$name: PruneForecast: END";
 }
 
 sub ProcessForecast;
@@ -1781,10 +1854,10 @@ sub ProcessForecast {
     my @parts = split(/ at |\n/, $@); # discard anything after " at " or newline
     if (@parts) {
       $errorMessage = $parts[0];
-      ::Log3 $name, 4, "$name: ProcessForecast error: $parts[0]";
+      ::Log3 $name, 4, "$name: ProcessForecast ERROR: $parts[0]";
     } else {
       $errorMessage = $@;
-      ::Log3 $name, 4, "$name: ProcessForecast error: $@";
+      ::Log3 $name, 4, "$name: ProcessForecast ERROR: $@";
     }
   } else {
     # forecast parsed successfully
@@ -1802,7 +1875,7 @@ sub ProcessForecast {
       }
     } else {
       $errorMessage = 'result file name not defined';
-      ::Log3 $name, 3, "$name: ProcessForecast error: temp file name not defined";
+      ::Log3 $name, 3, "$name: ProcessForecast ERROR: temp file name not defined";
     }
   }
 
@@ -1843,7 +1916,7 @@ sub GetForecastFinish {
       # error, skip further processing
     } elsif (!defined($hash->{".forecastFile"})) {
       $errorMessage = "internal temp file name missing";
-      ::Log3 $name, 3, "$name: GetForecastFinish error: $errorMessage";
+      ::Log3 $name, 3, "$name: GetForecastFinish ERROR: $errorMessage";
     } else {
       # deserialize forecast
       my $fh = $hash->{".forecastFileHandle"};
@@ -1883,7 +1956,7 @@ sub GetForecastFinish {
 
     ::Log3 $name, 5, "$name: GetForecastFinish END";
   } else {
-    ::Log 3, "GetForecastFinish error: device name missing";
+    ::Log 3, "GetForecastFinish ERROR: device name missing";
   }
 }
 
@@ -1906,7 +1979,7 @@ sub GetForecastAbort {
   delete $hash->{".forecastBlockingCall"};
   delete $hash->{forecastUpdating};
   $errorMessage = "downloading and processing weather forecast data failed ($errorMessage)";
-  ::Log3 $name, 3, "$name: GetForecastAbort error: $errorMessage";
+  ::Log3 $name, 3, "$name: GetForecastAbort ERROR: $errorMessage";
 
   ::readingsBeginUpdate($hash);
   ::readingsBulkUpdate($hash, 'state', "forecast error: $errorMessage");
@@ -1948,7 +2021,7 @@ sub UpdateForecast {
 
   ::readingsBeginUpdate($hash);
 
-  # preprocess existing time readings
+  # preprocess existing readings
   my $time = time();
   my ($tSec, $tMin, $tHour, $tMday, $tMon, $tYear, $tWday, $tYday, $tIsdst) = Localtime($hash, $time);
   my $today = Timelocal($hash, 0, 0, 0, $tMday, $tMon, $tYear);
@@ -2045,13 +2118,16 @@ sub UpdateForecast {
     }
   }
 
-  # delete existing time readings of all days that have not been written
+  # delete readings of all days that have not been updated
   if ($relativeDay >= 0 && $daysAvailable > $relativeDay + 1) {
     ::Log3 $name, 5, "$name: deleting days with index " . ($relativeDay + 1) . " to " . ($daysAvailable - 1);
     for (my $d=($relativeDay + 1); $d<$daysAvailable; $d++) {
       ::CommandDeleteReading(undef, "$name ^fc".$d."_.*");
     }
   }
+
+  # delete readings with inconsistent timestamps
+  PruneForecast($hash);
 
   ::readingsBulkUpdate($hash, 'state', 'forecast updated');
   ::readingsEndUpdate($hash, 1);
@@ -2321,10 +2397,10 @@ sub ProcessAlerts {
     my @parts = split(/ at |\n/, $@); # discard anything after " at " or newline
     if (@parts) {
       $errorMessage = $parts[0];
-      ::Log3 $name, 4, "$name: ProcessAlerts error: $parts[0]";
+      ::Log3 $name, 4, "$name: ProcessAlerts ERROR: $parts[0]";
     } else {
       $errorMessage = $@;
-      ::Log3 $name, 4, "$name: ProcessAlerts error: $@";
+      ::Log3 $name, 4, "$name: ProcessAlerts ERROR: $@";
     }
   } else {
     # alerts parsed successfully
@@ -2343,7 +2419,7 @@ sub ProcessAlerts {
       }
     } else {
       $errorMessage = 'result file name not defined';
-      ::Log3 $name, 3, "$name: ProcessAlerts error: temp file name not defined";
+      ::Log3 $name, 3, "$name: ProcessAlerts ERROR: temp file name not defined";
     }
   }
 
@@ -2388,7 +2464,7 @@ sub GetAlertsFinish {
       # error, skip further processing
     } elsif (!defined($hash->{".alertsFile".$communeUnion})) {
       $errorMessage = "internal temp file name missing";
-      ::Log3 $name, 3, "$name: GetAlertsFinish error: $errorMessage";
+      ::Log3 $name, 3, "$name: GetAlertsFinish ERROR: $errorMessage";
     } else {
       # deserialize alerts
       my $fh = $hash->{".alertsFileHandle".$communeUnion};
@@ -2458,7 +2534,7 @@ sub GetAlertsFinish {
 
     ::Log3 $name, 5, "$name: GetAlertsFinish END";
   } else {
-    ::Log 3, "GetAlertsFinish error: device name missing";
+    ::Log 3, "GetAlertsFinish ERROR: device name missing";
   }
 }
 
@@ -2483,7 +2559,7 @@ sub GetAlertsAbort {
   delete $hash->{".alertsBlockingCall".$communeUnion};
   $alertsUpdating[$communeUnion] = undef;
   $errorMessage = "downloading and processing weather alerts data failed ($errorMessage)";
-  ::Log3 $name, 3, "$name: GetAlertsAbort error: $errorMessage";
+  ::Log3 $name, 3, "$name: GetAlertsAbort ERROR: $errorMessage";
   $alertsErrorMessage[$communeUnion] = $errorMessage;
 
   if ($warncellId >= 0) {
@@ -2639,7 +2715,7 @@ sub DWD_OpenData_Initialize {
   $hash->{GetFn}      = 'DWD_OpenData::Get';
 
   $hash->{AttrList} = 'disable:0,1 '
-                      .'forecastStation forecastDays forecastProperties forecastResolution:1,3,6 forecastWW2Text:0,1 '
+                      .'forecastStation forecastDays forecastProperties forecastResolution:1,3,6 forecastWW2Text:0,1 forecastPruning:0,1 '
                       .'alertArea alertLanguage:DE,EN alertExcludeEvents '
                       .'timezone '
                       .$readingFnAttributes;
@@ -2652,6 +2728,16 @@ sub DWD_OpenData_Initialize {
 # -----------------------------------------------------------------------------
 #
 # CHANGES
+#
+# 03.12.2020 (version 1.16.2) jensb
+# change: increased log level in sub RotateForecast
+#
+# 03.12.2020 (version 1.16.1) jensb
+# bugfix: delete destination reading if source reading is undefined when rotating forecast at daybreak
+# feature: new attribute forecastPruning to delete forecast readings that are more than 1 day older than the other readings of the same day
+#
+# 22.11.2020 (version 1.15.0) jensb
+# feature: keep reading timestamp when rotating forecast values at daybreak
 #
 # 17.06.2020 (version 1.14.6) jensb
 # bugfix: $warncellId uninitialized when shutdown before first forecast fetch
@@ -2698,7 +2784,7 @@ sub DWD_OpenData_Initialize {
 # feature: alerts and forecast retrieval error detection improved
 # feature: new readings a_state and fc_state
 # feature: create internal alert on retrieval error
-# bugfix: forecast retrieval timout handling
+# bugfix: forecast retrieval timeout handling
 # bugfix: forecast rotation days calculation
 # bugfix: update scheduling when summertime changes
 #
@@ -2871,13 +2957,19 @@ sub DWD_OpenData_Initialize {
           Note: When value is changed all existing forecast readings will be deleted.
       </li><br>
       <li>forecastProperties [&lt;p1&gt;[,&lt;p2&gt;]...], default: Tx, Tn, Tg, TTT, DD, FX1, Neff, RR6c, RRhc, Rh00, ww<br>
-          A list of the properties available can be found <a href="https://opendata.dwd.de/weather/lib/MetElementDefinition.xml">here</a>.<br>
+          See the <a href="https://opendata.dwd.de/weather/lib/MetElementDefinition.xml">DWD forecast property defintions</a> for more details.<br>
           Notes:<br>
           - Not all properties are available for all stations and for all hours.<br>
           - If you remove a property from the list then already existing readings must be deleted manually in continuous mode.<br>
       </li><br>
       <li>forecastWW2Text {0|1}, default: 0<br>
           Create additional wwd readings containing the weather code as a descriptive text in German language.
+      </li><br>
+      <li>forecastPruning {0|1}, default: 0<br>
+          Search for and delete forecast readings that are more then one day older then other forecast readings of the same day. Pruning will be performed after a successful forecast update.<br>
+          Notes:<br>
+          - Intended to maintain data consistency e.g. when a forecast station changes the reporting hour of a forecast property.<br>
+          - Requires noticable extra computing resources and may cause side effects if your FHEM configuration depends on a reading that is deleted.<br>
       </li><br>
   </ul>
 

@@ -25,7 +25,7 @@
 #
 # Discussed in FHEM Forum: https://forum.fhem.de/index.php/topic,58452.300.html
 #
-# $Id: 70_DENON_AVR.pm 23027 2020-10-26 08:52:21Z delmar $
+# $Id: 70_DENON_AVR.pm 23343 2020-12-13 16:30:22Z delmar $
 
 package main;
 
@@ -1151,14 +1151,8 @@ DENON_AVR_Define($$)
 	}
 	
 		
-	# connect using serial connection (old blocking style)
-	if ($hash->{DeviceName} =~ /^([0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}) (.+@.+)/)
-	{
-		my $ret = DevIo_OpenDev($hash, 0, "DENON_AVR_DoInit");
-		return $ret;
-	}
 	# connect using TCP connection (non-blocking style)
-	else
+	if ($hash->{DeviceName} =~ /^([0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3})/)
 	{
                 $hash->{IP} = $a[2];
                 use XML::Simple qw(:strict);
@@ -1166,15 +1160,19 @@ DENON_AVR_Define($$)
 
 		$hash->{DeviceName} = $hash->{DeviceName} . ":23"
 			if ( $hash->{DeviceName} !~ m/^(.+):([0-9]+)$/ );
-		  
-		DevIo_OpenDev(
-           $hash, 0,
-           "DENON_AVR_DoInit",
-           sub() {
-                my ( $hash, $err ) = @_;
-               Log3 $name, 4, "DENON_AVR $name: $err." if ($err);
-           }
-       );
+
+		my $ret = DevIo_OpenDev($hash, 0, "DENON_AVR_DoInit", 
+                  sub() {
+                    my ( $hash, $err ) = @_;
+                    Log3 $name, 4, "DENON_AVR $name: $err." if ($err);
+                  });
+
+		return $ret;
+	}
+	# connect using serial connection (old blocking style)
+	else
+	{
+		DevIo_OpenDev($hash, 0, "DENON_AVR_DoInit");
 	}
 	
 }

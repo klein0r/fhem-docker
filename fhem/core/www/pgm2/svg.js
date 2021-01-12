@@ -1,5 +1,5 @@
 "use strict";
-FW_version["svg.js"] = "$Id: svg.js 22891 2020-09-30 12:47:36Z rudolfkoenig $";
+FW_version["svg.js"] = "$Id: svg.js 23428 2020-12-27 22:07:20Z rudolfkoenig $";
 
 var svgCallback={};
 if(!svgNS) {
@@ -410,8 +410,10 @@ svg_init_one(embed, svg)
     return;
   svg_initialized[sid] = true;
   $("text.legend", svg).click(function(e){sv_menu(e, embed)});
-  for(var i in svgCallback)
+  for(var i in svgCallback) {
+    if(!svg.getAttribute) svg.getAttribute = function(){ return true }; // fix for flex.js crash
     svgCallback[i](svg);
+  }
 }
 
 function

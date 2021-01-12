@@ -1,5 +1,5 @@
 ########################################################################################################################
-# $Id: 50_SSChatBot.pm 23070 2020-11-01 21:34:27Z DS_Starter $
+# $Id: 50_SSChatBot.pm 23250 2020-11-28 12:38:53Z DS_Starter $
 #########################################################################################################################
 #       50_SSChatBot.pm
 #
@@ -91,6 +91,7 @@ BEGIN {
           CommandAttr
           CommandDefine
           CommandGet
+          CommandTrigger
           data
           defs
           devspec2array
@@ -134,6 +135,9 @@ BEGIN {
 
 # Versions History intern
 my %vNotesIntern = (
+  "1.12.1" => "28.11.2020  fix cannot send after received anything, fix greedy regex in _botCGIcheckData ",
+  "1.12.0" => "23.11.2020  generate event CHAT_INITIALIZED when users are once loaded, Forum: https://forum.fhem.de/index.php/topic,105714.msg1103700.html#msg1103700 ".
+                           "postpone new operation is one ist still running ",
   "1.11.7" => "01.11.2020  quotation marks can be used in text tag of received messages (__botCGIcheckData) ",
   "1.11.6" => "08.10.2020  add urlEncode of character codes like \x{c3}\x{85} to formString  ",
   "1.11.5" => "06.10.2020  use addSendqueue from SMUtils, delete local addSendqueue ",
@@ -859,6 +863,11 @@ sub getApiSites {
        return $ret;  
    }
    
+   if($hash->{OPMODE}) {                                   # Überholer vermeiden wenn eine Operation läuft (V. 1.12.0" => "23.11.2020)
+       Log3($name, 4, qq{$name - Operation "$hash->{OPMODE} (idx: $hash->{OPIDX})" is still running. Next operation start postponed}); 
+       return;                                  
+   }
+   
    # den nächsten Eintrag aus "SendQueue" selektieren und ausführen wenn nicht forbidSend gesetzt ist
    for my $idx (sort{$a<=>$b} keys %{$data{SSChatBot}{$name}{sendqueue}{entries}}) {
        if (!$data{SSChatBot}{$name}{sendqueue}{entries}{$idx}{forbidSend} || $hash->{HELPER}{RESENDFORCE}) {
@@ -983,7 +992,7 @@ sub getApiSites_parse {
             Log3 ($name, 4, "$name - API completed:\n".Dumper $hash->{HELPER}{API});   
 
             if ($opmode eq "apiInfo") {                                              # API Infos in Popup anzeigen
-                showAPIinfo    ($hash, $hash->{HELPER}{API});                           # übergibt Referenz zum instanziierten API-Hash)
+                showAPIinfo    ($hash, $hash->{HELPER}{API});                        # übergibt Referenz zum instanziierten API-Hash)
                 checkSendRetry ($name, 0, $queueStartFn);
                 return;
             }     
@@ -1178,7 +1187,7 @@ sub _parseUsers {
   my $name = $hash->{NAME};
      
   my ($un,$ui,$st,$nn,$em,$uids);     
-  my %users = ();                
+  my %users;                
   my $i     = 0;
 
   my $out = "<html>";
@@ -1207,8 +1216,16 @@ sub _parseUsers {
       $i++;
   }
 
-  $hash->{HELPER}{USERS}       = \%users if(%users);
-  $hash->{HELPER}{USERFETCHED} = 1;
+  if(%users) {
+      $hash->{HELPER}{USERS}       = \%users;
+      my $olduf                    = $hash->{HELPER}{USERFETCHED};
+      $hash->{HELPER}{USERFETCHED} = 1;
+      
+      if(!$olduf) {
+          my $event = "CHAT_INITIALIZED";
+          CommandTrigger(undef, "$name $event");
+      }
+  }
 
   my @newa;
   my $list = $modules{$hash->{TYPE}}{AttrList};
@@ -1295,6 +1312,9 @@ sub _parseSendItem {
                  
   my $postid = "";
   my $idx    = $hash->{OPIDX};
+  
+  return if(!$idx);
+  
   my $uid    = $data{SSChatBot}{$name}{sendqueue}{entries}{$idx}{userid}; 
   
   if($data->{data}{succ}{user_id_post_map}{$uid}) {
@@ -1370,7 +1390,7 @@ sub formString {
           "+"       => "%2B",
       };
       
-	  %$replacements = (%$replacements, %$enctourl);
+      %$replacements = (%$replacements, %$enctourl);
   } 
   else {
       $replacements = {
@@ -1457,8 +1477,6 @@ sub _botCGIdata {
   }
    
   Log3($name, 4, "$name - received data decoded:\n".Dumper($h));
-  
-  $hash->{OPMODE} = "receiveData";
   
   # ausgehende Datenfelder (Chat -> FHEM), die das Chat senden kann
   # ===============================================================
@@ -1556,10 +1574,10 @@ sub __botCGIcheckData {
   $args  = urlDecode($args);
   
   my $ca = $args;
-  my ($teco) = $ca =~ /text="(.*)"/x;                                                  # " im Text-Tag escapen (V: 1.11.7)
+  my ($teco) = $ca =~ /text="(.*?)"/x;                                                 # " im Text-Tag escapen (V: 1.11.7), fix greedy Regex V1.12.1
   if ($teco) {
       $teco =~ s/"/_ESC_/gx;
-      $ca   =~ s/text="(.*)"/text="$teco"/x;
+      $ca   =~ s/text="(.*?)"/text="$teco"/x;                                          # fix greedy Regex V1.12.1
   }
   
   my($a,$h) = parseParams($ca);
@@ -1583,9 +1601,9 @@ sub __botCGIcheckData {
   } 
   
   my $dat = {
-      name       => $name,
-      args       => $args,
-      h          => $h,
+      name => $name,
+      args => $args,
+      h    => $h,
   };
                     
 return ('','',$dat);

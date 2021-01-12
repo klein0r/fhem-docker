@@ -1,4 +1,4 @@
-# $Id: 98_help.pm 21551 2020-03-31 11:01:06Z betateilchen $
+# $Id: 98_help.pm 23281 2020-12-02 17:55:42Z betateilchen $
 #
 package main;
 use strict;
@@ -41,7 +41,7 @@ sub CommandHelp {
     
     my $outputInfo = cref_findInfo($modPath,$mod);
 
-	if($cmds{help}{InternalCmds} !~ m/$mod\,/) {
+    if($cmds{help}{InternalCmds} !~ m/(^|\,)$mod\,/) {
       my %mods;
 	  my @modDir = ("$modPath/FHEM");
 

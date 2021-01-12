@@ -1,5 +1,5 @@
 ########################################################################################################################
-# $Id: 57_SSCal.pm 23113 2020-11-08 08:31:19Z DS_Starter $
+# $Id: 57_SSCal.pm 23365 2020-12-16 14:40:38Z DS_Starter $
 #########################################################################################################################
 #       57_SSCal.pm
 #
@@ -69,6 +69,7 @@ use POSIX qw(strftime);
 use Time::HiRes qw(gettimeofday);
 use HttpUtils;                                                    
 use Encode;
+use utf8;
 use Blocking;
 no if $] >= 5.017011, warnings => 'experimental::smartmatch';
 eval "use FHEM::Meta;1" or my $modMetaAbsent = 1;                 ## no critic 'eval'
@@ -139,6 +140,8 @@ BEGIN {
 
 # Versions History intern
 my %vNotesIntern = (
+  "2.4.8"  => "16.12.2020  accep umlauts in calendar name ",
+  "2.4.7"  => "08.12.2020  fix handle code recognition in createAtDevices as single line ",
   "2.4.6"  => "06.11.2020  bugfix weekly byDay ",
   "2.4.5"  => "03.11.2020  fix commandref wiki link ",
   "2.4.4"  => "06.10.2020  use addSendqueue from SMUtils, delete local addSendqueue ",
@@ -1400,7 +1403,7 @@ sub calOp_parse {                                                   ## no critic
                 $out    .= "<tr><td>  </td><td> </td><td> </td><td> </td><td> </td><td></tr>";
                 
                 while ($data->{data}[$i]) {
-                    $dnm = $data->{data}[$i]{cal_displayname};
+                    $dnm = encode("UTF-8", $data->{data}[$i]{cal_displayname});
                     next if (!$dnm);
                     $typ = "Event" if($data->{data}[$i]{is_evt});
                     $typ = "ToDo"  if($data->{data}[$i]{is_todo});
@@ -2351,7 +2354,7 @@ sub writeValuesToArray {                                                   ## no
       my @days;
       (undef, undef, undef, undef, undef, undef, $bWday, undef, undef) = localtime($btimes);
       if($lang eq "DE") {
-          @days = qw(Sontag Montag Dienstag Mittwoch Donnerstag Freitag Samstag);
+          @days = qw(Sonntag Montag Dienstag Mittwoch Donnerstag Freitag Samstag);
       } 
       else {
           @days = qw(Sunday Monday Tuesday Wednesday Thursday Friday Saturday);
@@ -2628,7 +2631,7 @@ sub createAtDevices {
       $location   = ReadingsVal($name, $bnr."_35_Location",  $room);                                       # Location wird als room gesetzt
       $id         = ReadingsVal($name, $bnr."_98_EventId",      "");  
 
-      if($begin && $status =~ /upcoming|alarmed/x && $desc =~ /^\s*\{(.*)\}\s*$/x) {                       # ein at-Device erstellen wenn Voraussetzungen erfüllt
+      if($begin && $status =~ /upcoming|alarmed/x && $desc =~ /^\s*\{(.*)\}\s*$/xs) {                      # ein at-Device erstellen wenn Voraussetzungen erfüllt
           my $cmd = $1;
           $begin  =~ s/\s/T/x;                                                                             # Formatierung nach ISO8601 (YYYY-MM-DDTHH:MM:SS) für at-Devices
           my $ao  = $begin;

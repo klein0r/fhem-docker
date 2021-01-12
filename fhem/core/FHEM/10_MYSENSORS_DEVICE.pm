@@ -21,7 +21,7 @@
 #     You should have received a copy of the GNU General Public License
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-# $Id: 10_MYSENSORS_DEVICE.pm 22924 2020-10-06 05:25:49Z Beta-User $
+# $Id: 10_MYSENSORS_DEVICE.pm 23257 2020-11-29 14:47:32Z Beta-User $
 #
 ##############################################
 
@@ -63,6 +63,7 @@ BEGIN {
     RemoveInternalTimer
     asyncOutput
     readingFnAttributes
+    IsDisabled
   ))
 };
 
@@ -95,6 +96,7 @@ sub Initialize {
     OTA_Chan76_IODev
     streamFilePatterns
     model
+    disable:0,1
   );
   use warnings 'qw';
   $hash->{AttrList} = join(" ", @attrList)." ".$readingFnAttributes;
@@ -255,6 +257,7 @@ sub UnDefine {
 sub Set {
     my ($hash,$name,$command,@values) = @_;
     return "At least one parameter is needed!" if !defined $command;
+    return "Node is disabled!" if IsDisabled( $hash->{NAME} );
     if(!defined($hash->{sets}->{$command})) {
       $hash->{sets}->{fwType} = join(",", MYSENSORS::getFirmwareTypes($hash->{IODev}));
       my $list = join(" ", map {
@@ -278,8 +281,7 @@ sub Set {
       }
       
       if ($command eq "reboot") {
-        my $blVersion = ReadingsVal($name, "BL_VERSION", "");
-        defined($hash->{OTA_BL_Type}) or $blVersion eq "3.0" 
+        (AttrVal($name, "OTA_BL_Type", 0) or ReadingsVal($name, "BL_VERSION", 0)) 
           ? return sendClientMessage($hash, 
                                      childId => 255, 
                                      cmd => C_INTERNAL, 
@@ -307,10 +309,12 @@ sub Set {
         if ($fwType == -1) {
           Log3 ($name,3,"Firmware type not defined (FW_TYPE) for $name, update not started");
           return "$name: Firmware type not defined (FW_TYPE)";
-        } elsif ($blVersion eq "3.0" or $blType eq "Optiboot") {
+        } 
+        if ($blVersion eq "3.0" or $blType eq "Optiboot") {
           Log3 ($name,4,"Startet flashing Firmware: Optiboot method");
           return flashFirmware($hash, $fwType);
-        } elsif ($blType eq "MYSBootloader") {
+        } 
+        if ($blType eq "MYSBootloader") {
           $hash->{OTA_requested} = 1;
           Log3 ($name,4,"Send reboot command to MYSBootloader node to start update");
           return sendClientMessage($hash, 

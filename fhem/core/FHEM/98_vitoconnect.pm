@@ -1,5 +1,5 @@
 #########################################################################
-# $Id: 98_vitoconnect.pm 22352 2020-07-05 16:56:05Z andreas13 $
+# $Id: 98_vitoconnect.pm 23398 2020-12-21 10:57:54Z andreas13 $
 # fhem Modul für Viessmann API. Based on investigation of "thetrueavatar"
 # (https://github.com/thetrueavatar/Viessmann-Api)
 #
@@ -171,14 +171,21 @@
 #                 Information aus dem GW auslesen (Attribut "vitoconnect_gw_readings" auf "1" setzen;
 #                    noch unvollständig!)
 #
-#                 readings for heating.power.production.demandCoverage.* fixed
+# 2020-07-06      readings for heating.power.production.demandCoverage.* fixed
 #                 bei logResponseOnce wird bei getCode angefangen damit auch gw.json neu erzeugt wird
 #
+# 2020-11-26      Bugfix für einige "set"-Kommandos für HK2 und HK3
+#
+# 2020-12-21	  Neue Readings "heating.power.production.current.status" => "Stromproduktion_aktueller_Status",
+#					"heating.power.production.current.value" => "Stromproduktion",
+#					"heating.sensors.power.output.status" => "Sensor_Stromproduktion_Status",
+#					"heating.sensors.power.output.value" => "Sensor_Stromproduktion" und
+#                 	"heating.circuits.X.operating.programs.Y.demand" =>
+#				      "HK(X+1)-Solltemperatur_Y_Anforderung" (X=0,1,2 und Y=normal,reduced,comfort)
 #
 #   ToDo:         timeout konfigurierbar machen
 #				  Attribute implementieren und dokumentieren
-#                 mapping der Readings optional machen
-#				  Mehrsprachigkeit
+#                 Mehrsprachigkeit
 #                 Auswerten der Readings in getCode usw.
 #				  devices/0 ? Was, wenn es mehrere Devices gibt?
 #				  nach einem set Befehl Readings aktualisieren, vorher alten Timer löschen
@@ -267,6 +274,8 @@ my $RequestList = {
       "HK1-Programmstatus",
     "heating.circuits.0.operating.programs.comfort.active" =>
       "HK1-Solltemperatur_comfort_aktiv",
+    "heating.circuits.0.operating.programs.comfort.demand" =>
+      "HK1-Solltemperatur_comfort_Anforderung",
     "heating.circuits.0.operating.programs.comfort.temperature" =>
       "HK1-Solltemperatur_comfort",
     "heating.circuits.0.operating.programs.eco.active" =>
@@ -292,10 +301,14 @@ my $RequestList = {
     "heating.circuits.0.operating.programs.holiday.end"   => "HK1-Urlaub_Ende",
     "heating.circuits.0.operating.programs.normal.active" =>
       "HK1-Solltemperatur_aktiv",
+    "heating.circuits.0.operating.programs.normal.demand" =>
+      "HK1-Solltemperatur_Anforderung",
     "heating.circuits.0.operating.programs.normal.temperature" =>
       "HK1-Solltemperatur_normal",
     "heating.circuits.0.operating.programs.reduced.active" =>
       "HK1-Solltemperatur_reduziert_aktiv",
+    "heating.circuits.0.operating.programs.reduced.demand" =>
+      "HK1-Solltemperatur_reduziert_Anforderung",
     "heating.circuits.0.operating.programs.reduced.temperature" =>
       "HK1-Solltemperatur_reduziert",
     "heating.circuits.0.operating.programs.summerEco.active" =>
@@ -348,6 +361,8 @@ my $RequestList = {
       "HK2-Programmstatus",
     "heating.circuits.1.operating.programs.comfort.active" =>
       "HK2-Solltemperatur_comfort_aktiv",
+    "heating.circuits.1.operating.programs.comfort.demand" =>
+      "HK2-Solltemperatur_comfort_Anforderung",
     "heating.circuits.1.operating.programs.comfort.temperature" =>
       "HK2-Solltemperatur_comfort",
     "heating.circuits.1.operating.programs.eco.active" =>
@@ -373,10 +388,14 @@ my $RequestList = {
     "heating.circuits.1.operating.programs.holiday.end"   => "HK2-Urlaub_Ende",
     "heating.circuits.1.operating.programs.normal.active" =>
       "HK2-Solltemperatur_aktiv",
+    "heating.circuits.1.operating.programs.normal.demand" =>
+      "HK2-Solltemperatur_Anforderung",
     "heating.circuits.1.operating.programs.normal.temperature" =>
       "HK2-Solltemperatur_normal",
     "heating.circuits.1.operating.programs.reduced.active" =>
       "HK2-Solltemperatur_reduziert_aktiv",
+    "heating.circuits.1.operating.programs.reduced.demand" =>
+      "HK2-Solltemperatur_reduziert_Anforderung",
     "heating.circuits.1.operating.programs.reduced.temperature" =>
       "HK2-Solltemperatur_reduziert",
     "heating.circuits.1.operating.programs.summerEco.active" =>
@@ -428,6 +447,8 @@ my $RequestList = {
       "HK3-Programmstatus",
     "heating.circuits.2.operating.programs.comfort.active" =>
       "HK3-Solltemperatur_comfort_aktiv",
+    "heating.circuits.2.operating.programs.comfort.demand" =>
+      "HK3-Solltemperatur_comfort_Anforderung",
     "heating.circuits.2.operating.programs.comfort.temperature" =>
       "HK3-Solltemperatur_comfort",
     "heating.circuits.2.operating.programs.eco.active" =>
@@ -453,10 +474,14 @@ my $RequestList = {
     "heating.circuits.2.operating.programs.holiday.end"   => "HK3-Urlaub_Ende",
     "heating.circuits.2.operating.programs.normal.active" =>
       "HK3-Solltemperatur_aktiv",
+    "heating.circuits.2.operating.programs.normal.demand" =>
+      "HK3-Solltemperatur_Anforderung",
     "heating.circuits.2.operating.programs.normal.temperature" =>
       "HK3-Solltemperatur_normal",
     "heating.circuits.2.operating.programs.reduced.active" =>
       "HK3-Solltemperatur_reduziert_aktiv",
+    "heating.circuits.2.operating.programs.reduced.demand" =>
+      "HK3-Solltemperatur_reduziert_Anforderung",
     "heating.circuits.2.operating.programs.reduced.temperature" =>
       "HK3-Solltemperatur_reduziert",
     "heating.circuits.2.operating.programs.summerEco.active" =>
@@ -639,6 +664,10 @@ my $RequestList = {
     "heating.power.consumption.total.year"  => "Stromverbrauch_Total/Jahr",
     "heating.power.consumption.total.unit"  => "Stromverbrauch_Total/Einheit",
 
+    "heating.power.production.current.status" =>
+      "Stromproduktion_aktueller_Status",
+    "heating.power.production.current.value" => "Stromproduktion",
+
     "heating.power.production.demandCoverage.current.unit" =>
       "Stromproduktion_Bedarfsabdeckung/Einheit",
     "heating.power.production.demandCoverage.current.value" =>
@@ -687,6 +716,9 @@ my $RequestList = {
     "heating.sensors.pressure.supply.status" => "Drucksensor_Vorlauf_Status",
     "heating.sensors.pressure.supply.unit"   => "Drucksensor_Vorlauf/Einheit",
     "heating.sensors.pressure.supply.value"  => "Drucksensor_Vorlauf",
+
+    "heating.sensors.power.output.status" => "Sensor_Stromproduktion_Status",
+    "heating.sensors.power.output.value"  => "Sensor_Stromproduktion",
 
     "heating.sensors.temperature.outside.status"      => "Aussen_Status",
     "heating.sensors.temperature.outside.statusWired" => "Aussen_StatusWired",
@@ -1092,7 +1124,7 @@ sub vitoconnect_Set {
     elsif ( $opt eq "HK2-Solltemperatur_normal" ) {
         vitoconnect_action(
             $hash,
-            "heating.circuits.0.operating.programs.normal/setTemperature",
+            "heating.circuits.1.operating.programs.normal/setTemperature",
             "{\"targetTemperature\":$args[0]}",
             $name, $opt, @args
         );
@@ -1101,7 +1133,7 @@ sub vitoconnect_Set {
     elsif ( $opt eq "HK3-Solltemperatur_normal" ) {
         vitoconnect_action(
             $hash,
-            "heating.circuits.0.operating.programs.normal/setTemperature",
+            "heating.circuits.2.operating.programs.normal/setTemperature",
             "{\"targetTemperature\":$args[0]}",
             $name, $opt, @args
         );
@@ -1110,7 +1142,7 @@ sub vitoconnect_Set {
     elsif ( $opt eq "HK1-Solltemperatur_reduziert" ) {
         vitoconnect_action(
             $hash,
-            "heating.circuits.1.operating.programs.reduced/setTemperature",
+            "heating.circuits.0.operating.programs.reduced/setTemperature",
             "{\"targetTemperature\":$args[0]}",
             $name, $opt, @args
         );
@@ -1119,7 +1151,7 @@ sub vitoconnect_Set {
     elsif ( $opt eq "HK2-Solltemperatur_reduziert" ) {
         vitoconnect_action(
             $hash,
-            "heating.circuits.2.operating.programs.reduced/setTemperature",
+            "heating.circuits.1.operating.programs.reduced/setTemperature",
             "{\"targetTemperature\":$args[0]}",
             $name, $opt, @args
         );
@@ -1128,7 +1160,7 @@ sub vitoconnect_Set {
     elsif ( $opt eq "HK3-Solltemperatur_reduziert" ) {
         vitoconnect_action(
             $hash,
-            "heating.circuits.0.operating.programs.reduced/setTemperature",
+            "heating.circuits.2.operating.programs.reduced/setTemperature",
             "{\"targetTemperature\":$args[0]}",
             $name, $opt, @args
         );
@@ -1334,8 +1366,8 @@ sub vitoconnect_GetUpdate {
 }
 
 sub vitoconnect_getCode {
-    my ($hash) = @_;
-    my $name = $hash->{NAME};
+    my ($hash)       = @_;
+    my $name         = $hash->{NAME};
     my $isiwebpasswd = vitoconnect_ReadKeyValue( $hash, "passwd" );
     my $param        = {
         url => "$authorizeURL?client_id=$client_id"
@@ -1776,7 +1808,7 @@ sub vitoconnect_action {
     ( my $err, my $msg ) = HttpUtils_BlockingGet($param);
 
     if ( $err ne "" || $msg ne "" ) {
-        Log3 $name, 1, "$name - set $name $opt @args: Fehler während der"
+        Log3 $name, 1, "$name - set $name $opt @args: Fehler während der "
           . "Befehlsausführung: $err :: $msg";
     }
     else { Log3 $name, 3, "$name - set $name $opt @args"; }

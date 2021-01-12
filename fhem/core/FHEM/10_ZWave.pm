@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_ZWave.pm 23160 2020-11-15 10:06:55Z rudolfkoenig $
+# $Id: 10_ZWave.pm 23384 2020-12-19 17:34:05Z rudolfkoenig $
 # See ZWDongle.pm for inspiration
 package main;
 
@@ -744,22 +744,22 @@ ZWave_Initialize($)
     classes
     disable:0,1
     disabledForIntervals
-    do_not_notify:noArg
-    dummy:noArg
+    do_not_notify:1,0
+    dummy:1,0
     eventForRaw
     extendedAlarmReadings:0,1,2
-    ignore:noArg
-    ignoreDupMsg:noArg
+    ignore:1,0
+    ignoreDupMsg:1,0
     neighborListPos
-    noExplorerFrames:noArg
-    noWakeupForApplicationUpdate:noArg
+    noExplorerFrames:1,0
+    noWakeupForApplicationUpdate:1,0
     secure_classes
     setExtensionsEvent:1,0
     setList
-    showtime:noArg
+    showtime:1,0
     vclasses
-    useMultiCmd:noArg
-    useCRC16:noArg
+    useMultiCmd:1,0
+    useCRC16:1,0
     zwaveRoute
   );
   use warnings 'qw';
@@ -1114,7 +1114,7 @@ ZWave_Cmd($$@)
 
   if($cmdFmt !~ m/%s/ && $cmd !~ m/^config/) {
     for(my $i1 = 0; $i1<int(@a); $i1++) {
-      return "Error: $a[$i1] is not a decimal number"
+      return "Error: $a[$i1] is not an integer"
         if($a[$i1] !~ m/^[-\d]+$/);
     }
   }
@@ -6636,12 +6636,12 @@ ZWave_firmwareUpdateParse($$$)
   <br><br><b>Class THERMOSTAT_SETPOINT</b>
   <li>setpointHeating value<br>
     set the thermostat to heat to the given value.
-    The value is an integer and read as celsius.<br>
+    The value is an integer in celsius.<br>
     See thermostatSetpointSet for a more enhanced method.
   </li>
   <li>setpointCooling value<br>
     set the thermostat to cool down to the given value.
-    The value is an integer and read as celsius.<br>
+    The value is an integer in celsius.<br>
     See thermostatSetpointSet for a more enhanced method.
   </li>
   <li>thermostatSetpointSet TEMP [SCALE [TYPE [PREC [SIZE]]]]<br>
@@ -6666,15 +6666,13 @@ ZWave_firmwareUpdateParse($$$)
         15=fullPower
         </ul>
       PREC: (optional) number of decimals to be used, [1-7], defaults
-            to 1<br>
-      SIZE: (optional) number of bytes used, [1, 2, 4], defaults to 2<br>
-      Note: optional parameters can be ommitted and are used with there
-            default values. If you need or want to specify an optional
-            parameter, ALL parameters in front of this parameter need
-            to be also specified!<br>
+
+      Note: optional parameters can be ommitted.  To specify an optional
+             parameter, ALL parameters in front of this parameter need
+             to be also specified!<br>
       Note: the number of decimals (defined by PREC) and the number of
       bytes (defined by SIZE) used for the setpoint influence the usable
-      range for the temperature. Some device do not support all possible
+      range for the temperature. Some devices do not support all possible
       values/combinations for PREC/SIZE.<br>
         <ul>
         1 byte: 0 decimals [-128, 127], 1 decimal [-12.8, 12.7], ...<br>

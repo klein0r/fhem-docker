@@ -5,7 +5,7 @@
 # e-mail: omega at online dot de
 #
 ##############################################
-# $Id: 02_RSS.pm 21959 2020-05-17 15:08:43Z neubert $
+# $Id: 02_RSS.pm 23383 2020-12-19 12:24:26Z neubert $
 
 package main;
 use strict;
@@ -972,6 +972,8 @@ sub RSS_returnIMG($$) {
                     $defs{$name}{fhem}{bgnr} = $bgnr;
                     my $bgfile = $bgdir . "/" . $bgfiles[$bgnr];
                     my $filetype = ( split( /\./, $bgfile ) )[-1];
+                    readingsSingleUpdate($defs{$name}, "bgFilename", $bgfile, 1);
+                    readingsSingleUpdate($defs{$name}, "bgFiletype", $filetype, 1);
                     my $bg;
                     $bg = newFromGif GD::Image($bgfile)
                       if $filetype =~ m/^gif$/i;
@@ -1012,8 +1014,7 @@ sub RSS_returnIMG($$) {
                     }
                     else {
                         undef $S;
-                        $reason =
-"Something was wrong with background image \"$bgfile\".";
+                        $reason = "Something was wrong with background image \"$bgfile\".";
                     }
                 }
             }

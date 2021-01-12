@@ -1,5 +1,5 @@
 #########################################################################
-# $Id: Utils.pm 23024 2020-10-25 15:03:32Z StefanStrobel $
+# $Id: Utils.pm 23483 2021-01-07 12:55:17Z StefanStrobel $
 # Utility functions of HTTPMOD that can be uses by other Fhem modules
 #   
 #     This file is part of fhem.
@@ -49,6 +49,7 @@ our @EXPORT_OK = qw(UpdateTimer FhemCaller
                     IsOpen
                     FmtTimeMs
                     ReadableArray
+                    Statistics Profiler
                     );
 
 our %EXPORT_TAGS = (all => [@EXPORT_OK]);
@@ -146,7 +147,7 @@ sub UpdateTimer {
 
     my $delay = sprintf ("%.1f", $nextUpdate - $now);
     Log3 $name, 4, "$name: UpdateTimer called from " . FhemCaller() . " with cmd $cmd" .
-        " sets timer to call update function in $delay sec at " . FmtDateTime($nextUpdate) . ", interval $intvl";
+        " sets timer to call update function in $delay sec at " . FmtTimeMs($nextUpdate) . ", interval $intvl";
     RemoveInternalTimer("update:$name");
     InternalTimer($nextUpdate, $updFn, "update:$name", 0);  # now set the timer   
     return;
@@ -172,21 +173,20 @@ sub StartQueueTimer {
     my $pFunc  = shift;                                                 # e.g. \&Modbus::ProcessRequestQueue
     my $oRef   = shift;                                                 # optional hash ref for passing options
     my $name   = $ioHash->{NAME};
-    my $pDelay = $oRef->{'delay'} // AttrVal($name, 'queueDelay', 1);   # delay until queue processing call
+    my $delay  = $oRef->{'delay'} // AttrVal($name, 'queueDelay', 1);   # delay until queue processing call
     my $silent = $oRef->{'silent'} // 0;
     my $msg    = $oRef->{'log'} // '';
     my $qlen   = ($ioHash->{QUEUE} ? scalar(@{$ioHash->{QUEUE}}) : 0);
     
     if ($qlen) {        
         my $now   = gettimeofday();
-        my $delay = (defined($pDelay) ? $pDelay : AttrVal($name, 'queueDelay', 1));
         return if ($ioHash->{nextQueueRun} && $ioHash->{nextQueueRun} < $now+$delay);
-        RemoveInternalTimer ("queue:$name");  
-        InternalTimer($now+$delay, $pFunc, "queue:$name", 0);
-        $ioHash->{nextQueueRun} = $now+$delay;
         Log3 $name, 5, "$name: StartQueueTimer called from " . FhemCaller() . 
             ' sets internal timer to process queue in ' . 
             sprintf ('%.3f', $delay) . ' seconds' . ($msg ? ", $msg" : '') if (!$silent);
+        RemoveInternalTimer ("queue:$name");  
+        InternalTimer($now+$delay, $pFunc, "queue:$name");
+        $ioHash->{nextQueueRun} = $now+$delay;
     } 
     else {
         Log3 $name, 5, "$name: StartQueueTimer called from " . FhemCaller() . 
@@ -210,10 +210,10 @@ sub StopQueueTimer {
     my $silent = $oRef->{'silent'} // 0;
     my $name   = $ioHash->{NAME};
     if ($ioHash->{nextQueueRun}) {        
-        RemoveInternalTimer ("queue:$name");  
-        delete $ioHash->{nextQueueRun};
         Log3 $name, 5, "$name: StopQueueTimer called from " . FhemCaller() . 
             ' removes internal timer for queue processing' if (!$silent);
+        RemoveInternalTimer ("queue:$name");  
+        delete $ioHash->{nextQueueRun};
     }
     return;
 }
@@ -317,9 +317,10 @@ sub EvalExpr {
 # return the name of the caling function for debug output
 sub FhemCaller {
     my ($package, $filename, $line, $subroutine, $hasargs, $wantarray, $evaltext, $is_require, $hints, $bitmask, $hinthash) = caller 2;
-    return $1 if ($subroutine =~ /main::HTTPMOD_(.*)/);
-    return $1 if ($subroutine =~ /main::(.*)/);
     return 'Fhem internal timer' if ($subroutine =~ /main::HandleTimeout/);
+    return $1 if ($subroutine =~ /main::HTTPMOD_(.*)/);
+    return $1 if ($subroutine =~ /main::Modbus_(.*)/);
+    return $1 if ($subroutine =~ /::(.*)/);
     return "$subroutine";
 }
 
@@ -336,7 +337,7 @@ sub MapConvert {
     my $reverse        = $oRef->{'reverse'} // 0;               # use reverse map
     my $action         = $oRef->{'action'} // 'apply map';      # context for logging
     my $UndefIfNoMatch = $oRef->{'undefIfNoMatch'} // 0;        # return undef if map is not matching, 
-    my $inVal          = $oRef->{'val'} // '';                  # input value
+    my $inVal          = $oRef->{'val'};                        # input value
     my $name           = $hash->{NAME};
     
     return $inVal if (!$map);                                   # don't change anyting if map is empty
@@ -346,19 +347,19 @@ sub MapConvert {
         $map =~ s/([^, ][^,\$]*):([^,][^,\$]*),? */$2:$1, /g;   # reverse map
     }
     # spaces in words allowed, separator is ',' or ':'
-    my $val = decode ('UTF-8', $inVal);                         # convert nbsp from fhemweb
-    $val =~ s/\s|&nbsp;/ /g;                                    # back to normal spaces in case it came from FhemWeb with coded Blank
-
+    my $val = $inVal // '';
+    #my $val = decode ('UTF-8', $inVal);
+    $val =~ s/\s|&nbsp;|(\xc2\xa0)/ /g;                         # back to normal spaces in case it came from FhemWeb with coded Blank
     my %mapHash = split (/, *|:/, $map);                        # reverse hash aus dem reverse string                   
 
     if (defined($mapHash{$val})) {                              # Eintrag für den übergebenen Wert in der Map?
         my $newVal = $mapHash{$val};                            # entsprechender Raw-Wert für das Gerät
-        Log3 $name, 5, "$name: MapConvert called from " . FhemCaller() . " converted $val to $newVal with" .
+        Log3 $name, 5, "$name: MapConvert called from " . FhemCaller() . " converted $val ($inVal) to $newVal with" .
         ($reverse ? " reversed" : "") . " map $map";
         return $newVal;
     } 
     else {
-        Log3 $name, 3, "$name: MapConvert called from " . FhemCaller() . " did not find $val in" . 
+        Log3 $name, 3, "$name: MapConvert called from " . FhemCaller() . " did not find $val ($inVal) in" . 
         ($reverse ? " reversed" : "") . " map $map";
         return if ($UndefIfNoMatch);
         return $inVal;
@@ -405,17 +406,18 @@ sub CheckRange {
 
 
 #####################################################################
-# check that a value is in a defined range
+# use sprintf to format a value with a given format string
 sub FormatVal {
     my $hash    = shift;
     my $oRef    = shift;                        # optional hash ref for passing options and variables for use in expressions
-    my $val     = $oRef->{'val'} // '';         # input value
+    my $val     = $oRef->{'val'};               # input value
     my $format  = $oRef->{'format'} // '';      # format string
     my $name    = $hash->{NAME};
 
     return $val if (!$format);
-    my $newVal = sprintf($format, $val);
-    Log3 $name, 5, "$name: FormatVal for " . FhemCaller() . " formats $val with $format, result is $newVal";
+    my $newVal = sprintf($format, $val // '');
+    Log3 $name, 5, "$name: FormatVal for " . FhemCaller() . " formats " . ($val // 'undef') . 
+        " with format " . ($format // 'undef') . ", result is " . ($newVal // 'undef');
     return $newVal;
 }
 
@@ -492,26 +494,48 @@ sub ManageUserAttr {
         }
         return $retVal;
     }
-    # go through all possible attrs and check if the passed attr matches one of the regex attrs
-    foreach my $listAttr (split " ", $modHash->{AttrList}) {
-        my ($listAttrName, $listAttrHint) 
-            = $listAttr =~ m{ \A ([^:]+) (:?.*) }xms;               # split list entry in name and optional hint
-        if ($aName =~ m{\A$listAttrName\z}xms) {                    # yes - the passed attribute name now matches the entry in the list as regex
-            addToDevAttrList($name, $aName . $listAttrHint);        # create userattr with hint to allow change in fhemweb
-            #Log3 $name, 5, "$name: ManageUserAttr added attr $aName to userattr list";
+    #Log3 $name, 5, "$name: ManageUserAttr for $aName called from " . FhemCaller(). ", userattr = " . ($attr{$name}{userattr} // '');
 
-            if ($listAttrHint) {                                    # in case an earlier version added the attribute without the hint, remove old entry
-                my $uaList = $attr{$name}{userattr} // '';
-                my %uaHash;
-                foreach my $userAttr (split(" ", $uaList)) {
-                    if ($userAttr !~ m{\A $aName \z}xms) {          # no match -> existing entry in userattr list is attribute without hint
-                        $uaHash{$userAttr} = 1;                     # put $userAttr as key into the hash so it is kept in userattr
-                    } 
-                    else {                                          # match -> in list without attr -> remove
-                        #Log3 $name, 5, "$name: ManageUserAttr removes attr $userAttr without hint $listAttrHint from userattr list";
+    MODATTRLOOP:    # find the corresponding attr in the modules attrlist
+    foreach my $listAttr (split " ", $modHash->{AttrList}) {        # go through all possible attrs in the module's list and check if the passed attr matches one of the regex attrs
+        my ($listAttrName, $listAttrHint) 
+            = $listAttr =~ m{ \A ([^:]+) (:?.*) }xms;               # split module attr list entry in name and optional hint
+        if ($aName =~ m{\A$listAttrName\z}xms) {                    # yes - the passed attribute name now matches the entry in the list as regex
+            # found regex attr in modules list that belongs to $aName, saved in $listAttrName and $listAttrHint
+            my $uaList = $attr{$name}{userattr} // '';              # get the userAttr list 
+            my %uaHash;
+            my $found = 0;
+
+            UALOOP:
+            foreach my $userAttr (split(" ", $uaList)) {            # for every userAttr
+                my ($userAttrName, $userAttrHint) 
+                    = $userAttr =~ m{ \A ([^:]+) (:?.*) }xms;       # split module attr list entry in name and optional hint
+                #Log3 $name, 5, "$name: ManageUserAttr compares userattr name $userAttrName with passed attr name $aName";
+                if ($userAttrName eq $aName) {
+                    #Log3 $name, 5, "$name: ManageUserAttr compares hints from userattr $userAttrHint with hint from list $listAttrHint";
+                    $found = 1;
+                    if ($userAttrHint && $userAttrHint ne ($listAttrHint // '')) {
+                        $uaHash{$userAttr} = 1;                     # keep $userAttr with hint if module attr has no hint
+                        #Log3 $name, 5, "$name: ManageUserAttr keeps userattr $userAttr with different hint";
                     }
+                } else {
+                    $uaHash{$userAttr} = 1;                         # keep userattr with different names
+                    #Log3 $name, 5, "$name: ManageUserAttr keeps other existing userattr $userAttr";
                 }
-                $attr{$name}{userattr} = join(" ", sort keys %uaHash);
+            }
+            if (!$found && $listAttrHint) {                         # add userAttr with attr from module list
+                $uaHash{$aName . $listAttrHint} = 1;
+                #Log3 $name, 5, "$name: ManageUserAttr adds $aName$listAttrHint";
+            }
+            my $aString = join(" ", sort keys %uaHash);             # reconstruct userAttr list string
+            if ($aString) {
+                $attr{$name}{userattr} = $aString;
+                Log3 $name, 5, "$name: ManageUserAttr updated userattr list to $aString";
+            } else {
+                if ($attr{$name}{userattr}) {
+                    Log3 $name, 3, "$name: ManageUserAttr removed useless userattr list";
+                    delete $attr{$name}{userattr};
+                }
             }
         }
     }
@@ -723,9 +747,9 @@ sub FmtTimeMs {
     my $time = shift // 0;
     my $seconds;
     my $mseconds;
-    if ($time =~ /([^\.]+)(\.(.*))?/) {
+    if ($time =~ /([^\.]+)(\.(.{0,3}))?/) {
         $seconds  = $1;
-        $mseconds = $3;
+        $mseconds = $2 // 0;
     } 
     else {
         $seconds  = $time;
@@ -737,7 +761,7 @@ sub FmtTimeMs {
     
     my @t = localtime($seconds);
     my $tim = sprintf("%02d:%02d:%02d", $t[2],$t[1],$t[0]);
-    $tim .= sprintf(".%03d", $mseconds);
+    $tim .= sprintf(".%03d", $mseconds * 1000);
     return $tim;
 }
 
@@ -752,5 +776,112 @@ sub ReadableArray {
     return $vString
 }
 
+
+
+#####################################################
+# collect statistics like number of requests / errors
+# in a defined interval
+sub Statistics {
+    my $hash  = shift;              # our device hash
+    my $key   = shift;              # the name / key of this statistic (e.g. requests or timeouts)
+    my $value = shift // 1;         # if no value is passed, assume 1
+    my $name  = $hash->{NAME};
+
+    my $pInterval = AttrVal($name, 'profileInterval', 0);  
+    return if (!$pInterval);
+
+    my $now     = gettimeofday();
+    my $pPeriod = int($now / $pInterval);
+
+    if (!defined ($hash->{statistics}{lastPeriod}) || ($pPeriod != $hash->{statistics}{lastPeriod})) {
+        readingsBeginUpdate($hash);
+        foreach my $k (keys %{$hash->{statistics}{sums}}) {
+            readingsBulkUpdate($hash, 'Statistics_' . $k, $hash->{statistics}{sums}{$k});
+            $hash->{statistics}{sums}{$k} = 0;
+        }
+        readingsEndUpdate($hash, 1);
+        $hash->{statistics}{sums}{$key} = $value;
+        $hash->{statistics}{lastPeriod} = $pPeriod;
+    } 
+    else {
+        if ($hash->{statistics}{sums}{$key}) {
+            $hash->{statistics}{sums}{$key} += $value;
+        } else {
+            $hash->{statistics}{sums}{$key} = $value;
+        }
+    }
+    return;
+}
+
+
+##############################################################
+# add up time used during certain activities 
+# like sending, waiting for a response or reading
+sub Profiler {
+    my $hash      = shift;           # device hash
+    my $key       = shift;           # key / class name to use for profiling the following time period
+    return if (!$hash);
+    my $name      = $hash->{NAME};
+    my $pInterval = AttrVal($name, 'profileInterval', 0);
+    return if (!$pInterval);
+    my $now       = gettimeofday();
+    my $pPeriod   = int($now / $pInterval);
+    
+    if (!defined ($hash->{profiler}{lastKey})) {            # initialize values at first call
+        $hash->{profiler}{lastKey}     = $key;
+        $hash->{profiler}{lastPeriod}  = $pPeriod;
+        $hash->{profiler}{start}{$key} = $now;
+        $hash->{profiler}{sums}{$key}  = 0 ;
+        Log3 $name, 5, "$name: Profiling $key initialized, start " . FmtTimeMs($now);
+        return;
+    } 
+    my $lKey  = $hash->{profiler}{lastKey};                 # save last key
+    my $lDiff = ($now - $hash->{profiler}{start}{$lKey});   # time diff for last key 
+    $lDiff    = 0 if (!$hash->{profiler}{start}{$lKey});
+    
+    if (!$hash->{profiler}{start}{$key}) {
+        $hash->{profiler}{start}{$key} = $now;              # save start time for new key
+    }
+    
+    Log3 $name, 5, "$name: Profiling $key, before $lKey, now is " . FmtTimeMs($now) . 
+        ", $key started at "  . FmtTimeMs($hash->{profiler}{start}{$key}) . 
+        ", $lKey started at " . FmtTimeMs($hash->{profiler}{start}{$lKey});
+    
+    if ($pPeriod != $hash->{profiler}{lastPeriod}) {        # new period
+        my $overP = $now - ($pPeriod * $pInterval);         # time over the pPeriod start
+        $overP    = 0 if ($overP > $lDiff);                 # if interval was modified things get inconsistant ...
+        Log3 $name, 5, "$name: Profiling pPeriod changed, last pPeriod was " . $hash->{profiler}{lastPeriod} . 
+                    " now $pPeriod, total diff for $lKey is $lDiff, " . 
+                    sprintf ('%.3f', $overP) . " over the pPeriod";     
+        Log3 $name, 5, "$name: Profiling add " . sprintf('%.3f', $lDiff - $overP) . " to sum for $key";
+        $hash->{profiler}{sums}{$lKey} += ($lDiff - $overP);
+        
+        readingsBeginUpdate($hash);
+        foreach my $k (keys %{$hash->{profiler}{sums}}) {
+            my $val = sprintf('%.3f', $hash->{profiler}{sums}{$k});
+            Log3 $name, 5, "$name: Profiling set reading for $k to $val";
+            readingsBulkUpdate($hash, 'Profiler_' . $k . '_sum', $val);
+            $hash->{profiler}{sums}{$k} = 0;
+            $hash->{profiler}{start}{$k} = 0;
+        }
+        readingsEndUpdate($hash, 1);
+        
+        $hash->{profiler}{start}{$key} = $now;        
+        $hash->{profiler}{sums}{$lKey} = $overP;
+        $hash->{profiler}{lastPeriod}  = $pPeriod;
+        $hash->{profiler}{lastKey}     = $key;
+        Log3 $name, 5, "$name: Profiling set new sum for $lKey to " . sprintf('%.3f', $overP);
+    } 
+    else {
+        return if ($key eq $hash->{profiler}{lastKey});     # nothing new - take time when key or pPeriod changes
+        Log3 $name, 5, "$name: Profiling add " . sprintf('%.3f', $lDiff) . " to sum for $lKey " .
+            "(now is " . FmtTimeMs($now) . ", start for $lKey was " . 
+            FmtTimeMs($hash->{profiler}{start}{$lKey}) . ")";
+        $hash->{profiler}{sums}{$lKey} += $lDiff;
+        $hash->{profiler}{start}{$key} = $now;
+        $hash->{profiler}{lastKey}     = $key;
+    }
+    return;
+}
 
 1;
