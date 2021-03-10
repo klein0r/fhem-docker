@@ -1,4 +1,4 @@
-# $Id: 98_GoogleAuth.pm 21562 2020-03-31 18:53:47Z betateilchen $
+# $Id: 98_GoogleAuth.pm 23628 2021-01-27 17:59:58Z betateilchen $
 
 # License & technical informations
 =for comment
@@ -70,9 +70,14 @@
 # 2017-01-16 - added:   attributes ga_showQR, ga_strictCheck
 #              removed: FW_summaryFn (not really useful)
 #
+# 2020-03-31 - changed: remove prototyping and undef results
+#
+# 2021-01-26 - changed: rework code to use own package
+#
 =cut
 
-package main;
+package FHEM::GoogleAuth;    ## no critic
+
 use strict;
 use warnings;
 
@@ -81,15 +86,37 @@ use Authen::OATH;
 use URI::Escape;
 use Crypt::URandom qw( urandom );
 
+use GPUtils qw(GP_Import GP_Export);
 
-sub GoogleAuth_Initialize {
+## Import der FHEM Funktionen
+
+BEGIN {
+    # Import from main context
+    GP_Import(
+        qw( AttrVal
+            Debug
+            Log3
+            defs
+            readingFnAttributes
+            readingsSingleUpdate
+            setKeyValue
+            getKeyValue )
+    );
+    
+    #-- Export to main context with different name
+    GP_Export(
+        qw( Initialize )
+    );
+}
+
+sub Initialize {
   my ($hash) = @_;
 
-  $hash->{DefFn}        = "GoogleAuth_Define";
-  $hash->{DeleteFn}	    = "GoogleAuth_Delete";
-  $hash->{SetFn}        = "GoogleAuth_Set";
-  $hash->{GetFn}        = "GoogleAuth_Get";
-  $hash->{FW_detailFn}  = "GoogleAuth_Detail";
+  $hash->{DefFn}        = \&Define;
+  $hash->{DeleteFn}	    = \&Delete;
+  $hash->{SetFn}        = \&Set;
+  $hash->{GetFn}        = \&Get;
+  $hash->{FW_detailFn}  = \&Detail;
 
   $hash->{AttrList} = "ga_labelName ".
                       "ga_qrSize:100x100,200x200,300x300,400x400 ".
@@ -98,7 +125,7 @@ sub GoogleAuth_Initialize {
                       "$readingFnAttributes";
 }
 
-sub GoogleAuth_Define {
+sub Define {
   my ($hash, $def) = @_;
   my $name = $hash->{NAME};
   my @a = split("[ \t][ \t]*", $def);
@@ -109,12 +136,12 @@ sub GoogleAuth_Define {
   return;
 }
 
-sub GoogleAuth_Delete {
+sub Delete {
   my ($hash,$name) = @_;
   setKeyValue("googleAuth$name",undef);
 }
 
-sub GoogleAuth_Set {
+sub Set {
   my ($hash, $name, $cmd, @args) = @_;
   my $usage = "Unknown argument, choose one of new:noArg revoke:noArg";
 
@@ -136,7 +163,7 @@ sub GoogleAuth_Set {
   return;
 }
 
-sub GoogleAuth_Get {
+sub Get {
   my ($hash, $name, $cmd, $given_token) = @_;
   my $usage = "Unknown argument, choose one of check";
 
@@ -167,7 +194,7 @@ sub GoogleAuth_Get {
   return $usage;
 }
 
-sub GoogleAuth_Detail {
+sub Detail {
   my ($FW_wname, $name, $room, $pageHash) = @_;
   my $qr_url = _ga_make_url($name);
   my $secret_base32 = getKeyValue("googleAuth$name"); # read from fhem keystore
@@ -185,7 +212,6 @@ sub GoogleAuth_Detail {
      $ret .= "</table>";
   return $ret;
 }
-
 
 # helper functions
 sub _ga_make_url {
@@ -209,9 +235,26 @@ sub _ga_make_token_6 {
   return $token;
 }
 
+package main;
+
 sub gAuth {
-  my($name,$token) = @_;
-  return CommandGet(undef,"$name check $token");
+  my($name,$token,$aDev) = @_;
+  return "missing name!"   unless $name;
+  return "missing $token!" unless $token;
+  $aDev //= '';
+  my $myHash = $defs{$name};
+  if (exists $myHash->{helper}{$token} 
+  && $myHash->{helper}{$token} - gettimeofday() > 0 
+  && defined($aDev) 
+  && exists $defs{$aDev} 
+  && $defs{$aDev}{TYPE} eq 'allowed') {
+    return 1;
+  } else {
+    delete $myHash->{helper}{$token} if defined($myHash->{helper}{$token});
+    my $result = FHEM::GoogleAuth::Get($myHash,$name,'check',$token);
+    if ($result == 1) {$myHash->{helper}{$token} = gettimeofday()+DAYSECONDS};
+    return $result;
+  }
 }
 
 1;
@@ -288,17 +331,11 @@ sub gAuth {
     <br/>
     Check the validity of a given token; return value is 1 for a valid token, otherwise -1.<br/>
     <ul>
-    <li>Token always consists of six numerical digits and will change every 30 seconds.</li>
-    <li>Token is valid if it matches one of three tokens calculated by FHEM<br/>
-    using three timestamps: -30 seconds, now and +30 seconds.<br/>
-    This behavior can be changed by attribute ga_strictCheck.</li>
+      <li>Token always consists of six numerical digits and will change every 30 seconds.</li>
+      <li>Token is valid if it matches one of three tokens calculated by FHEM<br/>
+      using three timestamps: -30 seconds, now and +30 seconds.<br/>
+      This behavior can be changed by attribute ga_strictCheck.</li>
     </ul>
-    <br/>
-    </li>
-    <li><code>gAuth(&lt;name&gt;,&lt;token&gt;)</code><br/>
-    <br/>
-    For easy use in your own functions you can call function gAuth(),<br/>
-    which will return same result codes as the "get" command.
     </li>
   </ul>
   <br/>
@@ -325,6 +362,28 @@ sub gAuth {
   <ul>
     <li><b>lastResult</b> - contains result from last token check</li>
     <li><b>state</b> - "active" if a key is set, otherwise "defined"</li>
+  </ul>
+  <br/>
+  <br/>
+
+  <b>Integration with gAuth()</b><br/><br/>
+  <ul>
+    <li><code>gAuth(&lt;name&gt;,&lt;token&gt;)</code><br/>
+    <br/>
+    For easy use in your own scenarios you can call function gAuth(),<br/>
+    which will return same result codes as the "get" command.
+    </li>
+    <br/>
+    <li>Usage of gAuth() for login to FHEM<br/>
+      <br/>
+      A device of TYPE=allowed can be used to secure login to FHEM via basicAuth.<br/>
+      <code>attr &lt;deviceName&gt; basicAuth { "$user" eq "xxx" &amp;&amp; gAuth("GoogleAuth","$password","&lt;deviceName&gt;") == 1 }</code><br/>
+      <br/>
+      In both cases &lt;deviceName&gt; has to be the name of the allowed-TYPE device.<br/>
+      The authenticated login will be cached for this device for a maximum period of 86400 seconds.<br/>
+      Do not use basicAuthExpiry in this scenario!<br/>
+      The cache will be lost after FHEM restart or after any invalid token checked by the named allowed-TYPE device.<br/>
+    </li>
   </ul>
   <br/>
   <br/>

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_autocreate.pm 23006 2020-10-22 19:40:17Z rudolfkoenig $
+# $Id: 98_autocreate.pm 23727 2021-02-12 20:31:37Z rudolfkoenig $
 package main;
 
 use strict;
@@ -113,8 +113,10 @@ autocreate_Notify($$)
 
   my $me = $ntfy->{NAME};
   my $max = int(@{$dev->{CHANGED}});
+  my $calledByCreatelog;
   my $ret = "";
   my $nrcreated;
+  $calledByCreatelog = ($dev && $me eq $dev->{NAME});
 
   for (my $i = 0; $i < $max; $i++) {
 
@@ -252,10 +254,12 @@ autocreate_Notify($$)
       $attr{$name}{room} = $room if($room);
 
       $nrcreated = 0 if($temporary); # do not save
-      next if($modules{$hash->{TYPE}}{noAutocreatedFilelog} || $temporary);
+      next if($temporary);
 
       ####################
       my $fl = replace_wildcards($hash, AttrVal($me, "filelog", ""));
+      $fl = undef if($modules{$hash->{TYPE}}{noAutocreatedFilelog} &&
+                     !$calledByCreatelog);
       my $flname = "FileLog_$name";
       delete($defs{$flname}) if($fl); # If we are re-creating it with createlog.
       my ($gplot, $filter, $devattr) = ("", $name, "");
@@ -566,7 +570,7 @@ CommandUsb($$)
   my ($cl, $n) = @_;
 
   return "Usage: usb [scan|create]" if("$n" !~ m/^(scan|create)$/);
-  my $scan = 1 if($n eq "scan");
+  my $scan = ($n eq "scan");
   my $ret = "";
   my $msg;
   my $dir = "/dev";

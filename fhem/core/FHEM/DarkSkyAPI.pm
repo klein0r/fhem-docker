@@ -1,4 +1,4 @@
-# $Id: DarkSkyAPI.pm 20155 2019-09-13 10:22:36Z CoolTux $
+# $Id: DarkSkyAPI.pm 23645 2021-01-30 17:55:57Z CoolTux $
 ###############################################################################
 #
 # Developed with Kate
@@ -771,7 +771,7 @@ sub _CreateForecastRef($) {
             lat  => $self->{lat},
             long => $self->{long},
             apiMaintainer =>
-'Leon Gaultier (<a href=https://forum.fhem.de/index.php?action=profile;u=13684>CoolTux</a>)',
+'Marko Oldenburg (<a href=https://forum.fhem.de/index.php?action=profile;u=13684>CoolTux</a>)',
             apiVersion    => version->parse(DarkSkyAPI->VERSION())->normal,
         }
     );

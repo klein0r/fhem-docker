@@ -33,7 +33,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: Attr.pm 22228 2020-06-22 09:42:47Z CoolTux $
+# $Id: Attr.pm 23635 2021-01-29 09:13:36Z CoolTux $
 #
 ###############################################################################
 
@@ -94,7 +94,7 @@ sub _getWinDev {
     $self->{ $self->{shuttersDev} }->{ASC_WindowRec}->{LASTGETTIME} =
       int( gettimeofday() );
     my ( $device, $reading ) =
-      FHEM::Automation::ShuttersControl::GetAttrValues( $self->{shuttersDev},
+      FHEM::Automation::ShuttersControl::Helper::GetAttrValues( $self->{shuttersDev},
         'ASC_WindowRec', 'none' );
 
     ### erwartetes Ergebnis

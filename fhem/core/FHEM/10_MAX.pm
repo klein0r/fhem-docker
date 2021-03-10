@@ -1,4 +1,4 @@
-# $Id: 10_MAX.pm 23290 2020-12-04 11:49:41Z Wzut $
+# $Id: 10_MAX.pm 23517 2021-01-13 15:38:49Z Wzut $
 # 
 #  (c) 2019 Copyright: Wzut
 #  (c) 2012 Copyright: Matthias Gehre, M.Gehre@gmx.de
@@ -204,7 +204,7 @@ sub MAX_Define {
     $hash->{'.sendToAddr'}       = '-1'; # zu wem haben wird direkt gesendet ?
     $hash->{'.sendToName'}       = '';
     $hash->{'.timer'}            = 300 if (($type ne 'PushButton') && ($type ne 'Cube'));
-    $hash->{SVN}                 = (qw($Id: 10_MAX.pm 23290 2020-12-04 11:49:41Z Wzut $))[2];
+    $hash->{SVN}                 = (qw($Id: 10_MAX.pm 23517 2021-01-13 15:38:49Z Wzut $))[2];
 
     if ($type =~ m{Thermostat}xms) {
 	$hash->{TimeSlot} = -1 ; # wird durch CUL_MAX neu gesetzt 
@@ -1730,6 +1730,7 @@ sub MAX_Parse
   elsif($msgtype eq "PushButtonState") 
   {
     my ($bits2, $isopen) = unpack("aC",pack("H*",$args[0]));
+    $isopen //= '?';
     #The meaning of $bits2 is completly guessed based on similarity to other devices, TODO: confirm
     $shash->{'.gateway'} = vec($bits2, 4, 1); # Paired to a CUBE?
     $shash->{'.rferror'} = vec($bits2, 6, 1); # communication with link partner (1 if we did not sent an Ack)

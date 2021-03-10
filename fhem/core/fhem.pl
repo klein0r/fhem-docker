@@ -19,7 +19,7 @@
 #
 #  Homepage:  http://fhem.de
 #
-# $Id: fhem.pl 23471 2021-01-04 19:24:21Z rudolfkoenig $
+# $Id: fhem.pl 23904 2021-03-07 09:20:31Z rudolfkoenig $
 
 
 use strict;
@@ -125,7 +125,7 @@ sub fhem($@);
 sub fhemTimeGm($$$$$$);
 sub fhemTimeLocal($$$$$$);
 sub fhemTzOffset($);
-sub getAllAttr($;$);
+sub getAllAttr($;$$);
 sub getAllGets($;$);
 sub getAllSets($;$);
 sub getPawList($);
@@ -278,11 +278,11 @@ use constant {
 };
 
 $selectTimestamp = gettimeofday();
-$cvsid = '$Id: fhem.pl 23471 2021-01-04 19:24:21Z rudolfkoenig $';
+$cvsid = '$Id: fhem.pl 23904 2021-03-07 09:20:31Z rudolfkoenig $';
 
 my $AttrList = "alias comment:textField-long eventMap:textField-long ".
-               "group room suppressReading userReadings:textField-long ".
-               "verbose:0,1,2,3,4,5";
+               "group room suppressReading userattr ".
+               "userReadings:textField-long verbose:0,1,2,3,4,5 ";
 
 my $currcfgfile="";             # current config/include file
 my $currlogfile;                # logfile, without wildcards
@@ -388,6 +388,12 @@ my @attrList = qw(
   timestamp-on-change-reading
 );
 $readingFnAttributes = join(" ", @attrList);
+my %framework_attrList = map { s/:.*//; $_ => 1 } @attrList;
+map { $framework_attrList{$_} = 1 } qw(
+  ignore
+  disable
+  disabledForIntervals
+);
 
 my %ra = (
   "suppressReading"            => { s=>"\n" },
@@ -635,27 +641,35 @@ if($pfn) {
 $init_done = 1;
 $lastDefChange = 1;
 
-foreach my $d (keys %defs) {
-  if($defs{$d}{IODevMissing}) {
-    if($defs{$d}{IODevName} && $defs{$defs{$d}{IODevName}}) {
-      $defs{$d}{IODev} = $defs{$defs{$d}{IODevName}};
-      delete $defs{$d}{IODevName};
-    } else {
-      AssignIoPort($defs{$d}); # For fhem.cfg editors? Needs init_done for Log.
+sub
+finish_init()
+{
+  foreach my $d (keys %defs) {
+    if($defs{$d}{IODevMissing}) {
+      if($defs{$d}{IODevName} && $defs{$defs{$d}{IODevName}}) {
+        $defs{$d}{IODev} = $defs{$defs{$d}{IODevName}};
+        delete $defs{$d}{IODevName};
+      } else {
+        AssignIoPort($defs{$d}); # For fhem.cfg editors?
+      }
+      delete $defs{$d}{IODevMissing};
     }
-    delete $defs{$d}{IODevMissing};
   }
-}
 
-my $init_errors_first = ($defs{global}{init_errors} ? 1 : 0);
-SecurityCheck();
-if($defs{global}{init_errors}) {
-  $attr{global}{autosave} = 0 if($init_errors_first);
-  $defs{global}{init_errors} = "Messages collected while initializing FHEM:".
-                 "$defs{global}{init_errors}\n".
-                 ($init_errors_first ? "Autosave deactivated" : "");
-  Log 1, $defs{global}{init_errors} if(AttrVal("global","motd","") ne "none");
+  my $init_errors_first = ($defs{global}{init_errors} ? 1 : 0);
+  SecurityCheck();
+  if($defs{global}{init_errors}) {
+    $attr{global}{autosave} = 0 if($init_errors_first);
+    $defs{global}{init_errors} =
+        "Messages collected while initializing FHEM:".
+        "$defs{global}{init_errors}\n".
+        ($init_errors_first ? "Autosave deactivated" : "");
+    Log 1, $defs{global}{init_errors}
+        if(AttrVal("global","motd","") ne "none");
+  }
+
 }
+finish_init();
 
 
 $fhem_started = int(gettimeofday());
@@ -1504,10 +1518,14 @@ CommandRereadCfg($$)
   }
   applyGlobalAttrFromEnv();
 
-  $defs{$name} = $selectlist{$name} = $cl if($name && $name ne "__anonymous__");
+  $defs{$name} = $selectlist{$name} = $cl
+        if($name && $name ne "__anonymous__");
   $inform{$name} = $informMe if($informMe);
   @structChangeHist = ();
   $lastDefChange++;
+
+  finish_init();
+
   DoTrigger("global", "REREADCFG", 1);
 
   $init_done = 1;
@@ -2723,28 +2741,39 @@ CommandRename($$)
 
 #####################################
 sub
-getAllAttr($;$)
+getAllAttr($;$$)
 {
-  my ($d, $cl) = @_;
+  my ($d, $cl, $typeHash) = @_;
   return "" if(!$defs{$d});
+  my $list = "";
 
-  my $list = $AttrList; # Global values
+  my $add = sub($$)
+  {
+    my ($v,$type) = @_;
+    return if(!defined($v));
+    $list .= " " if($list);
+    $list .= $v;
+    map { s/:.*//; 
+          $typeHash->{$_} = $framework_attrList{$_} ? "framework" : $type }
+        split(" ",$v) if($typeHash);
+  };
+
+  &$add($AttrList, "framework");
   if($defs{$d}{".AttrList"}) {
-    $list .= " " . $defs{$d}{".AttrList"};
-  } elsif($modules{$defs{$d}{TYPE}}{AttrList}) {
-    $list .= " " . $modules{$defs{$d}{TYPE}}{AttrList};
+    &$add($defs{$d}{".AttrList"}, "Module");
+  } else {
+    &$add($modules{$defs{$d}{TYPE}}{AttrList}, "Module");
   }
 
-  my $nl2space = sub($)
+  my $nl2space = sub($$)
   {
-    my $v = $_[0];
+    my ($v,$type) = @_;
     return if(!defined($v));
     $v =~ s/\n/ /g;
-    $list .= " $v";
+    &$add($v, $type);
   };
-  $nl2space->($attr{global}{userattr});
-  $nl2space->($attr{$d}{userattr}) if($attr{$d});
-  $list .= " userattr";
+  $nl2space->($attr{global}{userattr}, "global userattr");
+  $nl2space->($attr{$d}{userattr}, "device userattr") if($attr{$d});
   return $list;
 }
 
@@ -4002,8 +4031,8 @@ Dispatch($$;$$)
   $clientArray = computeClientArray($hash, $module) if(!$clientArray);
 
   foreach my $m (@{$clientArray}) {
-    # Module is not loaded or the message is not for this module
-    next if(!$modules{$m} || $dmsg !~ m/$modules{$m}{Match}/s);
+    # The message is not for this module
+    next if($dmsg !~ m/$modules{$m}{Match}/s);
 
     if( my $ffn = $modules{$m}{FingerprintFn} ) {
       ($isdup, $idx) = CheckDuplicate($name, $dmsg, $ffn);
@@ -4038,10 +4067,20 @@ Dispatch($$;$$)
             $mname = $newm if($newm ne "UNDEFINED");
             if($modules{$mname} && $modules{$mname}{ParseFn}) {
               no strict "refs"; $readingsUpdateDelayTrigger = 1;
-              @found = &{$modules{$mname}{ParseFn}}($hash,$dmsg);
+              my @tfound = &{$modules{$mname}{ParseFn}}($hash,$dmsg);
               use strict "refs"; $readingsUpdateDelayTrigger = 0;
               $parserMod = $mname;
-              last if(defined($found[0]));
+
+              if(int(@tfound) && defined($tfound[0])) {
+                if($tfound[0] && $tfound[0] eq "[NEXT]") {
+                  shift(@tfound);
+                  push @found, @tfound;
+                } else {
+                  push @found, @tfound;
+                  last;
+                }
+              }
+
             } else {
               Log 0, "ERROR: Cannot autoload $mname";
             }
@@ -5066,14 +5105,20 @@ computeClientArray($$)
 {
   my ($hash, $module) = @_;
   my @a = ();
+
   my @mRe = split(":", $hash->{Clients} ? $hash->{Clients}:$module->{Clients});
 
-  foreach my $m (sort { $modules{$a}{ORDER}.$a cmp $modules{$b}{ORDER}.$b }
-                  grep { defined($modules{$_}{ORDER}) } keys %modules) {
-    foreach my $re (@mRe) {
-      if($m =~ m/^$re$/) {
-        push @a, $m if($modules{$m}{Match});
-        last;
+  if($hash->{ClientsKeepOrder}) {
+    @a = grep { $modules{$_} && $modules{$_}{Match} } @mRe;
+
+  } else {
+    foreach my $m (sort { $modules{$a}{ORDER}.$a cmp $modules{$b}{ORDER}.$b }
+                    grep { defined($modules{$_}{ORDER}) } keys %modules) {
+      foreach my $re (@mRe) {
+        if($m =~ m/^$re$/) {
+          push @a, $m if($modules{$m}{Match});
+          last;
+        }
       }
     }
   }
@@ -5101,7 +5146,8 @@ utf8ToLatin1($)
 
 # replaces some common control chars by escape sequences
 # in order to make logs more readable
-sub escapeLogLine($) {
+sub
+escapeLogLine($) {
   my ($s)= @_;
   
   # http://perldoc.perl.org/perlrebackslash.html

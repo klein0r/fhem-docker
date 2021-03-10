@@ -513,6 +513,7 @@
     <Product config="eurotronic/eur_spiritz.xml" id="0001" name="EUR_SPIRITZ Wall Radiator Thermostat" type="0003"/>
     <Product config="eurotronic/eur_spiritz.xml" id="0002" name="EUR_SPIRITZ Wall Radiator Thermostat" type="0003"/>
     <Product config="eurotronic/eur_spiritz.xml" id="0003" name="EUR_SPIRITZ Wall Radiator Thermostat" type="0003"/>
+    <Product config="eurotronic/eur_spiritz.xml" id="0004" name="EUR_SPIRITZ Wall Radiator Thermostat" type="0003"/>
     <Product config="eurotronic/eur_temphumin.xml" id="0001" name="Temperature and Humidity Sensor" type="0004"/>
     <Product config="eurotronic/eur_airquality.xml" id="0001" name="Air Quality Sensor" type="0005"/>
   </Manufacturer>
@@ -636,7 +637,9 @@
     <Product config="fibaro/fgs212.xml" id="4002" name="FGS212 Switch 3kW" type="0402"/>
     <Product config="fibaro/fgs213.xml" id="1000" name="FGS213 Switch" type="0403"/>
     <Product config="fibaro/fgs213.xml" id="2000" name="FGS213 Switch" type="0403"/>
+    <Product config="fibaro/fgs213.xml" id="3000" name="FGS213 Switch" type="0403"/>
     <Product config="fibaro/fgs213.xml" id="4000" name="FGS213 Switch" type="0403"/>
+    <Product config="fibaro/fgs214.xml" id="4000" name="FGS214 Single Relay Switch" type="0404"/>
     <Product config="fibaro/fgs221.xml" id="0104" name="FGS221 Double Relay Switch 2x1.5kW" type="0200"/>
     <Product config="fibaro/fgs221.xml" id="0105" name="FGS221 Double Relay Switch 2x1.5kW" type="0200"/>
     <Product config="fibaro/fgs221.xml" id="0106" name="FGS221 Double Relay Switch 2x1.5kW" type="0200"/>
@@ -849,6 +852,7 @@
     <Product config="heltun/he-zw-therm-fl2.xml" id="0001" name="HE-ZW-THERM-FL2 Heating Thermostat" type="0003"/>
     <Product config="heltun/he-zw-sw-5a-1.xml" id="0003" name="HE-ZW-SW-5A-1 Touch Panel Switch" type="0003"/>
     <Product config="heltun/he-zw-therm-fc1.xml" id="0002" name="HE-ZW-THERM-FC1 Fan Coil Thermostat" type="0003"/>
+    <Product config="heltun/HE-RS01.xml" id="0009" type="0004" name="RS01" />
   </Manufacturer>
   <Manufacturer id="020F" name="Herald Datanetics Limited"></Manufacturer>
   <Manufacturer id="0017" name="HiTech Automation"></Manufacturer>
@@ -1628,6 +1632,7 @@
   <Manufacturer id="0330" name="Sunricher">
     <Product config="sunricher/srzv9001t4dimeu.xml" id="a10d" name="Touch Panel Wall Controller - ZSC-01D" type="0003"/>
     <Product config="sunricher/srzv9001k8.xml" id="a305" name="Wall Controller - SR-ZV9001" type="0300"/>
+    <Product config="sunricher/zv9101fa.xml" id="d002" name="Dimmer ZV-9101FA" type="0200"/>
     <Product config="sunricher/zv9101.xml" id="d005" name="Dimmer ZV-9101" type="0200"/>
     <Product config="sunricher/srzv9101sachpeu.xml" id="d00c" name="Dimmer ZV9040" type="0200"/>
     <Product config="sunricher/srzv9003t4rgbweu.xml" id="a107" name="Z-Wave Wall Controller - SR-ZV9003T4-RGBW-EU" type="0300"/>

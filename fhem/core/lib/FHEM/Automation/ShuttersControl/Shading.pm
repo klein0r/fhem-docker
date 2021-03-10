@@ -33,7 +33,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: Shading.pm 23008 2020-10-23 05:32:18Z CoolTux $
+# $Id: Shading.pm 23635 2021-01-29 09:13:36Z CoolTux $
 #
 ###############################################################################
 
@@ -286,6 +286,8 @@ sub ShadingProcessing {
               ->getShadingWaitingPeriod / 2
             )
         || $FHEM::Automation::ShuttersControl::shutters->getShadingMode eq 'off'
+        || $FHEM::Automation::ShuttersControl::ascDev
+              ->getAutoShuttersControlShading eq 'off'
       );
 
     Log3( $name, 4,

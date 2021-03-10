@@ -34,6 +34,7 @@ FHEM/00_MQTT2_SERVER.pm      rudolfkoenig         MQTT
 FHEM/00_MYSENSORS.pm         Beta-User            Bastelecke/MySensors
 FHEM/00_NetzerI2C.pm         klausw               Sonstige Systeme
 FHEM/00_Neuron.pm            klausw               Sonstige Systeme
+FHEM/00_OW2S0SMSGUARD.pm     wzut                 1Wire
 FHEM/00_OWX.pm               pahenning            1Wire
 FHEM/00_OWX_ASYNC            ntruchsess           1Wire
 FHEM/00_RPII2C               klausw               Einplatinencomputer
@@ -203,6 +204,7 @@ FHEM/36_Level.pm             HCS                  Sonstige Systeme
 FHEM/36_PCA301.pm            justme1968           Sonstige Systeme
 FHEM/36_PrecipitationSensor.pm HCS                Sonstige Systeme
 FHEM/36_Shelly.pm            pahenning            Sonstige Systeme
+FHEM/36_ShellyMonitor.pm     gvzdus               Sonstige Systeme
 FHEM/36_Vallox.pm            Skjall               http://forum.fhem.de/index.php/topic,71325.0.html
 FHEM/36_WMBUS.pm             kaihs                Sonstige Systeme
 FHEM/37_dash_dhcp.pm         justme1968           Sonstige Systeme
@@ -255,10 +257,10 @@ FHEM/46_TRX_ELSE.pm          KernSani             RFXTRX
 FHEM/46_TRX_LIGHT.pm         KernSani             RFXTRX
 FHEM/46_TRX_SECURITY.pm      KernSani             RFXTRX
 FHEM/46_TRX_WEATHER.pm       KernSani             RFXTRX
-FHEM/47_OBIS.pm              icinger              Sonstige Systeme
+FHEM/47_OBIS.pm              gvzdus               Sonstige Systeme
 FHEM/48_MieleAtHome.pm       choenig              Sonstige Systeme
 FHEM/49_Arlo.pm              maluk                Sonstige Systeme
-FHEM/49_IPCAM.pm             mfr69bs              Sonstiges
+FHEM/49_IPCAM.pm             delmar               Sonstiges
 FHEM/49_SSCam.pm             DS_Starter           Sonstiges
 FHEM/49_SSCamSTRM.pm         DS_Starter           Sonstiges
 FHEM/49_TBot_List.pm         viegener             Unterstützende Dienste
@@ -273,6 +275,7 @@ FHEM/51_I2C_TSL2561.pm       jensb                Sonstige Systeme
 FHEM/51_MOBILEALERTS.pm      MarkusF              Sonstige Systeme
 FHEM/51_Netzer.pm            klausw               Sonstige Systeme
 FHEM/51_RPI_GPIO.pm          klausw               Einplatinencomputer
+FHEM/52_I2C_ADS1x1x          Adimarantis          Sonstige Systeme
 FHEM/52_I2C_BME280           klausw               Sonstige Systeme
 FHEM/52_I2C_DS1307           ntruchsess           Sonstige Systeme
 FHEM/52_I2C_EEPROM.pm        klausw               Sonstige Systeme
@@ -587,7 +590,7 @@ FHEM/lib/*deviceconfig.xml.gz        krikan       ZWave
 FHEM/lib/*manufacturer_specific.xml  krikan       ZWave
 FHEM/lib/AttrTemplate/huedevice.template Shojo    https://forum.fhem.de/index.php/topic,101829.html
 FHEM/lib/AttrTemplate/httpmod.template amenomade  https://forum.fhem.de/index.php/topic,97694.0.html
-FHEM/lib/AttrTemplate/mqtt2.template Beta-User    https://forum.fhem.de/index.php/topic,94494.0.html
+FHEM/lib/AttrTemplate/mqtt2.template Beta-User/Otto123    https://forum.fhem.de/index.php/topic,94494.0.html
 FHEM/lib/AttrTemplate/mysensors.template Beta-User Bastelecke/MySensors
 FHEM/lib/Device/Firmata/*    jensb                Sonstige Systeme
 FHEM/lib/Device/MySensors/*  Beta-User            Bastelecke/MySensors
@@ -614,6 +617,7 @@ contrib/97_SprinkleControl.pm Tobias              Unterstützende Dienste
 contrib/98_Sprinkle.pm       Tobias               Unterstützende Dienste
 contrib/betateilchen/*       betateilchen         Sonstiges
 contrib/AttrTemplate/*       Beta-User            (depends on attrTemplate)
+contrib/AttrTemplate/99_sonos2mqttUtils.pm Otto123 https://forum.fhem.de/index.php/topic,111711
 contrib/commandref*          rudolfkoenig         Sonstiges
 contrib/pre-commit           rudolfkoenig         Sonstiges
 contrib/DEBIAN/*             betateilchen         Sonstiges

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_CUL.pm 21659 2020-04-13 10:08:36Z rudolfkoenig $
+# $Id: 00_CUL.pm 23727 2021-02-12 20:31:37Z rudolfkoenig $
 package main;
 
 use strict;
@@ -634,7 +634,8 @@ CUL_XmitDlyHM($$$)
 {
   my ($hash,$fn,$now) = @_;
 
-  my (undef,$mTy,undef,$id) = unpack 'A8A2A6A6',$fn if(length($fn)>19);
+  my ($mTy,$id);
+  (undef,$mTy,undef,$id) = unpack 'A8A2A6A6',$fn if(length($fn)>19);
 
   if($id &&
      $modules{CUL_HM}{defptr}{$id} &&
@@ -960,7 +961,7 @@ CUL_Ready($)
 {
   my ($hash) = @_;
 
-  return DevIo_OpenDev($hash, 1, "CUL_DoInit")
+  return DevIo_OpenDev($hash, 1, "CUL_DoInit", sub(){})
                 if($hash->{STATE} eq "disconnected");
 
   # This is relevant for windows/USB only

@@ -9,7 +9,7 @@
 #
 # Prof. Dr. Peter A. Henning
 #
-# $Id: 00_OWX.pm 20282 2019-09-30 17:21:29Z phenning $
+# $Id: 00_OWX.pm 23553 2021-01-19 13:51:06Z phenning $
 #
 ########################################################################################
 ########################################################################################
@@ -99,7 +99,7 @@ my %sets = (
 );
 
 #-- some globals needed for the 1-Wire module
-$owx_version="7.21";
+$owx_version="7.23";
 
 #-- debugging now verbosity, this is just for backward compatibility
 $owx_debug=0;

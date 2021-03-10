@@ -26,7 +26,7 @@
 #
 # Discussed in FHEM Forum: https://forum.fhem.de/index.php/topic,96170.0.html
 #
-# $Id: 70_CanOverEthernet.pm 20466 2019-11-06 19:51:19Z delmar $
+# $Id: 70_CanOverEthernet.pm 23747 2021-02-15 14:10:07Z delmar $
 #
 ##############################################################################
 package main;
@@ -209,7 +209,7 @@ sub CanOverEthernet_sendDataAnalog {
   my @values = @{$valuesRef};
   my @types = @{$typesRef};
 
-  my $socket = new IO::Socket::INET (
+  my $socket = IO::Socket::INET->new(
     PeerAddr=>$targetIp,
     PeerPort=>5441,
     Proto=>"udp"
@@ -255,7 +255,7 @@ sub CanOverEthernet_sendDataDigital {
   my ( $hash, $targetIp, $targetNode, @values ) = @_;
   my $name = $hash->{NAME};
 
-  my $socket = new IO::Socket::INET (
+  my $socket = IO::Socket::INET->new(
     PeerAddr=>$targetIp,
     PeerPort=>5441,
     Proto=>"udp"

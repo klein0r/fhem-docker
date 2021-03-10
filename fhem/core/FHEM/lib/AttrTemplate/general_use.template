@@ -1,5 +1,5 @@
 ###########################################
-# $Id: general_use.template 22187 2020-06-17 06:06:56Z Beta-User $
+# $Id: general_use.template 23580 2021-01-22 06:56:32Z Beta-User $
 #
 # This file provides add-on templates for use within any other attrTemplate 
 #
@@ -127,3 +127,5 @@ setreading DEVICE_CH8 associatedWith DEVICE,DEVICE_CH1,DEVICE_CH2,DEVICE_CH3,DEV
 
 option:{1}
 show DEVICE.*
+
+

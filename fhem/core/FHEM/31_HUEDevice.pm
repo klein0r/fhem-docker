@@ -1,5 +1,5 @@
 
-# $Id: 31_HUEDevice.pm 23344 2020-12-13 17:05:33Z justme1968 $
+# $Id: 31_HUEDevice.pm 23912 2021-03-08 10:21:02Z justme1968 $
 
 # "Hue Personal Wireless Lighting" is a trademark owned by Koninklijke Philips Electronics N.V.,
 # see www.meethue.com for more information.
@@ -397,7 +397,7 @@ HUEDevice_Define($$) {
 
   my ($name, $type, $id, $interval) = @args;
 
-  $hash->{STATE} = 'Initialized';
+  $hash->{STATE} = 'Initialized' if($init_done);
 
   $hash->{ID} = $hash->{helper}->{devtype}.$id;
 
@@ -910,6 +910,7 @@ HUEDevice_Set($@)
       foreach my $entry (@{$entries}) {
         $list .= ' ';
         $list .= (split( ' ', $entry->{regex} ))[0];
+        $list .= ":$entry->{opts}" if( $entry->{opts} );
       }
     }
     $list .= ' '. join( ':noArg ', keys %{$hash->{helper}{configList}{cmds}} ) if( $hash->{helper}{configList}{cmds} );
@@ -918,6 +919,7 @@ HUEDevice_Set($@)
       foreach my $entry (@{$entries}) {
         $list .= ' ';
         $list .= (split( ' ', $entry->{regex} ))[0];
+        $list .= ":$entry->{opts}" if( $entry->{opts} );
       }
     }
 
@@ -1907,11 +1909,17 @@ HUEDevice_Attr($$$;$)
     #return "$name is not a CLIP sensor device" if( $hash->{type} && $hash->{type} !~ m/^CLIP/ );
     if( $cmd eq "set" && $attrVal ) {
       foreach my $line ( split( "\n", $attrVal ) ) {
-        my($cmd,$json) = split( ":", $line,2 );
+        my ($cmd,$opts,$json);
+        if (scalar split(':',$line) > 3 && (split(':',$line))[1] !~ /^perl/){
+          ($cmd,$opts,$json) = split( ':', $line,3 );
+        } else {
+          ($cmd,$json) = split( ':', $line,2 );
+          $opts = '';
+        }
         if( $cmd =~ m'^/(.*)/$' ) {
           my $regex = $1;
           $hash->{helper}{$attrName}{'regex'} = [] if( !$hash->{helper}{$attrName}{'regex'} );
-          push @{$hash->{helper}{$attrName}{'regex'}}, { regex => $regex, json => $json };
+          push @{$hash->{helper}{$attrName}{'regex'}}, { regex => $regex, opts => $opts, json => $json };
         } else {
           $hash->{helper}{$attrName}{cmds}{$cmd} = $json;
         }
@@ -1957,13 +1965,15 @@ HUEDevice_Attr($$$;$)
     The device status will be updated every &lt;interval&gt; seconds. 0 means no updates.
     The default and minimum is 60 if the IODev has not set pollDevices to 1.
     The default ist 0 if the IODev has set pollDevices to 1.
-    Groups are updated only on definition and statusRequest<br><br>
+    Groups are updated only on definition and statusRequest, but see createGroupReadings<br>
+    Sensor devices will not be autocreated. Use <code>get &lt;bridge&gt; sensors</code> will provide the sensor id vor manual definition.<br><br>
 
     Examples:
     <ul>
       <code>define bulb HUEDevice 1</code><br>
       <code>define LC HUEDevice 2</code><br>
-      <code>define allLights HUEDevice group 0</code><br>
+      <code>define allLights HUEDevice group 0</code>
+      <code>define motion HUEDevice sensor 1</code><br>
     </ul>
   </ul><br>
 
@@ -2098,7 +2108,8 @@ absent:{&lt;json&gt;}</code></li>
     <li>configList<br>
       The list of know config commands for sensor type devices. one command per line, eg.: <code><br>
 attr mySensor mode:{&lt;json&gt;}\<br>
-/heatsetpoint (.*)/:perl:{'{"heatsetpoint":'. $VALUE1 * 100 .'}'}</code></li>
+/heatsetpoint (.*)/:perl:{'{"heatsetpoint":'. $VALUE1 * 100 .'}'}<br>
+/sensitivity (.*)/:0,1,2,3:{"sensitivity":$1}</code></li>
     <li>readingList<br>
       The list of readings that should be created from the sensor state object. Space or comma separated.</li>
     <li>subType<br>

@@ -1,5 +1,5 @@
 
-# $Id: 32_speedtest.pm 22919 2020-10-05 17:54:25Z justme1968 $
+# $Id: 32_speedtest.pm 23867 2021-03-01 08:23:09Z justme1968 $
 
 package main;
 
@@ -45,7 +45,8 @@ speedtest_Define($$)
   $interval = $a[2] if(int(@a)>=3);
   $interval = 30*60 if( $interval < 30*60 );
 
-  my $server = $a[3] if(int(@a)>=4);
+  my $server;
+     $server = $a[3] if(int(@a)>=4);
 
   delete( $hash->{SERVER} );
 

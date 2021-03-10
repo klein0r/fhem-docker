@@ -1,5 +1,5 @@
 ###########################################
-# $Id: speechcontrol.template  Beta-User $
+# $Id: speechcontrol.template 23629 2021-01-27 18:08:02Z Beta-User $
 #
 # This file provides add-on templates for use with speech recognistion modules 
 # Originally developped for mqtt2-device, see forum thread here: https://forum.fhem.de/index.php/topic,99195.0.html

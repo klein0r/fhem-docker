@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 12_HMS.pm 16797 2018-05-29 19:35:43Z rudolfkoenig $
+# $Id: 12_HMS.pm 23727 2021-02-12 20:31:37Z rudolfkoenig $
 package main;
 
 use strict;
@@ -87,7 +87,8 @@ HMS_Parse($$)
   my $cde = substr($msg, 11, 1);
 #                        012345678901234567890123456789
 #                        810e047f0214a001a81f000001000000 HMS100TFK
-  my $val = substr($msg, 24, 8) if(length($msg) == 32);
+  my $val;
+  $val = substr($msg, 24, 8) if(length($msg) == 32);
   if(!defined($val)) {
     Log3 $hash, 3, "Strange HMS message $msg";
     return "";

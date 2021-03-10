@@ -33,7 +33,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: ShuttersControl.pm 23008 2020-10-23 05:32:18Z CoolTux $
+# $Id: ShuttersControl.pm 23635 2021-01-29 09:13:36Z CoolTux $
 #
 ###############################################################################
 
@@ -1052,13 +1052,15 @@ sub ShuttersCommandSet {
 
 ## Sub welche die InternalTimer nach entsprechenden Sunset oder Sunrise zusammen stellt
 sub CreateSunRiseSetShuttersTimer {
-    my $hash = shift;
+    my $hash        = shift;
     my $shuttersDev = shift // return Log3( $hash->{NAME}, 1,
 "AutoShuttersControl ($hash->{NAME}) - Error in function  CreateSunRiseSetShuttersTimer. No shuttersDev given"
     );
 
     my $name            = $hash->{NAME};
-    my $shuttersDevHash = $defs{$shuttersDev};
+    my $shuttersDevHash = $defs{$shuttersDev} // Log3( $hash->{NAME}, 1,
+"AutoShuttersControl ($hash->{NAME}) - Error in function  CreateSunRiseSetShuttersTimer. No shuttersDevHash given"
+    );
     my %funcHash;
     $shutters->setShuttersDev($shuttersDev);
 

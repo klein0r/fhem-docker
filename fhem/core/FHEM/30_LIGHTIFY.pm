@@ -1,5 +1,5 @@
 
-# $Id: 30_LIGHTIFY.pm 20856 2019-12-30 22:05:43Z justme1968 $
+# $Id: 30_LIGHTIFY.pm 23869 2021-03-01 08:24:40Z justme1968 $
 
 package main;
 
@@ -934,7 +934,8 @@ LIGHTIFY_Parse($$)
         $json = LIGHTIFY_toJson($hash, $chash, $id, $reachable, $onoff, $dim, $ct, $r, $g, $b);
 
       }
-    my $changed = HUEDevice_Parse( $chash, $json ) if( $chash );
+    my $changed;
+       $changed = HUEDevice_Parse( $chash, $json ) if( $chash );
     if( $changed || $chash->{helper}{transitiontime} ) {
       RemoveInternalTimer($chash);
       InternalTimer(gettimeofday()+1, "HUEDevice_GetUpdate", $chash, 0);

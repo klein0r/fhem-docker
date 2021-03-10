@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_RPII2C.pm 19551 2019-06-04 20:10:50Z klausw $
+# $Id: 00_RPII2C.pm 23664 2021-02-02 23:48:59Z klausw $
 package main;
 
 use strict;
@@ -16,6 +16,7 @@ I2C_SH.*
 I2C_TSL.*
 I2C_SUSV
 I2C_LM.*
+I2C_AD.*
 );
 
 my $gpioprg = "/usr/local/bin/gpio";		#WiringPi GPIO utility

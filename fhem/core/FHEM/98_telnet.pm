@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_telnet.pm 23434 2020-12-29 20:22:05Z rudolfkoenig $
+# $Id: 98_telnet.pm 23727 2021-02-12 20:31:37Z rudolfkoenig $
 
 # Note: this is not really a telnet server, but a TCP server with slight telnet
 # features (disable echo on password)
@@ -139,8 +139,8 @@ telnet_Define($$$)
   my $port = $pport;
   $port =~ s/^IPV6://;
 
-  my $isServer = 1 if(defined($port) && $port =~ m/^\d+$/);
-  my $isClient = 1 if($port && $port =~ m/^(.+):\d+$/);
+  my $isServer = (defined($port) && $port =~ m/^\d+$/);
+  my $isClient = ($port && $port =~ m/^(.+):\d+$/);
 
   return "Usage: define <name> telnet { [IPV6:]<tcp-portnr> [global] | ".
                                       " [IPV6:]serverName:port }"

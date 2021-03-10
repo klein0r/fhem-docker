@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_MQTT2_SERVER.pm 23326 2020-12-11 17:47:10Z rudolfkoenig $
+# $Id: 00_MQTT2_SERVER.pm 23843 2021-02-27 19:42:42Z rudolfkoenig $
 package main;
 
 use strict;
@@ -21,11 +21,6 @@ MQTT2_SERVER_Initialize($)
 {
   my ($hash) = @_;
 
-  $hash->{Clients} = ":MQTT2_DEVICE:MQTT_GENERIC_BRIDGE:";
-  $hash->{MatchList}= {
-    "1:MQTT2_DEVICE"  => "^.*",
-    "2:MQTT_GENERIC_BRIDGE" => "^.*"
-  };
   $hash->{ReadFn}  = "MQTT2_SERVER_Read";
   $hash->{DefFn}   = "MQTT2_SERVER_Define";
   $hash->{AttrFn}  = "MQTT2_SERVER_Attr";
@@ -40,6 +35,7 @@ MQTT2_SERVER_Initialize($)
     SSL:0,1
     autocreate:no,simple,complex
     clientId
+    clientOrder
     disable:1,0
     disabledForIntervals
     ignoreRegexp
@@ -53,6 +49,20 @@ MQTT2_SERVER_Initialize($)
   $hash->{AttrList} = join(" ", @attrList)." ".$readingFnAttributes;
 }
 
+sub
+MQTT2_SERVER_resetClients($)
+{
+  my ($hash) = @_;
+
+  $hash->{ClientsKeepOrder} = 1;
+  $hash->{Clients} = ":MQTT2_DEVICE:MQTT_GENERIC_BRIDGE:";
+  $hash->{MatchList}= {
+    "1:MQTT2_DEVICE"  => "^.",
+    "2:MQTT_GENERIC_BRIDGE" => "^."
+  };
+  delete($hash->{".clientArray"});
+}
+
 #####################################
 sub
 MQTT2_SERVER_Define($$)
@@ -62,6 +72,7 @@ MQTT2_SERVER_Define($$)
   return "Usage: define <name> MQTT2_SERVER [IPV6:]<tcp-portnr> [global]"
         if($port !~ m/^(IPV6:)?\d+$/);
 
+  MQTT2_SERVER_resetClients($hash);
   MQTT2_SERVER_Undef($hash, undef) if($hash->{OLDDEF}); # modify
   my $ret = TcpServer_Open($hash, $port, $global);
 
@@ -146,6 +157,19 @@ MQTT2_SERVER_Attr(@)
     return "bad $devName ignoreRegexp: $re" if($re eq "1" || $re =~ m/^\*/);
     eval { "Hallo" =~ m/$re/ };
     return "bad $devName ignoreRegexp: $re: $@" if($@);
+  }
+
+  if($attrName eq "clientOrder") {
+    if($type eq "set") {
+      my @p = split(" ", $param[0]);
+      $hash->{Clients} = ":".join(":",@p).":";
+      my $cnt = 1;
+      my %h = map { ($cnt++.":$_", "^.") } @p;
+      $hash->{MatchList} = \%h;
+      delete($hash->{".clientArray"}); # Force a recompute
+    } else {
+      MQTT2_SERVER_resetClients($hash);
+    }
   }
 
   return undef;
@@ -589,7 +613,7 @@ MQTT2_SERVER_ReadDebug($$)
 =item summary_DE Standalone MQTT message broker
 =begin html
 
-<a name="MQTT2_SERVER"></a>
+<a id="MQTT2_SERVER"></a>
 <h3>MQTT2_SERVER</h3>
 <ul>
   MQTT2_SERVER is a builtin/cleanroom implementation of an MQTT server using no
@@ -598,7 +622,7 @@ MQTT2_SERVER_ReadDebug($$)
   and performance). It is intended to simplify connecting MQTT devices to FHEM.
   <br> <br>
 
-  <a name="MQTT2_SERVERdefine"></a>
+  <a id="MQTT2_SERVER-define"></a>
   <b>Define</b>
   <ul>
     <code>define &lt;name&gt; MQTT2_SERVER &lt;tcp-portnr&gt; [global|IP]</code>
@@ -619,7 +643,7 @@ MQTT2_SERVER_ReadDebug($$)
   </ul>
   <br>
 
-  <a name="MQTT2_SERVERset"></a>
+  <a id="MQTT2_SERVER-set"></a>
   <b>Set</b>
   <ul>
     <li>publish -r topic value<br>
@@ -628,15 +652,15 @@ MQTT2_SERVER_ReadDebug($$)
   </ul>
   <br>
 
-  <a name="MQTT2_SERVERget"></a>
+  <a id="MQTT2_SERVER-get"></a>
   <b>Get</b>
   <ul>N/A</ul><br>
 
-  <a name="MQTT2_SERVERattr"></a>
+  <a id="MQTT2_SERVER-attr"></a>
   <b>Attributes</b>
   <ul>
 
-    <a name="MQTT2_SERVERclientId"></a>
+    <a id="MQTT2_SERVER-attr-clientId"></a>
     <li>clientId &lt;name&gt;<br>
       set the MQTT clientId for all connections, for setups with clients
       creating a different MQTT-ID for each connection. The autocreate
@@ -645,18 +669,26 @@ MQTT2_SERVER_ReadDebug($$)
       attributes.
       </li></br>
 
+    <a id="MQTT2_SERVER-attr-clientOrder"></a>
+    <li>clientOrder [MQTT2_DEVICE] [MQTT_GENERIC_BRIDGE]<br>
+      set the notification order for client modules. This is 
+      relevant when autocreate is active, and the default order
+      (MQTT2_DEVICE MQTT_GENERIC_BRIDGE) is not adequate.
+      Note: Changing the attribute affects _all_ MQTT2_SERVER instances.
+      </li></br>
+
     <li><a href="#disable">disable</a><br>
         <a href="#disabledForIntervals">disabledForIntervals</a><br>
       disable distribution of messages. The server itself will accept and store
       messages, but not forward them.
       </li><br>
 
-    <a name="MQTT2_SERVERignoreRegexp"></a>
+    <a id="MQTT2_SERVER-attr-ignoreRegexp"></a>
     <li>ignoreRegexp<br>
       if $topic:$message matches ignoreRegexp, then it will be silently ignored.
       </li>
 
-    <a name="MQTT2_SERVERkeepaliveFactor"></a>
+    <a id="MQTT2_SERVER-attr-keepaliveFactor"></a>
     <li>keepaliveFactor<br>
       the oasis spec requires a disconnect, if after 1.5 times the client
       supplied keepalive no data or PINGREQ is sent. With this attribute you
@@ -668,13 +700,13 @@ MQTT2_SERVER_ReadDebug($$)
       </ul>
       </li>
     
-    <a name="MQTT2_SERVERrawEvents"></a>
+    <a id="MQTT2_SERVER-attr-rawEvents"></a>
     <li>rawEvents &lt;topic-regexp&gt;<br>
       Send all messages as events attributed to this MQTT2_SERVER instance.
       Should only be used, if there is no MQTT2_DEVICE to process the topic.
       </li><br>
 
-    <a name="MQTT2_SERVERrePublish"></a>
+    <a id="MQTT2_SERVER-attr-rePublish"></a>
     <li>rePublish<br>
       if a topic is published from a source inside of FHEM (e.g. MQTT2_DEVICE),
       it is only sent to real MQTT clients, and it will not internally
@@ -682,7 +714,7 @@ MQTT2_SERVER_ReadDebug($$)
       to the FHEM internal clients.
       </li><br>
 
-    <a name="MQTT2_SERVERSSL"></a>
+    <a id="MQTT2_SERVER-attr-SSL"></a>
     <li>SSL<br>
       Enable SSL (i.e. TLS).
       </li><br>
@@ -696,7 +728,7 @@ MQTT2_SERVER_ReadDebug($$)
        also the SSL attribute.
        </li><br>
 
-    <a name="MQTT2_SERVERautocreate"></a>
+    <a id="MQTT2_SERVER-attr-autocreate"></a>
     <li>autocreate [no|simple|complex]<br>
       MQTT2_DEVICES will be automatically created upon receiving an
       unknown message. Set this value to no to disable autocreating, the

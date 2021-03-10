@@ -7,7 +7,7 @@
 #
 # Prof. Dr. Peter A. Henning
 #
-# $Id: 11_OWX_TCP.pm 23231 2020-11-25 16:25:09Z phenning $
+# $Id: 11_OWX_TCP.pm 23553 2021-01-19 13:51:06Z phenning $
 #
 ########################################################################################
 #
@@ -60,7 +60,7 @@ sub new($) {
 		#-- OWX device
 		hash => $hash,
 		#-- module version
-	    version => "7.21",
+	    version => "7.23",
 		#-- 16 byte search string
 		search => [0,0,0,0 ,0,0,0,0, 0,0,0,0, 0,0,0,0],
 		ROM_ID => [0,0,0,0 ,0,0,0,0],

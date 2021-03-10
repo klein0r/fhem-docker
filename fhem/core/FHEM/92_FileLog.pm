@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 92_FileLog.pm 23138 2020-11-11 20:43:14Z rudolfkoenig $
+# $Id: 92_FileLog.pm 23751 2021-02-16 18:35:28Z rudolfkoenig $
 package main;
 
 use strict;
@@ -73,12 +73,6 @@ FileLog_Initialize($)
   InternalTimer(time()+0.1, sub() {      # Forum #39792
     map { HandleArchiving($defs{$_},1) } devspec2array("TYPE=FileLog");
     FileLog_dailySwitch($hash);          # Forum #42415
-    map {
-      FileLog_initEMI($defs{$_}, "filelog-event-min-interval", undef,1);
-      FileLog_initEMI($defs{$_}, "addLog", undef, 1);
-      my $mi = $defs{$_}{addLogMinInterval};
-      InternalTimer(time()+$mi, "FileLog_addLog", $defs{$_}, 0) if($mi);
-    } devspec2array("TYPE=FileLog");
   }, $hash, 0);
 }
 
@@ -201,7 +195,14 @@ FileLog_Define($@)
   $hash->{logfile} = $a[2];
   $hash->{currentlogfile} = $f;
   $hash->{STATE} = "active";
-  InternalTimer(0, sub(){  notifyRegexpChanged($hash, $a[3]); }, $hash);
+
+  InternalTimer(0, sub(){ 
+    notifyRegexpChanged($hash, $a[3]); 
+    FileLog_initEMI($hash, "filelog-event-min-interval", undef,1);
+    FileLog_initEMI($hash, "addLog", undef, 1);
+    my $mi = $hash->{addLogMinInterval};
+    InternalTimer(time()+$mi, "FileLog_addLog", $hash, 0) if($mi);
+  }, $hash);
 
   return undef;
 }
@@ -835,8 +836,11 @@ FileLog_Get($@)
   }
   Log3 $name, 4, "$name get: Input file $inf, from:$from  to:$to";
 
-  my $ifh = new IO::File $inf if($inf);
+  my $ifh;
+  $ifh = new IO::File $inf if($inf);
   FileLog_seekTo($inf, $ifh, $hash, $from, $reformatFn) if($ifh);
+
+  $to .= "z"; # return the 23:59:59 line too (Forum #118858)
 
   # Return the the plain file data, $outf is ignored
   if(!@a) {
@@ -1760,7 +1764,7 @@ FileLog_regexpFn($$)
         Dieses Attribut enth&auml;lt eine durch Kommata getrennte Liste von
         "devspec:readings:maxInterval" Tripel. readings kann ein regexp sein.
         Falls nach maxInterval (Sekunden) kein passendes Event eingetroffen ist,
-        der letzte Wert wird zum Logfile hinzugefuegt.
+        wird der letzte Wert zum Logfile hinzugefuegt.
         </li><br>
 
     <a name="archivedir"></a>

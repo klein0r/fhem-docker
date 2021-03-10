@@ -1,5 +1,5 @@
 ################################################################
-# $Id: 98_JsonList2.pm 22270 2020-06-26 09:25:18Z rudolfkoenig $
+# $Id: 98_JsonList2.pm 23727 2021-02-12 20:31:37Z rudolfkoenig $
 ################################################################
 
 package main;
@@ -37,7 +37,8 @@ JsonList2_dumpHash($$$$$$)
 {
   my ($arrp, $name, $h, $isReading, $showInternal, $attr) = @_;
   my $ret = "";
-  my %filter = map { $_=>1 } @$attr if(@$attr);
+  my %filter;
+  %filter = map { $_=>1 } @$attr if(@$attr);
   
   my @arr = grep { ($showInternal || $_ !~ m/^\./) &&
                    ($isReading || $_ eq "IODev" || !ref($h->{$_}) ) &&

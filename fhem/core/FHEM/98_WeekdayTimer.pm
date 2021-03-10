@@ -1,4 +1,4 @@
-# $Id: 98_WeekdayTimer.pm 23493 2021-01-09 05:51:21Z Beta-User $
+# $Id: 98_WeekdayTimer.pm 23779 2021-02-20 11:23:21Z Beta-User $
 #############################################################################
 #
 #     98_WeekdayTimer.pm
@@ -56,6 +56,7 @@ BEGIN {
           readingsEndUpdate
           AttrVal
           ReadingsVal
+          ReadingsNum
           InternalVal
           Value
           IsWe
@@ -83,7 +84,7 @@ BEGIN {
     );
 }
 
-sub main::WeekdayTimer_Initialize { goto &Initialize }
+sub ::WeekdayTimer_Initialize { goto &Initialize }
 sub ::WeekdayTimer_SetParm { goto &WeekdayTimer_SetParm }
 sub ::WeekdayTimer_SetAllParms { goto &WeekdayTimer_SetAllParms }
 
@@ -121,7 +122,7 @@ sub WeekdayTimer_Define {
 
   WeekdayTimer_DeleteTimer($hash);
   my $delVariables = "(CONDITION|COMMAND|profile|Profil)";
-  map { delete $hash->{$_} if( $_=~ m{\A$delVariables.*}xms) }  keys %{$hash};
+  map { delete $hash->{$_} if m{\A$delVariables.*}xms }  keys %{$hash};
 
   $hash->{NAME}            = $name;
   $hash->{DEVICE}          = $device;
@@ -136,13 +137,17 @@ sub WeekdayTimer_Define {
   $hash->{helper}{daysRegExp}   =~ s{\$}{\\\$}gxms;
   $hash->{helper}{daysRegExp}   =~ s{\!}{\\\!}gxms;
 
-  $hash->{CONDITION}  = ""; 
-  $hash->{COMMAND}    = "";
+  $hash->{CONDITION}  = q{}; 
+  $hash->{COMMAND}    = q{};
 
   addToDevAttrList($name, "weekprofile") if $def =~ m{weekprofile}xms;
   
-  return InternalTimer(time(), \&WeekdayTimer_Start,$hash,0) if !$init_done;
-  return WeekdayTimer_Start($hash);
+  if (!$init_done) { 
+    InternalTimer(time(), \&WeekdayTimer_Start,$hash,0) ;
+    return;
+  }
+  WeekdayTimer_Start($hash);
+  return; 
 }
 
 ################################################################################
@@ -173,7 +178,7 @@ sub WeekdayTimer_Start {
   WeekdayTimer_GlobalDaylistSpec ($hash, \@arr);
 
   my @switchingtimes       = gatherSwitchingTimes ($hash, \@arr);
-  my $conditionOrCommand   = join (" ", @arr);
+  my $conditionOrCommand   = join q{ }, @arr;
   my @errors;
   # test if device is defined
   if(!$defs{$device} ) { 
@@ -214,7 +219,7 @@ sub WeekdayTimer_Start {
   WeekdayTimer_SetTimerOfDay({ HASH => $hash});
   
   return if !$init_done;
-  return join("\n", @errors) if(@errors); 
+  return join('\n', @errors) if (@errors); 
   return;
   
 }
@@ -224,10 +229,10 @@ sub WeekdayTimer_Set {
   my ($hash,@arr) = @_;
 
   return "no set value specified" if(int(@arr) < 2);
-  return "Unknown argument $arr[1], choose one of enable:noArg disable:noArg WDT_Params:single,WDT_Group,all weekprofile" if($arr[1] eq "?");
+  return "Unknown argument $arr[1], choose one of enable:noArg disable:noArg WDT_Params:single,WDT_Group,all weekprofile" if $arr[1] eq '?';
 
   my $name = shift @arr;
-  my $v    = join(" ", @arr);
+  my $v    = join q{ }, @arr;
 
   if ($v eq "enable") {
     Log3( $hash, 3, "[$name] set $name $v" );
@@ -384,12 +389,13 @@ sub WeekdayTimer_Profile {
       my    @listeDerTage = ($d);
       push  (@listeDerTage, WeekdayTimer_getListeDerTage($hash, $d, $time)) if ($d>=7);
       
-      map { my $day = $_;
+      for my $day (@listeDerTage) {
         my $dayOfEchteZeit = $day;
         #####
         if ($day < 7) {
-          my $relativeDay = $day - $wday; 
-          $relativeDay = $relativeDay + 7 if $relativeDay < 0 ;
+          my $relativeDay = ($day - $wday ) % 7;
+          #my $relativeDay = $day - $wday; 
+          #$relativeDay = $relativeDay + 7 if $relativeDay < 0 ;
           $dayOfEchteZeit = undef if ($hash->{helper}{WEDAYS}{$relativeDay} && $overrulewday);
         }
         $dayOfEchteZeit = ($wday>=1&&$wday<=5) ? 6 : $wday  if ($day==7); # ggf. Samstag $wday ~~ [1..5]
@@ -399,7 +405,7 @@ sub WeekdayTimer_Profile {
           $hash->{profile}    {$day}{$echtZeit} = $parameter;
           $hash->{profile_IDX}{$day}{$echtZeit} = $idx;
         }
-      } @listeDerTage;
+      };
     }
   }
 # ---- Zeitpunkte des aktuellen Tages mit EPOCH ermitteln --------------
@@ -446,12 +452,11 @@ sub WeekdayTimer_getListeDerTage {
     @hdays{(0..6)} = undef  if ($d==8); # mo-fr   (!$we)
   }
   my ($sec,$min,$hour,$mday,$mon,$year,$nowWday,$yday,$isdst) = localtime(time());
-  for (my $i=0;$i<=6;$i++) {
-    my $relativeDay = $i - $nowWday; 
-    $relativeDay = $relativeDay + 7 if $relativeDay < 0 ;
+  for (0..6) {
+    my $relativeDay = ( $_ - $nowWday ) % 7;
     if ($hash->{helper}{WEDAYS}{$relativeDay}) {
-      $hdays{$i} = undef if ($d==7); # $we Tag aufnehmen
-      delete $hdays{$i} if ($d==8);  # !$we Tag herausnehmen
+      $hdays{$_} = undef if ($d==7); # $we Tag aufnehmen
+      delete $hdays{$_} if ($d==8);  # !$we Tag herausnehmen
     }
   }
 
@@ -484,18 +489,17 @@ sub WeekdayTimer_SwitchingTime {
   }
 
   my @tage = @{WeekdayTimer_daylistAsArray($hash, $daylist)};
-  my $tage=@tage;
-  if ( $tage==0 ) {
-    Log3( $hash, 1, "[$name] invalid daylist in $name <$daylist> use one of 012345678 or $hash->{helper}{daysRegExpMessage}" );
-  }
+  #my $tage=@tage;
+  Log3( $hash, 1, "[$name] invalid daylist in $name <$daylist> use one of 012345678 or $hash->{helper}{daysRegExpMessage}" ) if !(@tage);
 
   my %hdays=();
   @hdays{@tageGlobal} = undef;
   @hdays{@tage}       = undef;
-  @tage = sort keys %hdays;
+  #@tage = sort keys %hdays;
 
   #Log3 $hash, 3, "Tage: " . Dumper \@tage;
-  return (\@tage,$time,$para,$overrulewday);
+  #return (\@tage,$time,$para,$overrulewday);
+  return ([sort keys %hdays], $time, $para, $overrulewday);
 }
 
 ################################################################################
@@ -552,10 +556,10 @@ sub WeekdayTimer_daylistAsArray {
     #avoid 78 settings:
     if ($daylist =~ m{[7]}xms && $daylist =~ m{[8]}xms) {
       Log3( $hash, 4, "[$name] useless double setting of \$we and !\$we found" );
-      $daylist = "0123456";
+      $daylist = '0123456';
     }
     
-    @days = split("", $daylist);
+    @days = split m{}x, $daylist;
     @hdays{@days} = undef;
 
   }  
@@ -579,7 +583,7 @@ sub WeekdayTimer_EchteZeit {
 
   # Zeitangabe verarbeiten.
   $time = '"' . "$time" . '"'       if($time !~  m{\A\{.*\}\z}xms);
-  my $date           = $now+($d-$wday)*86400;
+  my $date           = $now+($d-$wday)*DAYSECONDS;
   my $timeString     = '{ my $date='."$date;" .$time."}";
   my $eTimeString    = AnalyzePerlCommand( $hash, $timeString );                            # must deliver HH:MM[:SS]
   
@@ -591,7 +595,7 @@ sub WeekdayTimer_EchteZeit {
 
   if      ($eTimeString =~  m{\A[0-2][0-9]:[0-5][0-9]\z}xms) {          #  HH:MM
     $eTimeString .= ":00";                                          #  HH:MM:SS erzeugen
-  } elsif ($eTimeString !~  m{\A[0-2][0-9](:[0-5][0-9]){2,2}\z}xms) {   # not HH:MM:SS
+  } elsif ($eTimeString !~  m{\A[0-2][0-9]:[0-5][0-9]:[0-5][0-9]\z}xms) {   # not HH:MM:SS
     Log3( $hash, 1, "[$name] invalid time <$eTimeString> HH:MM[:SS]" );
     $eTimeString = "00:00:00";
   }
@@ -620,14 +624,14 @@ sub gatherSwitchingTimes {
   my $conditionOrCommand;
 
   # switchingtime einsammeln
-  while (@$a > 0) {
+  while (@{ $a } > 0) {
 
     #pruefen auf Angabe eines Schaltpunktes
     my $element = "";
     my @restoreElements = ();
-E:  while (@$a > 0) {
+E:  while (@{ $a } > 0) {
 
-      my $actualElement = shift @$a;
+      my $actualElement = shift @{ $a };
       push @restoreElements, $actualElement;
       $element = $element . $actualElement . " ";
       Log3( $hash, 5, "[$name] $element - trying to accept as a switchtime" );
@@ -681,29 +685,27 @@ E:  while (@$a > 0) {
       ($unused,$wp_profile) = split m{:}xms, getWeekprofileReadingTriplett($hash, $wp_name, 'default'),2 if !$wp_profile && $wprof[2] ne 'default';
       
       return if !$wp_profile;
-      my $wp_sunaswe = $wprof[2]//0;
-      my $wp_profile_data = CommandGet(undef,$wp_name . " profile_data ". $wp_profile);
+      my $wp_sunaswe = $wprof[2] // 0;
+      my $wp_profile_data = CommandGet(undef,"$wp_name profile_data $wp_profile 0");
       if ($wp_profile_data =~ m{(profile.*not.found|usage..profile_data..name)}xms ) {
         Log3( $hash, 3, "[$name] weekprofile $wp_name: no profile named \"$wp_profile\" available" );
         return;
       }
-      my $wp_profile_unpacked;
-      #my $json = JSON->new->allow_nonref;
-      $wp_profile_unpacked = decode_json($wp_profile_data);
+      my $wp_profile_unpacked = decode_json($wp_profile_data);
       $hash->{weekprofiles}{$wp_name} = {'PROFILE'=>$wp_profile,'PROFILE_JSON'=>$wp_profile_data,'SunAsWE'=>$wp_sunaswe,'PROFILE_DATA'=>$wp_profile_unpacked };
       my %wp_shortDays = ("Mon"=>1,"Tue"=>2,"Wed"=>3,"Thu"=>4,"Fri"=>5,"Sat"=>6,"Sun"=>0);
       for my $wp_days (sort keys %{$hash->{weekprofiles}{$wp_name}{PROFILE_DATA}}) {
         my $wp_times = $hash->{weekprofiles}{$wp_name}{PROFILE_DATA}{$wp_days}{time};
         my $wp_temps = $hash->{weekprofiles}{$wp_name}{PROFILE_DATA}{$wp_days}{temp};
         my $wp_shortDay = $wp_shortDays{$wp_days};
-        for ( my $i = 0; $i < @{$wp_temps}; $i++ ) {
-          my $itime = "00:10";
-          $itime = $hash->{weekprofiles}{$wp_name}{PROFILE_DATA}{$wp_days}{time}[$i-1] if $i;
-          my $itemp = $hash->{weekprofiles}{$wp_name}{PROFILE_DATA}{$wp_days}{temp}[$i];
+        for ( 0..@{ $wp_temps }-1 ) {
+          my $itime = $_ ? $hash->{weekprofiles}{$wp_name}{PROFILE_DATA}{$wp_days}{time}[$_-1] 
+                         : '00:10';
+          my $itemp = $hash->{weekprofiles}{$wp_name}{PROFILE_DATA}{$wp_days}{temp}[$_];
           my $wp_dayprofile = "$wp_shortDay"."|$itime" . "|$itemp";
           $wp_dayprofile .= "|w" if $wp_sunaswe eq "true";
           push(@switchingtimes, $wp_dayprofile);
-          if ($wp_sunaswe eq "true" and $wp_shortDay == 0) {
+          if ($wp_sunaswe eq "true" && !$wp_shortDay) {
             $wp_dayprofile = "7|$itime" . "|$itemp";
             push(@switchingtimes, $wp_dayprofile);
           }
@@ -711,7 +713,7 @@ E:  while (@$a > 0) {
       }
     } else {
       Log3( $hash, 4, "[$name] $element - NOT accepted, must be command or condition" );
-      unshift @$a, @restoreElements;
+      unshift @{ $a }, @restoreElements;
       last;
     }
   }
@@ -726,11 +728,11 @@ sub getWDTLanguage {
 
   # ggf. language optional Parameter
   my $langRegExp = "(" . join ("|", keys(%{$hash->{'.shortDays'}})) . ")";
-  my $language   = shift @$a;
+  my $language   = shift @{ $a };
 
   if ( $language !~  m{\A$langRegExp\z}xms ) {
   Log3( $hash, 3, "[$name] language: $language not recognized, use one of $langRegExp" ) if ( length($language) == 2 && $language !~  m{\A[0-9]+\z}gmx );
-    unshift @$a, $language;
+    unshift @{ $a }, $language;
     $language = lc(AttrVal("global","language","en"));
     $language = $language =~  m{\A$langRegExp\z}xms ? $language : "en";
   }
@@ -743,11 +745,11 @@ sub getWDTLanguage {
 sub WeekdayTimer_GlobalDaylistSpec {
   my ($hash, $a) = @_;
 
-  my $daylist = shift @$a;
+  my $daylist = shift @{ $a };
 
   my @tage = @{ WeekdayTimer_daylistAsArray( $hash, $daylist ) };
 
-  unshift @$a, $daylist if (!@tage);
+  unshift @{ $a }, $daylist if !@tage;
 
   $hash->{GlobalDaylistSpec} = join '', @tage;
   return;
@@ -757,13 +759,14 @@ sub WeekdayTimer_GlobalDaylistSpec {
 sub WeekdayTimer_SetTimerForMidnightUpdate {
   my $fnHash = shift;
   my $hash = $fnHash->{HASH} // $fnHash;
-  return if (!defined($hash));
+  return if !defined($hash);
 
   my $now = time();
   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($now);
 
   my $midnightPlus5Seconds = getSwitchtimeEpoch  ($now, 0, 0, 5, 1);
-  resetRegisteredInternalTimer("SetTimerOfDay", $midnightPlus5Seconds, \&WeekdayTimer_SetTimerOfDay, $hash, 0);
+  RemoveInternalTimer($hash,\&WeekdayTimer_SetTimerOfDay);
+  InternalTimer($midnightPlus5Seconds, \&WeekdayTimer_SetTimerOfDay, $hash, 0) if !AttrVal($hash->{NAME},"disable",0);
   $hash->{SETTIMERATMIDNIGHT} = 1;
   
   return;
@@ -774,7 +777,7 @@ sub WeekdayTimer_SetTimerOfDay {
   my $fnHash = shift // return;
   my $hash = $fnHash->{HASH} // $fnHash;
   return if (!defined($hash));
-
+  
   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time());
   my $secSinceMidnight = 3600*$hour + 60*$min + $sec;
 
@@ -785,10 +788,10 @@ sub WeekdayTimer_SetTimerOfDay {
   $iswe = IsWe("tomorrow");
   $wedays{(1)} = $iswe if $iswe;
     
-  for (my $i=2;$i<=6;$i++) {
+  for (2..6) {
     my $noWeekEnd = 0;
     my $ergebnis = 'none';
-    my $izeit = time() + DAYSECONDS * $i;
+    my $izeit = time() + DAYSECONDS * $_;
     my ($isec,$imin,$ihour,$imday,$imon,$iyear,$iwday,$iyday,$iisdst) = localtime($izeit);
   
     for my $h2we (split m{,}xms, AttrVal('global', 'holiday2we', '')) {
@@ -801,23 +804,23 @@ sub WeekdayTimer_SetTimerOfDay {
       }
     }
     if ($ergebnis ne 'none') {
-      $wedays{$i} = $ergebnis ;
+      $wedays{$_} = $ergebnis ;
     } else {
       if ($iwday == 0 || $iwday == 6) { 
-        $wedays{$i} = 1;
-        delete $wedays{$i} if AttrVal('global', 'holiday2we', '') =~ m{\bweekEnd\b}xms; 
+        $wedays{$_} = 1;
+        delete $wedays{$_} if AttrVal('global', 'holiday2we', '') =~ m{\bweekEnd\b}xms; 
       } else {
-        delete $wedays{$i};
+        delete $wedays{$_};
       }
     }
   }
   $hash->{helper}{WEDAYS} = \%wedays;
-  $hash->{SETTIMERATMIDNIGHT} = $fnHash->{SETTIMERATMIDNIGHT}; WeekdayTimer_DeleteTimer($hash);
+  $hash->{SETTIMERATMIDNIGHT} = $fnHash->{SETTIMERATMIDNIGHT}; 
+  WeekdayTimer_DeleteTimer($hash);
   WeekdayTimer_Profile    ($hash);
-  WeekdayTimer_SetTimer   ($hash);
+  WeekdayTimer_SetTimer   ($hash) if !AttrVal($hash->{NAME},"disable",0);
   delete $hash->{SETTIMERATMIDNIGHT};
-  $fnHash = { HASH => $hash };
-  WeekdayTimer_SetTimerForMidnightUpdate( $fnHash );
+  WeekdayTimer_SetTimerForMidnightUpdate( $hash );
   return;
 }
 
@@ -836,10 +839,7 @@ sub WeekdayTimer_SetTimer {
   Log3( $hash, 4, "[$name] no switch in the yesterdays because of the devices type($hash->{DEVICE} is not recognized as heating) - use attr switchInThePast" ) if ( !$switchInThePast && !defined $hash->{SETTIMERATMIDNIGHT} );
 
   my @switches = sort keys %{$hash->{profil}};
-  if (@switches == 0) {
-    Log3( $hash, 3, "[$name] no switches to send, due to possible errors." );
-    return;
-  }
+  return Log3( $hash, 3, "[$name] no switches to send, due to possible errors." ) if !@switches;
 
   readingsSingleUpdate ($hash,  "state", "inactive", 1) if (!defined $hash->{SETTIMERATMIDNIGHT});
   for(my $i=0; $i<=$#switches; $i++) {
@@ -859,38 +859,32 @@ sub WeekdayTimer_SetTimer {
     if ( $timToSwitch - $now > -5 || defined $hash->{SETTIMERATMIDNIGHT} ) {
       if($isActiveTimer) {
         Log3( $hash, 4, "[$name] setTimer - timer seems to be active today: ".join("",@$tage)."|$time|$para" );
-        #WeekdayTimer_RemoveInternalTimer("$idx", $hash);
         resetRegisteredInternalTimer("$idx", $timToSwitch + AttrVal($name,'WDT_sendDelay',0), \&WeekdayTimer_Update, $hash, 0);
       } else {
         Log3( $hash, 4, "[$name] setTimer - timer seems to be NOT active today: ".join("",@$tage)."|$time|$para ". $hash->{CONDITION} );
         deleteSingleRegisteredInternalTimer("$idx", $hash);
       }
-      #WeekdayTimer_RemoveInternalTimer("$idx", $hash);
-      #WeekdayTimer_InternalTimer ("$idx", $timToSwitch, "$hash->{TYPE}_Update", $hash, 0);
     }
   }
 
-  if (defined $hash->{SETTIMERATMIDNIGHT}) {
-    return;
-  }
+  return if defined $hash->{SETTIMERATMIDNIGHT};
 
   my ($aktIdx,$aktTime,$aktParameter,$nextTime,$nextParameter) =
     WeekdayTimer_searchAktNext($hash, time()+5);
-  if(!defined $aktTime) {
-    Log3( $hash, 3, "[$name] can not compute past switching time" );
-  }
+  Log3( $hash, 3, "[$name] can not compute past switching time" ) if !defined $aktTime;
 
   readingsBeginUpdate($hash);
   readingsBulkUpdate ($hash, "nextUpdate", FmtDateTime($nextTime));
   readingsBulkUpdate ($hash, "nextValue",  $nextParameter);
   readingsBulkUpdate ($hash, "currValue",  $aktParameter);
   readingsEndUpdate  ($hash, 1);
-
-  if ($switchInThePast && defined $aktTime) {
+  
+  return if !$switchInThePast || !defined $aktTime || checkDelayedExecution($hash, $aktParameter, $aktIdx );
+  #if ($switchInThePast && defined $aktTime) {
     # Fensterkontakte abfragen - wenn einer im Status closed, dann Schaltung um 60 Sekunden verzögern
-    if (checkDelayedExecution($hash, $aktParameter, $aktIdx)) {
-      return;
-    }
+    #if (checkDelayedExecution($hash, $aktParameter, $aktIdx)) {
+    #  return;
+    #}
 
     # alle in der Vergangenheit liegenden Schaltungen sammeln und
     # nach 5 Sekunden in der Reihenfolge der Schaltzeiten
@@ -900,19 +894,17 @@ sub WeekdayTimer_SetTimer {
     my $device = $hash->{DEVICE};
     Log3( $hash, 4, "[$name] past timer on $hash->{DEVICE} at ". FmtDateTime($aktTime). " with  $aktParameter activated" );
 
-    my $parameter = $modules{WeekdayTimer}{timerInThePast}{$device}{$aktTime};
-    $parameter = [] if (!defined $parameter);
-    push (@$parameter,["$aktIdx", $aktTime, \&WeekdayTimer_Update, $hash, 0]);
+    my $parameter = $modules{WeekdayTimer}{timerInThePast}{$device}{$aktTime} // [];
+    push @$parameter,["$aktIdx", $aktTime, \&WeekdayTimer_Update, $hash, 0];
     $modules{WeekdayTimer}{timerInThePast}{$device}{$aktTime} = $parameter;
 
     my $tipHash = $modules{WeekdayTimer}{timerInThePastHash};
     $tipHash    = $hash if (!defined $tipHash);
     $modules{WeekdayTimer}{timerInThePastHash} = $tipHash;
 
-    #WeekdayTimer_RemoveInternalTimer("delayed", $tipHash);
     resetRegisteredInternalTimer("delayed", time()+5, \&WeekdayTimer_delayedTimerInPast, $tipHash, 0);
 
-  }
+  #}
   return;
 }
 
@@ -932,7 +924,6 @@ sub WeekdayTimer_delayedTimerInPast {
       Log3( $hash, 4, "[$hash->{NAME}] $device ".FmtDateTime($time)." ".($tim-$time)."s " );
 
       for my $para ( @{$tipIpHash->{$device}{$time}} ) {
-        #WeekdayTimer_RemoveInternalTimer(@$para[0], @$para[3]);
         my $mHash = resetRegisteredInternalTimer(@$para[0],@$para[1],@$para[2],@$para[3],@$para[4]);
         $mHash->{forceSwitch} = 1;
       }
@@ -1039,12 +1030,12 @@ sub WeekdayTimer_Update {
     $activeTimer      = isAnActiveTimer ($hash, $dieGanzeWoche, $newParam, $overrulewday);
     $activeTimerState = isAnActiveTimer ($hash, $tage, $newParam, $overrulewday);
     Log3( $hash, 4, "[$name] Update   - past timer activated" );
-    #WeekdayTimer_RemoveInternalTimer("$idx",  $hash);
     resetRegisteredInternalTimer("$idx", $timToSwitch, \&WeekdayTimer_Update, $hash, 0) if ($timToSwitch > $now && ($activeTimerState||$activeTimer));
   } else {
     $activeTimer = isAnActiveTimer ($hash, $tage, $newParam, $overrulewday);
     $activeTimerState = $activeTimer;
-    Log3( $hash, 4, "[$name] Update   - timer seems to be active today: ".join("",@$tage)."|$time|$newParam" ) if ( $activeTimer );
+    Log3( $hash, 4, "[$name] Update   - timer seems to be active today: ".join("",@$tage)."|$time|$newParam" ) if ( $activeTimer && (@$tage) );
+    Log3( $hash, 2, "[$name] Daylist is missing!") if !(@$tage);
   }
   #Log3 $hash, 3, "activeTimer------------>$activeTimer";
   #Log3 $hash, 3, "activeTimerState------->$activeTimerState";
@@ -1137,19 +1128,21 @@ sub checkDelayedExecution {
   my $nextRetry = time()+55+int(rand(10));
   my $epoch = $hash->{profil}{$time}{EPOCH};
   if (!$epoch) {                             #prevent FHEM crashing when profile is somehow damaged or incomlete, forum #109164
-    my $actual_wp_reading = ReadingsVal($name,"weekprofiles","none");
-    Log3( $hash, 0, "[$name] profile $actual_wp_reading, item $time seems to be somehow damaged or incomlete!" );
+    my $actual_wp_reading = ReadingsVal($name,'weekprofiles','none');
+    Log3( $hash, 0, "[$name] profile $actual_wp_reading, item $time seems to be somehow damaged or incomplete!" );
     $epoch = int(time()) - 10*MINUTESECONDS;
+    readingsSingleUpdate( $hash, 'corrupt_wp_count', ReadingsNum($name,'corrupt_wp_count', 0) + 1, 1 );
   }
   my $delay = int(time()) - $epoch;
   my $nextDelay = int($delay/60.+1.5)*60;  # round to multiple of 60sec
   $nextRetry = $epoch + $nextDelay + AttrVal($name,'WDT_sendDelay',0);
   Log3( $hash, 4, "[$name] time=".$hash->{profil}{$time}{TIME}."/$epoch delay=$delay, nextDelay=$nextDelay, nextRetry=$nextRetry" );
 
-  map { my $key =  $_; $key =~ s{\$}{\\\$}gxms;
-        my $val = $specials{$_};
-        $verzoegerteAusfuehrungCond =~ s{$key}{$val}gxms
-      } keys %specials;
+  for my $key (keys %specials) {
+    my $val = $specials{$key};
+    $key =~ s{\$}{\\\$}gxms;
+    $verzoegerteAusfuehrungCond =~ s{$key}{$val}gxms
+  } 
   Log3( $hash, 4, "[$name] delayedExecutionCond:$verzoegerteAusfuehrungCond" );
 
 #  my $verzoegerteAusfuehrung = eval($verzoegerteAusfuehrungCond);
@@ -1169,7 +1162,6 @@ sub checkDelayedExecution {
       deleteSingleRegisteredInternalTimer($hash->{VERZOEGRUNG_IDX},$hash);
     }
     $hash->{VERZOEGRUNG_IDX} = $time;
-    #WeekdayTimer_RemoveInternalTimer("$time",  $hash);
     resetRegisteredInternalTimer("$time",  $nextRetry, \&WeekdayTimer_Update, $hash, 0);
     $hash->{VERZOEGRUNG} = 1;
     return $verzoegerteAusfuehrung;
@@ -1191,9 +1183,10 @@ sub checkDelayedExecution {
   $fensterKontakte = trim($fensterKontakte);
 
   Log3( $hash, 4, "[$name] list of window sensors found: '$fensterKontakte'" );
-  if ($fensterKontakte ne "" ) {
-    my @kontakte = split m{\s+}xms, $fensterKontakte;
-    for my $fk (@kontakte) {
+  for my $fk (split m{\s+}xms, $fensterKontakte) {
+  #if ($fensterKontakte ne "" ) {
+    #my @kontakte = split m{\s+}xms, $fensterKontakte;
+  #  for my $fk (@kontakte) {
       #hier flexible eigene Angaben ermöglichen?, Schreibweise: Device[:Reading[:ValueToCompare[:Comparator]]]; defaults: Reading=state, ValueToCompare=0/undef/false, all other true, Comparator=eq (options: eq, ne, lt, gt, ==, <,>,<>)
       my $fk_hash = $defs{$fk};
       if (!$fk_hash) {
@@ -1225,14 +1218,13 @@ sub checkDelayedExecution {
                 deleteSingleRegisteredInternalTimer($hash->{VERZOEGRUNG_IDX},$hash);
               }
               $hash->{VERZOEGRUNG_IDX} = $time;
-              #WeekdayTimer_RemoveInternalTimer("$time", $hash);
               resetRegisteredInternalTimer("$time",  $nextRetry, \&WeekdayTimer_Update, $hash, 0);
               $hash->{VERZOEGRUNG} = 1;
               return 1
             }
           }
         }
-      }
+     # }
     }
   }
   if ($hash->{VERZOEGRUNG}) {
@@ -1297,17 +1289,20 @@ sub WeekdayTimer_Switch_Device {
 
 ################################################################################
 sub getDaysAsHash {
-  my ($hash, $tage)  = @_;
+  my $hash = shift;
+  my $tage = shift //return {};
 
   my %days = map {$_ => 1} @$tage;
   delete @days{7,8};
 
-  return 'my $days={};map{$days->{$_}=1}'.'('.join (",", sort keys %days).')';
+  return 'my $days={};map{$days->{$_}=1}('.join (",", sort keys %days).')';
 }
 
 ################################################################################
 sub checkWDTCondition {
-  my ($hash, $tage, $overrulewday)  = @_;
+  my $hash = shift;
+  my $tage = shift // return 0;
+  my $overrulewday = shift;
 
   my $name = $hash->{NAME};
   Log3( $hash, 4, "[$name] condition:$hash->{CONDITION} - Tage:".join(",",@$tage) );
@@ -1347,7 +1342,7 @@ sub WeekdayTimer_Attr {
   my $hash = $defs{$name};
   if ( $attrName eq "WDT_eventMap" ) {
     if($cmd eq "set") {
-      my @ret = split(/[: \r\n]/, $attrVal);
+      my @ret = split m{[: \r\n]}x, $attrVal;
       return "WDT_eventMap: Odd number of elements" if(int(@ret) % 2);
       my %ret = @ret;
       for (keys %ret) {
@@ -1358,22 +1353,26 @@ sub WeekdayTimer_Attr {
       delete $hash->{WDT_EVENTMAP};
     }
     $attr{$name}{$attrName} = $attrVal;
+    return if (!$init_done);
+    return WeekdayTimer_Start($hash);
   }
   return if (!$init_done);
   if( $attrName eq "disable" ) {
+    WeekdayTimer_DeleteTimer($hash);
+    ###RemoveInternalTimer($fnHash);
     readingsSingleUpdate ($hash,  "disabled",  $attrVal, 1);
-    return WeekdayTimer_SetTimerOfDay({ HASH => $hash}) if !$attrVal;
-  } 
-  if ( $attrName eq "enable" ) {
-    return WeekdayTimer_SetTimerOfDay({ HASH => $hash});
+    $attr{$name}{$attrName} = $attrVal;
+    return RemoveInternalTimer($hash,\&WeekdayTimer_SetTimerOfDay) if $attrVal;
+    return WeekdayTimer_Start($hash);
+    #return WeekdayTimer_SetTimerOfDay( { HASH => $hash} ) if !$attrVal;
   }
   if ( $attrName eq "weekprofile" ) {
     $attr{$name}{$attrName} = $attrVal;
-    return WeekdayTimer_Start($hash);
+    #return WeekdayTimer_Start($hash);
   } 
   if ( $attrName eq "switchInThePast" ) {
     $attr{$name}{$attrName} = $attrVal;
-    return WeekdayTimer_SetTimerOfDay({ HASH => $hash});
+    return WeekdayTimer_Start($hash);
   }
   if ( $attrName eq "delayedExecutionCond" ) {
     my %specials = (
@@ -1392,7 +1391,7 @@ sub WeekdayTimer_Attr {
       return "WDT_sendDelay is limited to 300 seconds" if $attrVal > 300;
     }
     $attr{$name}{$attrName} = $attrVal;
-    return WeekdayTimer_SetTimerOfDay({ HASH => $hash});
+    return WeekdayTimer_Start($hash);
   }
   
   return;
@@ -1435,7 +1434,7 @@ sub updateWeekprofileReading {
   my @t     = split m{\s+}xms, ReadingsVal( $name, 'weekprofiles', '');
   my @newt  = ( qq($wp_name:$wp_topic:$wp_profile) );
   push @newt, grep { $_ !~ m{\A$wp_name\b}xms } @t;
-  readingsSingleUpdate( $hash, 'weekprofiles', join(' ', @newt), 1 );
+  readingsSingleUpdate( $hash, 'weekprofiles', join (q{ }, @newt), 1 );
   return 1;
 }
 

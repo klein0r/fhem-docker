@@ -1,5 +1,5 @@
 #####################################################################################
-# $Id: 98_serviced.pm 20536 2019-11-18 20:22:13Z DeeSPe $
+# $Id: 98_serviced.pm 23884 2021-03-03 19:12:42Z DeeSPe $
 #
 # Usage
 # 
@@ -16,7 +16,7 @@ use Blocking;
 use Time::HiRes;
 use vars qw{%defs};
 
-my $servicedVersion = "1.2.5";
+my $servicedVersion = "1.2.7";
 
 sub serviced_shutdownwait($);
 
@@ -36,6 +36,7 @@ sub serviced_Initialize($)
                         "serviceGetStatusOnInit:0,1 ".
                         "serviceInitd:1,0 ".
                         "serviceLogin ".
+                        "servicePort ".
                         "serviceRegexFailed ".
                         "serviceRegexStarted ".
                         "serviceRegexStarting ".
@@ -50,11 +51,11 @@ sub serviced_Define($$)
 {
   my ($hash,$def) = @_;
   my @args = split " ",$def;
-  return "Usage: define <name> serviced <service name> [user\@ip-address]"
-    if (@args < 3 || @args > 4);
-  my ($name,$type,$service,$remote) = @args;
-  return "Remote host must be like 'pi\@192.168.2.22' or 'pi\@myserver'!"
-    if ($remote && $remote !~ /^\w{2,}@(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|[\w\.\-_]{2,})$/);
+  return "Usage: define <name> serviced <service name> [user\@ip-address] [port]"
+    if (@args < 3 || @args > 5);
+  my ($name,$type,$service,$remote,$port) = @args;
+  return "Remote host must be like 'pi\@192.168.2.22' or 'pi\@myserver' or 'pi\@192.168.2.22 222' if you need to declare a SSH port other than the default port!"
+    if (($remote && $remote !~ /^\w{2,}@(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|[\w\.\-_]{2,})$/) || ($port && $port !~ /^\d{2,5}$/));
   RemoveInternalTimer($hash);
   $hash->{NOTIFYDEV}   = "global";
   $hash->{SERVICENAME} = $service;
@@ -67,6 +68,7 @@ sub serviced_Define($$)
     $attr{$name}{room}          = "Services";
     $attr{$name}{icon}          = "hue_room_garage";
     $attr{$name}{serviceLogin}  = $remote if ($remote);
+    $attr{$name}{servicePort}   = $port if ($port);
     $attr{$name}{webCmd}        = "start:restart:stop:status";
     if (grep /^homebridgeMapping/,split(" ",AttrVal("global","userattr","")))
     {
@@ -76,7 +78,6 @@ sub serviced_Define($$)
     }
   }
   readingsSingleUpdate($hash,"state","Initialized",1) if ($init_done);
-  serviced_GetUpdate($hash);
   return undef;
 }
 
@@ -149,6 +150,7 @@ sub serviced_Set($@)
     if ($cmd eq "start" && ReadingsVal($name,"state","") =~ /^running|starting|failed$/);
   my $service = $hash->{SERVICENAME};
   my $login = AttrVal($name,"serviceLogin","");
+  $login .= $login ? " -p ".AttrNum($name,"servicePort",22) : "";
   my $sudo = AttrNum($name,"serviceSudo",1) && $login !~ /^root@/ ? "sudo " : "";
   my $line = AttrVal($name,"serviceStatusLine",3);
   my $com;
@@ -191,7 +193,6 @@ sub serviced_Attr(@)
       if ($attr_name eq "disable")
       {
         BlockingKill($hash->{helper}{RUNNING_PID}) if ($hash->{helper}{RUNNING_PID});
-        serviced_GetUpdate($hash) if (AttrNum($name,"serviceStatusInterval",0));
       }
     }
     elsif ($attr_name =~ /^serviceAutostart|serviceAutostop$/)
@@ -200,11 +201,17 @@ sub serviced_Attr(@)
       $er = "$attr_value not valid for $attr_name, must be a timeout in seconds like 1 to automatically stop service while shutdown of fhem (min: 1, max: 300)!" if ($attr_name eq "serviceAutostop");
       return $er
         if ($attr_value !~ /^(\d{1,3})$/ || $1 > 300 || $1 < 1);
+      return;
     }
     elsif ($attr_name eq "serviceLogin")
     {
       return "$attr_value not valid for $attr_name, must be a ssh login string like 'pi\@192.168.2.22' or 'pi\@myserver'!"
         if ($attr_value !~ /^\w{2,}@(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|[\w\.\-_]{2,})$/);
+    }
+    elsif ($attr_name eq "servicePort")
+    {
+      return "$attr_value not valid for $attr_name, must be a port number like 22 or 222!"
+        if ($attr_value !~ /^\d{2,5}$/);
     }
     elsif ($attr_name =~ /^serviceRegexFailed|serviceRegexStopped|serviceRegexStarted|serviceRegexStarting$/)
     {
@@ -220,13 +227,13 @@ sub serviced_Attr(@)
       return "$attr_value not valid for $attr_name, must be a number in seconds like 300 (min: 5, max: 999999)!"
         if ($attr_value !~ /^(\d{1,6})$/ || $1 < 5);
       $hash->{helper}{interval} = $attr_value;
-      serviced_GetUpdate($hash);
     }
     elsif ($attr_name eq "serviceStatusLine")
     {
       return "$attr_value not valid for $attr_name, must be a number like 2, for 2nd line of status output, or 'last' for last line of status output!"
         if ($attr_value !~ /^(\d{1,2}|last)$/);
     }
+    serviced_GetUpdate($hash);
   }
   else
   {
@@ -265,7 +272,7 @@ sub serviced_ExecCmd($)
   Log3 $name,5,"$name: serviced_ExecCmd com: $com, line: $line";
   my @ret;
   my $re = "";
-  foreach (@qx)
+  for (@qx)
   {
     chomp;
     $_ =~ s/[\s\t ]{1,}/ /g;
@@ -380,13 +387,14 @@ sub serviced_GetUpdate(@)
 {
   my ($hash) = @_;
   my $name = $hash->{NAME};
+  RemoveInternalTimer($hash);
+  return if (IsDisabled($name) || !$init_done);
   my $sec = defined $hash->{helper}{interval} ? $hash->{helper}{interval} : AttrNum($name,"serviceStatusInterval",undef);
   delete $hash->{helper}{interval} if (defined $hash->{helper}{interval});
-  RemoveInternalTimer($hash);
-  return if (IsDisabled($name) || !$sec);
-  InternalTimer(gettimeofday() + $sec,"serviced_GetUpdate",$hash);
   serviced_Set($hash,$name,"status");
-  return undef;
+  return if (!$sec);
+  InternalTimer(gettimeofday() + $sec,"serviced_GetUpdate",$hash);
+  return;
 }
 
 sub serviced_Shutdown($)
@@ -564,6 +572,11 @@ sub serviced_shutdownwait($)
       default:
     </li>
     <li>
+      <i>servicePort</i><br>
+      ssh port to use if other than default port (22)<br>
+      default: 22
+    </li>
+    <li>
       <i>serviceRegexFailed</i><br>
       regex for failed status<br>
       default: dead|failed|exited
@@ -728,6 +741,11 @@ sub serviced_shutdownwait($)
       SSH Anmeldedaten f&uuml;r entfernten Dienst<br>
       passwortloser SSH Zugang ist Grundvoraussetzung<br>
       Voreinstellung:
+    </li>
+    <li>
+      <i>servicePort</i><br>
+      SSH Port falls ein anderer als der Standard Port (22) verwendet wird<br>
+      Voreinstellung: 22
     </li>
     <li>
       <i>serviceRegexFailed</i><br>

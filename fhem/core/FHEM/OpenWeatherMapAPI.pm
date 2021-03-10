@@ -1,4 +1,4 @@
-# $Id: OpenWeatherMapAPI.pm 21777 2020-04-25 23:53:13Z CoolTux $
+# $Id: OpenWeatherMapAPI.pm 23645 2021-01-30 17:55:57Z CoolTux $
 ###############################################################################
 #
 # Developed with Kate
@@ -616,7 +616,7 @@ sub _CreateForecastRef {
             lat  => $self->{lat},
             long => $self->{long},
             apiMaintainer =>
-'Leon Gaultier (<a href=https://forum.fhem.de/index.php?action=profile;u=13684>CoolTux</a>)',
+'Marko Oldenburg (<a href=https://forum.fhem.de/index.php?action=profile;u=13684>CoolTux</a>)',
             apiVersion =>
               version->parse( OpenWeatherMapAPI->VERSION() )->normal,
         }

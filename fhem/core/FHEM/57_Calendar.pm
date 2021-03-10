@@ -1,4 +1,4 @@
-# $Id: 57_Calendar.pm 21910 2020-05-10 12:22:05Z neubert $
+# $Id: 57_Calendar.pm 23527 2021-01-16 14:32:53Z neubert $
 ##############################################################################
 #
 #     57_Calendar.pm
@@ -2056,7 +2056,7 @@ sub Calendar_Get($@) {
               $from *= -1;
             } else {
               $from  = DAYSECONDS - Calendar_GetSecondsFromMidnight();
-              $to    = $from + DAYSECONDS;
+              $to    = $from + DAYSECONDS - 1;
             }
             push @filters, { ref => \&filter_endafter, param => $t+$from };
             push @filters, { ref => \&filter_startbefore, param => $t+$to };

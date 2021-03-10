@@ -1,5 +1,5 @@
 ###########################################
-# $Id: mqtt2.template 23492 2021-01-09 05:21:09Z Beta-User $
+# $Id: mqtt2.template 23894 2021-03-06 07:37:25Z Beta-User $
 #
 # Comments start with #. Empty lines are ignored.
 # Syntax of one entry: name: line, one optional filter: line, zero or more par: lines,  FHEM-Commands
@@ -39,14 +39,15 @@ attr DEVICE bridgeRegexp \
   go-eCharger/([^/]+)/.*:.* "go_eCharger_$1"\
   owntracks/[^/]+/([^/:]+).* "owntracks_$1"\
   home/(O[^/]*M[^/]*G[^/]*)/LWT:.* "$1"\
-  homeassistant/.*/config:.* ""
+  homeassistant/.*/config:.* ""\
+  instar/([^/]+)/.*:.* "instar_$1"
 attr DEVICE setList clear_all:noArg {fhem("deleteattr $NAME readingList; deletereading -q $NAME (?!associatedWith).*");return undef}
 attr DEVICE autocreate 1
 attr DEVICE comment Do not use very open bridgeRegexp expressions! This might lead to irritating results... Especially make sure to not have two regexpes that may both match!
 attr DEVICE setStateList on off
 farewell:template has been applied successfully. Be carefull when extending the brigeRegexp!
 attr DEVICE model MQTT2_CLIENT_general_bridge
-setreading DEVICE attrTemplateVersion 20201208
+setreading DEVICE attrTemplateVersion 20210305
 
 ###############
 #MQTT2 IO ignoreRegexp
@@ -103,6 +104,18 @@ deleteattr TYPE=MQTT2_\DEVICE:FILTER=model=MQTT2_CLIENT_general_bridge readingLi
 #par:NEWIGNOREREGEXP;NEWIGNOREREGEXP as set if regex part is included, otherwise it will be added;{ my $old = AttrVal('IODEVNAME','ignoreRegexp','ADD_TO_IO_IGNOREREGEXP'); 'ADD_TO_IO_IGNOREREGEXP' =~ m/$old/ ? $old : $old.'|ADD_TO_IO_IGNOREREGEXP' }
 #option:{return 1 if 'NEWIGNOREREGEXP' ne AttrVal('IODEVNAME','ignoreRegexp','not_set');;return 0}
 #attr IODEVNAME ignoreRegexp NEWIGNOREREGEXP
+
+###########################################
+# mosquitto state, see https://forum.fhem.de/index.php/topic,117988.msg1124272.html#msg1124272
+name:MQTT2_mosquitto_SYS
+prereq:{my @devices=devspec2array("TYPE=MQTT2_CLIENT");;return 1 if $devices[0];;return 0}
+filter:TYPE=MQTT2_DEVICE
+desc:Shows health info about mosquitto. Needs additional subscriptions on MQTT2_CLIENT side, see https://forum.fhem.de/index.php/topic,117988.msg1124272.html#msg1124272 for details.
+order:000002
+attr DEVICE readingList\
+  .*SYS/broker/.+:.* { $TOPIC=~m,SYS/broker/(.*),;; my %h;; $h{$1}=$EVENT;; \%h }
+attr DEVICE model MQTT2_mosquitto_SYS
+setreading DEVICE attrTemplateVersion 20210121
 
 
 ###########################################
@@ -519,6 +532,32 @@ set DEVICE,DEVICE_CH2,DEVICE_CH3 attrTemplate speechcontrol_type_switch
 attr DEVICE,DEVICE_CH2,DEVICE_CH3 model zigbee2mqtt_3channel_split
 setreading DEVICE,DEVICE_CH2,DEVICE_CH3 attrTemplateVersion 20201213
 
+# A blind drive motor TS0601_cover connected via zigbee2mqtt
+#contributed by barneybaer, https://forum.fhem.de/index.php/topic,94495.msg1134215.html#msg1134215
+name:zigbee2mqtt_blind_drive
+desc: A blind drive motor connected via zigbee2mqtt <br>Tested with: Tuya AM43 TS0601_cover
+filter:TYPE=MQTT2_DEVICE:FILTER=CID~zigbee.*
+order:L_05f
+par:BASE_TOPIC;base topic set in configuration.yaml of the zigbee2mqtt bridge;{ AttrVal("DEVICE","devicetopic",AttrVal("DEVICE","readingList","")) =~ m,[\b]?([^/:]+)[/].+, ? $1 : undef }
+par:DEV_ID;name of the device in the zigbee2mqtt bridge;{ AttrVal("DEVICE","devicetopic",AttrVal("DEVICE","readingList","")) =~ m,[^/]+[/]([^/:]+).*, ? $1 : undef }
+par:ICON;ICON as set, defaults to fts_shutter_100;{ AttrVal("DEVICE","icon","fts_shutter_100") }
+attr DEVICE icon ICON
+attr DEVICE devStateIcon 0:fts_shutter_100 100:fts_shutter_10 9\d.*:fts_shutter_10 8\d.*:fts_shutter_20 7\d.*:fts_shutter_30 6\d.*:fts_shutter_40 5\d.*:fts_shutter_50 4\d.*:fts_shutter_60 3\d.*:fts_shutter_70 2\d.*:fts_shutter_80 1\d.*:fts_shutter_90 0\d.*:fts_shutter_100
+attr DEVICE webCmd open:close:pct:speed
+attr DEVICE devicetopic BASE_TOPIC/DEV_ID
+attr DEVICE jsonMap position:pct motor_speed:speed
+attr DEVICE readingList $\DEVICETOPIC:.* { json2nameValue($EVENT,'',$JSONMAP) }
+attr DEVICE setList \
+  open:noArg $\DEVICETOPIC/set {"state":"OPEN"}\
+  close:noArg $\DEVICETOPIC/set {"state":"CLOSE"}\
+  pct:slider,0,1,100 $\DEVICETOPIC/set {"position":"$EVTPART1"}\
+  speed:colorpicker,BRI,0,1,255 $\DEVICETOPIC/set {"options": {"motor_speed":"$EVTPART1"}}
+attr DEVICE stateFormat pct
+set DEVICE attrTemplate speechcontrol_type_blind
+attr DEVICE model zigbee2mqtt_blind_drive
+setreading DEVICE attrTemplateVersion 20210222
+
+
 name:zigbee2mqtt_ContactSensor
 desc: Contact sensor via zigbee2mqtt <br>Tested with: Xiaomi models Aqara and Mijia
 filter:TYPE=MQTT2_DEVICE:FILTER=CID~zigbee.*
@@ -526,15 +565,14 @@ order:L_06
 par:BASE_TOPIC;base topic set in configuration.yaml of the zigbee2mqtt bridge;{ AttrVal("DEVICE","devicetopic",AttrVal("DEVICE","readingList","")) =~ m,[\b]?([^/:]+)[/].+, ? $1 : undef }
 par:DEV_ID;name of the device in the zigbee2mqtt bridge;{ AttrVal("DEVICE","devicetopic",AttrVal("DEVICE","readingList","")) =~ m,[^/]+[/]([^/:]+).*, ? $1 : undef }
 attr DEVICE devStateIcon open:fts_window_1w_open@red close:fts_window_1w@green
-#attr DEVICE genericDeviceType contact
 attr DEVICE eventMap true:close false:open
 attr DEVICE devicetopic BASE_TOPIC/DEV_ID
 attr DEVICE readingList $\DEVICETOPIC:.* { json2nameValue($EVENT,'',$JSONMAP) }
 attr DEVICE jsonMap contact:state
 deletereading -q DEVICE (?!associatedWith).*
-set DEVICE attrTemplate speechcontrol_gdt_and_mapping GENERICDEVTYPE=contact HOMEBRIDGEMAPPING="ContactSensorState=state,values=closed:CONTACT_DETECTED;;open:CONTACT_NOT_DETECTED"
+set DEVICE attrTemplate speechcontrol_gdt_and_mapping GENERICDEVTYPE=ContactSensor HOMEBRIDGEMAPPING=ContactSensorState=state,values=true:CONTACT_DETECTED;false:CONTACT_NOT_DETECTED
 attr DEVICE model zigbee2mqtt_ContactSensor
-setreading DEVICE attrTemplateVersion 20200904
+setreading DEVICE attrTemplateVersion 20210301
 
 name:zigbee2mqtt_TempHumHpaSensor
 desc: Temp/hum/hpa sensor via zigbee2mqtt <br>Tested with: Xiaomi Aqara WSDCGQ11LM Temperature Humidity Sensor
@@ -740,10 +778,12 @@ par:BASE_TOPIC;base topic set in configuration.yaml of the zigbee2mqtt bridge;{ 
 par:DEV_ID;name of the device in the zigbee2mqtt bridge;{ AttrVal("DEVICE","devicetopic",AttrVal("DEVICE","readingList","")) =~ m,[^/]+[/]([^/:]+).*, ? $1 : undef }
 attr DEVICE stateFormat Action: action
 attr DEVICE devicetopic BASE_TOPIC/DEV_ID
-attr DEVICE readingList $\DEVICETOPIC:.* { json2nameValue($EVENT) }
+attr DEVICE readingList $\DEVICETOPIC:.* { json2nameValue($EVENT,'',$JSONMAP) }
+attr DEVICE jsonMap battery:batteryPercent voltage:batterymV
+attr DEVICE userReadings batteryVoltage:batterymV.* {ReadingsNum($name,'batterymV',0)/1000}
 deletereading -q DEVICE (?!associatedWith).*
 attr DEVICE model zigbee2mqtt_aqara_cube
-setreading DEVICE attrTemplateVersion 20200904
+setreading DEVICE attrTemplateVersion 20210226
 
 #source post: https://forum.fhem.de/index.php/topic,94494.msg983905.html#msg983905
 name:zigbee2mqtt_AlarmSensor
@@ -802,18 +842,18 @@ attr DEVICE setList \
   window_open:true,false $\DEVICETOPIC/set {"eurotronic_host_flags": {"window_open": $EVTPART1 }}\
   boost:true,false $\DEVICETOPIC/set {"eurotronic_host_flags": {"boost": $EVTPART1 }}\
   x_mirror_display:true,false $\DEVICETOPIC/set {"eurotronic_host_flags": {"mirror_display": $EVTPART1 }}
-attr DEVICE stateFormat Measured: measured-temp Battery: battery %
+attr DEVICE stateFormat Measured: temperature Battery: battery %
 attr DEVICE webCmd desired-temp
 attr DEVICE widgetOverride desired-temp:knob,min:5,max:30,angleArc:180,width:40,height:40,fgColor:#FF9900,bgColor:#CCCCCC,step:0.5,lineCap:round,angleOffset:225
-attr DEVICE jsonMap occupied_heating_setpoint:daytemp unoccupied_heating_setpoint:nighttemp child_protection:btnLock current_heating_setpoint:desired-temp local_temperature:measured-temp
+attr DEVICE jsonMap occupied_heating_setpoint:daytemp unoccupied_heating_setpoint:nighttemp child_protection:btnLock current_heating_setpoint:desired-temp local_temperature:temperature
 attr DEVICE setStateList on off
 attr DEVICE model zigbee2mqtt_eurotronic_spirit
 set DEVICE attrTemplate speechcontrol_type_thermostat
 deletereading -q DEVICE (?!associatedWith).*
-setreading DEVICE attrTemplateVersion 20201218
+setreading DEVICE attrTemplateVersion 20210211
 
 name:zigbee2mqtt_thermostat_with_weekrofile
-desc: stub of a version for <a href="https://zigbee.blakadder.com/Moes_HY368-ZB.html">Model HY368-ZB manufactured by Moes</a> via zigbee2mqtt <br>Not yet tested... <br>To contribute, participate in <a href="https://forum.fhem.de/index.php/topic,116535.0.html">Forum Thread</a>
+desc: Developed for <a href="https://zigbee.blakadder.com/Moes_HY368-ZB.html">Model HY368-ZB manufactured by Moes</a> via zigbee2mqtt <br>Might not completely work for all firmware versions and also some commands seem not yet to be fully integrated on the zigbee2mqtt side... <br>To contribute, participate in <a href="https://forum.fhem.de/index.php/topic,116535.0.html">Forum Thread</a>
 filter:TYPE=MQTT2_DEVICE:FILTER=CID~zigbee.*
 order:L_17a
 par:BASE_TOPIC;base topic set in configuration.yaml of the zigbee2mqtt bridge;{ AttrVal("DEVICE","devicetopic",AttrVal("DEVICE","readingList","")) =~ m,[\b]?([^/:]+)[/].+, ? $1 : undef }
@@ -831,28 +871,29 @@ attr DEVICE readingList $\DEVICETOPIC:.* { my %h; my $temp = $EVENT; $temp =~ s/
 attr DEVICE setList \
   desired-temp:slider,5.0,0.5,30.0,1 $\DEVICETOPIC/set {"current_heating_setpoint": $EVTPART1 }\
   btnLock:LOCK,UNLOCK $\DEVICETOPIC/set {"child_lock": "$EVTPART1"}\
-  boost:noArg $\DEVICETOPIC/set {"preset": "boost"}\
-  mode:schedule,manual,boost,complex,comfort,eco $\DEVICETOPIC/set {"preset": "$EVTPART1"}\
+  preset:schedule,manual,boost,complex,comfort,eco $\DEVICETOPIC/set {"preset": "$EVTPART1"}\
+  mode:heat,auto,off $DEVICETOPIC/set {"system_mode": "$EVTPART1"}\
   holidays $\DEVICETOPIC/set/schedule { "holidays":[$EVTPART1] }\
   workdays $\DEVICETOPIC/set/schedule { "workdays":[$EVTPART1] }\
   week:5+2,6+1,7 $\DEVICETOPIC/set $EVTPART1\
   weekprofile { FHEM::attrT_z2m_thermostat_Utils::z2t_send_weekprofile($NAME, $EVTPART1, $EVTPART2) }\
   x_send_set_payload:textField { my $payload = $EVENT;$payload =~ s/$EVTPART0 //; qq($\DEVICETOPIC/set $payload)}
 attr DEVICE getList desired-temp:noArg desired-temp $\DEVICETOPIC/get {"current_heating_setpoint": ""}\
-  measured-temp:noArg measured-temp $\DEVICETOPIC/get {"local_temperature": ""}\
-  mode:noArg mode $\DEVICETOPIC/get {"preset": ""}
-attr DEVICE periodicCmd measured-temp:55
+  temperature:noArg temperature $\DEVICETOPIC/get {"local_temperature": ""}\
+  preset:noArg preset $\DEVICETOPIC/get {"preset": ""}
+attr DEVICE periodicCmd temperature:55
 attr DEVICE stateFormat btnLock\
-Measured: measured-temp Battery: batteryPercent %
+Measured: temperature Battery: batteryPercent %
 attr DEVICE devStateIcon LOCKED:secur_lock:btnLock+UNLOCK UNLOCKED:secur_open:btnLock+LOCK
 attr DEVICE webCmd desired-temp
 attr DEVICE widgetOverride desired-temp:knob,min:5,max:30,angleArc:180,width:40,height:40,fgColor:#FF9900,bgColor:#CCCCCC,step:0.5,lineCap:round,angleOffset:225
-attr DEVICE jsonMap current_heating_setpoint:desired-temp local_temperature:measured-temp Battery:batteryPercent preset:mode
+attr DEVICE jsonMap current_heating_setpoint:desired-temp local_temperature:temperature Battery:batteryPercent system_mode:mode
 attr DEVICE setStateList on off
+attr DEVICE userReadings batteryState:battery_low.* {ReadingsVal($name,'battery_low','false') eq 'false'?'ok':'low'}
 attr DEVICE model zigbee2mqtt_thermostat_with_weekrofile
 set DEVICE attrTemplate speechcontrol_type_thermostat
 deletereading -q DEVICE (?!associatedWith).*
-setreading DEVICE attrTemplateVersion 20201218
+setreading DEVICE attrTemplateVersion 20210211
 
 
 ###########################################
@@ -1186,7 +1227,7 @@ order:A_02
 par:CMNDTOPIC;Command topic prefix, without trailing /;{ AttrVal("DEVICE","readingList","") =~ m,([^:]*)\b(tele|cmnd|stat)(/.*)?/LWT:, ? "${1}cmnd$3" : undef }
 par:STATTOPIC;ack topic prefix, without trailing /;{ AttrVal("DEVICE","readingList","") =~ m,([^:]*)\b(tele|cmnd|stat)(/.*)?/LWT:, ? "${1}stat$3" : undef }
 par:CALLSPEECHRECOGN;Set this to 0 to not set any speech recogn. related attributes;{ 1 } 
-par:SETCHANNELINFO;Set this to 0 to not set any speech recogn. related attributes;{ 1 } 
+par:SETCHANNELINFO;Set this to 0 to not set channelinfo;{ 1 } 
 set DEVICE attrTemplate tasmota_basic_state_power1 \CALLSPEECHRECOGN=0
 copy DEVICE DEVICE_CH2
 deleteattr DEVICE_CH2 alias
@@ -1322,7 +1363,35 @@ attr DEVICE_CH2 readingList \
 attr DEVICE,DEVICE_CH2 model tasmota_4ch_two_shutters_invert_0
 setreading DEVICE,DEVICE_CH2 attrTemplateVersion 20201221
 set DEVICE,DEVICE_CH2 attrTemplate speechcontrol_type_blind
- 
+
+# based on a proposal by twdotnet, https://forum.fhem.de/index.php/topic,94495.msg1137400.html#msg1137400
+# shelly i3 3 channel input switches
+name:tasmota_3channel_split
+filter:TYPE=MQTT2_DEVICE:FILTER=readingList=.*(tele|cmnd|stat).*
+desc:shelly i3 3 channel device flashed with Tasmota. <br>NOTE: a second and third device will be created for the second and third channel
+order:A_03
+par:CMNDTOPIC;Command topic prefix, without trailing /;{ AttrVal("DEVICE","readingList","") =~ m,([^:]*)\b(tele|cmnd|stat)(/.*)?/LWT:, ? "${1}cmnd$3" : undef }
+par:STATTOPIC;ack topic prefix, without trailing /;{ AttrVal("DEVICE","readingList","") =~ m,([^:]*)\b(tele|cmnd|stat)(/.*)?/LWT:, ? "${1}stat$3" : undef }
+par:CALLSPEECHRECOGN;Set this to 0 to not set any speech recogn. related attributes;{ 1 }
+par:SETCHANNELINFO;Set this to 0 to not set channelinfo;{ 1 }
+set DEVICE attrTemplate tasmota_2channel_split \CALLSPEECHRECOGN=0 \SETCHANNELINFO=0
+#create device for CH3
+copy DEVICE_CH2 DEVICE_CH3
+attr DEVICE_CH3 setList \
+  off:noArg    CMNDTOPIC/POWER3 0\
+  on:noArg     CMNDTOPIC/POWER3 1\
+  toggle:noArg CMNDTOPIC/POWER3 2
+attr DEVICE_CH3 setStateList on off toggle
+attr DEVICE_CH3 readingList \
+  STATTOPIC/POWER3:.* state
+option:{SETCHANNELINFO}
+set DEVICE attrTemplate set_associatedWith \CHANNELS=3
+option:{ CALLSPEECHRECOGN }
+set DEVICE,DEVICE_CH2,DEVICE_CH3 attrTemplate speechcontrol_type_switch
+option:global
+attr DEVICE,DEVICE_CH2,DEVICE_CH3 model tasmota_3channel_split
+setreading DEVICE,DEVICE_CH2,DEVICE_CH3 attrTemplateVersion 20210305
+
 
 # sonoff 4 channel device flashed with Tasmota.
 # contributed by Blauhorn, https://forum.fhem.de/index.php/topic,94495.msg976113.html#msg976113
@@ -2143,15 +2212,15 @@ attr DEVICE jsonMap Device:0 Battery:0 BatteryPercentage:batteryPercent BatteryV
 deletereading -q DEVICE (?!associatedWith).*
 attr DEVICE setList desired-temp:slider,5.0,0.5,30.0,1 CMNDTOPIC/ZbSend {"device":"0xDEV_ID","Write":{"OccupiedHeatingSetpoint": $EVTPART1}}\
   temp-offset:slider,-10.0,0.5,10.0,1 CMNDTOPIC/ZbSend  {"device":"0xDEV_ID","Write":{"LocalTemperatureCalibration":$EVTPART1}}
-attr DEVICE stateFormat Measured: measured-temp Battery: batteryPercent %
+attr DEVICE stateFormat Measured: temperature Battery: batteryPercent %
 attr DEVICE webCmd desired-temp
 attr DEVICE widgetOverride desired-temp:knob,min:5,max:30,angleArc:180,width:40,height:40,fgColor:#FF9900,bgColor:#CCCCCC,step:0.5,lineCap:round,angleOffset:225
 attr DEVICE setStateList on off
-attr DEVICE jsonMap Battery:0 Device:0 BatteryPercentage:batteryPercent LocalTemperature:measured-temp OccupiedHeatingSetpoint:dayTemp UnoccupiedHeatingSetpoint:nightTemp CurrentTemperatureSetPoint:desired-temp PIHeatingDemand:valve
+attr DEVICE jsonMap Battery:0 Device:0 BatteryPercentage:batteryPercent LocalTemperature:temperature OccupiedHeatingSetpoint:dayTemp UnoccupiedHeatingSetpoint:nightTemp CurrentTemperatureSetPoint:desired-temp PIHeatingDemand:valve
 option:{ CALLSPEECHRECOGN }
 set DEVICE attrTemplate speechcontrol_type_thermostat
 option:global
-setreading DEVICE attrTemplateVersion 20201202
+setreading DEVICE attrTemplateVersion 20210211
 
 ###########################################
 # SHELLY
@@ -2272,7 +2341,7 @@ par:DEVNAME;Shelly1 name in the topic;{ AttrVal("DEVICE","readingList","") =~ m,
 par:RADIO_SETUSERREADING;Set userreading for total energy consumption;{ undef }
 par:RADIO_DONOTSETUSERREADING;Do not set userreading for total energy consumption;{ undef }
 par:NEWUSERREADINGS;NEWUSERREADINGS as set if emeter_0_energy_total is included, otherwise it will be added;{ my $tobeadded = 'emeter_0_energy_total:emeter_0_energy:.* monotonic {ReadingsNum("$name","emeter_0_energy",0)}, emeter_1_energy_total:emeter_1_energy:.* monotonic {ReadingsNum("$name","emeter_1_energy",0)}, emeter_2_energy_total:emeter_2_energy:.* monotonic {ReadingsNum("$name","emeter_2_energy",0)}'; my $old =  AttrVal("DEVICE","userReadings",undef); !defined $old ? $tobeadded : $old =~ m,emeter_0_energy_total:emeter_0_energy.*, ? $old : $old." $tobeadded"  }
-set DEVICE attrTemplate shelly1_w_energy_measuring \RADIO_SETUSERREADING=0 \RADIO_DONOTSETUSERREADING=0
+set DEVICE attrTemplate shelly1_w_energy_measuring \RADIO_SETUSERREADING=RADIO_SETUSERREADING \RADIO_DONOTSETUSERREADING=RADIO_DONOTSETUSERREADING
 attr DEVICE devStateIcon {my $onl = ReadingsVal($name,"online","false") eq "true"?"10px-kreis-gruen":"10px-kreis-rot"; my $light = ReadingsVal($name,"state","off"); my $cons1 = ReadingsVal($name,"emeter_0_power","unknown"); my $cons2 = ReadingsVal($name,"emeter_1_power","unknown"); my $cons3 = ReadingsVal($name,"emeter_2_power","unknown"); my $total1 = ReadingsVal($name,"emeter_0_kWh","unknown"); my $total2 = ReadingsVal($name,"emeter_1_kWh","unknown"); my $total3 = ReadingsVal($name,"emeter_2_kWh","unknown"); my $total_sum = $total1+$total2+$total3; "<a href=\"http://".ReadingsVal($name,"ip","none")." \"target=\"_blank\">".FW_makeImage($onl)."</a> <a href=\"/fhem?cmd.dummy=set $name toggle&XHR=1\">".FW_makeImage($light)."</a><div>P1: $cons1 W / Total P1: $total1 kWh<br>P2: $cons2 W / Total P2: $total2 kWh<br>P3: $cons3 W / Total P3: $total3 kWh<br>3 Phases total: $total_sum kWh</div>"}
 attr DEVICE stateFormat { my $light = ReadingsVal($name,"state","off"); my $cons1 = ReadingsVal($name,"emeter_0_power","unknown"); my $cons2 = ReadingsVal($name,"emeter_1_power","unknown"); my $cons3 = ReadingsVal($name,"emeter_2_power","unknown"); my $total1 = ReadingsVal($name,"emeter_0_kWh","unknown"); my $total2 = ReadingsVal($name,"emeter_1_kWh","unknown"); my $total3 = ReadingsVal($name,"emeter_2_kWh","unknown"); return qq(Relay: $light,<br>P1: $cons1 W / Total P1: $total1 kWh<br>P2: $cons2 W / Total P2: $total2 kWh<br>P3: $cons3 W / Total P3: $total3 kWh) }
 attr DEVICE readingList shellies/DEVNAME/online:.* online\
@@ -2312,7 +2381,7 @@ attr DEVICE readingList shellies/DEVNAME/online:.* online\
 deletereading -q DEVICE (?!associatedWith).*
 set DEVICE x_mqttcom announce
 attr DEVICE model shelly3em
-setreading DEVICE attrTemplateVersion 20200831
+setreading DEVICE attrTemplateVersion 20210126
 option:{ RADIO_SETUSERREADING }
 attr DEVICE userReadings NEWUSERREADINGS
 
@@ -2387,7 +2456,11 @@ attr DEVICE readingList \
   shellies/DEVNAME/roller/0/power:.* roller_0_power\
   shellies/DEVNAME/roller/0/energy:.* roller_0_energy\
   shellies/DEVNAME/temperature_f:.* temperature_f
-attr DEVICE devStateIcon { my $amp = ReadingsVal($name,"online","false") eq "false" ? "rot" : ReadingsVal($name,"new_fw","false") eq "true" ? "gelb" : "gruen"; my $con = ReadingsVal($name,"state","unknown"); $con = 100 - $con if $con =~ /\d+/; my $pic = $con eq "opening" ? 'fts_shutter_up@red' : $con eq "closing" ? 'fts_shutter_down@red' : $con eq "100" ? 'fts_shutter_100' : $con =~ /(\d)\d/ ? 'fts_shutter_'.$1.'0' : $con =~ /\b\d\b/ ? 'fts_shutter_10' : 'fts_shutter_updown'; my $show = "$amp" eq "gelb" ? "<a href=\"/fhem?cmd.dummy=set $name x_update&XHR=1\">".FW_makeImage("10px-kreis-".$amp)."</a>" : "<a href=\"http://".ReadingsVal($name,"ip","none")." \"target=\"_blank\">".FW_makeImage("10px-kreis-".$amp)."</a>"; "<div> $show <a href=\"/fhem?cmd.dummy=set $name toggle&XHR=1\"></a>".FW_makeImage($pic)." </div>"}
+attr DEVICE devStateIcon .*/open:fts_shutter_up@red .*/close:fts_shutter_down@red true:10px-kreis-gruen false:10px-kreis-rot 0/stop:fts_shutter_100 100/stop:fts_shutter_10 9\d/stop:fts_shutter_10 8\d/stop:fts_shutter_20 7\d/stop:fts_shutter_30 6\d/stop:fts_shutter_40 5\d/stop:fts_shutter_50 4\d/stop:fts_shutter_60 3\d/stop:fts_shutter_70 2\d/stop:fts_shutter_80 1\d/stop:fts_shutter_90 0\d/stop:fts_shutter_100 set_.*:fts_shutter_updown
+attr DEVICE stateFormat <a href="http://ip" target="_blank">\
+online\
+</a>\
+state/current
 attr DEVICE cmdIcon open:fts_shutter_up close:fts_shutter_down stop:fts_shutter_manual half:fts_shutter_50
 attr DEVICE webCmd :open:close:half:stop:pct
 deletereading -q DEVICE (?!associatedWith).*
@@ -2396,7 +2469,7 @@ attr DEVICE eventMap open:opens close:closes
 set DEVICE x_mqttcom announce
 set DEVICE attrTemplate speechcontrol_type_blind
 attr DEVICE model shelly25_roller_invert_0
-setreading DEVICE attrTemplateVersion 20201206
+setreading DEVICE attrTemplateVersion 20210126
 
 name:shelly25_roller_invert_1
 filter:TYPE=MQTT2_DEVICE:FILTER=readingList=.*shellies.*
@@ -2432,7 +2505,11 @@ attr DEVICE readingList \
   shellies/DEVNAME/roller/0/power:.* roller_0_power\
   shellies/DEVNAME/roller/0/energy:.* roller_0_energy\
   shellies/DEVNAME/temperature_f:.* temperature_f
-attr DEVICE devStateIcon { my $amp = ReadingsVal($name,"online","false") eq "false" ? "rot" : ReadingsVal($name,"new_fw","false") eq "true" ? "gelb" : "gruen"; my $con = ReadingsVal($name,"state","unknown"); my $pic = $con eq "opening" ? 'fts_shutter_up@red' : $con eq "closing" ? 'fts_shutter_down@red' : $con eq "100" ? 'fts_shutter_100' : $con =~ /(\d)\d/ ? 'fts_shutter_'.$1.'0' : $con =~ /\b\d\b/ ? 'fts_shutter_10' : 'fts_shutter_updown'; my $show = "$amp" eq "gelb" ? "<a href=\"/fhem?cmd.dummy=set $name x_update&XHR=1\">".FW_makeImage("10px-kreis-".$amp)."</a>" : "<a href=\"http://".ReadingsVal($name,"ip","none")." \"target=\"_blank\">".FW_makeImage("10px-kreis-".$amp)."</a>"; "<div> $show <a href=\"/fhem?cmd.dummy=set $name toggle&XHR=1\"></a>".FW_makeImage($pic)." </div>"}
+attr DEVICE devStateIcon .*/open:fts_shutter_up@red .*/close:fts_shutter_down@red true:10px-kreis-gruen false:10px-kreis-rot 0/stop:fts_shutter_100 100/stop:fts_shutter_10 9\d/stop:fts_shutter_10 8\d/stop:fts_shutter_20 7\d/stop:fts_shutter_30 6\d/stop:fts_shutter_40 5\d/stop:fts_shutter_50 4\d/stop:fts_shutter_60 3\d/stop:fts_shutter_70 2\d/stop:fts_shutter_80 1\d/stop:fts_shutter_90 0\d/stop:fts_shutter_100 set_.*:fts_shutter_updown
+attr DEVICE stateFormat <a href="http://ip" target="_blank">\
+online\
+</a>\
+state/current
 attr DEVICE cmdIcon open:fts_shutter_up close:fts_shutter_down stop:fts_shutter_manual half:fts_shutter_50
 attr DEVICE webCmd :open:close:half:stop:pct
 deletereading -q DEVICE (?!associatedWith).*
@@ -2441,7 +2518,7 @@ attr DEVICE eventMap open:opens close:closes
 set DEVICE x_mqttcom announce
 set DEVICE attrTemplate speechcontrol_type_blind
 attr DEVICE model shelly25_roller_invert_1
-setreading DEVICE attrTemplateVersion 20201206
+setreading DEVICE attrTemplateVersion 20210126
 
 # shelly2 using original firmware.
 # NOTE: a second device will be created for the second channel
@@ -2467,8 +2544,10 @@ filter:TYPE=MQTT2_DEVICE:FILTER=readingList=.*shellies.*
 desc:shelly2.5 using original firmware. <br>NOTE: a second device will be created for the second channel
 order:A_11a1
 par:DEVNAME;Shelly2 name in the topic;{ AttrVal("DEVICE","readingList","") =~ m,shellies/([^/]*)/, ? $1 : undef }
+par:RADIO_SETUSERREADING;Set userreading for total energy consumption;{ undef }
+par:RADIO_DONOTSETUSERREADING;Do not set userreading for total energy consumption;{ undef }
 par:CALLSPEECHRECOGN;Set this to 0 to not set any speech recogn. related attributes;{ 1 }
-set DEVICE attrTemplate shelly1_w_energy_measuring \CALLSPEECHRECOGN=0
+set DEVICE attrTemplate shelly1_w_energy_measuring \CALLSPEECHRECOGN=0 \RADIO_SETUSERREADING=RADIO_SETUSERREADING \RADIO_DONOTSETUSERREADING=RADIO_DONOTSETUSERREADING
 set DEVICE attrTemplate set_associatedWith \CHANNELS=2 \MAKECOPIES=1
 attr DEVICE_CH2 readingList shellies/DEVNAME/relay/1:.* state\
   shellies/DEVNAME/relay/1:.* relay1\
@@ -2490,7 +2569,7 @@ attr DEVICE_CH2 setList \
   on:noArg shellies/DEVNAME/relay/1/command on
 attr DEVICE_CH2 devStateIcon {my $onl = ReadingsVal($name,"online","false") eq "false"?"10px-kreis-rot" : ReadingsVal($name,"new_fw","false") eq "true" ? "10px-kreis-gelb" : "10px-kreis-gruen"; my $light = ReadingsVal($name,"state","off"); my $cons = ReadingsVal($name,"relay_1_power","unknown"); my $temp = ReadingsVal($name,"temperature","-100");"<div><a href=\"http://".ReadingsVal($name,"ip","none")." \"target=\"_blank\">".FW_makeImage($onl)."</a> <a href=\"/fhem?cmd.dummy=set $name toggle&XHR=1\">".FW_makeImage($light)."</a> Aktuell: $cons W / Temp.: $temp °C<b></b>"}
 attr DEVICE,DEVICE_CH2 model shelly25_split
-setreading DEVICE,DEVICE_CH2 attrTemplateVersion 20200831
+setreading DEVICE,DEVICE_CH2 attrTemplateVersion 20210126
 option:{ CALLSPEECHRECOGN }  
 set DEVICE,DEVICE_CH2 attrTemplate speechcontrol_type_switch
 
@@ -2644,12 +2723,32 @@ set DEVICE attrTemplate speechcontrol_type_light
 attr DEVICE model shellyduo
 setreading DEVICE attrTemplateVersion 20200831
 
+#contributed by MrTom, https://forum.fhem.de/index.php/topic,94060.msg1135513.html#msg1135513
+name:shellymotion
+filter:TYPE=MQTT2_DEVICE:FILTER=readingList=.*shellies.*
+desc:shellymotion using original firmware.
+order:A_16
+par:DEVNAME;name of this shelly;{ AttrVal("DEVICE","readingList","") =~ m,shellies/([^/]+)/, ? $1 : undef }
+par:ICON;ICON as set, defaults to motion_detector;{ AttrVal("DEVICE","icon","motion_detector") }
+attr DEVICE icon ICON
+attr DEVICE devStateIcon {my $onl = ReadingsVal($name,"online","false") eq "true"?"10px-kreis-gruen":"10px-kreis-rot"; \
+my $moti = ReadingsVal($name,"motion","false") eq "true"?"people_sensor ":"message_presence"; \
+"<a href=\"http://".ReadingsVal($name,"ip","none")." \"target=\"_blank\">".FW_makeImage($onl)."</a> <a href=\"/fhem?cmd.dummy=set $name toggle&XHR=1\">".FW_makeImage($moti)."</a>"}
+attr DEVICE readingList shellies/DEVNAME/online:.* online\
+  shellies/DEVNAME/sensor/status:.* { json2nameValue($EVENT) }\
+  shellies/DEVNAME/announce:.* { json2nameValue($EVENT) }\
+  shellies/announce:.* { $EVENT =~ m,..id...DEVNAME...mac.*, ? json2nameValue($EVENT) : return }
+attr DEVICE setList x_update:noArg shellies/DEVNAME/command update_fw\
+  x_mqttcom shellies/DEVNAME/command $EVTPART1
+attr DEVICE model shellymotion
+setreading DEVICE attrTemplateVersion 20210226
+
 
 # shellyht using original firmware
 name:shellyht
 filter:TYPE=MQTT2_DEVICE:FILTER=readingList=.*shellies.*
 desc:shellyht using original firmware <br>Just adds stateFormat and icon
-order:A_16
+order:A_161
 par:DEVNAME;name of this shelly;{ AttrVal("DEVICE","readingList","") =~ m,shellies/([^/]+)/, ? $1 : undef }
 par:ICON;ICON as set, defaults to temperature_humidity;{ AttrVal("DEVICE","icon","temperature_humidity") }
 attr DEVICE icon ICON
@@ -2672,16 +2771,21 @@ attr DEVICE icon ICON
 attr DEVICE setList \
   x_update:noArg shellies/DEVNAME/command update_fw\
   x_mqttcom shellies/DEVNAME/command $EVTPART1
-attr DEVICE readingList \
-  shellies/DEVNAME/online:.* online\
-  shellies/DEVNAME/sensor/temperature:.* temperature\
-  shellies/DEVNAME/sensor/flood:.* flood\
-  shellies/DEVNAME/sensor/battery:.* batteryPercent
+attr DEVICE  readingList shellies/DEVICE/online:.* online\
+  shellies/DEVICE/announce:.* { json2nameValue($EVENT,'',$JSONMAP) }\
+  shellies/DEVICE/sensor/temperature:.* temperature\
+  shellies/DEVICE/sensor/flood:.* flood\
+  shellies/DEVICE/sensor/battery:.* batteryPercent\
+  shellies/DEVICE/sensor/error:.* error\
+  shellies/DEVICE/sensor/act_reasons:.* { json2nameValue($EVENT,'',$JSONMAP) }
+attr DEVICE jsonMap 1:report
 attr DEVICE stateFormat flood (bat batteryPercent%)
 deletereading -q DEVICE (?!associatedWith).*
 set DEVICE x_mqttcom announce
 attr DEVICE model shellyflood
-setreading DEVICE attrTemplateVersion 20200522 or prior
+setreading DEVICE attrTemplateVersion 202010228
+
+
 
 # shellygas using original firmware
 name:shellygas
@@ -4247,14 +4351,14 @@ farewell:template has been applied successfully. <br>Note: webCmd and eventMap a
 attr DEVICE model wled_controller
 setreading DEVICE attrTemplateVersion 20200522 or prior
 
+
 ###########################################
-# sonos2mqtt
 # The sonos2mqtt bridge device (entire hex id of devices as bridgeRegexp)
 name:sonos2mqtt_bridge
-desc:The sonos2mqtt bridge device
+desc:The sonos2mqtt bridge device, Forum #111711 and Wiki 
 filter:TYPE=MQTT2_DEVICE
 order:M_05
-par:BASE_TOPIC;base topic set in configuration.yaml of the sonos2mqtt bridge;{ AttrVal("DEVICE","devicetopic",AttrVal("DEVICE","readingList","")) =~ m,[\b]?([^/:]+)[/].+, ? $1 : undef }
+par:BASE_TOPIC;base topic set in configuration.yaml of the sonos2mqtt bridge;{ AttrVal("DEVICE","devicetopic",'sonos') }
 par:ICON;ICON as set, defaults to mqtt_bridge_2;{ AttrVal("DEVICE","icon","mqtt_bridge_2") }
 attr DEVICE icon ICON
 attr DEVICE bridgeRegexp\
@@ -4267,73 +4371,53 @@ attr DEVICE readingList\
 attr DEVICE model sonos2mqtt_bridge
 attr DEVICE devStateIcon 0:10px-kreis-rot 1:10px-kreis-gelb 2:10px-kreis-gruen
 attr DEVICE stateFormat connected
-setreading DEVICE attrTemplateVersion 20200729
+attr DEVICE devicetopic BASE_TOPIC
+setreading DEVICE attrTemplateVersion 20210301
 
 name:sonos2mqtt_bridge_comfort
-desc:The sonos2mqtt bridge including automated setup for speaker devices (adds 2 notify devices)
+desc:The sonos2mqtt bridge adds 1 notify device for setup speakers, Forum #111711 and Wiki 
 filter:TYPE=MQTT2_DEVICE
 order:M_05c
+{ Svn_GetFile("contrib/AttrTemplate/99_sonos2mqttUtils.pm", "FHEM/99_sonos2mqttUtils.pm", sub(){ CommandReload(undef, "99_sonos2mqttUtils") }) }
 set DEVICE attrTemplate sonos2mqtt_bridge
-attr DEVICE setList PauseAll:noArg sonos/cmd/pauseall\
-CheckSubscription:noArg sonos/cmd/check-subscriptions
-defmod n_configSonos1 notify global:DEFINED.MQTT2_RINCON_[A-Z0-9]+ sleep 1;\
-  set $EVTPART1 attrTemplate sonos2mqtt_speaker;\
-  set $EVTPART1 x_raw_payload {"command": "adv-command","input": {"cmd":"GetZoneInfo","reply":"ZoneInfo"}}
-defmod n_configSonos2 notify MQTT2_RINCON_[A-Z0-9]+:IPAddress:.* {\
-  my @tv = ("S14","S11","S9");\
-  my @line = ("S5","Z90","ZP120");\
-  my $url="http://$EVTPART1:1400";\
-  my $xmltext = GetFileFromURL("$url/xml/device_description.xml");\
-  my ($mn)=$xmltext =~ /<modelNumber>([SZ]P?[0-9]{1,3})/;\
-  my ($img)=$xmltext =~ /<url>(.*)<\/url>/;\
-  my $icon="Sonos2mqtt_icon-$mn";\
-  my $setList=AttrVal($NAME,'setList','');\
-  fhem("setreading $NAME modelNumber $mn");\
-  fhem("\"wget -qO ./www/images/default/$icon.png $url$img\"");\
-  fhem("attr $NAME icon $icon;sleep 4 WI;set WEB rereadicons");\
-  if (grep(/$mn/, @tv)) {$setList=~s/input:Queue \{/input:Queue,TV \{/};\
-  if (grep(/$mn/, @line)) {$setList=~s/input:Queue \{/input:Queue,Line_In \{/};\
-  $setList=~s/;/;;/g;\
-  fhem("attr $NAME setList $setList")\
-}
-setreading DEVICE attrTemplateVersion 20201103
+attr DEVICE getList Favorites:noArg Favorites {sonos2mqtt($NAME,$EVENT)}
+attr DEVICE setList PauseAll:noArg $\DEVICETOPIC/cmd/pauseall\
+CheckSubscription:noArg $\DEVICETOPIC/cmd/check-subscriptions
+attr SonosBridge userReadings favlist:Favorites.* {sonos2mqtt_ur($name,'favlist')},\
+grouplist:Favorites.* {sonos2mqtt_ur($name,'grouplist')}
+{sonos2mqtt_setup('a:model=sonos2mqtt_bridge')}
+defmod n_configSonos notify global:DEFINED.MQTT2_RINCON_[A-Z0-9]+|MQTT2_RINCON_[A-Z0-9]+:IPAddress:.* {sonos2mqtt_nty($NAME,$EVENT)}
+setreading DEVICE attrTemplateVersion 20210303
 
-  
 name:sonos2mqtt_speaker
-desc:A basic sonos2mqtt speaker device
+desc:A basic sonos2mqtt speaker device, Forum #111711 and Wiki 
 filter:TYPE=MQTT2_DEVICE
 order:M_05b
-par:BASE_TOPIC;base topic set in configuration.yaml of the sonos2mqtt bridge;{ AttrVal("DEVICE","devicetopic",AttrVal("DEVICE","readingList","")) =~ m,[\b]?([^\/:]+)[\/].+, ? $1 : undef }
+par:BASE_TOPIC;base topic set in configuration.yaml of the sonos2mqtt bridge;{ AttrVal("DEVICE","devicetopic",'sonos') }
 par:DEV_ID;techname of the device ;{ AttrVal("DEVICE","readingList","") =~ m,[^\/]+[\/](RINCON_[0-9A-Z]+):.*, ? $1 : undef }
 par:ALIAS;friendly name as set in sonos gadget itself;{ ReadingsVal("DEVICE","name","unknown") }
 par:DEVNAME;friendly name, used for topic in lowercase;{ lc(ReadingsVal("DEVICE","name","unknown")) }
 par:ICON;ICON as set, defaults to audio_volume_low;{ AttrVal("DEVICE","icon","audio_volume_low") }
 attr DEVICE icon ICON
-attr DEVICE jsonMap volume_Master:volume mute_Master:mute transportState:state
+attr DEVICE jsonMap volume_Master:volume mute_Master:mute
+attr DEVICE stateFormat transportState
 attr DEVICE readingList\
-  BASE_TOPIC/DEV_ID:.* { json2nameValue($EVENT,'',$JSONMAP) }
+  $\DEVICETOPIC/DEV_ID:.* { json2nameValue($EVENT,'',$JSONMAP) }\
+  $\DEVICETOPIC/DEV_ID/ZoneInfo:.* { json2nameValue($EVENT) }
 attr DEVICE setList\
-  stop:noArg BASE_TOPIC/DEV_ID/control { "command": "stop" }\
-  play:noArg BASE_TOPIC/DEV_ID/control { "command": "play" }\
-  pause:noArg BASE_TOPIC/DEV_ID/control { "command": "pause" }\
-  toggle:noArg BASE_TOPIC/DEV_ID/control { "command": "toggle" }\
-  volumeUp:noArg BASE_TOPIC/DEV_ID/control { "command": "volumeup" }\
-  volumeDown:noArg BASE_TOPIC/DEV_ID/control { "command": "volumedown" }\
-  volume:slider,0,1,100 BASE_TOPIC/DEV_ID/control { "command": "volume", "input": $EVTPART1 }\
-  mute:true,false { my $value = $EVTPART1 eq "true" ? "mute" : "unmute"; qq(BASE_TOPIC/DEV_ID/control { "command": "$value" } ) }\
-  next:noArg BASE_TOPIC/DEV_ID/control { "command": "next" }\
-  previous:noArg BASE_TOPIC/DEV_ID/control { "command": "previous" }\
-  joinGroup:textField BASE_TOPIC/DEV_ID/control { "command": "joingroup",  "input": "$EVTPART1"}\
-  leaveGroup:noArg { my $value = ReadingsVal("DEV_ID","groupName","all"); qq(BASE_TOPIC/DEV_ID/control { "command": "leavegroup",  "input": "$value" } ) }\
-  setAVTUri:textField BASE_TOPIC/DEV_ID/control { "command": "setavtransporturi",  "input": "$EVTPART1"}\
-  playUri:textField {fhem("set $NAME setAVTUri $EVTPART1; sleep 1; set $NAME play")}\
-  input:Queue { my $value = $EVTPART1 eq "TV" ? "tv" : $EVTPART1 eq "Line_In" ? "line" : "queue"; qq(BASE_TOPIC/DEV_ID/control { "command": "switchto$value" } ) }\
-  notify:textField BASE_TOPIC/DEV_ID/control { "command":"notify","input":{"trackUri":"$EVTPART2","onlyWhenPlaying":false,"timeout":10,"volume":$EVTPART1,"delayMs":700}}\
   x_raw_payload:textField { my $payload = $EVENT;$payload =~ s/$EVTPART0 //g; qq(BASE_TOPIC/DEV_ID/control $payload)}
 attr DEVICE devStateIcon (STOPPED|PAUSED_PLAYBACK):rc_PLAY:toggle PLAYING:rc_PAUSE:pause .*:refresh:play
 attr DEVICE alias ALIAS
 attr DEVICE model sonos2mqtt_speaker
-setreading DEVICE attrTemplateVersion 20200729
+attr DEVICE devicetopic BASE_TOPIC
+attr DEVICE userReadings Master:groupName.* {(split(' +',ReadingsVal($name,'groupName','')))[0]},\
+isMaster:coordinatorUuid.* {ReadingsVal($name,'coordinatorUuid','') eq ReadingsVal($name,'uuid','')?1:0},\
+inGroup:groupName.* {ReadingsVal($name,'groupName','') =~ / \+ /?1:0},\
+inCouple:coordinatorUuid.* {(ReadingsVal($name,'coordinatorUuid','') ne ReadingsVal($name,'uuid','') and (index(ReadingsVal($name,'groupName',''), ReadingsVal($name,'name','')) != -1))?1:0},\
+Input:currentTrack_TrackUri.* {sonos2mqtt_ur($name,'Input')}
+set DEVICE x_raw_payload {"command": "adv-command","input": {"cmd":"GetZoneInfo","reply":"ZoneInfo"}}
+setreading DEVICE attrTemplateVersion 20210303
+
 
 
 ###########################################

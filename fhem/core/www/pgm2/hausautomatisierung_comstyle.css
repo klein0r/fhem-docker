@@ -61,8 +61,7 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; back
 #content .motd a { color: #1d3d5f; }
 #content .get, #content .set, #content .attr { float: left; }
 #content > pre { background: white; color: #676f7a; padding: 5px; }
-#content pre { font-family: 'Source Code Pro', monospace !important; white-space: pre-wrap; }
-#content pre.CodeMirror-line { white-space: pre; }
+#content pre { font-family: 'Source Code Pro', monospace !important; }
 #content pre.log { background: #000; padding: 10px; }
 #content > pre { background: #fff; padding: 10px; }
 #content div.col1 { line-height: 29px; }
@@ -197,6 +196,9 @@ textarea#console { white-space: normal; margin-top: 10px; margin-bottom: 10px; b
 #dashboard .dashboard_column { float: left; }
 #dashboard .dashboard_columncenter { height: inherit; }
 #dashboard .dashboard_row { height: inherit; padding: 0; width: 100%; }
+#dashboard .dashboard_row .dashboard_content td { width: 100%; }
+#dashboard .dashboard_row .dashboard_content td.first-table-column { width: auto; }
+#dashboard .dashboard_row .dashboard_content .col1 a { white-space: nowrap; }
 #dashboard .dashboard_tabcontent { margin: 0; padding: 0; width: 100%; }
 #dashboard .dashboard_tabnav { background: #fff !important; border-radius: 0; }
 #dashboard .dashboard_widget { border-radius: 8px; float: left; }

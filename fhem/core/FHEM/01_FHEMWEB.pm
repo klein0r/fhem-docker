@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 01_FHEMWEB.pm 23472 2021-01-04 19:56:38Z rudolfkoenig $
+# $Id: 01_FHEMWEB.pm 23907 2021-03-07 19:08:09Z rudolfkoenig $
 package main;
 
 use strict;
@@ -796,6 +796,18 @@ FW_serveSpecial($$$$)
 }
 
 sub
+FW_setStylesheet()
+{
+  $FW_sp = AttrVal($FW_wname, "stylesheetPrefix", "f18");
+  $FW_sp = "" if($FW_sp eq "default");
+  $FW_sp =~ s/^f11//; # Compatibility, #90983
+  $FW_ss = ($FW_sp =~ m/smallscreen/);
+  $FW_tp = ($FW_sp =~ m/smallscreen|touchpad/);
+  @FW_iconDirs = grep { $_ } split(":", AttrVal($FW_wname, "iconPath",
+                              "${FW_sp}:fhemSVG:openautomation:default"));
+}
+
+sub
 FW_answerCall($)
 {
   my ($arg) = @_;
@@ -805,12 +817,7 @@ FW_answerCall($)
   $FW_RETTYPE = "text/html; charset=$FW_encoding";
 
   $MW_dir = "$attr{global}{modpath}/FHEM";
-  $FW_sp = AttrVal($FW_wname, "stylesheetPrefix", "f18");
-  $FW_ss = ($FW_sp =~ m/smallscreen/);
-  $FW_tp = ($FW_sp =~ m/smallscreen|touchpad/);
-  my $spDir = ($FW_sp eq "default" ? "" : "$FW_sp:");
-  @FW_iconDirs = grep { $_ } split(":", AttrVal($FW_wname, "iconPath",
-                                "${spDir}fhemSVG:openautomation:default"));
+  FW_setStylesheet();
   @FW_fhemwebjs = ("fhemweb.js");
   push(@FW_fhemwebjs, "$FW_sp.js") if(-r "$FW_dir/pgm2/$FW_sp.js");
 
@@ -1191,21 +1198,22 @@ sub
 FW_dataAttr()
 {
   sub
-  addParam($$)
+  addParam($$$)
   {
-    my ($p, $default) = @_;
-    my $val = AttrVal($FW_wname,$p, $default);
+    my ($dev, $p, $default) = @_;
+    my $val = AttrVal($dev, $p, $default);
     $val =~ s/&/&amp;/g;
     $val =~ s/'/&#39;/g;
     return "data-$p='$val' ";
   }
 
   return
-    addParam("jsLog", 0).
-    addParam("confirmDelete", 1).
-    addParam("confirmJSError", 1).
-    addParam("addHtmlTitle", 1).
-    addParam("styleData", "").
+    addParam($FW_wname, "jsLog", 0).
+    addParam($FW_wname, "confirmDelete", 1).
+    addParam($FW_wname, "confirmJSError", 1).
+    addParam($FW_wname, "addHtmlTitle", 1).
+    addParam($FW_wname, "styleData", "").
+    addParam("global",  "language", "EN").
     "data-availableJs='$FW_fhemwebjs' ".
     "data-webName='$FW_wname '";
 }
@@ -1431,10 +1439,13 @@ FW_makeTable($$$@)
 sub
 FW_detailSelect(@)
 {
-  my ($d, $cmd, $list, $param) = @_;
+  my ($d, $cmd, $list, $param, $typeHash) = @_;
   return "" if(!$list || $FW_hiddenroom{input});
-  my %al = map { s/:.*//;$_ => 1 } split(" ", $list);
-  my @al = sort keys %al; # remove duplicate items in list
+  my @al = sort { 
+             my $ta = $typeHash && $typeHash->{$a} ? $typeHash->{$a}.$a : $a;
+             my $tb = $typeHash && $typeHash->{$b} ? $typeHash->{$b}.$b : $b;
+             $ta cmp $tb;
+           } map { s/:.*//; $_ } split(" ", $list);
 
   my $selEl = (defined($al[0]) ? $al[0] : " ");
   $selEl = $1 if($list =~ m/([^ ]*):slider,/); # promote a slider if available
@@ -1451,7 +1462,7 @@ FW_detailSelect(@)
   $ret .= FW_submit("cmd.$cmd$d", $cmd, $cmd.($psc?" psc":""));
   $ret .= "<div class=\"$cmd downText\">&nbsp;$d&nbsp;".
                 ($param ? "&nbsp;$param":"")."</div>";
-  $ret .= FW_select("sel_$cmd$d","arg.$cmd$d",\@al, $selEl, $cmd);
+  $ret .= FW_select("sel_$cmd$d","arg.$cmd$d",\@al,$selEl,$cmd,undef,$typeHash);
   $ret .= FW_textfield("val.$cmd$d", 30, $cmd);
   $ret .= "</form></div>";
   return $ret;
@@ -1535,7 +1546,8 @@ FW_doDetail($)
   FW_makeTable("Internals", $d, $h);
   FW_makeTable("Readings", $d, $h->{READINGS});
 
-  my $attrList = getAllAttr($d);
+  my %attrTypeHash;
+  my $attrList = getAllAttr($d, undef, \%attrTypeHash);
   my $roomList = "multiple,".join(",",
                 sort map { $_ =~ s/ /#/g ;$_} keys %FW_rooms);
   my $groupList = "multiple,".join(",",
@@ -1546,7 +1558,7 @@ FW_doDetail($)
   $attrList = FW_widgetOverride($d, $attrList);
   $attrList =~ s/\\/\\\\/g;
   $attrList =~ s/'/\\'/g;
-  FW_pO FW_detailSelect($d, "attr", $attrList);
+  FW_pO FW_detailSelect($d, "attr", $attrList, undef, \%attrTypeHash);
 
   FW_makeTable("Attributes", $d, $attr{$d}, "deleteattr");
   FW_makeTableFromArray("Probably associated with", "assoc", getPawList($d));
@@ -2212,7 +2224,8 @@ FW_returnFileAsStream($$$$$)
                   "Transfer-Encoding: chunked\r\n" .
                   "Content-Type: $type; charset=$FW_encoding\r\n\r\n");
 
-  my $d = Compress::Zlib::deflateInit(-WindowBits=>31) if($compr);
+  my $d;
+  $d = Compress::Zlib::deflateInit(-WindowBits=>31) if($compr);
   FW_outputChunk($FW_chash, $FW_RET, $d);
   FW_outputChunk($FW_chash, "<a name='top'></a>".
         "<a href='#end_of_file'>jump to the end</a><br><br>", $d)
@@ -2265,18 +2278,31 @@ FW_hidden($$)
 sub
 FW_select($$$$$@)
 {
-  my ($id, $name, $valueArray, $selected, $class, $jSelFn) = @_;
+  my ($id, $name, $valueArray, $selected, $class, $jSelFn, $typeHash) = @_;
   $jSelFn = ($jSelFn ? "onchange=\"$jSelFn\"" : "");
   $id =~ s/\./_/g if($id);      # to avoid problems in JS DOM Search
   $id = ($id ? "id=\"$id\" informId=\"$id\"" : "");
   my $s = "<select $jSelFn $id name=\"$name\" class=\"$class\">";
+  my $oldType="";
+  my %processed;
   foreach my $v (@{$valueArray}) {
+    next if($processed{$v});
+    if($typeHash) {
+      my $newType = $typeHash->{$v};
+      if($newType ne $oldType) {
+        $s .= "</optgroup>" if($oldType);
+        $s .= "<optgroup label='$newType'>" if($newType);
+      }
+      $oldType = $newType;
+    }
     if(defined($selected) && $v eq $selected) {
       $s .= "<option selected=\"selected\" value='$v'>$v</option>\n";
     } else {
       $s .= "<option value='$v'>$v</option>\n";
     }
+    $processed{$v} = 1;
   }
+  $s .= "</optgroup>" if($oldType);
   $s .= "</select>";
   return $s;
 }
@@ -2417,18 +2443,21 @@ FW_style($$)
     FW_pO $end;
 
   } elsif($a[1] eq "select") {
-    my @fl = grep { $_ !~ m/(floorplan|dashboard)/ }
-                        FW_fileList("$FW_cssdir/.*style.css");
+    my %smap= ( ""=>"f11", "touchpad"=>"f11touchpad",
+                "smallscreen"=>"f11smallscreen");
+    my @fl = map { $_ =~ s/style.css//; $smap{$_} ? $smap{$_} : $_ }
+             grep { $_ !~ m/(svg_|floorplan|dashboard)/ }
+             FW_fileList("$FW_cssdir/.*style.css");
     FW_addContent($start);
     FW_pO "<div class='fileList styles'>Styles</div>";
     FW_pO "<table class='block wide fileList'>";
+    my $sp = $FW_sp eq "default" ? "" : $FW_sp;;
+    $sp = $smap{$sp} if($smap{$sp});
     my $row = 0;
-    foreach my $file (@fl) {
-      next if($file =~ m/svg_/);
-      $file =~ s/style.css//;
-      $file = "default" if($file eq "");
+    foreach my $file (sort @fl) {
       FW_pO "<tr class=\"" . ($row?"odd":"even") . "\">";
-      FW_pH "cmd=style set $file", "$file", 1;
+      FW_pH "cmd=style set $file", "$file", 1,
+        "style$file ".($sp eq $file ? "changed":"");
       FW_pO "</tr>";
       $row = ($row+1)%2;
     }
@@ -2505,7 +2534,8 @@ FW_style($$)
       FW_addContent(">$filePath: $!</div");
       return;
     }
-    my $ret = FW_fC("rereadcfg") if($filePath eq $attr{global}{configfile});
+    my $ret;
+    $ret = FW_fC("rereadcfg") if($filePath eq $attr{global}{configfile});
     $ret = FW_fC("reload $fileName") if($fileName =~ m,\.pm$,);
     $ret = FW_Set("","","rereadicons") if($isImg);
     DoTrigger("global", "FILEWRITE $filePath", 1) if(!$ret); # Forum #32592
@@ -2672,7 +2702,8 @@ FW_makeImage(@)
       $data =~ s/ *$//g;
       $data =~ s/<svg/<svg class="$class" data-txt="$txt"/; #52967
       $name =~ m/(@.*)$/;
-      my $col = $1 if($1);
+      my $col;
+      $col = $1 if($1);
       if($col) {
         $col =~ s/@//;
         $col = "#$col" if($col =~ m/^([A-F0-9]{6})$/);
@@ -3097,13 +3128,7 @@ FW_Notify($$)
     $FW_wname = $ntfy->{SNAME};
     $FW_ME = "/" . AttrVal($FW_wname, "webname", "fhem");
     $FW_subdir = ($h->{iconPath} ? "/floorplan/$h->{iconPath}" : ""); # 47864
-    $FW_sp = AttrVal($FW_wname, "stylesheetPrefix", "f18");
-    $FW_sp = "" if($FW_sp eq "default");
-    $FW_ss = ($FW_sp =~ m/smallscreen/);
-    $FW_tp = ($FW_sp =~ m/smallscreen|touchpad/);
-    my $spDir = ($FW_sp eq "default" ? "" : "$FW_sp:");
-    @FW_iconDirs = grep { $_ } split(":", AttrVal($FW_wname, "iconPath",
-                                "${spDir}fhemSVG:openautomation:default"));
+    FW_setStylesheet();
     if($h->{iconPath}) {
       unshift @FW_iconDirs, $h->{iconPath};
       FW_readIcons($h->{iconPath});

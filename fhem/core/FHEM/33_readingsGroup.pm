@@ -1,4 +1,4 @@
-# $Id: 33_readingsGroup.pm 21151 2020-02-08 16:00:45Z justme1968 $
+# $Id: 33_readingsGroup.pm 23844 2021-02-27 19:43:24Z justme1968 $
 ##############################################################################
 #
 #     This file is part of fhem.
@@ -1227,11 +1227,10 @@ readingsGroup_Update($$$)
   } else {
     foreach my $ntfy (values(%defs)) {
       next if(!$ntfy->{TYPE} ||
-              $ntfy->{TYPE} ne "FHEMWEB" ||
+               $ntfy->{TYPE} ne "FHEMWEB" ||
               !$ntfy->{inform} ||
               !$ntfy->{inform}{devices}{$name} ||
               $ntfy->{inform}{type} ne "status");
-      next if( !$ntfy->{inform}{devices}{$name} );
       if(!FW_addToWritebuffer($ntfy,
           FW_longpollInfo($ntfy->{inform}{fmt}, "$name-$item", $value, $value ) ."\n" )) {
         my $name = $ntfy->{NAME};

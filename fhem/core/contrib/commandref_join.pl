@@ -10,7 +10,7 @@
 use strict;
 use warnings;
 
-# $Id: commandref_join.pl 20690 2019-12-08 17:10:14Z rudolfkoenig $
+# $Id: commandref_join.pl 23843 2021-02-27 19:42:42Z rudolfkoenig $
 
 my $noWarnings = grep $_ eq '-noWarnings', @ARGV;
 my ($verify) = grep $_ =~ /\.pm$/ , @ARGV;
@@ -187,6 +187,7 @@ generateModuleCommandref($$;$$)
         $docCount++;
         next if($noWarnings);
         $hasLink = ($l =~ m/<a name="$mod"/) if(!$hasLink);
+        $hasLink = ($l =~ m/<a id="$mod"/) if(!$hasLink);
         foreach $tag (TAGS) {
           if($l =~ m/<$tag ([^>]+)>/i) {
             my $attr = $1;

@@ -1,11 +1,12 @@
 ##############################################
-# $Id: 30_DUOFERN.pm 23133 2020-11-10 17:26:01Z Telekatz $
+# $Id: 30_DUOFERN.pm 23892 2021-03-05 18:24:36Z Telekatz $
 
 package main;
 
 use strict;
 use warnings;
 use SetExtensions;
+use DevIo;
 
 my %devices = (
     "40"    => {"name" => "RolloTron Standard"                },
@@ -567,7 +568,7 @@ my %setsHSA = (
                           
 my $duoStatusRequest      = "0DFFnn400000000000000000000000000000yyyyyy01";
 my $duoCommand            = "0Dccnnnnnnnnnnnnnnnnnnnn000000zzzzzzyyyyyy00";
-my $duoCommand2           = "0Dccnnnnnnnnnnnnnnnnnnnn000000000000yyyyyy01";
+my $duoCommand2           = "0Dccnnnnnnnnnnnnnnnnnnnn000000000000yyyyyy00";
 my $duoWeatherConfig      = "0D001B400000000000000000000000000000yyyyyy00";
 my $duoWeatherWriteConfig = "0DFF1Brrnnnnnnnnnnnnnnnnnnnn00000000yyyyyy00";
 my $duoSetTime            = "0D0110800001mmmmmmmmnnnnnn0000000000yyyyyy00";

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 90_at.pm 23280 2020-12-02 13:54:35Z rudolfkoenig $
+# $Id: 90_at.pm 23656 2021-02-01 08:56:20Z rudolfkoenig $
 package main;
 
 use strict;
@@ -185,8 +185,11 @@ at_Exec($)
   return if($hash->{DELETED});           # Just deleted
   my $name = $hash->{NAME};
 
-  my $skip = AttrVal($name, "skip_next", undef);
-  delete $attr{$name}{skip_next} if($skip);
+  my $skip = AttrVal($name, "skip_next", ReadingsVal($name, "skip_next", 0));
+  if($skip) {
+    delete $attr{$name}{skip_next};
+    readingsDelete($hash,"skip_next");
+  }
   $hash->{TEMPORARY} = 1 if($hash->{VOLATILE}); # 68680
   delete $hash->{VOLATILE};
 
@@ -248,7 +251,7 @@ at_Set($@)
 {
   my ($hash, @a) = @_;
 
-  my %sets = (modifyTimeSpec=>1, inactive=>0, active=>0, execNow=>0);
+  my %sets =(modifyTimeSpec=>1,inactive=>0,active=>0,execNow=>0,"skip_next"=>0);
   my $cmd = join(" ", sort keys %sets);
   $cmd =~ s/modifyTimeSpec/modifyTimeSpec:time/ if($at_detailFnCalled);
   $at_detailFnCalled = 0;
@@ -281,6 +284,10 @@ at_Set($@)
     my $name = $hash->{NAME};
     my $ret = AnalyzeCommandChain(undef, SemicolonEscape($hash->{COMMAND}));
     Log3 $name, 3, "$name: $ret" if($ret);
+
+  } elsif($a[1] eq "skip_next") {
+    setReadingsVal($hash, $a[1], 1, TimeNow());
+    return undef;
 
   }
 
@@ -410,6 +417,20 @@ EOF
   return "$h1$h2</table></div><br>$j1$j2";
 }
 
+sub 
+at_ultimo(;$$$)
+{
+  my ($h,$m,$s) = @_;
+  $h //= 23;
+  $m //= 59;
+  $s //= 0;
+  my $add = $data{AT_RECOMPUTE} ? DAYSECONDS : 0;
+  my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = 
+        localtime(time+$add);
+  my ($nm, $ny) = ($mon == 11) ? (0,$year+1) : ($mon+1,$year);
+  return mktime($s,$m,$h,1,$nm,$ny) - DAYSECONDS;
+}
+
 1;
 
 =pod
@@ -445,7 +466,7 @@ EOF
       any spaces or tabs.<br>
 
       &lt;datespec&gt; is either ISO8601 (YYYY-MM-DDTHH:MM:SS) or number of
-      seconds since 1970.
+      seconds since 1970 or {perlfunc()}.
     </ul>
     <br>
 
@@ -502,6 +523,19 @@ EOF
           cron or filter the date in a perl expression, see the last example and
           the section <a href="#perl">Perl special</a>.
       </li>
+      <li>To execute a FHEM command on every last day of the month,<br/>
+          the function <code>at_ultimo()</code> can be used as perlfunc for
+          datespec.</br>
+          <code>define at_ultimo at *{at_ultimo()} set lamp1 off</code><br/>
+          This will create an at device which will be executed at 23:59:00
+          on the last day of month.</br>
+          at_ultimo() can take additional parameters to specify an other time
+          on this day<br/>
+          <code>define at_ultimo at *{at_ultimo(12,23,45)} set lamp1
+          off</code><br/>
+          This will create an at device which will be executed ad 12:34:45
+          on the last day of month.<br/>
+      </li>
     </ul>
     <br>
   </ul>
@@ -529,6 +563,11 @@ EOF
     <li>execNow<br>
         Execute the command associated with the at. The execution of a relative
         at is not affected by this command.</li>
+    <li>skip_next<br>
+        skip the next execution. Just like the attribute with the same name,
+        but better suited for webCmd.
+        </li>
+
   </ul><br>
 
 
@@ -632,7 +671,7 @@ EOF
       {perlfunc()} darf keine Leerzeichen enthalten.<br>
 
       &lt;datespec&gt; ist entweder ISO8601 (YYYY-MM-DDTHH:MM:SS) oder Anzahl
-      der Sekunden seit 1970.
+      der Sekunden seit 1970 oder {perlfunc()}.
 
     </ul>
     <br>
@@ -690,6 +729,19 @@ EOF
       filtern. Siehe hierzu das letzte Beispiel und das <a href="#perl">Perl
       special</a>.  </li>
 
+      <li>Um einen FHEM Befehl immer am letzten Tag des Monats auszuführen,
+          kann die Funktion <code>at_ultimo()</code> als perlfunc für eine
+          datespec verwendet werden.</br>
+          <code>define at_ultimo at *{at_ultimo()} set lamp1 off</code><br/>
+          Hiermit wird ein at device erzeugt, der immer am letzten Tag des
+          Monats um 23:59:00 Uhr ausgeführt wird.<br/>
+          at_ultimo() kann drei optionale Parameter verarbeiten, um eine andere
+          Uhrzeit anzugeben.<br/>
+          <code>define at_ultimo at *{at_ultimo(12,23,45)} set lamp1
+          off</code><br/>
+          Es wird ein at device erzeugt, das immer um 12:34:45 am Monatsletzten
+          ausgeführt wird.<br/>
+      </li>
     </ul>
     <br>
   </ul>
@@ -720,6 +772,10 @@ EOF
     <li>execNow<br>
         F&uuml;hrt das mit dem at spezifizierte Befehl aus. Beeinflu&szlig;t
         nicht die Ausf&uuml;hrungszeiten relativer Spezifikationen.
+        </li>
+    <li>skip_next<br>
+        genau wie der gleichnamige Attribut, verhindert die n&auml;chste
+        Ausf&uuml;hrung. Als set Befehl, eignet sich besser f&uuml;r webCmd.
         </li>
   </ul><br>
 

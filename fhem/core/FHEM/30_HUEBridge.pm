@@ -1,5 +1,5 @@
 
-# $Id: 30_HUEBridge.pm 23363 2020-12-16 09:35:18Z justme1968 $
+# $Id: 30_HUEBridge.pm 23865 2021-03-01 08:19:24Z justme1968 $
 
 # "Hue Personal Wireless Lighting" is a trademark owned by Koninklijke Philips Electronics N.V.,
 # see www.meethue.com for more information.
@@ -1023,7 +1023,7 @@ HUEBridge_Set($@)
       $list .= " scene";
     }
     $list .= " swupdate:noArg" if( defined($hash->{updatestate}) && $hash->{updatestate} =~ '^2' );
-    $list .= " reaterule updaterule updateschedule enableschedule disableschedule deleterule createsensor deletesensor configsensor setsensor updatesensor deletewhitelist touchlink:noArg checkforupdate:noArg autodetect:noArg autocreate:noArg statusRequest:noArg";
+    $list .= " createrule updaterule updateschedule enableschedule disableschedule deleterule createsensor deletesensor configsensor setsensor updatesensor deletewhitelist touchlink:noArg checkforupdate:noArg autodetect:noArg autocreate:noArg statusRequest:noArg";
 
     return "Unknown argument $cmd, choose one of $list";
   }
@@ -1048,8 +1048,8 @@ HUEBridge_Get($@)
     my $ret = "";
     foreach my $key ( sort {$a<=>$b} keys %{$result} ) {
       my $code = $name ."-". $key;
-      my $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
-      $fhem_name = "" if( !$fhem_name );
+      my $fhem_name = '';
+         $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
       $ret .= sprintf( "%2i  %-25s %-15s %-25s", $key, $result->{$key}{name}, $fhem_name, $result->{$key}{type} );
       $ret .= sprintf( "capabilities: %s", encode_json($result->{$key}{capabilities}) ) if( $arg && $arg eq 'detail' && defined($result->{$key}{capabilities}) );
       $ret .= sprintf( "\n%2s  %-25s %-15s %-25s      config: %s", "", "", "", "", encode_json($result->{$key}{config}) ) if( $arg && $arg eq 'detail' && defined($result->{$key}{config}) );
@@ -1071,7 +1071,8 @@ HUEBridge_Get($@)
     my $ret = "";
     foreach my $key ( sort {$a<=>$b} keys %{$result} ) {
       my $code = $name ."-G". $key;
-      my $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
+      my $fhem_name = '';
+         $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
       $fhem_name = "" if( !$fhem_name );
       $result->{$key}{type} = '' if( !defined($result->{$key}{type}) );     #deCONZ fix
       $result->{$key}{class} = '' if( !defined($result->{$key}{class}) );   #deCONZ fix
@@ -1172,7 +1173,8 @@ HUEBridge_Get($@)
     my $ret = "";
     foreach my $key ( sort {$a<=>$b} keys %{$result} ) {
       my $code = $name ."-S". $key;
-      my $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
+      my $fhem_name = '';
+         $fhem_name = $modules{HUEDevice}{defptr}{$code}->{NAME} if( defined($modules{HUEDevice}{defptr}{$code}) );
       $fhem_name = "" if( !$fhem_name );
       $ret .= sprintf( "%2i: %-15s %-15s %-20s", $key, $result->{$key}{name}, $fhem_name, $result->{$key}{type} );
       $ret .= sprintf( " %s", encode_json($result->{$key}{state}) ) if( $arg && $arg eq 'detail' );
@@ -1315,7 +1317,8 @@ HUEBridge_updateGroups($$)
     foreach my $light ( split(',', $chash->{lights}) ) {
       next if( !$light );
       next if( !defined($modules{HUEDevice}{defptr}{"$name-$light"}) );
-      my $current = $modules{HUEDevice}{defptr}{"$name-$light"}{helper};
+      my $lhash = $modules{HUEDevice}{defptr}{"$name-$light"};
+      my $current = $lhash->{helper};
       next if( !$current );
       #next if( !$current->{on} );
       next if( $current->{helper}{devtype} );
@@ -1367,7 +1370,12 @@ HUEBridge_updateGroups($$)
       $readings{sat} += $current->{sat} if( defined($current->{sat}) );
 
       $readings{on} |= ($current->{on}?'1':'0');
-      $readings{reachable} |= ($current->{reachable}?'1':'0');
+
+      if( AttrVal($lhash->{NAME}, 'ignoreReachable', 0) ) {
+        $readings{reachable} |= 1;
+      } else {
+        $readings{reachable} |= ($current->{reachable}?'1':'0');
+      }
 
       if( !defined($readings{alert}) ) {
         $readings{alert} = $current->{alert};
@@ -1386,6 +1394,10 @@ HUEBridge_updateGroups($$)
       }
 
       ++$count;
+    }
+
+    if( AttrVal($name, 'ignoreReachable', 0) ) {
+      delete $readings{reachable};
     }
 
     if( defined($hue) && $readings{colormode} && $readings{colormode} ne "ct" ) {

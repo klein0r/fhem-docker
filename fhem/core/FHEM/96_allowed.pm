@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 96_allowed.pm 23247 2020-11-28 10:44:57Z rudolfkoenig $
+# $Id: 96_allowed.pm 23727 2021-02-12 20:31:37Z rudolfkoenig $
 package main;
 
 use strict;
@@ -98,9 +98,10 @@ allowed_Authorize($$$$;$)
   return 0 if($me->{disabled});
   my $vName = $cl->{SNAME} ? $cl->{SNAME} : $cl->{NAME};
   return 0 if(!$me->{".validFor"}{$vName});
-  return 0 if(AttrVal($me->{NAME}, "allowedIfAuthenticatedByMe", 0) &&
+  my $mName = $me->{NAME};
+  return 0 if(AttrVal($mName, "allowedIfAuthenticatedByMe",$featurelevel>6.0) &&
               (!$cl->{AuthenticatedBy} ||
-                $cl->{AuthenticatedBy} ne $me->{NAME}));
+                $cl->{AuthenticatedBy} ne $mName));
 
   if($type eq "cmd") {
     return 0 if(!$me->{".allowedCommands"});
@@ -179,7 +180,8 @@ allowed_Authenticate($$$$)
     if($pwok && (!defined($authcookie) || $secret ne $authcookie)) {
       my $time = AttrVal($aName, "basicAuthExpiry", 0);
       if ( $time ) {
-        my ($user, $password) = split(":", decode_base64($secret)) if($secret);
+        my ($user, $password);
+        ($user, $password) = split(":", decode_base64($secret)) if($secret);
         $time = int($time*86400+time());
         # generate timestamp according to RFC-1130 in Expires
         my $expires = FmtDateTimeRFC1123($time);
@@ -247,7 +249,8 @@ allowed_CheckBasicAuth($$$$)
   my $aName = $me->{NAME};
 
   my $pwok = ($secret && $secret eq $basicAuth) ? 1 : 2;      # Base64
-  my ($user, $password) = split(":", decode_base64($secret)) if($secret);
+  my ($user, $password);
+  ($user, $password) = split(":", decode_base64($secret)) if($secret);
   ($user,$password) = ("","") if(!defined($user) || !defined($password));
 
   if($secret && $basicAuth =~ m/^{.*}$/) {

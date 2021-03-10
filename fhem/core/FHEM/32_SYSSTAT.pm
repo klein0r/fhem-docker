@@ -1,5 +1,5 @@
 
-# $Id: 32_SYSSTAT.pm 21047 2020-01-25 09:57:49Z justme1968 $
+# $Id: 32_SYSSTAT.pm 23868 2021-03-01 08:23:24Z justme1968 $
 
 package main;
 
@@ -68,7 +68,8 @@ SYSSTAT_Define($$)
   if( $interval_fs < $interval ) { $interval_fs = $interval; }
   if( $interval_fs == $interval ) { $interval_fs = undef; }
 
-  my $host = $a[4] if(int(@a)>=5);;
+  my $host;
+     $host = $a[4] if(int(@a)>=5);;
 
   delete( $hash->{INTERVAL_FS} );
   delete( $hash->{HOST} );

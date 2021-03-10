@@ -1,4 +1,4 @@
-# $Id: 55_InfoPanel.pm 21562 2020-03-31 18:53:47Z betateilchen $
+# $Id: 55_InfoPanel.pm 23677 2021-02-04 20:02:42Z betateilchen $
 
 =for comment
 ##############################################
@@ -61,7 +61,7 @@
 # 2016-09-04 - 12114 - added:   movecalculated
 #
 # 2018-05-06 - 16695 - changed: check plotName exists
-# 2018-05-28 - $Rev: 21562 $ - changed: remove misleading link in commandref
+# 2018-05-28 - $Rev: 23677 $ - changed: remove misleading link in commandref
 #
 ##############################################
 =cut
@@ -70,7 +70,7 @@ package main;
 use strict;
 use warnings;
 
-use Data::Dumper;
+#use Data::Dumper;
 
 use feature qw/switch/;
 use vars qw(%data);

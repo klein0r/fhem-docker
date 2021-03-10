@@ -1,5 +1,5 @@
 ##############################################
-# $Id: HMConfig.pm 23420 2020-12-26 15:03:01Z martinp876 $
+# $Id: HMConfig.pm 23857 2021-02-28 17:46:36Z martinp876 $
 # CUL HomeMatic device configuration data
 
 #####################################################
@@ -1109,7 +1109,8 @@ $culHmRegType{pushButton}     = $culHmRegType{remote};
  ,"HM-CC-SCD"         =>{ peerNeedsBurst  =>1,expectAES       =>1
                          ,                                        transmitTryMax  =>1,evtFltrTime     =>1
                          ,msgScdPosA      =>1,msgScdPosB      =>1,msgScdPosC      =>1,msgScdPosD      =>1}
- ,"HM-SEC-RHS"        =>{ msgRhsPosA      =>1,msgRhsPosB      =>1,msgRhsPosC      =>1
+ ,"HM-SEC-RHS"        =>{                     sabotageMsg     =>1
+                         ,msgRhsPosA      =>1,msgRhsPosB      =>1,msgRhsPosC      =>1
                          ,                    ledOnTime       =>1,eventDlyTime    =>1}
  ,"HM-SEC-SC"         =>{                     sabotageMsg     =>1
                          ,msgScPosA       =>1,msgScPosB       =>1
@@ -1683,6 +1684,7 @@ $culHmRegChan{"HM-OU-CFM-TW02"}         = $culHmRegChan{"HM-OU-CFM-PL02"};
 %culHmVrtGets       = (
                        param      => "-param-",
                        cmdList    => "[({short}|long)]",
+                       list       => "[({normal}|full)]"
                       );
 %culHmSubTypeGets   = (
                        none4Type  =>{ "test"=>"" }
@@ -1699,7 +1701,7 @@ $culHmRegChan{"HM-OU-CFM-TW02"}         = $culHmRegChan{"HM-OU-CFM-PL02"};
 ##############################---set---########################################
 %culHmGlobalSets       = (# all but virtuals
                        regBulk       => "-list-.-peerChn- -addr1:data1- -addr2:data2-..."
-                      ,getRegRaw     => "(List0|List1|List2|List3|List4|List5|List6) [-peerChn-]"
+                      ,getRegRaw     => "(List0|List1|List2|List3|List4|List5|List6|List7) [-peerChn-]"
                       ,getConfig     => ""
                       ,regSet        => "[(prep|{exec})] -regName- -value- [-peerChn-]"
                       ,clear         => "[(readings|trigger|register|oldRegs|rssi|msgEvents|{msgErrors}|attack|all)]"
@@ -1769,10 +1771,10 @@ $culHmSubTypeDevSets{blindActuator}     = $culHmSubTypeDevSets{switch};
                                           ,off            =>""
                                           ,old            =>""
                                           ,toggle         =>""
-                                          ,pct            =>"(-value-|old) [(-ontime-|{})] [(-ramptime-|{})]"
+                                          ,pct            =>"(-value-|old) [(-ontime-|{0})] [(-ramptime-|{2.4})] 'ontime: 0 = forever'"
                                           ,stop           =>""
-                                          ,up             =>"'change:'[(0..100;1|{10})] [(-ontime-|{})] [(-ramptime-|{})]"
-                                          ,down           =>"'change:'[(0..100;1|{10})] [(-ontime-|{})] [(-ramptime-|{})]"
+                                          ,up             =>"'change:'[(0..100;1|{10})] [(-ontime-|{0})] [(-ramptime-|{2.4})] 'ontime: 0 = forever'"
+                                          ,down           =>"'change:'[(0..100;1|{10})] [(-ontime-|{0})] [(-ramptime-|{2.4})] 'ontime: 0 = forever'"
                                           ,inhibit        =>"[(on|{off})]"
                                           ,statusRequest  =>""
                                           ,peerIODev      =>"[IO] -btn- [({set}|unset)] 'not for future use'"
@@ -1959,10 +1961,10 @@ $culHmModelSets{"HM-HM-LC-DW-WM"}        = $culHmSubTypeSets{dimmer};   ##### re
                                                 ,on             =>""
                                                 ,off            =>""
                                                 ,toggle         =>""
-                                                ,pct            =>"-value- [(-ontime-|{})] [(-ramptime-|{})]"
+                                                ,pct            =>"-value- [(-ontime-|{0})] [(-ramptime-|{2.4})] 'ontime: 0 = forever'"
                                                 ,stop           =>""
-                                                ,up             =>"'change:'[(0..100;1|{10})] [(-ontime-|{})] [(-ramptime-|{})]"
-                                                ,down           =>"'change:'[(0..100;1|{10})] [(-ontime-|{})] [(-ramptime-|{})]"
+                                                ,up             =>"'change:'[(0..100;1|{10})] [(-ontime-|{0})] [(-ramptime-|{2.4})] 'ontime: 0 = forever'"
+                                                ,down           =>"'change:'[(0..100;1|{10})] [(-ontime-|{0})] [(-ramptime-|{2.4})] 'ontime: 0 = forever'"
                                                 ,inhibit        =>"[(on|{off})]"
                                                 ,statusRequest  =>""
                                                 ,peerIODev      =>"[IO] -btn- [({set}|unset)] 'not for future use'"

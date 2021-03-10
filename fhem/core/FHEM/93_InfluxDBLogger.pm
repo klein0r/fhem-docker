@@ -1,4 +1,4 @@
-# $Id: 93_InfluxDBLogger.pm 23366 2020-12-16 15:44:23Z timmib $
+# $Id: 93_InfluxDBLogger.pm 23687 2021-02-06 20:08:37Z timmib $
 # 93_InfluxDBLogger.pm
 #
 package main;
@@ -50,7 +50,7 @@ sub InfluxDBLogger_Define($$) {
 sub InfluxDBLogger_Notify($$)
 {
 	my ($own_hash, $dev_hash) = @_;
-	my $name = $own_hash->{NAME}; # own name / hash
+	my $name = $own_hash->{NAME}; # own name
 
 	return "" if(IsDisabled($name)); # Return without any further action if the module is disabled
     return "" if(!$init_done);
@@ -62,6 +62,14 @@ sub InfluxDBLogger_Notify($$)
     return "" if($own_hash->{TYPE} eq $dev_hash->{TYPE}); # avoid endless loops from logger to logger
 
     Log3 $name, 4, "InfluxDBLogger: [$name] notified from device $devName";
+    InfluxDBLogger_BuildAndSend($own_hash, $dev_hash, $events);
+}
+
+sub InfluxDBLogger_BuildAndSend($$$)
+{
+    my ($own_hash, $dev_hash, $events) = @_;
+    my $name = $own_hash->{NAME}; # own name
+
     my %map = InfluxDBLogger_BuildMap($own_hash, $dev_hash, $events);
     my @incompatible = ();
     my ($data,$rows) = InfluxDBLogger_BuildData($own_hash,$dev_hash,\%map,\@incompatible);
@@ -70,6 +78,28 @@ sub InfluxDBLogger_Notify($$)
 
     if (scalar(@incompatible) > 0 ) {
         InfluxDBLogger_DroppedIncompatibleValues($own_hash,$name,@incompatible);
+    }
+}
+
+sub InfluxDBLogger_Write($$)
+{
+    my ($hash, $name) = @_;
+    return "" if(IsDisabled($name)); # Return without any further action if the module is disabled
+
+    my @devices = devspec2array($hash->{NOTIFYDEV});
+    foreach my $deviceName (@devices) {
+        my @events = ();
+        Log3 $name, 4, "DEVNAME $deviceName";
+        my $dev_hash = $defs{$deviceName};
+        Log3 $name, 4, "DEVHASH $dev_hash";
+        my $readings = $dev_hash->{READINGS};
+        Log3 $name, 4, "BEFORE READING $readings";
+        foreach my $key (keys %{$readings}) {
+            Log3 $name, 4, "READING $key";
+            my $value = ReadingsVal($deviceName,$key,undef);
+            push(@events, $key . ": " .$value);
+        }
+        InfluxDBLogger_BuildAndSend($hash, $dev_hash, \@events);
     }
 }
 
@@ -192,19 +222,26 @@ sub InfluxDBLogger_BuildDataDynamic($$$$$)
     return ($measurementAndTagSet,$field_set);
 }
 
-sub InfluxDBLogger_GetMeasurement($$$)
+sub InfluxDBLogger_GetMeasurement($$$$$)
 {
     my ($hash, $dev_hash, $device, $reading, $value) = @_;
     my $name = $hash->{NAME};
 
-    my $measurement =  AttrVal($name, "measurement", $reading);
-    $measurement =~ s/\$DEVICE/$device/ei;
-    $measurement =~ s/\$READINGNAME/$reading/ei;
+    my $measurement =  AttrVal($name, "measurement", undef);
+
+    if (defined $measurement) {
+        $measurement =~ s/\{(.*)\}/eval($1)/ei;
+        $measurement =~ s/\$DEVICE/$device/ei;
+        $measurement =~ s/\$READINGNAME/$reading/ei;
+    }
+    else {
+       $measurement = $reading;
+    }
 
     return $measurement;
 }
 
-sub InfluxDBLogger_GetTagSet($$$)
+sub InfluxDBLogger_GetTagSet($$$$$)
 {
     my ($hash, $dev_hash, $device, $reading, $value) = @_;
     my $name = $hash->{NAME};
@@ -213,8 +250,8 @@ sub InfluxDBLogger_GetTagSet($$$)
         if ( $tags_set eq "-" ) {
             $tags_set = undef;
         } else {
-            $tags_set =~ s/\{(.*)\}/eval($1) /ei;
-            $tags_set =~ s/\$DEVICE/$device /ei;
+            $tags_set =~ s/\{(.*)\}/eval($1)/ei;
+            $tags_set =~ s/\$DEVICE/$device/ei;
         }
     } else {
       $tags_set = AttrVal($name, "deviceTagName", "site_name")."=".$device;
@@ -223,7 +260,7 @@ sub InfluxDBLogger_GetTagSet($$$)
     return $tags_set;
 }
 
-sub InfluxDBLogger_GetFieldSet($$$)
+sub InfluxDBLogger_GetFieldSet($$$$$)
 {
     my ($hash, $dev_hash, $device, $reading, $value) = @_;
     my $name = $hash->{NAME};
@@ -369,7 +406,7 @@ sub InfluxDBLogger_DroppedIncompatibleValues($$@)
     readingsEndUpdate($hash, 1);
 }
 
-sub InfluxDBLogger_Set($$@)
+sub InfluxDBLogger_Set($$$@)
 {
     my ( $hash, $name, $cmd, @args ) = @_;
     Log3 $name, 5, "InfluxDBLogger: [$name] set $cmd";
@@ -388,12 +425,16 @@ sub InfluxDBLogger_Set($$@)
         InfluxDBLogger_ResetStatistics($hash, $name);
         return (undef,1);
     }
+    elsif ( lc $cmd eq 'write' ) {
+        InfluxDBLogger_Write($hash, $name);
+        return (undef,1);
+    }
     else {
-        return "Unknown argument $cmd, choose one of resetStatistics:noArg password token";
+        return "Unknown argument $cmd, choose one of resetStatistics:noArg password token write:noArg";
     }
 }
 
-sub InfluxDBLogger_ResetStatistics($)
+sub InfluxDBLogger_ResetStatistics($$)
 {
     my ( $hash, $name ) = @_;
     readingsBeginUpdate($hash);
@@ -414,7 +455,7 @@ sub InfluxDBLogger_IsBasicAuth($)
     return AttrVal($name, "security", "") eq "basic_auth";
 }
 
-sub InfluxDBLogger_GetPassword()
+sub InfluxDBLogger_GetPassword($$)
 {
     my $hash = shift;
     my $name = shift;
@@ -429,7 +470,7 @@ sub InfluxDBLogger_GetPassword()
     }
 }
 
-sub InfluxDBLogger_StoreSecret {
+sub InfluxDBLogger_StoreSecret($$$$) {
     my $hash     = shift;
     my $name     = shift;
     my $ref      = shift;
@@ -460,7 +501,7 @@ sub InfluxDBLogger_StoreSecret {
     return "$ref successfully saved";
 }
 
-sub InfluxDBLogger_ReadSecret {
+sub InfluxDBLogger_ReadSecret($$$) {
     my $hash = shift;
     my $name = shift;
     my $ref  = shift;
@@ -558,15 +599,21 @@ sub InfluxDBLogger_Rename($$) {
    <ul>
         <li><b>password</b>
         <code>set &lt;name&gt; password &lt;password&gt;</code><br />
-        Securly stores the password for basic authentication. It is only used if security attribute is set to basic_auth.
+        Securely stores the password for basic authentication. It is only used if security attribute is set to basic_auth.
         </li>
         <li><b>token</b>
         <code>set &lt;name&gt; token &lt;token&gt;</code><br />
-        Securly stores the token for token based authentication. It is only used if security attribute is set to token.
+        Securely stores the token for token based authentication. It is only used if security attribute is set to token.
         </li>
         <li><b>resetStatistics</b>
         <code>set &lt;name&gt; resetStatistics</code><br />
         Sets all statistical counters to zero and removes the last error message.
+        </li>
+        <li><b>write</b>
+        <code>set &lt;name&gt; set</code><br />
+        Writes the current values of the configured readings(readingInclude,readingExclude) of the configured devices(devspec) to the database.
+        This is useful e.g. for clean start of the day and end of the day values.
+        Note that the timestamp of the readings are not stored in the database, but the timestamp of the write operation.
         </li>
    </ul>
 
@@ -584,9 +631,9 @@ sub InfluxDBLogger_Rename($$) {
             Only used if security attribute is set to basic_auth<br>
         </li>
         <li><b>readingInclude</b> <code>attr &lt;name&gt; readingInclude &lt;regex&gt;</code><br />
-            Only reading events that match the regex will be logged(inclusive). Note that readings usually have the format: 'state: on'<br></li>
+            Only reading events that match the regex will be logged. Note that readings usually have the format: 'state: on'<br></li>
         <li><b>readingExclude</b> <code>attr &lt;name&gt; readingInclude &lt;regex&gt;</code><br />
-            Only reading events that do not match the regex will be logged(inclusive). Note that readings usually have the format: 'state: on'<br></li>
+            Only reading events that do not match the regex will be logged. Note that readings usually have the format: 'state: on'<br></li>
         <li><b>deviceTagName</b> <code>attr &lt;name&gt; deviceTagName &lt;deviceTagName&gt;</code><br />
             This will be the name of the device tag. default is 'site_name'
         </li>
@@ -598,13 +645,15 @@ sub InfluxDBLogger_Rename($$) {
             The keyword $DEVICE will be replaced by the device-name.
             The keyword $READINGNAME will be replaced by the reading-name
             Default is $READINGNAME.
+            Perl-Expressions can be used in curly braces. $name, $device, $reading, $value are available as variables.
+            attr influx measurement { AttrVal($device, "influx_measurement", $reading)}
         </li>
         <li><b>tags</b> <code>attr &lt;name&gt; tags &lt;x,y&gt;</code><br />
             This is the list of tags that will be sent to InfluxDB. The keyword $DEVICE will be replaced by the device-name.
             If this attribute is set it will override the attribute deviceTagName. If the attribute is set to "-"
             no tags will be written (useful if measurement is set to $DEVICE and fields to $READINGNAME=$READINGVALUE)
             Default is site_name=$DEVICE.
-            Perl-Expression can be used in curly braces to evaluate the alias-attribute as a tag for example. $name, $device, $reading, $value are available as variables.
+            Perl-Expressions can be used in curly braces to evaluate the alias-attribute as a tag for example. $name, $device, $reading, $value are available as variables.
             attr influx tags device={AttrVal($device, "alias", "fallback")}
         </li>
         <li><b>fields</b> <code>attr &lt;name&gt; fields &lt;val=$READINGVALUE&gt;</code><br />
@@ -688,6 +737,12 @@ sub InfluxDBLogger_Rename($$) {
         <code>set &lt;name&gt; resetStatistics</code><br />
         Setzt alle statistischen Zähler auf 0 und entfernt die letzte Fehlermeldung
         </li>
+        <li><b>write</b>
+        <code>set &lt;name&gt; set</code><br />
+        Schreibt die aktuellen Werte der konfigurierten Readings(readingInclude,readingExclude) der konfigurierten Geräte(devspec) in die Datenbank.
+        Dies ist zum Beispiel nützlich für saubere Tagesstart und Tagesendwerte.
+        Hinweis: Der Zeitstempel des Readings wird nicht in der Datenbank gespeichert, sondern der Zeitstempel des Schreibzeitpunktes.
+        </li>
    </ul>
 
     <a name="InfluxDBLogger_Attr"></a>
@@ -704,9 +759,9 @@ sub InfluxDBLogger_Rename($$) {
             Wird nur genutzt wenn das security Attribut auf basic_auth gesetzt wurde<br>
         </li>
         <li><b>readingInclude</b> <code>attr &lt;name&gt; readingInclude &lt;regex&gt;</code><br />
-            Nur Ereignisse die zutreffen werden geschrieben(inklusiv). Hinweis - das Format eines Ereignisses sieht so aus: 'state: on'<br></li>
+            Nur Ereignisse die zutreffen werden geschrieben. Hinweis - das Format eines Ereignisses sieht so aus: 'state: on'<br></li>
         <li><b>readingExclude</b> <code>attr &lt;name&gt; readingExclude &lt;regex&gt;</code><br />
-            Nur Ereignisse die nicht zutreffen werden geschrieben(inklusiv). Hinweis - das Format eines Ereignisses sieht so aus: 'state: on'<br></li>
+            Nur Ereignisse die nicht zutreffen werden geschrieben. Hinweis - das Format eines Ereignisses sieht so aus: 'state: on'<br></li>
         <li><b>deviceTagName</b> <code>attr &lt;name&gt; deviceTagName &lt;deviceTagName&gt;</code><br />
             Das ist der Name des tags, in dem der Gerätename gespeichert wird. Standard ist 'site_name'
         </li>
@@ -718,6 +773,8 @@ sub InfluxDBLogger_Rename($$) {
             Das Schlüsselwort $DEVICE wird ersetzt durch den Gerätenamen.
             Das Schlüsselwort $READINGNAME wird ersetzt durch den Readingnamen.
             Standard ist $READINGNAME.
+            Es können Perl-Ausdrücke in geschweiften Klammern verwendet werden. $name, $device, $reading, $value stehen dabei als Variable zur Verfügung.
+            attr influx measurement { AttrVal($device, "influx_measurement", $reading)}
         </li>
         <li><b>tags</b> <code>attr &lt;name&gt; tags &lt;x,y&gt;</code><br />
             Dies ist the Liste der tags die an InfluxDB mitgesendet werden. Das Schlüsselwort $DEVICE wird ersetzt durch den Gerätenamen.
@@ -752,7 +809,7 @@ sub InfluxDBLogger_Rename($$) {
             Anzahl der versuchten Schreibvorgänge. Dies sind nicht die Abgeschlossenen.
         </li>
         <li><b>succeeded_writes</b><br />
-            Anzahl der erfolgreich geschriebenen Ereignisse. Dies sind die Ereignisse die man in der Datenbank finde wird.
+            Anzahl der erfolgreich geschriebenen Ereignisse. Dies sind die Ereignisse die man in der Datenbank finden wird.
         </li>
         <li><b>failed_writes</b><br />
             Anzahl der fehlgeschlagenen Ereignisse. Die letzte Fehlermeldung findet man im Reading failed_writes_last_error
@@ -761,7 +818,7 @@ sub InfluxDBLogger_Rename($$) {
             Die Fehlermeldung, was recht nützlich ist für systematische Fehler, wie falsche DNS Einträge usw.
         </li>
         <li><b>dropped_writes</b><br />
-            Anzahl von nicht getätigten Schreibvorgängen aufgrund da nicht numerisch. Siehe conversions um es zu beheben.
+            Anzahl von nicht getätigten Schreibvorgängen da nicht numerisch. Siehe conversions um es zu beheben.
         </li>
         <li><b>state</b><br />
             Statistics: t=total_writes s=succeeded_writes f=failed_writes e=events

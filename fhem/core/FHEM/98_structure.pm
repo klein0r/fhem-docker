@@ -1,4 +1,4 @@
-# $Id: 98_structure.pm 22721 2020-09-03 18:51:29Z rudolfkoenig $
+# $Id: 98_structure.pm 23818 2021-02-24 10:23:46Z rudolfkoenig $
 ##############################################################################
 #
 #     98_structure.pm
@@ -122,7 +122,7 @@ structure_setDevs($;$)
   $def = "$hash->{NAME} structure $hash->{DEF}" if(!$def);
   my $c = $hash->{".memberHash"};
 
-  my @a = split("[ \t][ \t]*", $def);
+  my @a = split(/\s+/, $def);
   my $devname = shift(@a);
   my $modname = shift(@a);
   my $stype   = shift(@a);

@@ -1,5 +1,5 @@
 "use strict";
-FW_version["f18.js"] = "$Id: f18.js 22644 2020-08-22 10:22:29Z rudolfkoenig $";
+FW_version["f18.js"] = "$Id: f18.js 23898 2021-03-06 11:05:44Z rudolfkoenig $";
 
 // TODO: hierMenu+Pin,SVGcolors,floorplan
 // Known bugs: AbsSize is wrong for ColorSlider
@@ -539,6 +539,7 @@ f18_addDragger(el)
   /////////////////////////////////////
   // Size
   var off = 20;
+  var elPadding = ($(el).outerWidth()-$(el).width());
   if(!$(el).hasClass("SVGlabel")) {
     $("<div class='dragSize'></div>")
       .appendTo(el)
@@ -547,7 +548,7 @@ f18_addDragger(el)
              top:$(comp).height()+2, left:$(comp).width()-off, "z-index":1 })
       .draggable({
         drag:function(evt,ui){
-          $(el).css(  { width:ui.position.left+off });
+          $(el).css(  { width:ui.position.left+off-elPadding });
           $(comp).css({ width:ui.position.left+off,
                         height:ui.position.top });
         },
@@ -667,8 +668,8 @@ f18_doSetPos(el, comp, pos)
   f18_applyGrid(pos);
   $(el).css({ position:"absolute", left:pos.left, top:pos.top });
   if(!$(el).hasClass("SVGlabel")) {
-    var padding = parseInt($(el).css("padding-left").replace("px",""));
-    $(el).css({ width:pos.width-padding });
+    var elPadding = ($(el).outerWidth()-$(el).width());
+    $(el).css({ width:pos.width-elPadding });
   }
   $(comp).css({ position:"absolute", 
                 left:pos.left+pos.oLeft, top:pos.top+pos.oTop,
@@ -734,7 +735,7 @@ f18_setCss(why)
   function bg(c) { return "{ background:#"+c+"; fill:#"+c+"; }\n" }
   function fg(c) { return "{ color:#"+c+"; }\n" }
   style += ".col_fg, body, input, textarea "+fg(col("fg"));
-  style += ".col_bg, textarea, input, option "+bg(col("bg"));
+  style += ".col_bg, textarea, input, option, optgroup "+bg(col("bg"));
   style += ".col_link,a:not(.changed),.handle,.fhemlog,input[type=submit],"+
            "select,div.ui-widget-content a "+
            "{color:#"+col("link")+"!important; stroke:#"+col("link")+";}\n";

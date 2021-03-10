@@ -32,14 +32,36 @@
 # * https://forum.fhem.de/index.php/topic,41439.0.html (previous discussions)
 # * https://forum.fhem.de/index.php/topic,13534.45.html (previous discussions)
 #
-# $Id: 72_TA_CMI_JSON.pm 21460 2020-03-20 07:07:25Z delmar $
+# $Id: 72_TA_CMI_JSON.pm 23873 2021-03-01 14:59:16Z delmar $
 #
 ##############################################################################
 
 package main;
 use strict;
 use warnings;
+
+sub TA_CMI_JSON_Initialize {
+  my ($hash) = @_;
+
+  $hash->{GetFn}     = "TA_CMI_JSON::Get";
+  $hash->{DefFn}     = "TA_CMI_JSON::Define";
+  $hash->{UndefFn}   = "TA_CMI_JSON::Undef";
+  $hash->{NotifyFn}  = "TA_CMI_JSON::Notify";
+#  $hash->{FW_detailFn} = "TA_CMI_JSON::DetailFn";
+#  $hash->{FW_directNotify} = "TA_CMI_JSON::DirectNotify";
+
+  $hash->{AttrList} = "username password outputStatesInterval interval readingNamesInputs readingNamesOutputs readingNamesDL-Bus readingNamesLoggingAnalog readingNamesLoggingDigital includePrettyReadings:0,1 includeUnitReadings:0,1 prettyOutputStates:0,1 " . $readingFnAttributes;
+
+  Log3 '', 3, "TA_CMI_JSON - Initialize done ...";
+}
+
+
+package TA_CMI_JSON;
+use strict;
+use warnings;
 use HttpUtils;
+
+use GPUtils qw(:all);
 
 my %deviceNames = (
   '80' => 'UVR1611',
@@ -48,7 +70,12 @@ my %deviceNames = (
   '89' => 'CAN-I/O45',
   '8B' => 'CAN-EZ2',
   '8C' => 'CAN-MTx2',
-  '8D' => 'CAN-BC2'
+  '8D' => 'CAN-BC2',
+  '8E' => 'UVR65',
+  '8F' => 'CAN-EZ3',
+  '91' => 'UVR610',
+  '92' => 'UVR67',
+  'A3' => 'BL_NET'
 );
 
 my %versions = (
@@ -56,7 +83,8 @@ my %versions = (
   2 => '1.26.1 2017-02-24',
   3 => '1.28.0 2017-11-09',
   4 => '1.34.2 2019-04-04',
-  5 => '1.35.1 2019-07-02'
+  5 => '1.35.1 2019-07-02',
+  6 => '1.38.1 2021-02-04'
 );
 
 my %units = (
@@ -78,19 +106,36 @@ my %rasStates = (
   3 => 'Standby/frost pr.'
 );
 
-sub TA_CMI_JSON_Initialize {
-  my ($hash) = @_;
+my %outputStates = (
+  0 => 'n/a',
+  1 => 'Auto-Off',
+  3 => 'Auto-On',
+  5 => 'Manual-Off',
+  7 => 'Manual-On'
+);
 
-  $hash->{GetFn}     = "TA_CMI_JSON_Get";
-  $hash->{DefFn}     = "TA_CMI_JSON_Define";
-  $hash->{UndefFn}   = "TA_CMI_JSON_Undef";
+## Import der FHEM Funktionen
+BEGIN {
+    GP_Import(qw(
+        readingsSingleUpdate
+        readingsBulkUpdate
+        readingsBulkUpdateIfChanged
+        readingsBeginUpdate
+        readingsEndUpdate
+        readingsDelete
+        Log3
+        HttpUtils_Close
+        HttpUtils_NonblockingGet
+        RemoveInternalTimer
+        InternalTimer
+        makeReadingName
+        AttrVal
+        json2nameValue
+        gettimeofday
+    ))
+};
 
-  $hash->{AttrList} = "username password interval readingNamesInputs readingNamesOutputs readingNamesDL-Bus readingNamesLoggingAnalog readingNamesLoggingDigital includePrettyReadings:0,1 includeUnitReadings:0,1 " . $readingFnAttributes;
-
-  Log3 '', 3, "TA_CMI_JSON - Initialize done ...";
-}
-
-sub TA_CMI_JSON_Define {
+sub Define {
   my ( $hash, $def ) = @_;
   my @a = split( "[ \t][ \t]*", $def );
  
@@ -100,9 +145,9 @@ sub TA_CMI_JSON_Define {
   my $nodeId = $a[3];
   my $queryParams = $a[4];
  
-  if(@a != 5) {
-     my $msg = "TA_CMI_JSON ($name) - Wrong syntax: define <name> TA_CMI_JSON CMI-URL CAN-Node-ID QueryParameters";
-     Log3 undef, 2, $msg;
+  if(@a != 4 && @a != 5) {
+     my $msg = "TA_CMI_JSON ($name) - Wrong syntax: define <name> TA_CMI_JSON CMI-URL CAN-Node-ID <QueryParameters>";
+     Log3 $name, 0, $msg;
      return $msg;
   }
 
@@ -110,25 +155,59 @@ sub TA_CMI_JSON_Define {
   $hash->{CMIURL} = $cmiUrl;
   $hash->{NODEID} = $nodeId;
   $hash->{QUERYPARAM} = $queryParams;
-  $hash->{INTERVAL} = AttrVal( $name, "interval", "60" );
-  
-  Log3 $name, 5, "TA_CMI_JSON ($name) - Define done ... module=$module, CMI-URL=$cmiUrl, nodeId=$nodeId, queryParams=$queryParams";
 
+  Log3 $name, 3, "TA_CMI_JSON ($name) - Define ... module=$module, CMI-URL=$cmiUrl, nodeId=$nodeId";
   readingsSingleUpdate($hash, 'state', 'defined', 1);
 
-  TA_CMI_JSON_GetStatus( $hash, 2 );
+  SetupIntervals($hash) if ($main::init_done);
 
   return undef;
 }
 
-sub TA_CMI_JSON_GetStatus {
-  my ( $hash, $delay ) = @_;
-  my $name = $hash->{NAME};
+sub Notify {
+  my ($own_hash, $dev_hash) = @_;
+  my $ownName = $own_hash->{NAME}; # own name / hash
+ 
+  return "" if(main::IsDisabled($ownName)); # Return without any further action if the module is disabled
+ 
+  my $devName = $dev_hash->{NAME}; # Device that created the events
+  my $events = main::deviceEvents($dev_hash, 1);
 
-  TA_CMI_JSON_PerformHttpRequest($hash);
+  if($devName eq "global" && grep(m/^INITIALIZED|REREADCFG$/, @{$events})) {
+    SetupIntervals($own_hash);
+  }
+
 }
 
-sub TA_CMI_JSON_Undef {
+sub SetupIntervals {
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+
+  my $queryParams = $hash->{QUERYPARAM};
+  if ( defined $queryParams ) {
+    $hash->{INTERVAL} = AttrVal( $name, "interval", "60" );
+    Log3 $name, 3, "TA_CMI_JSON ($name) - queryParam interval: ".$hash->{INTERVAL};
+    Log3 $name, 3, "TA_CMI_JSON ($name) - queryParams=$queryParams";
+  }
+  #make initial call in any case, even if queryParams not defined. because that brings us model and number of outputs
+  GetStatus( $hash );
+  
+  my $outputStatesInterval = AttrVal( $name, 'outputStatesInterval', undef);
+  if ( defined $outputStatesInterval ) {
+    Log3 $name, 3, "TA_CMI_JSON ($name) - Define::outputStatesInterval: $outputStatesInterval";
+    RequestOutputStates ( $hash );
+  }
+
+}
+
+sub GetStatus {
+  my ( $hash ) = @_;
+  my $name = $hash->{NAME};
+
+  PerformHttpRequest($hash);
+}
+
+sub Undef {
   my ($hash, $arg) = @_; 
   my $name = $hash->{NAME};
 
@@ -138,10 +217,13 @@ sub TA_CMI_JSON_Undef {
   return undef;
 }
 
-sub TA_CMI_JSON_PerformHttpRequest {
+sub PerformHttpRequest {
     my ($hash, $def) = @_;
     my $name = $hash->{NAME};
-    my $url = "http://$hash->{CMIURL}/INCLUDE/api.cgi?jsonnode=$hash->{NODEID}&jsonparam=$hash->{QUERYPARAM}";
+    
+    my $queryParam = $hash->{QUERYPARAM};
+    $queryParam = '' unless defined $queryParam;
+    my $url = "http://$hash->{CMIURL}/INCLUDE/api.cgi?jsonnode=$hash->{NODEID}&jsonparam=$queryParam";
     my $username = AttrVal($name, 'username', 'admin');
     my $password = AttrVal($name, 'password', 'admin');
 
@@ -153,62 +235,64 @@ sub TA_CMI_JSON_PerformHttpRequest {
                     header     => "User-Agent: FHEM\r\nAccept: application/json",
                     user       => $username,
                     pwd        => $password,
-                    callback   => \&TA_CMI_JSON_ParseHttpResponse
+                    callback   => \&ParseHttpResponse
                 };
 
     HttpUtils_NonblockingGet($param);
 }
 
-sub TA_CMI_JSON_ParseHttpResponse {
+sub ParseHttpResponse {
   my ($param, $err, $data) = @_;
   my $hash = $param->{hash};
   my $name = $hash->{NAME};
   my $return;
 
   if($err ne "") {
-      Log3 $name, 0, "error while requesting ".$param->{url}." - $err";
+      Log3 $name, 0, "TA_CMI_JSON ($name) - error while requesting ".$param->{url}." - $err";
       readingsBeginUpdate($hash);
-      readingsBulkUpdate($hash, 'state', 'ERROR', 0);
-      readingsBulkUpdate($hash, 'error', $err, 0);
-      readingsEndUpdate($hash, 0);      
+      readingsBulkUpdate($hash, 'state', 'ERROR', 1);
+      readingsBulkUpdate($hash, 'error', $err, 1);
+      readingsEndUpdate($hash, 1);      
   } elsif($data ne "") {
     my $keyValues = json2nameValue($data);
 
-    my $canDevice = TA_CMI_JSON_extractDeviceName($keyValues->{Header_Device});
+    my $canDevice = extractDeviceName($keyValues->{Header_Device});
     $hash->{CAN_DEVICE} = $canDevice;
     $hash->{model} = $canDevice;
-    $hash->{CMI_API_VERSION} = TA_CMI_JSON_extractVersion($keyValues->{Header_Version});
-    CommandDeleteReading(undef, "$name error");
+    $hash->{CMI_API_VERSION} = extractVersion($keyValues->{Header_Version});
+    readingsDelete($hash, "error");
+    readingsDelete($hash, "state");
 
     readingsBeginUpdate($hash);
-    readingsBulkUpdateIfChanged($hash, 'state', $keyValues->{Status});
+    readingsBulkUpdateIfChanged($hash, 'state', $keyValues->{Status}, 1);
     if ( $keyValues->{Status} eq 'OK' ) {
       my $queryParams = $hash->{QUERYPARAM};
+      $queryParams = '' unless defined $queryParams;
 
-      TA_CMI_JSON_extractReadings($hash, $keyValues, 'Inputs', 'Inputs') if ($queryParams =~ /I/);
-      TA_CMI_JSON_extractReadings($hash, $keyValues, 'Outputs', 'Outputs') if ($queryParams =~ /O/);
+      extractReadings($hash, $keyValues, 'Inputs', 'Inputs') if ($queryParams =~ /I/);
+      extractReadings($hash, $keyValues, 'Outputs', 'Outputs') if ($queryParams =~ /O/);
 
       if ($queryParams =~ /D/) {
         if ($canDevice eq 'UVR16x2' or $canDevice eq 'RSM610' ) {
-          TA_CMI_JSON_extractReadings($hash, $keyValues, 'DL-Bus', 'DL-Bus');
+          extractReadings($hash, $keyValues, 'DL-Bus', 'DL-Bus');
         } else {
-          Log3 $name, 0, "TA_CMI_JSON ($name) - Reading DL-Bus input is not supported on $canDevice";
+          Log3 $name, 1, "TA_CMI_JSON ($name) - Reading DL-Bus input is not supported on $canDevice";
         }
       }
 
       if ($queryParams =~ /La/) {
         if ($canDevice eq 'UVR16x2') {
-          TA_CMI_JSON_extractReadings($hash, $keyValues, 'LoggingAnalog', 'Logging_Analog');
+          extractReadings($hash, $keyValues, 'LoggingAnalog', 'Logging_Analog');
         } else {
-          Log3 $name, 0, "TA_CMI_JSON ($name) - Reading Logging Analog data is not supported on $canDevice";
+          Log3 $name, 1, "TA_CMI_JSON ($name) - Reading Logging Analog data is not supported on $canDevice";
         }
       }
 
       if ($queryParams =~ /Ld/) {
         if ($canDevice eq 'UVR16x2') {
-          TA_CMI_JSON_extractReadings($hash, $keyValues, 'LoggingDigital', 'Logging_Digital');
+          extractReadings($hash, $keyValues, 'LoggingDigital', 'Logging_Digital');
         } else {
-          Log3 $name, 0, "TA_CMI_JSON ($name) - Reading Logging Digital data is not supported on $canDevice";
+          Log3 $name, 1, "TA_CMI_JSON ($name) - Reading Logging Digital data is not supported on $canDevice";
         }
       }
     }
@@ -218,24 +302,26 @@ sub TA_CMI_JSON_ParseHttpResponse {
 #     Log3 $name, 3, "TA_CMI_JSON ($name) - Device: $keyValues->{Header_Device}";
   }
 
-  my $functionName = "TA_CMI_JSON_GetStatus";
-  RemoveInternalTimer($hash, $functionName);
-  InternalTimer( gettimeofday() + $hash->{INTERVAL}, $functionName, $hash, 0 );
+  if ( defined $hash->{QUERYPARAM} ) {
+    my $functionName = "TA_CMI_JSON::GetStatus";
+    RemoveInternalTimer($hash, $functionName);
+    InternalTimer( gettimeofday() + $hash->{INTERVAL}, $functionName, $hash, 0 );
+  }
 
   return undef;
 }
 
-sub TA_CMI_JSON_extractDeviceName {
+sub extractDeviceName {
     my ($input) = @_;
     return (defined($deviceNames{$input}) ? $deviceNames{$input} : 'unknown: ' . $input);
 }
 
-sub TA_CMI_JSON_extractVersion {
+sub extractVersion {
     my ($input) = @_;
     return (defined($versions{$input}) ? $versions{$input} : 'unknown: ' . $input);
 }
 
-sub TA_CMI_JSON_extractReadings {
+sub extractReadings {
   my ( $hash, $keyValues, $id, $dataKey ) = @_;
   my $name = $hash->{NAME};
 
@@ -252,17 +338,17 @@ sub TA_CMI_JSON_extractReadings {
 
     my $jsonKey = 'Data_'.$dataKey.'_'.$idx.'_Value_Value';
     my $readingValue = $keyValues->{$jsonKey};
-    Log3 $name, 5, "readingName: $readingName, key: $jsonKey, value: $readingValue";
-    readingsBulkUpdateIfChanged($hash, $readingName, $readingValue);
+    Log3 $name, 5, "TA_CMI_JSON ($name) - readingName: $readingName, key: $jsonKey, value: $readingValue";
+    readingsBulkUpdateIfChanged($hash, $readingName, $readingValue, 1);
 
     $jsonKey = 'Data_'.$dataKey.'_'.$idx.'_Value_RAS';
     my $readingRas = $keyValues->{$jsonKey};
     if (defined($readingRas)) {
-      readingsBulkUpdateIfChanged($hash, $readingName . '_RAS', $readingRas);
+      readingsBulkUpdateIfChanged($hash, $readingName . '_RAS', $readingRas, 1);
 
       if ($inclPrettyReadings) {
         my $ras = (defined($rasStates{$readingRas}) ? $rasStates{$readingRas} : undef);
-        readingsBulkUpdateIfChanged($hash, $readingName . '_RAS_Pretty', $ras) if ($ras);
+        readingsBulkUpdateIfChanged($hash, $readingName . '_RAS_Pretty', $ras, 1) if ($ras);
       }
     }
 
@@ -271,31 +357,203 @@ sub TA_CMI_JSON_extractReadings {
       $jsonKey = 'Data_'.$dataKey.'_'.$idx.'_Value_Unit';
       my $readingUnit = $keyValues->{$jsonKey};
       $unit = (defined($units{$readingUnit}) ? $units{$readingUnit} : 'unknown: ' . $readingUnit);
-      Log3 $name, 5, "readingName: $readingName . '_Unit', key: $jsonKey, value: $readingUnit, unit: $unit";
+      Log3 $name, 5, "TA_CMI_JSON ($name) - readingName: $readingName . '_Unit', key: $jsonKey, value: $readingUnit, unit: $unit";
 
-      readingsBulkUpdateIfChanged($hash, $readingName . '_Unit', $unit) if ($inclUnitReadings);
+      readingsBulkUpdateIfChanged($hash, $readingName . '_Unit', $unit, 1) if ($inclUnitReadings);
     }
 
     if ($inclPrettyReadings) {
-      readingsBulkUpdateIfChanged($hash, $readingName . '_Pretty', $readingValue . ' ' . $unit);
+      readingsBulkUpdateIfChanged($hash, $readingName . '_Pretty', $readingValue . ' ' . $unit, 1);
     }
   }
 
   return undef;
 }
 
-sub TA_CMI_JSON_Get {
+sub Get {
   my ( $hash, $name, $opt, $args ) = @_;
 
   if ("update" eq $opt) {
-    TA_CMI_JSON_PerformHttpRequest($hash);
+    PerformHttpRequest($hash);
+    return undef;
+  }
+
+  if ("readOutputStates" eq $opt) {
+    RequestOutputStates($hash); #unless $hash->{CAN_DEVICE} ne 'UVR1611';
     return undef;
   }
 
 #  Log3 $name, 3, "ZoneMinder ($name) - Get done ...";
-  return "Unknown argument $opt, choose one of update";
-
+  return "Unknown argument $opt, choose one of update readOutputStates";
 }
+
+sub RequestOutputStates {
+    my ($hash) = @_;
+    my $name = $hash->{NAME};
+    my $nodeId = $hash->{NODEID};
+    my $hexNodeId = sprintf('%1x',$nodeId);
+    $hexNodeId = "0$hexNodeId" unless length($hexNodeId) == 2;
+
+    my $url = "http://$hash->{CMIURL}/INCLUDE/agx2.cgi?nodex2=$hexNodeId";
+    my $username = AttrVal($name, 'username', 'admin');
+    my $password = AttrVal($name, 'password', 'admin');
+
+    my $param = {
+                    url        => "$url",
+                    timeout    => 5,
+                    hash       => $hash,
+                    method     => "GET",
+                    header     => "User-Agent: FHEM\r\nAccept: application/json",
+                    user       => $username,
+                    pwd        => $password,
+                    callback   => \&ParseOutputStateResponse
+                };
+
+    Log3 $name, 4, "TA_CMI_JSON ($name) - RequestOutputStates $url";
+    HttpUtils_NonblockingGet($param);
+}
+
+sub ParseOutputStateResponse {
+  my ($param, $err, $data) = @_;
+  my $hash = $param->{hash};
+  my $name = $hash->{NAME};
+  my $return;
+
+  if($err ne "") {
+      Log3 $name, 0, "TA_CMI_JSON ($name) - error while requesting output data ".$param->{url}." - $err";
+      readingsBeginUpdate($hash);
+      readingsBulkUpdate($hash, 'state', 'ERROR', 0);
+      readingsBulkUpdate($hash, 'error', $err, 0);
+      readingsEndUpdate($hash, 1);      
+  } elsif($data ne "") {
+     readingsDelete($hash, "error");
+     readingsDelete($hash, "state");
+
+     my @values = split(';', $data);
+     my $nrValues = @values -2;
+
+     my $prettyOutputStates = AttrVal( $name, "prettyOutputStates", '0' );
+     my $readingNames = AttrVal($name, "readingNamesOutputs", undef);
+     if ( ! defined $readingNames ) {
+       Log3 $name, 1, "TA_CMI_JSON ($name) - Unable to assign output states, please set attribute readingNamesOutputs";
+       return undef;
+     }
+     my @readingsArray = split(/ /, $readingNames); #1:T.Kollektor 5:T.Vorlauf
+
+     readingsBeginUpdate($hash);
+     foreach (@readingsArray) {
+       my ( $readingNameIndex, $readingName ) = split(/\:/, $_);
+       my $i = $readingNameIndex+1;
+
+       $readingName = makeReadingName($readingName);
+       my $readingValue = $values[$i];
+       readingsBulkUpdateIfChanged($hash, $readingName.'_State', $readingValue, 1);
+       if ($prettyOutputStates eq '1') {
+         
+         my $prettyValue = (defined($outputStates{$readingValue}) ? $outputStates{$readingValue} : '?:'.$readingValue);
+         readingsBulkUpdateIfChanged($hash, $readingName.'_State_Pretty', $prettyValue, 1);
+       }
+       Log3 $name, 5, "TA_CMI_JSON ($name) - readingName: $readingName, readingNameIndex: $readingNameIndex, valueIndex: $i, value: $readingValue";
+     }
+     readingsEndUpdate($hash, 1);
+
+     Log3 $name, 5, "TA_CMI_JSON ($name) - Output Data $nrValues: $data";
+  }
+
+  my $outputStatesInterval = AttrVal($name, 'outputStatesInterval', undef);
+  if ( defined $outputStatesInterval ) {
+    Log3 $name, 5, "TA_CMI_JSON ($name) - outputStatesInterval $outputStatesInterval";
+    my $functionName = "TA_CMI_JSON::RequestOutputStates";
+    RemoveInternalTimer($hash, $functionName);
+    InternalTimer( gettimeofday() + $outputStatesInterval, $functionName, $hash, 0 );
+  }
+
+  return undef;
+}
+
+my $counter = 0;
+
+sub DetailFn {
+  my $css = '<style>
+#headag{
+	float:left;
+	border-right:solid 1px black;
+	cursor:pointer;
+}
+.headag{
+	color:grey;
+	padding-bottom:4px;
+	display:inline-block;
+	min-width:11px;
+	position:relative;
+}
+.agmisch{
+	display:inline;
+	font-size:0.8em;
+	margin-right:-0.3em;
+	position:relative;
+	width:0;
+}
+.headagshow{
+	color:black;
+}
+.headag > .hand{
+	width:100%;
+	position:absolute;
+	left:0px;
+	bottom:0px;
+	height:8px;
+}
+.hand img{
+	margin-left:auto;
+	margin-right:auto;
+	display:block;
+	width:11px;
+	height:7px;
+}
+.Auto-On,.Manual-On{
+	background:#00f000;
+	border:#000 solid 1px;
+	border-radius:2px;
+}
+.Manual-Off{
+        background-color:lightgray;
+}
+</style>';
+
+
+my $html = '
+<div id="headag" fadresse="10045800">
+<span id="headag1" class="headag headagshow">1</span>
+<span id="headag2" class="headag headagshow">2</span>
+<span id="headag3" class="headag headagshow">3</span>
+<span id="headag4" class="headag">'.$counter.'</span>
+<span id="headag5" class="headag headagshow">5</span>
+<span id="headag6" class="headag headagshow">6</span>
+<span id="headag7" class="headag headagshow on">7</span>
+<span id="headag8" class="headag headagshow">8</span>
+<span id="headag9" class="headag headagshow on">9</span>
+<span id="headag10" class="headag headagshow on">10</span>
+<span id="headag11" class="headag">11</span>
+<span id="headag12" class="headag headagshow">12</span>
+<span id="headag13" class="headag headagshow">13</span>
+<span id="headag14" class="headag">14</span>
+<span id="headag15" class="headag">15</span>
+<span id="headag16" class="headag">16</span>
+</div>
+';
+
+$counter++;
+
+#InternalTimer( gettimeofday() + $hash->{INTERVAL}, $functionName, $hash, 0 );
+
+  return $css.$html;
+}
+
+#sub DirectNotify {
+#  my ($filter,$fhemweb_instance,
+#}
+
 
 # Eval-Rückgabewert für erfolgreiches
 # Laden des Moduls
@@ -323,7 +581,7 @@ sub TA_CMI_JSON_Get {
     <br>
     Example:
     <ul>
-      <code>defmod cmi TA_CMI_JSON 192.168.4.250 1 I,O,D</code><br>
+      <code>defmod cmi TA_CMI_JSON 192.168.4.250 1 &lt;I,O,D&gt;</code><br>
     </ul>
     <br>
     It's mandatory to define which values should be mapped to readings.<br/>
@@ -335,6 +593,8 @@ sub TA_CMI_JSON_Get {
   <b>Get</b>
   <ul>
     <li><code>update</code><br>Triggers querying of values from the CMI. Please note that the request rate is limited to one query per minute.
+    </li>
+    <li><code>readOutputStates</code><br>Reads Output states (eg Manual-On, Auto-Off) per defined output. Can be automated by setting <code>outputStatesInterval</code>.
     </li>
   </ul>
   
@@ -351,6 +611,8 @@ sub TA_CMI_JSON_Get {
     <li><code>includeUnitReadings [0:1]</code><br>Adds another reading per value, which just contains the according unit of that reading.</li>
     <li><code>includePrettyReadings [0:1]</code><br>Adds another reading per value, which contains value plus unit of that reading.</li>
     <li><code>interval</code><br>Query interval in seconds. Minimum query interval is 60 seconds.</li>
+    <li><code>outputStatesInterval</code><br>Request interval in seconds for getting output states.</li>
+    <li><code>prettyOutputStates [0:1]</code><br>If set, generates a reading _State_Pretty for output states (eg Auto-On, Manual-Off)</li>
     <li><code>username</code><br>Username for querying the JSON-API. Needs to be either admin or user privilege.</li>
     <li><code>password</code><br>Password for querying the JSON-API.</li>
     
@@ -379,7 +641,7 @@ Weitere Informationen zu diesem Modul im <a href="https://wiki.fhem.de/wiki/UVR1
     <br>
     Beispiel:
     <ul>
-      <code>defmod cmi TA_CMI_JSON 192.168.4.250 1 I,O,D</code><br>
+      <code>defmod cmi TA_CMI_JSON 192.168.4.250 1 &lt;I,O,D&gt;</code><br>
     </ul>
     <br>
     Daneben muss auch noch das mapping angegeben werden, welche Werte in welches Reading geschrieben werden sollen.<br/>
@@ -391,6 +653,8 @@ Weitere Informationen zu diesem Modul im <a href="https://wiki.fhem.de/wiki/UVR1
   <b>Get</b>
   <ul>
     <li><code>update</code><br>Hiermit kann sofort eine Abfrage der API ausgef&uuml;hrt werden. Das Limit von einer Anfrage pro Minute besteht trotzdem.
+    </li>
+    <li><code>readOutputStates</code><br>Liest Ausgangs-Stati, zB Auto-Ein, Hand-Aus. Kann mittels <code>outputStatesInterval</code> automatisch ausgeführt werden. Das Zeitlimit von 60 Sekunden trifft hier nicht zu.
     </li>
   </ul>
   
@@ -407,9 +671,10 @@ Weitere Informationen zu diesem Modul im <a href="https://wiki.fhem.de/wiki/UVR1
     <li><code>includeUnitReadings [0:1]</code><br>Definiert, ob zu jedem Reading ein zusätzliches Reading _Name geschrieben werden soll, welches die Einheit enth&auml;lt.</li>
     <li><code>includePrettyReadings [0:1]</code><br>Definiert, ob zu jedem Reading zusätzlich ein Reading, welches Wert und Einheit enth&auml;lt, geschrieben werden soll.</li>
     <li><code>interval</code><br>Abfrage-Intervall in Sekunden. Muss mindestens 60 sein.</li>
+    <li><code>outputStatesInterval</code><br>Abfrage-Intervall für Ausgangs-Stati in Sekunden.</li>
+    <li><code>prettyOutputStates [0:1]</code><br>Definiert, ob zu einem Ausgangs-Status ein zusätzliches Reading _State_Pretty geschrieben werden soll (liefert zB Auto-On, Manual-Off)</li>
     <li><code>username</code><br>Username zur Abfrage der JSON-API. Muss die Berechtigungsstufe admin oder user haben.</li>
     <li><code>password</code><br>Passwort zur Abfrage der JSON-API.</li>
-    
   </ul>
   <br><br>
   

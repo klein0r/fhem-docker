@@ -1,5 +1,5 @@
 #########################################################################
-# $Id: 98_HTTPMOD.pm 23483 2021-01-07 12:55:17Z StefanStrobel $
+# $Id: 98_HTTPMOD.pm 23673 2021-02-04 16:25:36Z StefanStrobel $
 # fhem Modul für Geräte mit Web-Oberfläche / Webservices
 #   
 #     This file is part of fhem.
@@ -21,7 +21,6 @@
 #   First version: 25.12.2013
 #
 #   Todo:       
-#               Attribute für Regex und LogLevel zum verstecken bestimmter Fehlermedungen von HttpUtils im ReadCallback
 #               setXYHintExpression zum dynamischen Ändern / Erweitern der Hints
 #               extractAllReadings mit Filter / Prefix
 #               get after set um readings zu aktualisieren
@@ -142,7 +141,7 @@ BEGIN {
     ));
 };
 
-my $Module_Version = '4.0.17 - 31.12.2020';
+my $Module_Version = '4.1.02 - 4.2.2021';
 
 my $AttrList = join (' ', 
       '(reading|get|set)[0-9]+(-[0-9]+)?Name', 
@@ -212,6 +211,8 @@ my $AttrList = join (' ',
       '[gs]et[0-9]*TextArg:0,1',      # just pass on a raw text value without validation / further conversion
       'set[0-9]*ParseResponse:0,1',   # parse response to set as if it was a get
       'set[0-9]*Method:GET,POST,PUT', # select HTTP method for the set
+      '[gs]et[0-9]*FollowGet',        # do a get after the set/get to update readings / create chains
+      'maxGetChain',                  # max length of chains
       
       'reAuthRegex',
       'reAuthAlways:0,1',
@@ -972,11 +973,11 @@ sub DoAuth {
     Log3 $name, 4, "$name: DoAuth called with Steps: " . join (" ", sort keys %steps);
   
     $hash->{sid} = '' if AttrVal($name, "clearSIdBeforeAuth", 0);
-    foreach my $step (sort {$b cmp $a} keys %steps) {   # reverse sort
+    foreach my $step (sort {$b cmp $a} keys %steps) {   # reverse sort because requests are prepended
         my $request = PrepareRequest($hash, "sid", $step);
         if ($request->{'url'}) {
             $request->{'ignoreRedirects'} = AttrVal($name, "sid${step}IgnoreRedirects", 0);
-            $request->{'priority'} = 1;
+            $request->{'priority'} = 1;                 # prepend at front of queue
             AddToSendQueue($hash, $request);
             # todo: http method for sid steps?
         } else {
@@ -1266,6 +1267,7 @@ sub SetFn {
     } else {
         readingsSingleUpdate($hash, makeReadingName($setName), $rawVal, 0);
     }
+    ChainGet($hash, 'set', $setNum);
     return;
 }
 
@@ -1315,7 +1317,32 @@ sub GetFn {
     } else {
         Log3 $name, 3, "$name: no URL for Get $getNum";
     }
+    ChainGet($hash, 'get', $getNum);
     return "$getName requested, watch readings";
+}
+
+
+##########################################
+# chain a get after a set or another get
+# if specified by attr
+sub ChainGet {
+    my $hash = shift;
+    my $type = shift;
+    my $num  = shift;
+    my $name = $hash->{NAME};
+    my $get  = AttrVal($name, "${type}${num}FollowGet", '');
+    if (!$get) {
+        delete $hash->{GetChainLength};
+        return;
+    }
+    $hash->{GetChainLength} = ($hash->{GetChainLength} // 0) + 1;
+    if ($hash->{GetChainLength} > AttrVal($name, "maxGetChain", 10)) {
+        Log3 $name, 4, "$name: chaining to get $get due to attr ${type}${num}FollowGet suppressed because chain would get longer than maxGetChain";
+        return;
+    }
+    Log3 $name, 4, "$name: chaining to get $get due to attr ${type}${num}FollowGet, Level $hash->{GetChainLength}";
+    GetFn($hash, $name, $get);
+    return;
 }
 
 
@@ -1331,10 +1358,9 @@ sub GetUpdate {
     
     Log3 $name, 4, "$name: GetUpdate called ($calltype)";
 
-    $hash->{'.LastUpdate'} = $now;
-    if ($calltype eq 'update') {
-        UpdateTimer($hash, \&HTTPMOD::GetUpdate, 'next');               # set update timer for next round
-    }
+    $hash->{'.LastUpdate'} = $now;                  # note the we were called - even when not as 'update' and UpdateTimer is not called afterwards
+    UpdateTimer($hash, \&HTTPMOD::GetUpdate, 'next') if ($calltype eq 'update');    # set update timer for next round
+
     if (IsDisabled($name)) {
         Log3 $name, 5, "$name: GetUpdate called but device is disabled";
         return;
@@ -1453,10 +1479,10 @@ sub FormatReading {
     $expr    = GetFAttr($name, $context, $num, "Expr", $expr) if ($context ne "set");   # not for set!
     $expr    = GetFAttr($name, $context, $num, "OExpr", $expr);                         # new syntax
     
-    # if no encode is specified and bodyDecode did decode automatically, then encode as utf8 by default
-    my $fDefault   = ($featurelevel > 5.9 ? 'auto' : '');
-    my $bodyDecode = AttrVal($name, 'bodyDecode', $fDefault);
-    $encode = 'utf8' if (!$encode && $bodyDecode eq 'auto');
+    # if no encode is specified and bodyDecode did decode, then encode as utf8 by default
+    #my $fDefault   = ($featurelevel > 5.9 ? 'auto' : '');
+    my $bodyDecode = AttrVal($name, 'bodyDecode', '');
+    $encode = 'utf8' if (!$encode && $bodyDecode ne 'none');
 
     $val = decode($decode, $val) if ($decode && $decode ne 'none');
     $val = encode($encode, $val) if ($encode && $encode ne 'none');
@@ -2005,8 +2031,8 @@ sub ExtractSid {
 }
 
 
-###################################
-# Check if Auth is necessary
+###############################################################
+# Check if Auth is necessary and queue auth steps if needed
 # called from _Read
 sub CheckAuth {
     my $hash    = shift;                        # hash reference passed to HttpUtils_NonblockingGet (our device)
@@ -2070,11 +2096,11 @@ sub CheckAuth {
     if ($doAuth) {
         Log3 $name, 4, "$name: CheckAuth decided new authentication required";
         if ($request->{retryCount} < AttrVal($name, "authRetries", 1)) {
-            DoAuth $hash;
             if (!AttrVal($name, "dontRequeueAfterAuth", 0)) {
-                AddToSendQueue ($hash, { %{$request}, 'retryCount' => $request->{retryCount}+1, 'value' => $request->{value} } ); 
-                Log3 $name, 4, "$name: CheckAuth requeued request $request->{type} after auth, retryCount $request->{retryCount} ...";
+                AddToSendQueue ($hash, { %{$request}, 'priority' => 1, 'retryCount' => $request->{retryCount}+1, 'value' => $request->{value} } ); 
+                Log3 $name, 4, "$name: CheckAuth prepended request $request->{type} again before auth, retryCount $request->{retryCount} ...";
             }
+            DoAuth $hash;
             return 1;
         } else {
             Log3 $name, 4, "$name: Authentication still required but no retries left - did last authentication fail?";
@@ -3362,16 +3388,16 @@ sub AddToSendQueue {
         <li><b>(get|set|reading)[0-9]*Encode</b></li> 
             defines an encoding to be used in a call to the perl function encode to convert the data string read from the device to a reading. 
             This can be used if the device delivers strings in an encoding like cp850 and after decoding it you want to reencode it to e.g. utf8.<br>
-            When the attribute bodyDecode is set to 'auto' or is not set (in which case the default is 'auto', then this encoding attribute defaults to utf8.
+            When the attribute bodyDecode is not set to 'none' then this encoding attribute defaults to utf8.
             If your reading values contain Umlauts and they are shown as strange looking icons then you probably need to modidify this attribute.
             Using this attribute for a set command only makes sense if you want to parse the HTTP response to the HTTP request that the set command sent by defining the attribute setXXParseResponse.<br>
         <li><b>bodyDecode</b></li> 
-            defines an encoding to be used in a call to the perl function decode to convert the raw http response body data string read from the device before further processing / matching<br>
+            defines an encoding to be used in a call to the perl function decode to convert the raw http response body data string 
+            read from the device before further processing / matching<br>
             If you have trouble matching special characters or if your reading values contain Umlauts 
-            and they are shown as strange looking icons then might need to use this feature.<br>
-            This attribute defaults to auto since Fhem featurelevel > 5.9. HTTPMOD automatically looks for a charset header and decodes the body acordingly. 
-            If no charset headr is found, the body will remain undecoded.
-            So you don't want this behavior, you can disable it by setting this attribute to 'none'.
+            and they are shown as strange looking icons then you might need to use this feature.<br>
+            If this attribute is set to 'auto' then HTTPMOD automatically looks for a charset header and decodes the body acordingly. 
+            If no charset header is found, the body will remain undecoded.
             <br>
         <li><b>regexDecode</b></li> 
             defines an encoding to be used in a call to the perl function decode to convert the raw data string from regex attributes before further processing / matching<br>
@@ -3410,6 +3436,11 @@ sub AddToSendQueue {
             also been set. Every time the update function is called, it checks if since this get has been read the last time, the defined delay has elapsed. If not, then it is skipped this time.<br>
             PollDelay can be specified as seconds or as x[0-9]+ which means a multiple of the interval in the define command.
         <br>
+        <li><b>(get|set)[0-9]*FollowGet</b></li>
+            allows to chain a get command after another set or get command. <br>
+            If for example you want to set a new required temerature with a set 'TargetTemp' command and this set command changes the temperature with a series 
+            of HTTP requests in your heating system, then you can automaticaly do a get 'TargetTemp' to read out the new value from your heating.<br>
+            The value of this attribute must match a defined get command name.
         
         <li><b>(get|set)[0-9]*TextArg</b></li>
             For a get command this defines that the command accepts a text value after the option name. 

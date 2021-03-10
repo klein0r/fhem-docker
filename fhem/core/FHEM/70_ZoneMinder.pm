@@ -25,7 +25,7 @@
 #
 # Discussed in FHEM Forum: https://forum.fhem.de/index.php/topic,91847.0.html
 #
-# $Id: 70_ZoneMinder.pm 22251 2020-06-24 13:13:36Z delmar $
+# $Id: 70_ZoneMinder.pm 23733 2021-02-13 15:42:48Z delmar $
 #
 ##############################################################################
 
@@ -219,7 +219,7 @@ sub ZoneMinder_Get_API_Login_URL {
     $result = "$zmWebUrl/index.php?username=$username&password=$password&action=login&view=console";
   } elsif ( $apiVersion eq 'post132' ) {
     my $zmApiUrl = ZoneMinder_getZmApiUrl($hash);
-    $result = "$zmApiUrl/host/login.json?user=$username&pass=$password";
+    $result = "$zmApiUrl/host/login.json?user=$username&pass=$password&stateful=1";
   }
 
   return $result;
