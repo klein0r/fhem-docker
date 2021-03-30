@@ -33,7 +33,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 73_AutoShuttersControl.pm 23635 2021-01-29 09:13:36Z CoolTux $
+# $Id: 73_AutoShuttersControl.pm 23934 2021-03-12 12:19:50Z CoolTux $
 #
 ###############################################################################
 
@@ -1265,7 +1265,7 @@ sub Initialize {
   ],
   "release_status": "testing",
   "license": "GPL_2",
-  "version": "v0.10.11",
+  "version": "v0.10.12",
   "author": [
     "Marko Oldenburg <leongaultier@gmail.com>"
   ],

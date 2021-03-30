@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 01_FHEMWEB.pm 23907 2021-03-07 19:08:09Z rudolfkoenig $
+# $Id: 01_FHEMWEB.pm 23995 2021-03-18 11:06:57Z rudolfkoenig $
 package main;
 
 use strict;
@@ -195,9 +195,10 @@ FHEMWEB_Initialize($)
     plotWeekStartDay:0,1,2,3,4,5,6
     nrAxis
     redirectCmds:0,1
+    redirectTo
     refresh
     reverseLogs:0,1
-    roomIcons
+    roomIcons:textField-long
     showUsedFiles:0,1
     sortRooms
     sslVersion
@@ -405,7 +406,7 @@ FW_Read($$)
       $len = unpack( 'n', substr($hash->{BUF},$i,2) );
       $i += 2;
     } elsif( $len == 127 ) {
-      $len = unpack( 'q', substr($hash->{BUF},$i,8) );
+      $len = unpack( 'Q>', substr($hash->{BUF},$i,8) );
       $i += 8;
     }
 
@@ -891,6 +892,12 @@ FW_answerCall($)
     return FW_serveSpecial("favicon", "ico", "$FW_icondir/default", 1);
 
   } else {
+    my $redirectTo = AttrVal($FW_wname, "redirectTo","");
+    if($redirectTo) {
+      Log3 $FW_wname, 1, "$FW_wname: redirecting $arg to $FW_ME/$redirectTo$arg";
+      return FW_answerCall("$FW_ME/$redirectTo$arg") 
+    }
+
     Log3 $FW_wname, 4, "$FW_wname: redirecting $arg to $FW_ME";
     TcpServer_WriteBlocking($me,
              "HTTP/1.1 302 Found\r\n".
@@ -2156,7 +2163,9 @@ FW_fileList($;$)
   my @ret;
   return @ret if(!opendir(DH, $dir));
   while(my $f = readdir(DH)) {
-    next if($f !~ m,^$re$, || $f eq "99_Utils.pm");
+    next if($f !~ m,^$re$, || $f eq "98_FhemTestUtils.pm" || 
+                              $f eq "99_Utils.pm");
+
     push(@ret, $f);
   }
   closedir(DH);

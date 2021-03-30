@@ -1,6 +1,6 @@
 "use strict";
 var FW_version={};
-FW_version["fhemweb.js"] = "$Id: fhemweb.js 23899 2021-03-06 13:08:15Z rudolfkoenig $";
+FW_version["fhemweb.js"] = "$Id: fhemweb.js 23979 2021-03-15 14:00:33Z rudolfkoenig $";
 
 var FW_serverGenerated;
 var FW_jsLog;
@@ -393,7 +393,6 @@ FW_getHelp(dev, fn)
     var lang = $("body").attr("data-language");
     var url = FW_root+"/docs/commandref_frame"+
                 (lang == "EN" ? "" : "_"+lang)+".html";
-log(url);
     $.ajax({
       url:url, headers: { "cache-control": "no-cache" },
       success: function(data, textStatus, req){

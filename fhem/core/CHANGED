@@ -1,5 +1,23 @@
 # Add changes at the top of the list. Keep it in ASCII, and 80-char wide.
 # Do not insert empty lines here, update check depends on it.
+ - bugfix:  47_OBIS: fixed bug with 64 bit integer numbers
+ - change:  46_TeslaPowerwall2AC: Code rewrite for new Auth API and
+                                  modul structure
+ - new:     69_SoftliqCloud: New Module
+ - change:  47_OBIS: more robustness for changing polltime / interval
+ - feature: 72_TA_CMI_JSON: added internal NODEID_HEX
+ - change:  48_BlinkCamera: Support for SMS Pins in verifyPin 
+ - feature: 72_TA_CMI_JSON: added set fixwertImpuls and setList
+ - feature: 72_TA_CMI_JSON: added set fixwertAnalog fixwertDigital
+ - change:  70_ZoneMinder: made Crypt dependency for v 1.30 optional
+ - change:  48_BlinkCamera: Change to new Blink login API / add resetUniqueID
+ - change:  47_OBIS: redesign of parser (major change)
+ - bugfix:  57_Calendar: avoid spurious re-creation of all events
+ - bugfix:  49_IPCAM: not sending events for sequential snapshots fixed
+ - new:     SYSSTAT: umstellung auf non-blocking
+                     frei konfigurierbare zusatz readings
+                     mehr siehe: https://forum.fhem.de/index.php?topic=42771
+ - new:     49_IPCAM: set-magic for POST data (eg resolving [device:reading]) 
  - new:     49_IPCAM: added POST for custom commands cmd01-cmd15 
  - new:     49_IPCAM: imageWithCallback now also interprets [device:reading]
  - bugfix:  49_IPCAM: fixed imageWithCallback using previous image 

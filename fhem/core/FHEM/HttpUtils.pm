@@ -1,5 +1,5 @@
 ##############################################
-# $Id: HttpUtils.pm 22917 2020-10-05 14:37:58Z rudolfkoenig $
+# $Id: HttpUtils.pm 23979 2021-03-15 14:00:33Z rudolfkoenig $
 package main;
 
 use strict;
@@ -251,7 +251,8 @@ HttpUtils_gethostbyname($$$$)
     my $fh;
     if(open($fh, $dh)) {
       while(my $line = <$fh>) {
-        if($line =~ m/^([^# \t]+).*\b\Q$host\E\b/) {
+        if($line =~ m/^([^#\s]+).*?\s\Q$host\E\s/ ||
+           $line =~ m/^([^#\s]+).*?\s\Q$host\E$/) {
           if($1 =~ m/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/ &&        # IP-Address
              $1<256 && $2<256 && $3<256 && $4<256) {
             $fn->($hash, undef, pack("CCCC", $1, $2, $3, $4));
@@ -301,14 +302,13 @@ HttpUtils_gethostbyname($$$$)
 
   $dh{dnsTo} = 0.25;
   $dh{lSelectTs} = $selectTimestamp;
-  $dh{selectTimestamp} = $selectTimestamp;
 
   sub
   dnsQuery($)
   {
     my ($dh) = @_;
-    $dh->{dnsTo} *= 2 if($dh->{lSelectTs} != $dh->{selectTimestamp});
-    $dh->{lSelectTs} = $dh->{selectTimestamp};
+    $dh->{dnsTo} *= 2 if($dh->{lSelectTs} != $selectTimestamp);
+    $dh->{lSelectTs} = $selectTimestamp;
     return HttpUtils_Err({ hash=>$dh, msg=>"DNS"})
         if($dh->{dnsTo} > $dh->{origHash}->{timeout}/2);
     my $ret = syswrite $dh->{conn}, $dh->{qry};

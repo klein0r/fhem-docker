@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_FBDECT.pm 23646 2021-01-30 17:56:52Z rudolfkoenig $
+# $Id: 10_FBDECT.pm 24009 2021-03-19 17:11:50Z rudolfkoenig $
 package main;
 
 # See also https://avm.de/fileadmin/user_upload/Global/Service/Schnittstellen/AHA-HTTP-Interface.pdf
@@ -401,6 +401,7 @@ my %fbhttp_readings = (
    power           => 'sprintf("power:%.2f W", $val/1000)',
    present         => '"present:".($val?"yes":"no")',
    productname     => '"FBTYPE:$val"',
+   rel_humidity    => '"rel_humidity:$val %"',
    state           => '"state:".($val?"on":"off")',
    voltage         => 'sprintf("voltage:%.3f V", $val/1000)',
 #  tist => 'sprintf("temperature:%.1f C (measured)", $val/2)', # Forum #57644
@@ -451,7 +452,7 @@ FBDECT_ParseHttp($$$)
       my ($txt,$h,$ln) = (@_);
       $txt =~ s#<([^/\s>]+?)[^/]*?>(.*?)</\g1>#
         my ($n,$c) = ($1,$2);
-        $ln = makeReadingName($1) if($n eq "name" && $c =~ m/: (.*)$/);
+        $ln = makeReadingName($1) if($n eq "name" && $c =~ m/:\s*([^\s]*)$/);
         if($n eq "lastpressedtimestamp" && $ln) {
           $h->{"${n}_$ln"} = ($c =~ m/^\d{10}$/ ? FmtDateTime($c) : "N/A");
         }

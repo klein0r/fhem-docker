@@ -1,5 +1,5 @@
 ##############################################
-# $Id: HMConfig.pm 23857 2021-02-28 17:46:36Z martinp876 $
+# $Id: HMConfig.pm 24033 2021-03-21 09:33:32Z martinp876 $
 # CUL HomeMatic device configuration data
 
 #####################################################
@@ -527,7 +527,7 @@ foreach my $al (keys %culHmModel){ # duplicate entries for alias devices
   confBtnTime     =>{a=> 21.0,s=>1.0,l=>0,min=>1      ,max=>255   ,c=>''         ,p=>'n',f=>''      ,u=>'min' ,d=>0,t=>"255=permanent"                        ,lit=>{permanent=>255}},
 #repeater                                                                        
   compMode        =>{a=> 23.0,s=>0.1,l=>0,min=>0      ,max=>1     ,c=>'lit'      ,p=>'n',f=>''      ,u=>''    ,d=>1,t=>"compatibility moden"                  ,lit=>{off=>0,on=>1}},
-  localResDis     =>{a=> 24.0,s=>1.0,l=>0,min=>1      ,max=>1     ,c=>'lit'      ,p=>'n',f=>''      ,u=>''    ,d=>0,t=>"local reset disable"                  ,lit=>{off=>0,on=>200}},
+  localResDis     =>{a=> 24.0,s=>1.0,l=>0,min=>0      ,max=>1     ,c=>'lit'      ,p=>'n',f=>''      ,u=>''    ,d=>0,t=>"local reset disable"                  ,lit=>{off=>0,on=>200}},
   globalBtnLock   =>{a=> 25.0,s=>1.0,l=>0,min=>1      ,max=>255   ,c=>'lit'      ,p=>'n',f=>''      ,u=>''    ,d=>0,t=>"global button lock"                   ,lit=>{off=>0,on=>200}},
   modusBtnLock    =>{a=> 26.0,s=>1.0,l=>0,min=>1      ,max=>255   ,c=>'lit'      ,p=>'n',f=>''      ,u=>''    ,d=>0,t=>"mode button lock"                     ,lit=>{off=>0,on=>200}},
   paramSel        =>{a=> 27.0,s=>1.0,l=>0,min=>0      ,max=>4     ,c=>'lit'      ,p=>'n',f=>''      ,u=>''    ,d=>1,t=>"data transfered to peer"              ,lit=>{off=>0,T1=>1,T2=>2,T1_T2=>3,T2_T1=>4}},
@@ -1684,6 +1684,7 @@ $culHmRegChan{"HM-OU-CFM-TW02"}         = $culHmRegChan{"HM-OU-CFM-PL02"};
 %culHmVrtGets       = (
                        param      => "-param-",
                        cmdList    => "[({short}|long)]",
+                       deviceInfo => "[({short}|long)]",
                        list       => "[({normal}|full)]"
                       );
 %culHmSubTypeGets   = (
@@ -1709,7 +1710,7 @@ $culHmRegChan{"HM-OU-CFM-TW02"}         = $culHmRegChan{"HM-OU-CFM-PL02"};
 );
 %culHmGlobalSetsVrtDev = (# virtuals and devices without subtype
                        virtual       => "[(1..50;1|{1})]"
-                      ,clear         => "[(readings|rssi|msgErrors|{msgErrors}|unknownDev)]"
+                      ,clear         => "[(readings|rssi|msgEvents|attack|{msgErrors}|unknownDev)]"
 );
 
 %culHmReglSets         = (# entities with regList
@@ -1868,7 +1869,7 @@ $culHmModelSets{"HM-HM-LC-DW-WM"}        = $culHmSubTypeSets{dimmer};   ##### re
 
 %culHmChanSets = (
                       "HM-CC-TC00"           =>{ "desired-temp" => "(on|off|6.0..30.0;0.5)"
-                                                ,statusRequest  => ""
+#                                                ,statusRequest  => ""
                                                 ,sysTime        => ""
 #                                                ,getSerial      => ""
                                                }
@@ -1969,15 +1970,15 @@ $culHmModelSets{"HM-HM-LC-DW-WM"}        = $culHmSubTypeSets{dimmer};   ##### re
                                                 ,statusRequest  =>""
                                                 ,peerIODev      =>"[IO] -btn- [({set}|unset)] 'not for future use'"
                                                }
-                     ,"HM-LC-RGBW-WM02"      =>{ brightCol      =>"'bright:'(0..100;1|{100}) 'colVal:' (0..100;1|{100}) [(-ontime-|{})] [(-ramp-|{})]"
+                     ,"HM-LC-RGBW-WM02"      =>{ brightCol      =>"'bright:' (0..100;0.5|{100}) 'colVal:' (0..100;1|{100}) [(-ontime-|{})] [(-ramp-|{})]"
                                                 ,color          =>"(0..100;1|{100})"
                                                 ,on             =>""
                                                 ,off            =>""
                                                 ,up             =>"'change:'[(0..100;1|{10})] [(-ontime-|{})] [(-ramptime-|{})]"
                                                 ,down           =>"'change:'[(0..100;1|{10})] [(-ontime-|{})] [(-ramptime-|{})]"
                                                }
-                     ,"HM-LC-RGBW-WM03"      =>{ brightAuto     =>"-bright- -colProg- [(-min-|{})] [(-max-|{})] [(-ontime-|{})] [(-ramp-|{})]"
-                                                ,colProgram     =>"[(0..255;1|{0})]"
+                     ,"HM-LC-RGBW-WM03"      =>{ colProgram     =>"(0..255;1|{0})"                                           
+                                                ,brightAuto     =>"'bright:' (0..100;0.5|{100}) 'colProg:' [(0..255;1|{0})] 'min:' [(0..255;1|{0})] 'max:' [(0..255;1|{255})] [(-ontime-|{0})] [(-ramp-|{5})]"
                                                }
                      ,"HM-SEC-SIR-WM01"      =>{ on             =>""
                                                 ,off            =>""

@@ -1,5 +1,5 @@
 ##############################################
-# $Id: DevIo.pm 23241 2020-11-27 16:25:33Z rudolfkoenig $
+# $Id: DevIo.pm 23933 2021-03-12 11:01:49Z rudolfkoenig $
 package main;
 
 use strict;
@@ -192,7 +192,7 @@ DevIo_DecodeWS($$)
     $i += 2;
   } elsif( $len == 127 ) {
     return "" if(length($data) < 10);
-    $len = unpack( 'q', substr($hash->{".WSBUF"},$i,8) );
+    $len = unpack( 'Q>', substr($hash->{".WSBUF"},$i,8) );
     $i += 8;
   }
 

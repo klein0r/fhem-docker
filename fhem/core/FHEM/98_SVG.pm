@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 98_SVG.pm 23899 2021-03-06 13:08:15Z rudolfkoenig $
+# $Id: 98_SVG.pm 24097 2021-03-27 14:56:15Z rudolfkoenig $
 package main;
 
 use strict;
@@ -169,7 +169,8 @@ sub
 SVG_Attr($$$$)
 {
   my ($parent, $dev, $attr, $default) = @_;
-  my $val = AttrVal($dev, $attr, undef);
+  my $val;
+  $val = AttrVal($dev, $attr, undef) if($dev);
   return $val if(defined($val));
   return AttrVal($parent, $attr, $default);
 }
@@ -1651,7 +1652,7 @@ SVG_render($$$$$$$$$$)
     }
     $tstep = $step;
     $first_tag="";   $tag=". 6";
-    $aligntext = 2; $aligntics = 2;
+    $aligntext = 3; $aligntics = 3;
   }
 
   my $barwidth = $tstep;
@@ -1674,12 +1675,13 @@ SVG_render($$$$$$$$$$)
     }
 
   } else { # times
-    $initoffset = int(($tstep/2)/86400)*86400 if($aligntics == 1);
-    for(my $i = $fromsec+$initoffset; $i < $tosec; $i += $tstep) {
+    for(my $i = $fromsec; $i < $tosec; $i += $tstep) {
       $i = SVG_time_align($i,$aligntics);
       $off1 = int($x+($i-$fromsec)*$tmul);
-      SVG_pO "<polyline class='SVGplot' points='$off1,$y $off1,$off2'/>";
-      SVG_pO "<polyline class='SVGplot' points='$off1,$off3 $off1,$off4'/>";
+      if($off1 > $x+8 && $off1 < $x+$w-8) {
+        SVG_pO "<polyline class='SVGplot' points='$off1,$y $off1,$off2'/>";
+        SVG_pO "<polyline class='SVGplot' points='$off1,$off3 $off1,$off4'/>";
+      }
     }
 
   }
@@ -1731,14 +1733,25 @@ SVG_render($$$$$$$$$$)
     }
 
   } else { # times
-    $initoffset = int(($step/2)/86400)*86400 if($aligntext == 1);
-    for(my $i = $fromsec+$initoffset; $i < $tosec; $i += $step) {
+    for(my $i = $fromsec; $i < $tosec; $i += $step) {
       $i = SVG_time_align($i,$aligntext);
-      $off1 = int($x+($i-$fromsec)*$tmul);
+      if($aligntext >= 2) { # center month and year
+        $off1 = int($x+($i-$fromsec+$step/2)*$tmul);
+      } else {
+        $off1 = int($x+($i-$fromsec)*$tmul);
+      }
       $t = SVG_fmtTime($tag, $i);
-      SVG_pO "<text x=\"$off1\" y=\"$off2\" class=\"ylabel\" " .
-                "text-anchor=\"middle\">$t</text>";
-      SVG_pO "  <polyline points=\"$off1,$y $off1,$off4\" class=\"hgrid\"/>";
+      if($off1 == $x) {
+        SVG_pO "<text x=\"$off1\" y=\"$off2\" class=\"ylabel\" " .
+                  "text-anchor=\"left\">$t</text>";
+      } elsif ($off1 < $x+$w-8) {
+        SVG_pO "<text x=\"$off1\" y=\"$off2\" class=\"ylabel\" " .
+                  "text-anchor=\"middle\">$t</text>";
+      }
+      $off1 = int($x+($i-$fromsec)*$tmul);
+      if($off1 > $x+8 && $off1 < $x+$w-8) {     
+        SVG_pO "  <polyline points=\"$off1,$y $off1,$off4\" class=\"hgrid\"/>";
+      }
     }
   }
 
@@ -2374,11 +2387,12 @@ sub
 SVG_time_align($$)
 {
   my ($v,$align) = @_;
+  my $wl = $FW_webArgs{detail};
   return $v if(!$align);
   if($align == 1) {             # Look for the beginning of the week
     for(;;) {
       my @a = localtime($v);
-      return $v if($a[6] == 0);
+      return $v if($a[6] == SVG_Attr($FW_wname, $wl, "plotWeekStartDay", 0));
       $v += 86400;
     }
   }
@@ -2386,6 +2400,13 @@ SVG_time_align($$)
     for(;;) {
       my @a = localtime($v);
       return $v if($a[3] == 1);
+      $v += 86400;
+    }
+  }
+  if($align == 3) {             # Look for the beginning of the year
+    for(;;) {
+      my @a = localtime($v);
+      return $v if($a[7] == 0);
       $v += 86400;
     }
   }

@@ -33,7 +33,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: Helper.pm 23635 2021-01-29 09:13:36Z CoolTux $
+# $Id: Helper.pm 23934 2021-03-12 12:19:50Z CoolTux $
 #
 ###############################################################################
 
@@ -806,132 +806,9 @@ sub ShuttersSunrise {
         elsif ( $FHEM::Automation::ShuttersControl::shutters->getUp eq
             'brightness' )
         {
-            if ( ( IsWe() || IsWe('tomorrow') )
-                && $FHEM::Automation::ShuttersControl::ascDev
-                ->getSunriseTimeWeHoliday eq 'on'
-                && $FHEM::Automation::ShuttersControl::shutters
-                ->getTimeUpWeHoliday ne '01:25' )
-            {
-                if ( !IsWe('tomorrow') ) {
-                    if (
-                        IsWe()
-                        && int( gettimeofday() / 86400 ) == int(
-                            (
-                                computeAlignTime(
-                                    '24:00',
-                                    $FHEM::Automation::ShuttersControl::shutters
-                                      ->getTimeUpWeHoliday
-                                )
-                            ) / 86400
-                        )
-                      )
-                    {
-                        $shuttersSunriseUnixtime = computeAlignTime( '24:00',
-                            $FHEM::Automation::ShuttersControl::shutters
-                              ->getTimeUpWeHoliday );
-                    }
-                    elsif (
-                        int( gettimeofday() / 86400 ) == int(
-                            (
-                                computeAlignTime(
-                                    '24:00',
-                                    $FHEM::Automation::ShuttersControl::shutters
-                                      ->getTimeUpLate
-                                )
-                            ) / 86400
-                        )
-                      )
-                    {
-                        $shuttersSunriseUnixtime = computeAlignTime( '24:00',
-                            $FHEM::Automation::ShuttersControl::shutters
-                              ->getTimeUpWeHoliday );
-                    }
-                    else {
-                        $shuttersSunriseUnixtime = computeAlignTime( '24:00',
-                            $FHEM::Automation::ShuttersControl::shutters
-                              ->getTimeUpLate );
-                    }
-                }
-                else {
-                    if (
-                        IsWe()
-                        && (
-                            int( gettimeofday() / 86400 ) == int(
-                                (
-                                    computeAlignTime(
-                                        '24:00',
-                                        $FHEM::Automation::ShuttersControl::shutters
-                                          ->getTimeUpWeHoliday
-                                    )
-                                ) / 86400
-                            )
-                            || int( gettimeofday() / 86400 ) != int(
-                                (
-                                    computeAlignTime(
-                                        '24:00',
-                                        $FHEM::Automation::ShuttersControl::shutters
-                                          ->getTimeUpWeHoliday
-                                    )
-                                ) / 86400
-                            )
-                        )
-                      )
-                    {
-                        $shuttersSunriseUnixtime = computeAlignTime( '24:00',
-                            $FHEM::Automation::ShuttersControl::shutters
-                              ->getTimeUpWeHoliday );
-                    }
-                    elsif (
-                        int( gettimeofday() / 86400 ) == int(
-                            (
-                                computeAlignTime(
-                                    '24:00',
-                                    $FHEM::Automation::ShuttersControl::shutters
-                                      ->getTimeUpLate
-                                )
-                            ) / 86400
-                        )
-                      )
-                    {
-                        $shuttersSunriseUnixtime = computeAlignTime( '24:00',
-                            $FHEM::Automation::ShuttersControl::shutters
-                              ->getTimeUpLate );
-                    }
-                    else {
-                        if (
-                            int( gettimeofday() / 86400 ) == int(
-                                (
-                                    computeAlignTime(
-                                        '24:00',
-                                        $FHEM::Automation::ShuttersControl::shutters
-                                          ->getTimeUpWeHoliday
-                                    )
-                                ) / 86400
-                            )
-                          )
-                        {
-                            $shuttersSunriseUnixtime = computeAlignTime(
-                                '24:00',
-                                $FHEM::Automation::ShuttersControl::shutters
-                                  ->getTimeUpWeHoliday
-                            );
-                        }
-                        else {
-                            $shuttersSunriseUnixtime = computeAlignTime(
-                                '24:00',
-                                $FHEM::Automation::ShuttersControl::shutters
-                                  ->getTimeUpWeHoliday
-                            );
-                        }
-                    }
-                }
-            }
-            else {
-
-                $shuttersSunriseUnixtime = computeAlignTime( '24:00',
-                    $FHEM::Automation::ShuttersControl::shutters->getTimeUpLate
-                );
-            }
+            $shuttersSunriseUnixtime = computeAlignTime( '24:00',
+                $FHEM::Automation::ShuttersControl::shutters->getTimeUpLate
+            );
         }
 
         return $shuttersSunriseUnixtime;

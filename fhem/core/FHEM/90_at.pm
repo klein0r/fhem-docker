@@ -1,10 +1,9 @@
 ##############################################
-# $Id: 90_at.pm 23656 2021-02-01 08:56:20Z rudolfkoenig $
+# $Id: 90_at.pm 23964 2021-03-14 09:26:44Z rudolfkoenig $
 package main;
 
 use strict;
 use warnings;
-use POSIX;
 use Time::HiRes qw(gettimeofday);
 
 #####################################

@@ -1,5 +1,5 @@
 "use strict";
-FW_version["f18.js"] = "$Id: f18.js 23898 2021-03-06 11:05:44Z rudolfkoenig $";
+FW_version["f18.js"] = "$Id: f18.js 24045 2021-03-21 19:03:30Z rudolfkoenig $";
 
 // TODO: hierMenu+Pin,SVGcolors,floorplan
 // Known bugs: AbsSize is wrong for ColorSlider
@@ -125,7 +125,7 @@ f18_tables()
 
   $("#content .devType").each(function(){
     var el = this, grp = $(el).text();
-    f18_addPin(el, "Room."+FW_urlParams.room+".grp."+grp, true,
+    f18_addPin(el, "Room."+f18_room+".grp."+grp, true,
     function(isFixed){
       var ntr = $(el).closest("tr").next("tr");
       isFixed ? $(ntr).show() : $(ntr).hide();

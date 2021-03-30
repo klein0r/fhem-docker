@@ -1,5 +1,5 @@
 
-# $Id: CoProcess.pm 18425 2019-01-26 16:45:12Z justme1968 $
+# $Id: CoProcess.pm 24043 2021-03-21 16:21:46Z justme1968 $
 
 use strict;
 
@@ -26,6 +26,11 @@ package CoProcess;
 use POSIX;
 use Socket;
 
+use constant  {      NotFound  => 1,
+                NotExecutable  => 2,
+              };
+
+
 sub
 Info($$@) {
   my @ret;
@@ -40,7 +45,7 @@ Info($$@) {
 
     push @ret, $line;
   }
- 
+
   unshift @ret, sprintf( "\n%-15s %-15s %-35s %-19s %-19s %8s %s", 'DEVICE', 'NAME', 'state', 'LAST START', 'LAST STOP', 'PID', 'logfile' ) if( @ret );
   push @ret, "No CoProcesses are currently used" if(!@ret);
 
@@ -146,7 +151,34 @@ start($;$) {
     stop($hash);
     return undef;
   }
+
   delete $hash->{restart};
+  my( $exec, $params) = split( ' ', $cmd, 2 );
+
+  if( $exec !~ m'/' ) {
+    $exec = qx( which $exec ); chomp( $exec );
+  }
+
+  if( !(-X $exec) ) {
+    if( $exec ) {
+      my $error = "$exec: not executable";
+      $hash->{CoProcess}{state} = "stopped; $error";
+      main::readingsSingleUpdate($hash, $hash->{CoProcess}{name}, $hash->{CoProcess}{state}, 1 ) if( $hash->{CoProcess}{name} );
+      main::Log3 $name, 2, "$name: $error";
+      return NotExecutable;
+    }
+
+    my $error = "not found";
+    $hash->{CoProcess}{state} = "stopped; $error";
+    main::readingsSingleUpdate($hash, $hash->{CoProcess}{name}, $hash->{CoProcess}{state}, 1 ) if( $hash->{CoProcess}{name} );
+    main::Log3 $name, 2, "$name: $error";
+    return NotFound;
+  } else {
+    main::Log3 $name, 5, "$name: using $exec";
+  }
+
+  $cmd = "$exec $params";
+
 
   my ($child, $parent);
   # SOCK_NONBLOCK ?

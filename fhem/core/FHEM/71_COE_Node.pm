@@ -26,7 +26,7 @@
 #
 # Discussed in FHEM Forum: https://forum.fhem.de/index.php/topic,96170.0.html
 #
-# $Id: 71_COE_Node.pm 20596 2019-11-26 08:11:08Z delmar $
+# $Id: 71_COE_Node.pm 24060 2021-03-22 21:44:19Z delmar $
 #
 ##############################################################################
 
@@ -44,7 +44,7 @@ sub COE_Node_Initialize {
   $hash->{GetFn}       = "COE_Node_Get";
   $hash->{SetFn}       = "COE_Node_Set";
 
-  $hash->{AttrList} = "readingsConfigAnalog readingsConfigDigital " . $readingFnAttributes;
+  $hash->{AttrList} = "readingsConfigAnalog:textField-long readingsConfigDigital:textField-long " . $readingFnAttributes;
   $hash->{Match} = "^.*";
 
   return undef;
