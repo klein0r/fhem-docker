@@ -51,7 +51,7 @@ services:
         ports:
             - "1883:1883"
             - "9001:9001"
-        image: eclipse-mosquitto:1.6.8
+        image: eclipse-mosquitto:2.0.15
         networks:
             - fhem-network
         volumes:
